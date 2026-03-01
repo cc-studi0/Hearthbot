@@ -146,7 +146,10 @@ namespace HearthstonePayload
                         else
                         {
                             // Use mulligan manager choices only (replaceable cards), avoid leaking non-replaceable cards (e.g. coin).
-                            var cards = ActionExecutor.GetMulliganChoiceCards() ?? string.Empty;
+                            // 必须在主线程访问 MulliganManager，否则后台线程反射访问 Unity 对象会导致闪退
+                            var cardsResult = RunOnMainThread(() =>
+                                (object)(ActionExecutor.GetMulliganChoiceCards() ?? string.Empty));
+                            var cards = cardsResult as string ?? string.Empty;
 
                             _pipe.Write($"MULLIGAN_STATE:{state.FriendClass}|{state.EnemyClass}|{cards}");
                         }
@@ -156,7 +159,10 @@ namespace HearthstonePayload
                         var payload = cmd.Length > "APPLY_MULLIGAN:".Length
                             ? cmd.Substring("APPLY_MULLIGAN:".Length)
                             : string.Empty;
-                        _pipe.Write(ActionExecutor.ApplyMulligan(payload));
+                        // 必须在主线程执行，ApplyMulligan 会反射调用 MulliganManager 的 ToggleHoldState / OnMulliganButtonReleased
+                        var applyResult = RunOnMainThread(() =>
+                            (object)ActionExecutor.ApplyMulligan(payload));
+                        _pipe.Write(applyResult as string ?? "ERROR:main_thread_timeout");
                     }
                     else if (cmd == "GET_SCENE")
                     {
