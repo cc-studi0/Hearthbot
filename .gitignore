@@ -36,3 +36,10 @@ obj/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# ========== Additional local artifacts ==========
+obj_codex/
+*.tmp
+*.temp
+Scripts/decompiled_sb/
+Scripts/effects_data.json
