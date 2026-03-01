@@ -1,0 +1,12 @@
+{
+    "_name": "Void Terror",
+    "_effect": "Battlecry: Destroy both adjacent minions and gain their Attack and Health.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

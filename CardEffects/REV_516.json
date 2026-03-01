@@ -1,0 +1,14 @@
+{
+    "_name": "Vengeful Visage",
+    "_effect": "Secret: After an enemy minion attacks your hero, summon a copy of it to attack the enemy hero.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

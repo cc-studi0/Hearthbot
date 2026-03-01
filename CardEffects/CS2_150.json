@@ -1,0 +1,13 @@
+{
+    "_name": "Stormpike Commando",
+    "_effect": "Battlecry: Deal 2 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

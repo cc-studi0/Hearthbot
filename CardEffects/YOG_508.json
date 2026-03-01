@@ -1,0 +1,14 @@
+{
+    "_name": "Twilight Torrent",
+    "_effect": "Choose a character. If it's friendly, restore #6 Health. If it's an enemy, deal $3 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

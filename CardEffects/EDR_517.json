@@ -1,0 +1,13 @@
+{
+    "_name": "Q'onzu",
+    "_effect": "Battlecry: Discover a spell. Choose to keep it or put it on top of your opponent's deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

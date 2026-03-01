@@ -1,0 +1,13 @@
+{
+    "_name": "Fairy Tale Forest",
+    "_effect": "Draw a Battlecry minion. It costs (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

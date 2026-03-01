@@ -1,0 +1,12 @@
+{
+    "_name": "Shardshatter Mystic",
+    "_effect": "Battlecry: Destroy a Soul Fragment in your deck to deal 3 damage to all other minions.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

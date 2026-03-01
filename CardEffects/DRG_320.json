@@ -1,0 +1,14 @@
+{
+    "_name": "Ysera, Unleashed",
+    "_effect": "Battlecry: Shuffle 7 Dream Portals into your deck. When drawn, summon a random Dragon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

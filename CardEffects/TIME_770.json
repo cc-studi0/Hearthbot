@@ -1,0 +1,13 @@
+{
+    "_name": "Fast Forward",
+    "_effect": "Draw 2 cards. Pick one to have its Cost reduced by (2).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

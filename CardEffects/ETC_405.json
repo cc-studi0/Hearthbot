@@ -1,0 +1,13 @@
+{
+    "_name": "Glaivetar",
+    "_effect": "Deathrattle: Draw 1 card. (Play Outcast cards while equipped to improve!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Chain Lightning (Rank 1)",
+    "_effect": "Deal $2 damage to a minion and a random adjacent one. (Upgrades when you have 5 Mana.)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

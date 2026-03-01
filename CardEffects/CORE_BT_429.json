@@ -1,0 +1,13 @@
+{
+    "_name": "Metamorphosis",
+    "_effect": "Swap your Hero Power to \"Deal 5 damage.\" After 2 uses, swap it back.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

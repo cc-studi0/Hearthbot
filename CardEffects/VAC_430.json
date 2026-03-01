@@ -1,0 +1,13 @@
+{
+    "_name": "Bloodsail Recruiter",
+    "_effect": "Battlecry: Discover a Pirate.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

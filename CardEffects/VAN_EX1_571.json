@@ -1,0 +1,12 @@
+{
+    "_name": "Force of Nature",
+    "_effect": "Summon three 2/2 Treants with Charge that die at the end of the turn.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

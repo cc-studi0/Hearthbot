@@ -1,0 +1,14 @@
+{
+    "_name": "Escape Pod",
+    "_effect": "Rush Deathrattle: Give adjacent minions +1/+1 and Rush.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Lightforged Zealot",
+    "_effect": "Battlecry: If your deck has no Neutral cards, equip a 4/2 Truesilver Champion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 4,
+                "dur": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Guess the Weight",
+    "_effect": "Draw a card. Guess if your next card costs more or less to draw it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

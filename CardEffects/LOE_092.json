@@ -1,0 +1,13 @@
+{
+    "_name": "Arch-Thief Rafaam",
+    "_effect": "Battlecry: Discover a powerful Artifact.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

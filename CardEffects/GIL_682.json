@@ -1,0 +1,14 @@
+{
+    "_name": "Muck Hunter",
+    "_effect": "Rush Battlecry: Summon two 2/1 Mucklings for your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

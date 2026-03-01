@@ -1,0 +1,14 @@
+{
+    "_name": "Power Word: Replicate",
+    "_effect": "Choose a friendly minion. Summon a 5/5 copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

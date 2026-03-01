@@ -1,0 +1,12 @@
+{
+    "_name": "Purifying Power",
+    "_effect": "Silence all friendly minions, then give them +1/+2.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

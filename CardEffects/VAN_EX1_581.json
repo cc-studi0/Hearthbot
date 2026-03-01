@@ -1,0 +1,12 @@
+{
+    "_name": "Sap",
+    "_effect": "Return an enemy minion to your opponent's hand.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Ini Stormcoil",
+    "_effect": "Battlecry: Choose a friendly Mech. Summon a copy of it with Rush, Windfury, and Divine Shield.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

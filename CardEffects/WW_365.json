@@ -1,0 +1,14 @@
+{
+    "_name": "Lay Down the Law",
+    "_effect": "Tradeable Set a minion's Attack and Health to 1. Quickdraw: Then deal $1 damage to it.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

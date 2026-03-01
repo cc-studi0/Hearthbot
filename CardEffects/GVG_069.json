@@ -1,0 +1,13 @@
+{
+    "_name": "Antique Healbot",
+    "_effect": "Battlecry: Restore #8 Health to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

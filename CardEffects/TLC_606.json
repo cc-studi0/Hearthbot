@@ -1,0 +1,13 @@
+{
+    "_name": "Latorvian Armorer",
+    "_effect": "Battlecry: Deal 2 damage to an enemy minion. If it dies, gain 5 Armor.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

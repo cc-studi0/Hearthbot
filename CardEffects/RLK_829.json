@@ -1,0 +1,13 @@
+{
+    "_name": "Grave Digging",
+    "_effect": "Draw 2 cards. Costs (1) if a friendly Undead died after your last turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

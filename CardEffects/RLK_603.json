@@ -1,0 +1,13 @@
+{
+    "_name": "Light of the Phoenix",
+    "_effect": "Draw 2 cards. Costs (1) less for each damaged friendly character.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

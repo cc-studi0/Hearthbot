@@ -1,0 +1,14 @@
+{
+    "_name": "Explodinator",
+    "_effect": "Battlecry: Summon two 0/2 Goblin Bombs.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

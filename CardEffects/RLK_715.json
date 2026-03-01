@@ -1,0 +1,13 @@
+{
+    "_name": "Runeforging",
+    "_effect": "Draw a weapon. Spend a Corpse to reduce its Cost by (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

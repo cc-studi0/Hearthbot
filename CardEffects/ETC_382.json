@@ -1,0 +1,13 @@
+{
+    "_name": "Free Spirit",
+    "_effect": "Battlecry and Deathrattle: Your Hero Power gains 1 more Armor this game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Ancestral Spirit",
+    "_effect": "Choose a minion. When that minion is destroyed, return it to the battlefield.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Trinket Tracker",
+    "_effect": "Battlecry: Draw a 1-Cost spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Timestop",
+    "_effect": "Deal $3 damage. Freeze two random enemy minions.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

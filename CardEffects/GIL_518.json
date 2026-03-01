@@ -1,0 +1,14 @@
+{
+    "_name": "Wing Blast",
+    "_effect": "Deal $4 damage to a minion. If a minion died this turn, this costs (1).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

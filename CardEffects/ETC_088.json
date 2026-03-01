@@ -1,0 +1,13 @@
+{
+    "_name": "Ghost Writer",
+    "_effect": "Battlecry: Discover a spell. Finale: Discover another.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

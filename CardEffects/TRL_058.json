@@ -1,0 +1,13 @@
+{
+    "_name": "Haunting Visions",
+    "_effect": "The next spell you cast this turn costs (3) less. Discover a spell.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

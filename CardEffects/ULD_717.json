@@ -1,0 +1,12 @@
+{
+    "_name": "Plague of Flames",
+    "_effect": "Destroy all your minions. For each one, destroy a random enemy minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

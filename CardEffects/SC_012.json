@@ -1,0 +1,14 @@
+{
+    "_name": "Roach",
+    "_effect": "When you draw this, get a copy of it. Battlecry: If you control another Zerg minion, gain +1/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

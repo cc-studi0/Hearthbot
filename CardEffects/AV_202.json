@@ -1,0 +1,14 @@
+{
+    "_name": "Rokara, the Valorous",
+    "_effect": "Battlecry: Equip a 5/2 Unstoppable Force.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 5,
+                "dur": 2
+            }
+        ]
+    }
+}

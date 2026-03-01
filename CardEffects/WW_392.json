@@ -1,0 +1,14 @@
+{
+    "_name": "Elise, Badlands Savior",
+    "_effect": "Battlecry: If your deck started with no duplicates, summon 5/5 copies of 4 random minions in your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

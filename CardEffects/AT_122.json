@@ -1,0 +1,13 @@
+{
+    "_name": "Gormok the Impaler",
+    "_effect": "Battlecry: If you have at least 4 other minions, deal 4 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

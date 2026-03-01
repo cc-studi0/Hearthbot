@@ -1,0 +1,14 @@
+{
+    "_name": "Man the Cannons",
+    "_effect": "Deal $3 damage to a minion and $1 damage to all other minions.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

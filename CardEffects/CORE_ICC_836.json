@@ -1,0 +1,14 @@
+{
+    "_name": "Breath of Sindragosa",
+    "_effect": "Deal $2 damage to a random enemy minion and Freeze it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

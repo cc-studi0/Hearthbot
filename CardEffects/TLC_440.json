@@ -1,0 +1,14 @@
+{
+    "_name": "Cryosleep",
+    "_effect": "Deal $4 damage and draw a card. Kindred: Draw another.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

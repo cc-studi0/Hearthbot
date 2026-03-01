@@ -1,0 +1,14 @@
+{
+    "_name": "Fine Print",
+    "_effect": "Deal $4 damage to all minions. (Excess damage hits your hero.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

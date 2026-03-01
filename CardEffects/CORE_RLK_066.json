@@ -1,0 +1,13 @@
+{
+    "_name": "Hematurge",
+    "_effect": "Battlecry: Spend a Corpse to Discover a Blood Rune card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "_name": "Xaril, Poisoned Mind",
+    "_effect": "Battlecry and Deathrattle: Add a random Toxin card to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

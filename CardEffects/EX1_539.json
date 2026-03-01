@@ -1,0 +1,14 @@
+{
+    "_name": "Kill Command",
+    "_effect": "Deal $3 damage. If you control a Beast, deal $5 damage instead.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

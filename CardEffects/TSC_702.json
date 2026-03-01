@@ -1,0 +1,13 @@
+{
+    "_name": "Switcheroo",
+    "_effect": "Draw 2 minions. Swap their Health.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

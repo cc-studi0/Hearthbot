@@ -1,0 +1,13 @@
+{
+    "_name": "Starscryer",
+    "_effect": "Deathrattle: Draw a spell.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

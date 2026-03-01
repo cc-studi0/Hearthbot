@@ -1,0 +1,13 @@
+{
+    "_name": "Feast of Souls",
+    "_effect": "Draw a card for each friendly minion that died this turn.@ (@)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

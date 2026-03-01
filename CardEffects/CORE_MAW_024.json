@@ -1,0 +1,13 @@
+{
+    "_name": "Dew Process",
+    "_effect": "For the rest of the game, players draw an extra card at the start of their turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Clay Matriarch",
+    "_effect": "Miniaturize Taunt. Deathrattle: Summon a 4/4 Whelp with Elusive.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Healing Touch",
+    "_effect": "Restore #8 Health.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

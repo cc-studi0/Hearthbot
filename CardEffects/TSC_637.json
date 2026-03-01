@@ -1,0 +1,14 @@
+{
+    "_name": "Scalding Geyser",
+    "_effect": "Deal $2 damage. Dredge.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

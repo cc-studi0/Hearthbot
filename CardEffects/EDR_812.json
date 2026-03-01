@@ -1,0 +1,14 @@
+{
+    "_name": "Grotesque Runeblade",
+    "_effect": "Battlecry: If the last card you played had an Unholy rune, gain +1 Attack. Repeat for Blood and +1 Durability.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

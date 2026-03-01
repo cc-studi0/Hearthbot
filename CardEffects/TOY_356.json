@@ -1,0 +1,13 @@
+{
+    "_name": "Toyrannosaurus",
+    "_effect": "Rush Deathrattle: Deal 7 damage to a random enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 7
+            }
+        ]
+    }
+}

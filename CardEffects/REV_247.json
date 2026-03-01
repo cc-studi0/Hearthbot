@@ -1,0 +1,14 @@
+{
+    "_name": "Partner in Crime",
+    "_effect": "Battlecry: Summon a copy of this minion at the end of your turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

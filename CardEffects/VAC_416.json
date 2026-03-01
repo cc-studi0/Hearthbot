@@ -1,0 +1,12 @@
+{
+    "_name": "Death Roll",
+    "_effect": "Destroy an enemy minion. Deal damage equal to its Attack randomly split among all enemies.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

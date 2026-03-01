@@ -1,0 +1,12 @@
+{
+    "_name": "Life Cycle",
+    "_effect": "Destroy a minion. Summon a random minion of the same Cost to replace it.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

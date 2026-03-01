@@ -1,0 +1,14 @@
+{
+    "_name": "Soul Barrage",
+    "_effect": "When you play or discard this, deal $6 damage randomly split among all enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6,
+                "useSP": true
+            }
+        ]
+    }
+}

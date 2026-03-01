@@ -1,0 +1,14 @@
+{
+    "_name": "Splitting Festeroot",
+    "_effect": "Deathrattle: Summon two 2/2 Splitting Saplings.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

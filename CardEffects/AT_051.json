@@ -1,0 +1,14 @@
+{
+    "_name": "Elemental Destruction",
+    "_effect": "Deal $4-$5 damage to all minions. Overload: (2)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

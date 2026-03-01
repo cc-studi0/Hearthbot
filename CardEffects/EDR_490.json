@@ -1,0 +1,12 @@
+{
+    "_name": "Sleep Paralysis",
+    "_effect": "Choose One - Summon two 3/6 Demons with Taunt that can't attack; or Destroy an enemy minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

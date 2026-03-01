@@ -1,0 +1,14 @@
+{
+    "_name": "Divine Strength",
+    "_effect": "Give a minion +1/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

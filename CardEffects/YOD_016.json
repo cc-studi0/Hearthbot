@@ -1,0 +1,13 @@
+{
+    "_name": "Skyvateer",
+    "_effect": "Stealth Deathrattle: Draw a card.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

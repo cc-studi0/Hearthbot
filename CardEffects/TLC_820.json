@@ -1,0 +1,13 @@
+{
+    "_name": "Glade Ecologist",
+    "_effect": "Deathrattle: Get a 1-Cost Holy spell that gives a minion +2 or -2 Health.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

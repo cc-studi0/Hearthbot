@@ -1,0 +1,13 @@
+{
+    "_name": "Kaja'mite Creation",
+    "_effect": "Battlecry: Discover a spell from another class that costs (3) or less.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

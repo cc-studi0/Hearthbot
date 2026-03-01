@@ -1,0 +1,14 @@
+{
+    "_name": "To My Side!",
+    "_effect": "Summon an Animal Companion, or 2 if your deck has no minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

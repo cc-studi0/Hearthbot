@@ -1,0 +1,13 @@
+{
+    "_name": "Melomania",
+    "_effect": "Each time you play a minion this turn, add a random Shaman spell to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

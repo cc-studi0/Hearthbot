@@ -1,0 +1,13 @@
+{
+    "_name": "Hand of Gul'dan",
+    "_effect": "When you play or discard this, draw 3 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

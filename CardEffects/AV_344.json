@@ -1,0 +1,14 @@
+{
+    "_name": "Dun Baldar Bridge",
+    "_effect": "After you summon a minion, give it +2/+2. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

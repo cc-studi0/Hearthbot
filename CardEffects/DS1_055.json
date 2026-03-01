@@ -1,0 +1,13 @@
+{
+    "_name": "Darkscale Healer",
+    "_effect": "Battlecry: Restore #2 Health to all friendly characters.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 2
+            }
+        ]
+    }
+}

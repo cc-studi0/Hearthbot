@@ -1,0 +1,14 @@
+{
+    "_name": "Ready the Fleet",
+    "_effect": "Give +1/+2 to a friendly minion and your other minions that share a type with it.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

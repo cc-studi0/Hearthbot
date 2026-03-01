@@ -1,0 +1,14 @@
+{
+    "_name": "Brainstormer",
+    "_effect": "Battlecry: Gain +1 Health for each spell in your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 1
+            }
+        ]
+    }
+}

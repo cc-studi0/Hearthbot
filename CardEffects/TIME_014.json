@@ -1,0 +1,14 @@
+{
+    "_name": "Instant Multiverse",
+    "_effect": "Rewind Summon 12 Mana worth of random minions. Overload: (3)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

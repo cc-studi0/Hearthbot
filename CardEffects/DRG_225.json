@@ -1,0 +1,14 @@
+{
+    "_name": "Sky Claw",
+    "_effect": "Your other Mechs have +1 Attack. Battlecry: Summon two 1/1 Microcopters.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

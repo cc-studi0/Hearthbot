@@ -1,0 +1,13 @@
+{
+    "_name": "Glaiveshark",
+    "_effect": "Battlecry: If your hero attacked this turn, deal 2 damage to all enemies.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

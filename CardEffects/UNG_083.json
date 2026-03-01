@@ -1,0 +1,14 @@
+{
+    "_name": "Devilsaur Egg",
+    "_effect": "Deathrattle: Summon a 5/5 Devilsaur.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

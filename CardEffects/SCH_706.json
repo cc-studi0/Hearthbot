@@ -1,0 +1,13 @@
+{
+    "_name": "Plagiarize",
+    "_effect": "Secret: At the end of your opponent's turn, add copies of the cards they played to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

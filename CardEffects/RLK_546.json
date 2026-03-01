@@ -1,0 +1,13 @@
+{
+    "_name": "Vast Wisdom",
+    "_effect": "Discover two spells that cost (3) or less. Swap their Costs.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

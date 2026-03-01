@@ -1,0 +1,14 @@
+{
+    "_name": "Feugen",
+    "_effect": "Deathrattle: If Stalagg also died this game, summon Thaddius.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

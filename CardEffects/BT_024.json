@@ -1,0 +1,14 @@
+{
+    "_name": "Libram of Hope",
+    "_effect": "Restore 8 Health. Summon an 8/8 Guardian with Taunt and Divine Shield.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 8,
+                "hp": 8
+            }
+        ]
+    }
+}

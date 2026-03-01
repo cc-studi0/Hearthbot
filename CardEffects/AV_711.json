@@ -1,0 +1,14 @@
+{
+    "_name": "Double Agent",
+    "_effect": "Battlecry: If you're holding a card from another class, summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

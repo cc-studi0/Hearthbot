@@ -1,0 +1,13 @@
+{
+    "_name": "Cursed Souvenir",
+    "_effect": "Give a minion +3/+3 and \"At the start of your turn, deal 3 damage to your hero.\"",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

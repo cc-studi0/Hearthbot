@@ -1,0 +1,13 @@
+{
+    "_name": "Malfurion's Gift",
+    "_effect": "Discover a Temporary Feral Rage, Wild Growth, or Swipe.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

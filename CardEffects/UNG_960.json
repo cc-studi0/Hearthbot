@@ -1,0 +1,14 @@
+{
+    "_name": "Lost in the Jungle",
+    "_effect": "Summon two 1/1 Silver Hand Recruits.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Dragonblight Cultist",
+    "_effect": "Battlecry: Invoke Galakrond. Gain +1 Attack for each other friendly minion.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

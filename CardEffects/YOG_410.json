@@ -1,0 +1,13 @@
+{
+    "_name": "Assembly Line",
+    "_effect": "Discover a Mech from another class.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

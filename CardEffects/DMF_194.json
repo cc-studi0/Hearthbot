@@ -1,0 +1,13 @@
+{
+    "_name": "Redscale Dragontamer",
+    "_effect": "Deathrattle: Draw a Dragon.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

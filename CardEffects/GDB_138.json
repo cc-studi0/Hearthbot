@@ -1,0 +1,14 @@
+{
+    "_name": "Libram of Divinity",
+    "_effect": "Give a minion +3/+3. If this costs (0), return this to your hand at the end of your turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

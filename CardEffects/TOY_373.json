@@ -1,0 +1,14 @@
+{
+    "_name": "Puzzlemaster Khadgar",
+    "_effect": "Battlecry: Equip a 0/6 Wisdomball that casts helpful Mage spells!",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 0,
+                "dur": 6
+            }
+        ]
+    }
+}

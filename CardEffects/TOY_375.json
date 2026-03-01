@@ -1,0 +1,12 @@
+{
+    "_name": "Sleet Skater",
+    "_effect": "Miniaturize Battlecry: Freeze an enemy minion. Gain Armor equal to its Attack.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

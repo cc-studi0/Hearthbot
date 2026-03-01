@@ -1,0 +1,19 @@
+{
+    "_name": "阿塔尼斯 (圣骑士英雄·星际争霸) 8费 5护甲",
+    "_effect": "战吼：召唤两个3/4并具有冲锋的狂热者",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 4
+            },
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 4
+            }
+        ]
+    }
+}

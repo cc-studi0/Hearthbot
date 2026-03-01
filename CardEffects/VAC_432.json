@@ -1,0 +1,13 @@
+{
+    "_name": "Resort Valet",
+    "_effect": "Battlecry: Discover a card from the newest expansion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

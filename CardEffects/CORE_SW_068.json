@@ -1,0 +1,13 @@
+{
+    "_name": "Mo'arg Forgefiend",
+    "_effect": "Taunt Deathrattle: Gain 8 Armor.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 8
+            }
+        ]
+    }
+}

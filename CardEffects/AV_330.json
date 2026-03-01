@@ -1,0 +1,13 @@
+{
+    "_name": "Gift of the Naaru",
+    "_effect": "Restore #3 Health to all characters. If any are still damaged, draw a card.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 3
+            }
+        ]
+    }
+}

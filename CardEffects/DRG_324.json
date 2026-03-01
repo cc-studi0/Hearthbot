@@ -1,0 +1,13 @@
+{
+    "_name": "Elemental Allies",
+    "_effect": "Sidequest: Play an Elemental 2 turns in a row. Reward: Draw 3 spells from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

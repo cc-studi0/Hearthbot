@@ -1,0 +1,13 @@
+{
+    "_name": "Windpeak Wyrm",
+    "_effect": "Battlecry: Deal 5 damage and gain 5 Armor. Kindred: Costs (3) less.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

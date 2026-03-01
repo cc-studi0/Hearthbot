@@ -1,0 +1,12 @@
+{
+    "_name": "Tide Pools",
+    "_effect": "Discover a spell that costs (3) or less. After you cast a spell, reopen this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

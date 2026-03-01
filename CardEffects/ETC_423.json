@@ -1,0 +1,14 @@
+{
+    "_name": "Arcanite Ripper",
+    "_effect": "Deathrattle: Summon a 1/1 Lifesteal Undead. (Change your Health on your turn while equipped to improve!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

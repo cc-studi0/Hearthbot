@@ -1,0 +1,14 @@
+{
+    "_name": "Frostmourne",
+    "_effect": "Deathrattle: Summon every minion killed by this weapon.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Spread the Word",
+    "_effect": "Draw 2 cards. Costs (1) less for each Attack your hero has.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

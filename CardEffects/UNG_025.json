@@ -1,0 +1,14 @@
+{
+    "_name": "Volcano",
+    "_effect": "Deal $15 damage randomly split among all minions. Overload: (1)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 15,
+                "useSP": true
+            }
+        ]
+    }
+}

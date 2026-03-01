@@ -1,0 +1,13 @@
+{
+    "_name": "Hidden Objects",
+    "_effect": "Discover a Secret. Set its Cost to (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

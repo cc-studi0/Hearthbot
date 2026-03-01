@@ -1,0 +1,13 @@
+{
+    "_name": "Sprint",
+    "_effect": "Draw 4 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 4
+            }
+        ]
+    }
+}

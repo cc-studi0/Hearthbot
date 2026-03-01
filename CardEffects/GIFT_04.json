@@ -1,0 +1,13 @@
+{
+    "_name": "Arthas's Gift",
+    "_effect": "Discover a Temporary Dark Transformation, Howling Blast, or Death Strike.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Click-Clocker",
+    "_effect": "Divine Shield. Battlecry: Give a random Mech in your hand +1/+1.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

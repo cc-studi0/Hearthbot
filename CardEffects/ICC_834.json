@@ -1,0 +1,14 @@
+{
+    "_name": "天灾领主加尔鲁什 (战士英雄) 8费 5护甲",
+    "_effect": "战吼：装备一把4/3的影之哀伤（相邻溅射）",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 4,
+                "dur": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Stage Dive",
+    "_effect": "Draw a Rush minion. Corrupt: Give it +2/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

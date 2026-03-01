@@ -1,0 +1,14 @@
+{
+    "_name": "Baking Soda Volcano",
+    "_effect": "Lifesteal. Deal $10 damage randomly split among all minions. Overload: (1)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 10,
+                "useSP": true
+            }
+        ]
+    }
+}

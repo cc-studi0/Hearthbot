@@ -1,0 +1,13 @@
+{
+    "_name": "Horn of Plenty",
+    "_effect": "Discover a Nature spell. It costs (2) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

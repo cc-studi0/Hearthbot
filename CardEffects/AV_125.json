@@ -1,0 +1,14 @@
+{
+    "_name": "Tower Sergeant",
+    "_effect": "Battlecry: If you control at least 2 other minions, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

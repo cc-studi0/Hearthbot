@@ -1,0 +1,12 @@
+{
+    "_name": "Assassinate",
+    "_effect": "Destroy an enemy minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Prismatic Lens",
+    "_effect": "Draw a minion and a spell from your deck. Swap their Costs.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

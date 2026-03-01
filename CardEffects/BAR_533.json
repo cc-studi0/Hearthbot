@@ -1,0 +1,14 @@
+{
+    "_name": "Thorngrowth Sentries",
+    "_effect": "Summon two 1/2 Turtles with Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

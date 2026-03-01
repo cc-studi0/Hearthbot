@@ -1,0 +1,13 @@
+{
+    "_name": "Selective Breeder",
+    "_effect": "Battlecry: Discover a copy of a Beast in your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

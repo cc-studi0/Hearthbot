@@ -1,0 +1,12 @@
+{
+    "_name": "Earth Shock",
+    "_effect": "Silence a minion, then deal $1 damage to it.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

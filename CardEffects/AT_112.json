@@ -1,0 +1,12 @@
+{
+    "_name": "Master Jouster",
+    "_effect": "Battlecry: Reveal a minion in each deck. If yours costs more, gain Taunt and Divine Shield.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

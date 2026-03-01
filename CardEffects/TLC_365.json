@@ -1,0 +1,14 @@
+{
+    "_name": "Storage Scuffle",
+    "_effect": "Deal $3 damage to a minion. Costs (0) if you've Discovered this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

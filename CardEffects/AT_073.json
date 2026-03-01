@@ -1,0 +1,14 @@
+{
+    "_name": "Competitive Spirit",
+    "_effect": "Secret: When your turn starts, give your minions +1/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

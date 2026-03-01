@@ -1,0 +1,14 @@
+{
+    "_name": "Dragon's Breath",
+    "_effect": "Deal $4 damage. Costs (1) less for each minion that died this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

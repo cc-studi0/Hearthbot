@@ -1,0 +1,13 @@
+{
+    "_name": "Seal of Light",
+    "_effect": "Restore #4 Health to your hero and gain +2 Attack this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 4
+            }
+        ]
+    }
+}

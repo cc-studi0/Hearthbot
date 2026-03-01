@@ -1,0 +1,14 @@
+{
+    "_name": "Furious Felfin",
+    "_effect": "Battlecry: If your hero attacked this turn, gain +1 Attack and Rush.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

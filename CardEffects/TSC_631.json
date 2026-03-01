@@ -1,0 +1,13 @@
+{
+    "_name": "Schooling",
+    "_effect": "Add three 1/1 Piranha Swarmers to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

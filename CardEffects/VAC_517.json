@@ -1,0 +1,12 @@
+{
+    "_name": "Hiking Trail",
+    "_effect": "Discover a Taunt minion. After you gain Armor, reopen this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

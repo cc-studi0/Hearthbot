@@ -1,0 +1,13 @@
+{
+    "_name": "Infest",
+    "_effect": "Give your minions \"Deathrattle: Add a random Beast to your hand.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Apexis Blast",
+    "_effect": "Deal $5 damage. If your deck has no minions, summon a random 5-Cost minion.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Scourge Illusionist",
+    "_effect": "Deathrattle: Add a 4/4 copy of another Deathrattle minion in your deck to your hand. It costs (4) less.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

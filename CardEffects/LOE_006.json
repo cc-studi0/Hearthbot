@@ -1,0 +1,13 @@
+{
+    "_name": "Museum Curator",
+    "_effect": "Battlecry: Discover a Deathrattle card. It costs (1) less.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

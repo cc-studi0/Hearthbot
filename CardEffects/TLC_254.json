@@ -1,0 +1,14 @@
+{
+    "_name": "Tortollan Storyteller",
+    "_effect": "At the end of your turn, give +1/+1 to each friendly minion of a different type.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

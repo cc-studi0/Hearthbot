@@ -1,0 +1,14 @@
+{
+    "_name": "Recurring Villain",
+    "_effect": "Deathrattle: If this minion has 4 or more Attack, resummon it.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

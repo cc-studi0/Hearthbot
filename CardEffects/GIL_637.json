@@ -1,0 +1,13 @@
+{
+    "_name": "Ferocious Howl",
+    "_effect": "Draw a card. Gain 1 Armor for each card in your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

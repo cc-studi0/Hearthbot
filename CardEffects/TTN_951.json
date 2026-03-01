@@ -1,0 +1,13 @@
+{
+    "_name": "Embrace of Nature",
+    "_effect": "Draw a Choose One card. Forge: It has both effects combined.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Echo of Medivh",
+    "_effect": "Put a copy of each friendly minion into your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

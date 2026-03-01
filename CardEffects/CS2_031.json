@@ -1,0 +1,12 @@
+{
+    "_name": "Ice Lance",
+    "_effect": "Freeze a character. If it was already Frozen, deal $4 damage instead.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Fungalmancer",
+    "_effect": "Battlecry: Give adjacent minions +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

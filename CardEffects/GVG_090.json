@@ -1,0 +1,13 @@
+{
+    "_name": "Madder Bomber",
+    "_effect": "Battlecry: Deal 6 damage randomly split between all other characters.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Captain's Parrot",
+    "_effect": "Battlecry: Draw a Pirate from your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

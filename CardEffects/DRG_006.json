@@ -1,0 +1,14 @@
+{
+    "_name": "Corrosive Breath",
+    "_effect": "Deal $3 damage to a minion. If you're holding a Dragon, it also hits the enemy hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

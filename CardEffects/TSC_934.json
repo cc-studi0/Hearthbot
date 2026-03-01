@@ -1,0 +1,14 @@
+{
+    "_name": "Pirate Admiral Hooktusk",
+    "_effect": "Battlecry: If you've summoned 7 other Pirates this game, plunder the enemy!0 ({0} left!)0 (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

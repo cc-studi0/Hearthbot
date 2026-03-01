@@ -1,0 +1,14 @@
+{
+    "_name": "Mirror Entity",
+    "_effect": "Secret: After your opponent plays a minion, summon a copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

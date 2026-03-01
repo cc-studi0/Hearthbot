@@ -1,0 +1,13 @@
+{
+    "_name": "Battle Rage",
+    "_effect": "Draw a card for each damaged friendly character.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

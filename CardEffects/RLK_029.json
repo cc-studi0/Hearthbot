@@ -1,0 +1,13 @@
+{
+    "_name": "Shatterskin Gargoyle",
+    "_effect": "Taunt Deathrattle: Deal 4 damage to a random enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 4
+            }
+        ]
+    }
+}

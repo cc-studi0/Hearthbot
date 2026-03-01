@@ -1,0 +1,14 @@
+{
+    "_name": "Tar Slick",
+    "_effect": "Minions take double damage this turn. Deal $1 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

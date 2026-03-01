@@ -1,0 +1,13 @@
+{
+    "_name": "Kiri, Chosen of Elune",
+    "_effect": "Battlecry: Add a Solar Eclipse and Lunar Eclipse to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

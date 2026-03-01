@@ -1,0 +1,13 @@
+{
+    "_name": "Intertwined Fate",
+    "_effect": "Discover a copy of a card from your deck and one from your opponent's.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

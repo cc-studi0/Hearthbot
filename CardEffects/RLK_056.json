@@ -1,0 +1,14 @@
+{
+    "_name": "Unholy Frenzy",
+    "_effect": "Choose an enemy minion. Your minions attack it. Resummon any that die.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

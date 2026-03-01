@@ -1,0 +1,14 @@
+{
+    "_name": "Dark Possession",
+    "_effect": "Deal $2 damage to a friendly character. Discover a Demon.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

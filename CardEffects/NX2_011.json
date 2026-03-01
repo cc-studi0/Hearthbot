@@ -1,0 +1,13 @@
+{
+    "_name": "Life from Death",
+    "_effect": "Draw 3 cards. Infuse (6): This costs (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

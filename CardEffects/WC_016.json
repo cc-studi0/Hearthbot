@@ -1,0 +1,13 @@
+{
+    "_name": "Shroud of Concealment",
+    "_effect": "Draw 2 minions. Any played this turn gain Stealth for 1 turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

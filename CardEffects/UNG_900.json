@@ -1,0 +1,14 @@
+{
+    "_name": "Spiritsinger Umbra",
+    "_effect": "After you summon a minion, trigger its Deathrattle effect.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

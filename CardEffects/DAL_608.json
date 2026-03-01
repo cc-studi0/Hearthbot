@@ -1,0 +1,13 @@
+{
+    "_name": "Magic Trick",
+    "_effect": "Discover a spell that costs (3) or less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

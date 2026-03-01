@@ -1,0 +1,13 @@
+{
+    "_name": "Mark of Y'Shaarj",
+    "_effect": "Give a minion +2/+2. If it's a Beast, draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Scion of Ruin",
+    "_effect": "Rush. Battlecry: If you've Invoked twice, summon 2 copies of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

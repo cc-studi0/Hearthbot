@@ -1,0 +1,14 @@
+{
+    "_name": "Faithful Companions",
+    "_effect": "Discover a Beast from your deck and summon it. Manathirst (10): Also summon a copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

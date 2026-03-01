@@ -1,0 +1,14 @@
+{
+    "_name": "Blackscale Brute",
+    "_effect": "Taunt. Battlecry: If you have a weapon equipped, summon a 5/6 Naga with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 6
+            }
+        ]
+    }
+}

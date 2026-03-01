@@ -1,0 +1,14 @@
+{
+    "_name": "Huntsman Altimor",
+    "_effect": "Battlecry: Summon a Gargon Companion. Infuse ({0}): Summon another. Infuse ({1}): And another!",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

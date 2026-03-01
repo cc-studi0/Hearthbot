@@ -1,0 +1,13 @@
+{
+    "_name": "Lucky Comet",
+    "_effect": "Discover a Combo minion. The next one you play triggers its Combo twice.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

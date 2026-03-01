@@ -1,0 +1,14 @@
+{
+    "_name": "Mecharoo",
+    "_effect": "Deathrattle: Summon a 1/1 Jo-E Bot.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

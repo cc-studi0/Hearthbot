@@ -1,0 +1,13 @@
+{
+    "_name": "Seance",
+    "_effect": "Choose a minion. Add a copy of it to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

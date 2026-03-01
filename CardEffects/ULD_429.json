@@ -1,0 +1,13 @@
+{
+    "_name": "Hunter's Pack",
+    "_effect": "Add a random Hunter Beast, Secret, and weapon to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

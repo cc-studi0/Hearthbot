@@ -1,0 +1,12 @@
+{
+    "_name": "Bitter End",
+    "_effect": "Freeze a minion and its neighbors. Destroy any that are damaged.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

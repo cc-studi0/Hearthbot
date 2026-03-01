@@ -1,0 +1,14 @@
+{
+    "_name": "Guardian Animals",
+    "_effect": "Summon two Beasts that cost (5) or less from your deck. Give them Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

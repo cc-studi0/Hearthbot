@@ -1,0 +1,13 @@
+{
+    "_name": "Voodoo Doctor",
+    "_effect": "Battlecry: Restore #2 Health.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 2
+            }
+        ]
+    }
+}

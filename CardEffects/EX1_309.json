@@ -1,0 +1,12 @@
+{
+    "_name": "Siphon Soul",
+    "_effect": "Destroy a minion. Restore #3 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Nethersoul Buster",
+    "_effect": "Battlecry: Gain +1 Attack for each damage your hero has taken this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

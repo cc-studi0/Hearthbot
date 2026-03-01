@@ -1,0 +1,14 @@
+{
+    "_name": "Piercing Shot",
+    "_effect": "Deal $6 damage to a minion. Excess damage hits the enemy hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Forged in Flame",
+    "_effect": "Destroy your weapon, then draw cards equal to its Attack.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

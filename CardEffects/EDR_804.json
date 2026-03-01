@@ -1,0 +1,13 @@
+{
+    "_name": "Divination",
+    "_effect": "Destroy a friendly Wisp to draw 3 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

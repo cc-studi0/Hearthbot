@@ -1,0 +1,13 @@
+{
+    "_name": "Amplified Elekk",
+    "_effect": "Taunt Deathrattle: Deal 3 damage to all enemy minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3
+            }
+        ]
+    }
+}

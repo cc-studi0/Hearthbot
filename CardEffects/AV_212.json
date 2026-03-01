@@ -1,0 +1,14 @@
+{
+    "_name": "Siphon Mana",
+    "_effect": "Deal $2 damage. Honorable Kill: Reduce the Cost of spells in your hand by (1).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

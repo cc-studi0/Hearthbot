@@ -1,0 +1,13 @@
+{
+    "_name": "Sizzling Cinder",
+    "_effect": "Deathrattle: Deal 2 damage randomly split among all enemies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

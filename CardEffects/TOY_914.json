@@ -1,0 +1,14 @@
+{
+    "_name": "Wretched Queen",
+    "_effect": "Taunt Deathrattle: Summon two 4/6 Knights with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 6
+            }
+        ]
+    }
+}

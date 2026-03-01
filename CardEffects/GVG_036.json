@@ -1,0 +1,14 @@
+{
+    "_name": "Powermace",
+    "_effect": "Deathrattle: Give a random friendly Mech +2/+2.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

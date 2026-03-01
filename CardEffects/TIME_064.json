@@ -1,0 +1,13 @@
+{
+    "_name": "Chrono-Lord Deios",
+    "_effect": "Your Battlecries, Deathrattles, Hero Power, and end of turn effects trigger twice.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

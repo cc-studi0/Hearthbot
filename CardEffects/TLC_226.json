@@ -1,0 +1,14 @@
+{
+    "_name": "Conjured Bookkeeper",
+    "_effect": "Deathrattle: Draw a spell. Kindred: Summon a copy of this.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Divine Toll",
+    "_effect": "Shoot 5 rays at random minions. They give friendly minions +2/+2, and deal $2 damage to enemy minions.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

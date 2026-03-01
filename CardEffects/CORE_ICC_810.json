@@ -1,0 +1,14 @@
+{
+    "_name": "Deathaxe Punisher",
+    "_effect": "Battlecry: Give a random Lifesteal minion in your hand +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

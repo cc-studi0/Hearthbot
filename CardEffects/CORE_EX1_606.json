@@ -1,0 +1,13 @@
+{
+    "_name": "Shield Block",
+    "_effect": "Gain 5 Armor. Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

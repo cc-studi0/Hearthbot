@@ -1,0 +1,14 @@
+{
+    "_name": "Muensterosity",
+    "_effect": "Taunt. At the end of your turn, summon an Elemental with stats equal to this minion's.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

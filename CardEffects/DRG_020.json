@@ -1,0 +1,13 @@
+{
+    "_name": "EVIL Quartermaster",
+    "_effect": "Battlecry: Add a Lackey to your hand. Gain 3 Armor.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 3
+            }
+        ]
+    }
+}

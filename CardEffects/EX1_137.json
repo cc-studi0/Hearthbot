@@ -1,0 +1,14 @@
+{
+    "_name": "Headcrack",
+    "_effect": "Deal $2 damage to the enemy hero. Combo: Return this to your hand next turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

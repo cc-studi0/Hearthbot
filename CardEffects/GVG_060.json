@@ -1,0 +1,14 @@
+{
+    "_name": "Quartermaster",
+    "_effect": "Battlecry: Give your Silver Hand Recruits +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

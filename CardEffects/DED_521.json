@@ -1,0 +1,13 @@
+{
+    "_name": "Maddest Bomber",
+    "_effect": "Battlecry: Deal 12 damage randomly split among all other characters.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 12
+            }
+        ]
+    }
+}

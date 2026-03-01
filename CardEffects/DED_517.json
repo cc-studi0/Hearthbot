@@ -1,0 +1,14 @@
+{
+    "_name": "Arcane Overflow",
+    "_effect": "Deal $8 damage to an enemy minion. Summon a Remnant with stats equal to the excess damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 8,
+                "useSP": true
+            }
+        ]
+    }
+}

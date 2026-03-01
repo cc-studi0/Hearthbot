@@ -1,0 +1,13 @@
+{
+    "_name": "Conflux Crasher",
+    "_effect": "Rewind Battlecry: Deal 7 damage to a random enemy.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 7
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Seabreeze Chalice",
+    "_effect": "Deal $2 damage randomly split among all enemy minions. (3 Drinks left!)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

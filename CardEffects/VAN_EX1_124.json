@@ -1,0 +1,13 @@
+{
+    "_name": "Eviscerate",
+    "_effect": "Deal $2 damage. Combo: Deal $4 damage instead.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

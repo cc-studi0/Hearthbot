@@ -1,0 +1,13 @@
+{
+    "_name": "Stoneborn Accuser",
+    "_effect": "Infuse (5): Gain \"Battlecry: Deal 5 damage.\"",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Frozen Buckler",
+    "_effect": "Gain 10 Armor. At the start of your next turn, lose 5 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 10
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Storm Chaser",
+    "_effect": "Battlecry: Draw a spell from your deck that costs (5) or more.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Traveling Merchant",
+    "_effect": "Tradeable Battlecry: Gain +1/+1 for each other friendly minion you control.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

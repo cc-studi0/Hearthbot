@@ -1,0 +1,13 @@
+{
+    "_name": "Tuskarr Jouster",
+    "_effect": "Battlecry: Reveal a minion in each deck. If yours costs more, restore #7 Health to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 7
+            }
+        ]
+    }
+}

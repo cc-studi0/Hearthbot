@@ -1,0 +1,13 @@
+{
+    "_name": "Grimtotem Buzzkill",
+    "_effect": "Battlecry: Discard a weapon to draw 3 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

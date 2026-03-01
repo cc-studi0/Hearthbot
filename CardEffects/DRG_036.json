@@ -1,0 +1,14 @@
+{
+    "_name": "Waxadred",
+    "_effect": "Deathrattle: Shuffle a Candle into your deck that resummons Waxadred when drawn.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

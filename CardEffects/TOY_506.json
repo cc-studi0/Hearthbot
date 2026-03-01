@@ -1,0 +1,14 @@
+{
+    "_name": "Once Upon a Time...",
+    "_effect": "Summon a random 3-Cost Beast, Dragon, Elemental, and Murloc.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

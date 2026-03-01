@@ -1,0 +1,13 @@
+{
+    "_name": "Gorloc Ravager",
+    "_effect": "Battlecry: Draw 3 Murlocs.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

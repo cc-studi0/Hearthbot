@@ -1,0 +1,13 @@
+{
+    "_name": "Ancient Shade",
+    "_effect": "Battlecry: Shuffle an 'Ancient Curse' into your deck that deals 7 damage to you when drawn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

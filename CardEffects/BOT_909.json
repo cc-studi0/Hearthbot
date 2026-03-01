@@ -1,0 +1,13 @@
+{
+    "_name": "Crystology",
+    "_effect": "Draw two 1-Attack minions from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

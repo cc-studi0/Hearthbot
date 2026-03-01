@@ -1,0 +1,14 @@
+{
+    "_name": "Shark Puncher",
+    "_effect": "Deathrattle: Give a random friendly Pirate +2/+2.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

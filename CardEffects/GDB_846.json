@@ -1,0 +1,13 @@
+{
+    "_name": "Exarch Naielle",
+    "_effect": "Battlecry: Replace your Hero Power with Tracking (Discover a card from your deck).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

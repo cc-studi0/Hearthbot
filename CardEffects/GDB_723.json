@@ -1,0 +1,13 @@
+{
+    "_name": "Hologram Operator",
+    "_effect": "Battlecry: Get 3 random Temporary Draenei.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

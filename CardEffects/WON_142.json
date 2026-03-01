@@ -1,0 +1,14 @@
+{
+    "_name": "Menagerie Jug",
+    "_effect": "Battlecry: Give 3 random friendly minions of different minion types +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

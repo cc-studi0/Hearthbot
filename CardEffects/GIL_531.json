@@ -1,0 +1,13 @@
+{
+    "_name": "Witch's Apprentice",
+    "_effect": "Taunt Battlecry: Add a random Shaman spell to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

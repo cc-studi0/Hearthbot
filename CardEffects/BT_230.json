@@ -1,0 +1,13 @@
+{
+    "_name": "The Lurker Below",
+    "_effect": "Battlecry: Deal 3 damage to an enemy minion. If it dies, repeat on one of its neighbors.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

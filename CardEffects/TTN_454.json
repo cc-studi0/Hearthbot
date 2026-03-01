@@ -1,0 +1,14 @@
+{
+    "_name": "Down with the Ship",
+    "_effect": "Deal $3 damage. Shuffle two random Plagues into your opponent's deck.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

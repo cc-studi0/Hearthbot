@@ -1,0 +1,12 @@
+{
+    "_name": "Shroomscavate",
+    "_effect": "Give a minion Divine Shield. Excavate a treasure.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

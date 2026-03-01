@@ -1,0 +1,14 @@
+{
+    "_name": "Forked Lightning",
+    "_effect": "Deal $2 damage to 2 random enemy minions. Overload: (2)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

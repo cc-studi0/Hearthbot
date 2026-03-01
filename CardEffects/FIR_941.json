@@ -1,0 +1,14 @@
+{
+    "_name": "Searing Reflection",
+    "_effect": "Draw a minion. Summon an 8/8 copy of it with Divine Shield.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 8,
+                "hp": 8
+            }
+        ]
+    }
+}

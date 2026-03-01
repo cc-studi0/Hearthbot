@@ -1,0 +1,13 @@
+{
+    "_name": "Draconic Studies",
+    "_effect": "Discover a Dragon. Your next one costs (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Stolen Goods",
+    "_effect": "Draw a Taunt minion. Give it +2/+2.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

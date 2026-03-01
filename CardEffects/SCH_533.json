@@ -1,0 +1,14 @@
+{
+    "_name": "Commencement",
+    "_effect": "Summon a minion from your deck. Give it Taunt and Divine Shield.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

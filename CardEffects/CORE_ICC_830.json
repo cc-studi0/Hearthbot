@@ -1,0 +1,12 @@
+{
+    "_name": "Shadowreaper Anduin",
+    "_effect": "Battlecry: Destroy all minions with 5 or more Attack.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

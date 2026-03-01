@@ -1,0 +1,14 @@
+{
+    "_name": "Netherwind Portal",
+    "_effect": "Secret: After your opponent casts a spell, summon a random 4-Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

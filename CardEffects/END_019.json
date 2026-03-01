@@ -1,0 +1,14 @@
+{
+    "_name": "Endtime Survivor",
+    "_effect": "Taunt. Battlecry: If your hero took damage this turn, gain +3/+3.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

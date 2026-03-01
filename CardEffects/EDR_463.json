@@ -1,0 +1,12 @@
+{
+    "_name": "Twilight Influence",
+    "_effect": "Choose One - Destroy a minion with 3 or less Attack; or Summon a random 2-Cost minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

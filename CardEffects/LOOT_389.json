@@ -1,0 +1,12 @@
+{
+    "_name": "Rummaging Kobold",
+    "_effect": "Battlecry: Return one of your destroyed weapons to your hand.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

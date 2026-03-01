@@ -1,0 +1,13 @@
+{
+    "_name": "Fading Memory",
+    "_effect": "Deathrattle: Get a random 5-Cost minion from the past.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

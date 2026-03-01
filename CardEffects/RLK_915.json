@@ -1,0 +1,13 @@
+{
+    "_name": "Amber Whelp",
+    "_effect": "Battlecry: If you're holding a Dragon, deal 3 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Frost Strike",
+    "_effect": "Deal $3 damage to a minion. If that kills it, Discover a Frost Rune card.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

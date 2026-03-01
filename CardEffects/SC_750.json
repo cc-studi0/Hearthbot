@@ -1,0 +1,14 @@
+{
+    "_name": "Chrono Boost",
+    "_effect": "Draw 2 Protoss cards. Summon a 3/4 Zealot with Charge.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Bazaar Mugger",
+    "_effect": "Rush Battlecry: Add a random minion from another class to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Corsair Cache",
+    "_effect": "Draw a weapon. Give it +1/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

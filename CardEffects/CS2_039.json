@@ -1,0 +1,12 @@
+{
+    "_name": "Windfury",
+    "_effect": "Give a minion Windfury.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_windfury"
+            }
+        ]
+    }
+}

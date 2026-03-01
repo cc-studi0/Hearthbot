@@ -1,0 +1,14 @@
+{
+    "_name": "Doomcaller",
+    "_effect": "Battlecry: Give your C'Thun +2/+2 (wherever it is). If it's dead, shuffle it into your deck.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

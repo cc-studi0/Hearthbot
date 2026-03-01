@@ -1,0 +1,13 @@
+{
+    "_name": "Fire Breather",
+    "_effect": "Battlecry: Deal 2 damage to all minions except Demons.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2
+            }
+        ]
+    }
+}

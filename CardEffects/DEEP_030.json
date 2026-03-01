@@ -1,0 +1,22 @@
+{
+    "_name": "Elementium Geode",
+    "_effect": "Battlecry and Deathrattle: Draw a card. Deal 2 damage to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 2
+            }
+        ]
+    }
+}

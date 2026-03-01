@@ -1,0 +1,14 @@
+{
+    "_name": "Void Drinker",
+    "_effect": "Taunt. Battlecry: Destroy a Soul Fragment in your deck to gain +3/+3.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

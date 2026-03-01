@@ -1,0 +1,14 @@
+{
+    "_name": "Spirit of the Kaldorei",
+    "_effect": "Taunt, Lifesteal Battlecry: If you used your Hero Power this turn, gain +3/+3.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

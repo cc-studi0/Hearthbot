@@ -1,0 +1,13 @@
+{
+    "_name": "Treacherous Tormentor",
+    "_effect": "Battlecry: Discover a Legendary minion with a Dark Gift.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

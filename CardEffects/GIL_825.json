@@ -1,0 +1,13 @@
+{
+    "_name": "Lord Godfrey",
+    "_effect": "Battlecry: Deal 2 damage to all other minions. If any die, repeat this Battlecry.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

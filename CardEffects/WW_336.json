@@ -1,0 +1,14 @@
+{
+    "_name": "Prismatic Beam",
+    "_effect": "Deal $3 damage to all enemies. Costs (1) less for each enemy minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

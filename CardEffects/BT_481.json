@@ -1,0 +1,14 @@
+{
+    "_name": "Nethrandamus",
+    "_effect": "Battlecry: Summon two random 0-Cost minions. (Upgrades each time a friendly minion dies!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

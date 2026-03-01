@@ -1,0 +1,14 @@
+{
+    "_name": "Lightshow",
+    "_effect": "Shoot 2 beams at enemies that each deal $2 damage. Your future Lightshows shoot one more beam.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

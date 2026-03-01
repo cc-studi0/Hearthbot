@@ -1,0 +1,14 @@
+{
+    "_name": "Moonwell",
+    "_effect": "Deal $4 damage to all enemy characters. Restore #4 Health to all friendly characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

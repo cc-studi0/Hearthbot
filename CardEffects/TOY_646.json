@@ -1,0 +1,13 @@
+{
+    "_name": "Messmaker",
+    "_effect": "Lifesteal, Taunt Deathrattle: Deal 1 damage to all enemies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Rockskipper",
+    "_effect": "Battlecry: Get a 1-Cost Rock that deals $3 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

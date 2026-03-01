@@ -1,0 +1,13 @@
+{
+    "_name": "Lightning Bolt",
+    "_effect": "Deal $3 damage. Overload: (1)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

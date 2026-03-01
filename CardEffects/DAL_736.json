@@ -1,0 +1,13 @@
+{
+    "_name": "Archivist Elysiana",
+    "_effect": "Battlecry: Discover 5 cards. Replace your deck with 2 copies of each.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

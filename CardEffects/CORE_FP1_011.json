@@ -1,0 +1,13 @@
+{
+    "_name": "Webspinner",
+    "_effect": "Deathrattle: Get a random Beast.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

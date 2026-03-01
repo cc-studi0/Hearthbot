@@ -1,0 +1,12 @@
+{
+    "_name": "Righteousness",
+    "_effect": "Give your minions Divine Shield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

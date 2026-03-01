@@ -1,0 +1,13 @@
+{
+    "_name": "Drilly the Kid",
+    "_effect": "Battlecry, Quickdraw, and Deathrattle: Excavate a treasure.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "The Forest's Aid",
+    "_effect": "Twinspell Summon five 2/2 Treants.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

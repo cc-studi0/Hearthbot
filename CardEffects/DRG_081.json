@@ -1,0 +1,13 @@
+{
+    "_name": "Scalerider",
+    "_effect": "Battlecry: If you're holding a Dragon, deal 2 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

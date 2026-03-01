@@ -1,0 +1,14 @@
+{
+    "_name": "Fumigate",
+    "_effect": "Deal $3 damage to a minion and all others of the same minion type.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Seafloor Gateway",
+    "_effect": "Draw a Mech. Reduce the Cost of Mechs in your hand by (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

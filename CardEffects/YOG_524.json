@@ -1,0 +1,13 @@
+{
+    "_name": "Shock Hopper",
+    "_effect": "Battlecry: Get a random Overload card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

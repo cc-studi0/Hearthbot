@@ -1,0 +1,13 @@
+{
+    "_name": "Wandmaker",
+    "_effect": "Battlecry: Add a 1-Cost spell from your class to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

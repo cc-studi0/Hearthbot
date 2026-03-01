@@ -1,0 +1,13 @@
+{
+    "_name": "Hidden Gem",
+    "_effect": "Stealth At the end of your turn, restore #2 Health to all friendly characters.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 2
+            }
+        ]
+    }
+}

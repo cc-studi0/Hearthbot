@@ -1,0 +1,14 @@
+{
+    "_name": "Fel Guardians",
+    "_effect": "Summon three 1/2 Demons with Taunt. Costs (1) less whenever a friendly minion dies.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

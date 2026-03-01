@@ -1,0 +1,14 @@
+{
+    "_name": "Blatant Decoy",
+    "_effect": "Deathrattle: Each player summons the lowest Cost minion from their hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

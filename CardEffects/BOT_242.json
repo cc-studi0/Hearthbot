@@ -1,0 +1,13 @@
+{
+    "_name": "Myra's Unstable Element",
+    "_effect": "Draw the rest of your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Meanstreet Marshal",
+    "_effect": "Deathrattle: If this minion has 2 or more Attack, draw a card.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

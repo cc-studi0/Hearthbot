@@ -1,0 +1,13 @@
+{
+    "_name": "Pack Kodo",
+    "_effect": "Battlecry: Discover a Beast, Secret, or weapon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Slam",
+    "_effect": "Deal $2 damage to a minion. If it survives, draw a card.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

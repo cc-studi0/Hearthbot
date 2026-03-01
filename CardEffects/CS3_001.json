@@ -1,0 +1,13 @@
+{
+    "_name": "Aegwynn, the Guardian",
+    "_effect": "Spell Damage +2 Deathrattle: The next minion you draw inherits these powers.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

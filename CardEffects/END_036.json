@@ -1,0 +1,13 @@
+{
+    "_name": "Morchie",
+    "_effect": "Your Rewinds keep BOTH potential outcomes. Battlecry: Discover a Rewind card from any class.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

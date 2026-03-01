@@ -1,0 +1,202 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using BotMain.AI;
+using SmartBot.Database;
+using SmartBot.Plugins.API;
+using SmartBotProfiles;
+
+namespace BotMain
+{
+    public sealed class AIDecisionPlan
+    {
+        public List<string> Actions { get; set; } = new List<string>();
+        public bool ForceResimulation { get; set; }
+        public HashSet<Card.Cards> ForcedResimulationCards { get; set; } = new HashSet<Card.Cards>();
+    }
+
+    public class AIEngine
+    {
+        private readonly SearchEngine _engine;
+        private readonly LethalFinder _lethalFinder;
+        private readonly SimpleAI _fallbackAi = new SimpleAI();
+        public event Action<string> OnLog;
+
+        /// <summary>是否启用斩杀搜索（默认 true）</summary>
+        public bool LethalSearchEnabled { get; set; } = true;
+
+        /// <summary>斩杀搜索超时毫秒数（默认 2000）</summary>
+        public int LethalTimeoutMs { get; set; } = 2000;
+
+        public AIEngine()
+        {
+            CardTemplate.INIT();
+            var db = CardEffectDB.BuildDefault();
+            var sim = new BoardSimulator(db);
+            var eval = new BoardEvaluator();
+            var gen = new ActionGenerator();
+            gen.SetEffectDB(db);
+            _engine = new SearchEngine(sim, eval, gen);
+            _engine.OnLog += msg => OnLog?.Invoke(msg);
+
+            _lethalFinder = new LethalFinder(sim, db);
+            _lethalFinder.OnLog += msg => OnLog?.Invoke(msg);
+        }
+
+        public List<string> DecideActions(string seed, Profile profile = null, List<Card.Cards> deckCards = null)
+        {
+            return DecideActionPlan(seed, profile, deckCards).Actions;
+        }
+
+        public AIDecisionPlan DecideActionPlan(string seed, Profile profile = null, List<Card.Cards> deckCards = null)
+        {
+            var decisionPlan = new AIDecisionPlan();
+            try
+            {
+                var board = Board.FromSeed(seed);
+                ProfileParameters param = null;
+                try
+                {
+                    param = profile?.GetParameters(board);
+                }
+                catch (Exception ex)
+                {
+                    OnLog?.Invoke($"[AI] profile {profile?.GetType().Name} GetParameters failed: {ex.Message}");
+                }
+
+                if (param != null)
+                {
+                    decisionPlan.ForceResimulation = param.ForceResimulation;
+                    if (param.ForcedResimulationCardList != null)
+                    {
+                        decisionPlan.ForcedResimulationCards = new HashSet<Card.Cards>(
+                            param.ForcedResimulationCardList.Where(c => c != 0));
+                    }
+                }
+
+                var simBoard = SimBoard.FromBoard(board);
+
+                // 注入牌库剩余卡牌列表
+                if (deckCards != null && deckCards.Count > 0)
+                    simBoard.FriendDeckCards = deckCards;
+
+                // ── 斩杀搜索（优先级最高） ──
+                if (LethalSearchEnabled)
+                {
+                    _lethalFinder.TimeoutMs = LethalTimeoutMs;
+                    var lethalActions = _lethalFinder.FindLethal(simBoard);
+                    if (lethalActions != null && lethalActions.Count > 0)
+                    {
+                        OnLog?.Invoke($"[AI] ★★★ LETHAL FOUND ★★★ ({lethalActions.Count} actions, {_lethalFinder.NodesExplored} nodes)");
+                        var lethalResult = lethalActions.Select(a => a.ToActionString()).ToList();
+                        lethalResult.Add("END_TURN");
+                        decisionPlan.Actions = NormalizeActionPlan(lethalResult);
+                        return decisionPlan;
+                    }
+                }
+
+                // ── 常规搜索 ──
+                var actions = _engine.FindBestSequence(simBoard, param);
+                var result = actions.Select(a => a.ToActionString()).ToList();
+
+                if (result.Count == 1 && result[0] == "END_TURN")
+                {
+                    var unsupportedTypeCount = simBoard.Hand.Count(c =>
+                        c.Type != Card.CType.MINION
+                        && c.Type != Card.CType.SPELL
+                        && c.Type != Card.CType.WEAPON
+                        && c.Type != Card.CType.HERO
+                        && c.Type != Card.CType.LOCATION);
+                    OnLog?.Invoke($"[AI] only END_TURN from search; mana={simBoard.Mana}, hand={simBoard.Hand.Count}, unsupportedType={unsupportedTypeCount}, profile={profile?.GetType().Name ?? "null"}, paramLoaded={param != null}.");
+
+                    if (param == null)
+                    {
+                        var fallback = _fallbackAi.DecideActions(seed);
+                        if (fallback.Count > 1)
+                        {
+                            OnLog?.Invoke($"[AI] fallback applied with {fallback.Count} action(s).");
+                            decisionPlan.Actions = NormalizeActionPlan(fallback);
+                            return decisionPlan;
+                        }
+
+                        var emergency = BuildEmergencyActions(board);
+                        if (emergency.Count > 1)
+                        {
+                            OnLog?.Invoke($"[AI] emergency fallback applied with {emergency.Count} action(s).");
+                            decisionPlan.Actions = NormalizeActionPlan(emergency);
+                            return decisionPlan;
+                        }
+                    }
+                }
+
+                decisionPlan.Actions = NormalizeActionPlan(result);
+            }
+            catch (Exception ex)
+            {
+                OnLog?.Invoke($"[AI] DecideActions failed: {ex}");
+                try
+                {
+                    var fallback = _fallbackAi.DecideActions(seed);
+                    OnLog?.Invoke($"[AI] exception fallback applied with {fallback.Count} action(s).");
+                    decisionPlan.Actions = NormalizeActionPlan(fallback);
+                }
+                catch (Exception fallbackEx)
+                {
+                    OnLog?.Invoke($"[AI] fallback also failed: {fallbackEx}");
+                    decisionPlan.Actions = new List<string> { "END_TURN" };
+                }
+            }
+            return decisionPlan;
+        }
+
+        private List<string> BuildEmergencyActions(Board board)
+        {
+            var result = new List<string>();
+            var myMinions = board.MinionFriend;
+            var targets = board.MinionEnemy;
+
+            if (myMinions.Count > 0 && targets.Count > 0)
+            {
+                foreach (var minion in myMinions)
+                {
+                    if (minion.CanAttack && !minion.IsFrozen && minion.CurrentAtk > 0)
+                    {
+                        var target = targets.FirstOrDefault();
+                        if (target != null)
+                        {
+                            result.Add($"ATTACK {minion.Id} {target.Id}");
+                        }
+                    }
+                }
+            }
+
+            result.Add("END_TURN");
+            return result;
+        }
+
+        private static List<string> NormalizeActionPlan(List<string> actions)
+        {
+            var normalized = new List<string>();
+            if (actions != null)
+            {
+                foreach (var action in actions)
+                {
+                    if (string.IsNullOrWhiteSpace(action))
+                        continue;
+
+                    var trimmed = action.Trim();
+                    normalized.Add(trimmed);
+                    if (trimmed.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
+                        break;
+                }
+            }
+
+            if (normalized.Count == 0)
+                normalized.Add("END_TURN");
+            else if (!normalized.Last().StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
+                normalized.Add("END_TURN");
+
+            return normalized;
+        }
+    }
+}

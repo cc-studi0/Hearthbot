@@ -1,0 +1,13 @@
+{
+    "_name": "Oil Rig Ambusher",
+    "_effect": "Battlecry: Deal 2 damage. If this entered your hand this turn, deal 4 instead.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

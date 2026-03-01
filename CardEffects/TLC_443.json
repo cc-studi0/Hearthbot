@@ -1,0 +1,14 @@
+{
+    "_name": "Reluctant Wrangler",
+    "_effect": "Reborn Deathrattle: Summon a 2/2 Undead Beast with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Felgorger",
+    "_effect": "Battlecry: Draw a Fel spell. Reduce its Cost by (2).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

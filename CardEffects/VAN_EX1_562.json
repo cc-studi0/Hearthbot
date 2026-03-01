@@ -1,0 +1,14 @@
+{
+    "_name": "Onyxia",
+    "_effect": "Battlecry: Summon 1/1 Whelps until your side of the battlefield is full.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

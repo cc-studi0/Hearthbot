@@ -1,0 +1,12 @@
+{
+    "_name": "Corpsetaker",
+    "_effect": "Battlecry: Gain Taunt if your deck has a Taunt minion. Repeat for Divine Shield, Lifesteal, Windfury.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

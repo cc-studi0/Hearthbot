@@ -1,0 +1,14 @@
+{
+    "_name": "Tuskarr Totemic",
+    "_effect": "Battlecry: Summon a random basic Totem.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

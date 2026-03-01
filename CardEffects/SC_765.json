@@ -1,0 +1,13 @@
+{
+    "_name": "High Templar",
+    "_effect": "Battlecry: Deal 2 damage to all enemies. Play another Templar to merge into an Archon!",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

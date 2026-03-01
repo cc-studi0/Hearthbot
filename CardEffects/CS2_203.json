@@ -1,0 +1,12 @@
+{
+    "_name": "Ironbeak Owl",
+    "_effect": "Battlecry: Silence a minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

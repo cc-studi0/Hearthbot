@@ -1,0 +1,13 @@
+{
+    "_name": "Perdition's Blade",
+    "_effect": "Battlecry: Deal 1 damage. Combo: Deal 2 instead.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Imp Master",
+    "_effect": "At the end of your turn, deal 1 damage to this minion and summon a 1/1 Imp.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

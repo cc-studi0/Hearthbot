@@ -1,0 +1,14 @@
+{
+    "_name": "Amber Warden",
+    "_effect": "Taunt Deathrattle: Summon a random minion from the past.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

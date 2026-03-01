@@ -1,0 +1,12 @@
+{
+    "_name": "Kingsbane",
+    "_effect": "Always keeps enchantments. Deathrattle: Shuffle this into your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

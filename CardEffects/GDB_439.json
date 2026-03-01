@@ -1,0 +1,14 @@
+{
+    "_name": "Orbital Halo",
+    "_effect": "Give a minion +1/+1 and Divine Shield. Costs (0) if you played an adjacent card this turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

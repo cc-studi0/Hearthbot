@@ -1,0 +1,13 @@
+{
+    "_name": "Capture Coldtooth Mine",
+    "_effect": "Choose One - Draw your lowest Cost card; or Draw your highest Cost card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

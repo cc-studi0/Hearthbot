@@ -1,0 +1,12 @@
+{
+    "_name": "Bone Glaive",
+    "_effect": "Battlecry: Dredge.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

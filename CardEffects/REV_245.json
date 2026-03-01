@@ -1,0 +1,13 @@
+{
+    "_name": "Impending Catastrophe",
+    "_effect": "Draw a card. Repeat for each Imp you control.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

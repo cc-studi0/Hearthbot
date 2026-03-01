@@ -1,0 +1,14 @@
+{
+    "_name": "Stranded Spaceman",
+    "_effect": "Battlecry: The next Draenei you play gains +2 Health and Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

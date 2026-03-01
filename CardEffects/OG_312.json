@@ -1,0 +1,14 @@
+{
+    "_name": "N'Zoth's First Mate",
+    "_effect": "Battlecry: Equip a 1/3 Rusty Hook.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 1,
+                "dur": 3
+            }
+        ]
+    }
+}

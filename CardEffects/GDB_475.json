@@ -1,0 +1,12 @@
+{
+    "_name": "Orbital Moon",
+    "_effect": "Give a minion Taunt and Lifesteal. If you played an adjacent card this turn, also give it Reborn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

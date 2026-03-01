@@ -1,0 +1,13 @@
+{
+    "_name": "Carrion Studies",
+    "_effect": "Discover a Deathrattle minion. Your next one costs (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

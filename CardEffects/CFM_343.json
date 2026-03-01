@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Behemoth",
+    "_effect": "Taunt Battlecry: Summon a{1} {0} Jade Golem.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

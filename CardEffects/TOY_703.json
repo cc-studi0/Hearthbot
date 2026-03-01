@@ -1,0 +1,13 @@
+{
+    "_name": "Colifero the Artist",
+    "_effect": "Battlecry: Draw a minion. Transform all other friendly minions into copies of it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

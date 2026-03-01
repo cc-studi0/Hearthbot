@@ -1,0 +1,12 @@
+{
+    "_name": "Shadow Word: Pain",
+    "_effect": "Destroy a minion with 3 or less Attack.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

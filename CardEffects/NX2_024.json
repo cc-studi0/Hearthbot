@@ -1,0 +1,13 @@
+{
+    "_name": "Shambling Chow",
+    "_effect": "Rush Deathrattle: Deal 4 damage to your hero.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 4
+            }
+        ]
+    }
+}

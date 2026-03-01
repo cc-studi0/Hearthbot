@@ -1,0 +1,13 @@
+{
+    "_name": "False Disciple",
+    "_effect": "Battlecry: Discover a Legendary Priest minion from the past.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

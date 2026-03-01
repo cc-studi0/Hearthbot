@@ -1,0 +1,14 @@
+{
+    "_name": "Dimensional Weaponsmith",
+    "_effect": "Battlecry: Give all minions and weapons in your hand +2 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

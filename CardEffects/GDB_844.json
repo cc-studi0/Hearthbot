@@ -1,0 +1,13 @@
+{
+    "_name": "Detailed Notes",
+    "_effect": "Discover a Beast that costs (5) or more. Reduce its Cost by (2).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

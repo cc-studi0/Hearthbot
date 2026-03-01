@@ -1,0 +1,12 @@
+{
+    "_name": "Hot Spring Glider",
+    "_effect": "Battlecry: Your next Murloc costs (1) less. Kindred: And gains Divine Shield.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

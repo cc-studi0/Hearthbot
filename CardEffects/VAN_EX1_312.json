@@ -1,0 +1,12 @@
+{
+    "_name": "Twisting Nether",
+    "_effect": "Destroy all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

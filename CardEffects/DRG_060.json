@@ -1,0 +1,14 @@
+{
+    "_name": "Fire Hawk",
+    "_effect": "Battlecry: Gain +1 Attack for each card in your opponent's hand.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

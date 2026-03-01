@@ -1,0 +1,22 @@
+{
+    "_name": "Death Blossom Whomper",
+    "_effect": "Battlecry: Draw a Deathrattle minion and gain its Deathrattle.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Clear Conscience",
+    "_effect": "Give a friendly minion +2/+3 and \"Elusive on your opponent's turn.\"",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    }
+}

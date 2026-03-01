@@ -1,0 +1,14 @@
+{
+    "_name": "Blizzard",
+    "_effect": "Deal $2 damage to all enemy minions and Freeze them.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

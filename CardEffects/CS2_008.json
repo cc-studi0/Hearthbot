@@ -1,0 +1,14 @@
+{
+    "_name": "Moonfire",
+    "_effect": "Deal $1 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

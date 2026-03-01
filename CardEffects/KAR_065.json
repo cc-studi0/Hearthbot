@@ -1,0 +1,14 @@
+{
+    "_name": "Menagerie Warden",
+    "_effect": "Battlecry: Choose a friendly Beast. Summon a copy of it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

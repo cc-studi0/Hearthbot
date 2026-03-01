@@ -1,0 +1,13 @@
+{
+    "_name": "Volcanic Thrasher",
+    "_effect": "Battlecry: Draw a Fire spell. Kindred: Give it Spell Damage +2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

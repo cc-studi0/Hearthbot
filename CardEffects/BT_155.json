@@ -1,0 +1,14 @@
+{
+    "_name": "Scrapyard Colossus",
+    "_effect": "Taunt Deathrattle: Summon a 7/7 Felcracked Colossus with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 7,
+                "hp": 7
+            }
+        ]
+    }
+}

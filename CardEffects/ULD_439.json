@@ -1,0 +1,13 @@
+{
+    "_name": "Sandwasp Queen",
+    "_effect": "Battlecry: Add two 2/1 Sandwasps to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

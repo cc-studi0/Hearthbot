@@ -1,0 +1,12 @@
+{
+    "_name": "Brittlebone Destroyer",
+    "_effect": "Battlecry: If your hero's Health changed this turn, destroy a minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Cone of Cold",
+    "_effect": "Freeze a minion and the minions next to it, and deal $1 damage to them.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

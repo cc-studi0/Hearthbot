@@ -1,0 +1,13 @@
+{
+    "_name": "Aessina",
+    "_effect": "Battlecry: If 20 friendly minions have died this game, deal 20 damage split among all enemies.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 20
+            }
+        ]
+    }
+}

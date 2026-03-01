@@ -1,0 +1,13 @@
+{
+    "_name": "Bronze Explorer",
+    "_effect": "Lifesteal Battlecry: Discover a Dragon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

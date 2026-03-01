@@ -1,0 +1,14 @@
+{
+    "_name": "Horn of Wrathion",
+    "_effect": "Draw a minion. If it's a Dragon, summon two 2/1 Whelps with Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Twilight Elder",
+    "_effect": "At the end of your turn, give your C'Thun +1/+1 (wherever it is).",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

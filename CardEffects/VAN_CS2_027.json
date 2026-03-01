@@ -1,0 +1,14 @@
+{
+    "_name": "Mirror Image",
+    "_effect": "Summon two 0/2 minions with Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

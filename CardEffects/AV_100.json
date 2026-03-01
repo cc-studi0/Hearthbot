@@ -1,0 +1,14 @@
+{
+    "_name": "Drek'Thar",
+    "_effect": "Battlecry: If this costs more than every minion in your deck, summon one of those minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

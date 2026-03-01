@@ -1,0 +1,37 @@
+# ========== IDE / 工具 ==========
+.claude/
+.playwright-mcp/
+.vscode/
+.gemini/
+
+# ========== 临时/构建目录 ==========
+_tmp*/
+_tmpbuild*/
+_tmpobj*/
+
+# ========== 日志 ==========
+Logs/
+
+# ========== 大型二进制/外部程序目录 (HB本体) ==========
+HB1.1.8/
+
+# ========== 杂项临时文件 ==========
+nul
+CSFILE
+EOF
+_loader_exceptions.txt
+_tmp_keep_registers.txt
+_tmp_card_refs_std_longzhan.txt
+
+# ========== 通用忽略 ==========
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+bin/
+obj/
+*.pdb
+*.log
+Thumbs.db
+Desktop.ini
+.DS_Store

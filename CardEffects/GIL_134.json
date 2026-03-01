@@ -1,0 +1,14 @@
+{
+    "_name": "Holy Water",
+    "_effect": "Deal $4 damage to a minion. If that kills it, add a copy of it to your hand.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

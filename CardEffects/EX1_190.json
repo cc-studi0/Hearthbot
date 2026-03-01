@@ -1,0 +1,14 @@
+{
+    "_name": "High Inquisitor Whitemane",
+    "_effect": "Battlecry: Summon all friendly minions that died this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

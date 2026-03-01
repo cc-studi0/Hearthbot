@@ -1,0 +1,13 @@
+{
+    "_name": "Mixtape",
+    "_effect": "Discover a copy of a card your opponent played this game.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

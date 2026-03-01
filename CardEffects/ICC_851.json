@@ -1,0 +1,14 @@
+{
+    "_name": "Prince Keleseth",
+    "_effect": "Battlecry: If your deck has no 2-Cost cards, give all minions in your deck +1/+1.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

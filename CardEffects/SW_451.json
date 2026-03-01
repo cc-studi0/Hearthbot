@@ -1,0 +1,14 @@
+{
+    "_name": "Metamorfin",
+    "_effect": "Taunt Battlecry: If you've cast a Fel spell this turn, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

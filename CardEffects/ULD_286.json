@@ -1,0 +1,14 @@
+{
+    "_name": "Shadow of Death",
+    "_effect": "Choose a minion. Shuffle 3 'Shadows' into your deck that summon a copy when drawn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

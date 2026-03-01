@@ -1,0 +1,13 @@
+{
+    "_name": "Cryofrozen Champion",
+    "_effect": "Deathrattle: Get a random Legendary minion. Reduce its Cost by (1).",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

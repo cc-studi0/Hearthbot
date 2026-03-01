@@ -1,0 +1,13 @@
+{
+    "_name": "Shattered Reflections",
+    "_effect": "Choose a minion. Add a copy to your hand, deck, and battlefield.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

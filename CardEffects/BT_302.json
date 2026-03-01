@@ -1,0 +1,13 @@
+{
+    "_name": "The Dark Portal",
+    "_effect": "Draw a minion. If you have at least 8 cards in hand, it costs (5) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

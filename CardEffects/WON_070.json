@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Shuriken",
+    "_effect": "Deal $3 damage. Combo: Summon a{1} {0} Jade Golem.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

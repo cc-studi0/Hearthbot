@@ -1,0 +1,13 @@
+{
+    "_name": "Thistle Tea Set",
+    "_effect": "Discover a spell from another class. Get a copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

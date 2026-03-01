@@ -1,0 +1,13 @@
+{
+    "_name": "Commander Sivara",
+    "_effect": "Battlecry: If you've cast three spells while holding this, add those spells back to your hand.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

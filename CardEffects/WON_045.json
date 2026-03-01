@@ -1,0 +1,13 @@
+{
+    "_name": "Ivory Knight",
+    "_effect": "Battlecry: Discover a spell. Restore Health to your hero equal to its Cost.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

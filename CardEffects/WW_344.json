@@ -1,0 +1,13 @@
+{
+    "_name": "Hi Ho Silverwing",
+    "_effect": "Divine Shield Deathrattle: Draw a Holy spell.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

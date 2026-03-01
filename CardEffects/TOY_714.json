@@ -1,0 +1,14 @@
+{
+    "_name": "Fly Off the Shelves",
+    "_effect": "Deal $1 damage to all enemy minions. Repeat for each Dragon you're holding.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

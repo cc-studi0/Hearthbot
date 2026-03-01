@@ -1,0 +1,14 @@
+{
+    "_name": "Rattlegore",
+    "_effect": "Deathrattle: Resummon this with -1/-1.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

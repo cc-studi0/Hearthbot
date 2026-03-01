@@ -1,0 +1,13 @@
+{
+    "_name": "Supreme Archaeology",
+    "_effect": "Quest: Draw 20 cards. Reward: Tome of Origination.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 20
+            }
+        ]
+    }
+}

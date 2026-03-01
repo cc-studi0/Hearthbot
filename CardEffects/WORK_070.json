@@ -1,0 +1,13 @@
+{
+    "_name": "Soul Searching",
+    "_effect": "Discover a card from your deck. Spend 5 Corpses to copy it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

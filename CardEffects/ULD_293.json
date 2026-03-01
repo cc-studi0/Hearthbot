@@ -1,0 +1,13 @@
+{
+    "_name": "Cloud Prince",
+    "_effect": "Battlecry: If you control a Secret, deal 6 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

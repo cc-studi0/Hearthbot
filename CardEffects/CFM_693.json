@@ -1,0 +1,12 @@
+{
+    "_name": "Gadgetzan Ferryman",
+    "_effect": "Combo: Return a friendly minion to your hand.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

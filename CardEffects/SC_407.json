@@ -1,0 +1,13 @@
+{
+    "_name": "Lock On",
+    "_effect": "Set a minion’s Health to 1. Your next Starship launch costs (2) less.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "set_hp",
+                "v": 1
+            }
+        ]
+    }
+}

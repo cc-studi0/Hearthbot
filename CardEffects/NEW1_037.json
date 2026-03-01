@@ -1,0 +1,14 @@
+{
+    "_name": "Master Swordsmith",
+    "_effect": "At the end of your turn, give another random friendly minion +1 Attack.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Hydrologist",
+    "_effect": "Battlecry: Discover and cast a Secret.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

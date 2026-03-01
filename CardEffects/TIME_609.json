@@ -1,0 +1,13 @@
+{
+    "_name": "Ranger General Sylvanas",
+    "_effect": "Fabled. Battlecry: Deal 2 damage to all enemies. If you've played Alleria or Vereesa, repeat for each.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

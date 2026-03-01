@@ -1,0 +1,12 @@
+{
+    "_name": "Smothering Starfish",
+    "_effect": "Battlecry: Silence ALL other minions.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

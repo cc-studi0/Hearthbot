@@ -1,0 +1,13 @@
+{
+    "_name": "Pebbly Page",
+    "_effect": "Battlecry: Draw an Overload card. You can't be Overloaded this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

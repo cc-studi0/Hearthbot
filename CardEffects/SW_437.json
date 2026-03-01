@@ -1,0 +1,13 @@
+{
+    "_name": "Composting",
+    "_effect": "Give your minions \"Deathrattle: Draw a card.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

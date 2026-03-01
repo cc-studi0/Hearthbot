@@ -1,0 +1,13 @@
+{
+    "_name": "Smoldering Grove",
+    "_effect": "Draw {0} card. (Upgrades each turn, but discards after {1}!)1Draw {0} cards. (Discards this turn!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

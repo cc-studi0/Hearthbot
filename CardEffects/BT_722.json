@@ -1,0 +1,13 @@
+{
+    "_name": "Guardian Augmerchant",
+    "_effect": "Battlecry: Deal 1 damage to a minion and give it Divine Shield.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

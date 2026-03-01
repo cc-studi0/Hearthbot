@@ -1,0 +1,14 @@
+{
+    "_name": "Archwitch Willow",
+    "_effect": "Battlecry: Summon a random Demon from your hand and deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

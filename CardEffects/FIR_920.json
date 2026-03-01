@@ -1,0 +1,13 @@
+{
+    "_name": "Smoke Bomb",
+    "_effect": "Discover a Combo, Battlecry, or Stealth minion with a Dark Gift.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

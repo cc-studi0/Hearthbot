@@ -1,0 +1,13 @@
+{
+    "_name": "Prize Vendor",
+    "_effect": "Battlecry and Deathrattle: Each player draws a card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

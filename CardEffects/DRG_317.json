@@ -1,0 +1,13 @@
+{
+    "_name": "Secure the Deck",
+    "_effect": "Sidequest: Attack twice with your hero. Reward: Add 3 'Claw' spells to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

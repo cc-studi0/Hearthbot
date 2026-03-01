@@ -1,0 +1,13 @@
+{
+    "_name": "EVIL Conscripter",
+    "_effect": "Deathrattle: Add a Lackey to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Reno, Lone Ranger",
+    "_effect": "Battlecry: If your deck started with no duplicates, remove all enemy minions from the game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "clear_board"
+            }
+        ]
+    }
+}

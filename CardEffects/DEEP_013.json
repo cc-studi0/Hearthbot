@@ -1,0 +1,14 @@
+{
+    "_name": "Fel Fissure",
+    "_effect": "Deal $2 damage to all minions. At the start of your next turn, deal $2 more damage to all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Relic of Kings",
+    "_effect": "Discover a spell from any class that costs (8) or more. It costs (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

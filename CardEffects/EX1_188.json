@@ -1,0 +1,14 @@
+{
+    "_name": "Barrens Stablehand",
+    "_effect": "Battlecry: Summon a random Beast.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Gift of the Wild",
+    "_effect": "Give your minions +2/+2 and Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

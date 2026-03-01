@@ -1,0 +1,14 @@
+{
+    "_name": "Shrubadier",
+    "_effect": "Battlecry: Summon a 2/2 Treant.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

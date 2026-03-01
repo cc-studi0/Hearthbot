@@ -1,0 +1,12 @@
+{
+    "_name": "Spider Bomb",
+    "_effect": "Magnetic Deathrattle: Destroy a random enemy minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

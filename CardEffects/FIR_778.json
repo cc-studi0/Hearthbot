@@ -1,0 +1,13 @@
+{
+    "_name": "Avatar of Destruction",
+    "_effect": "Taunt Deathrattle: Deal 9 damage to all enemy minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 9
+            }
+        ]
+    }
+}

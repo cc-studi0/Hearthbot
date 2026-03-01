@@ -1,0 +1,13 @@
+{
+    "_name": "Ice Fishing",
+    "_effect": "Draw 2 Murlocs from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

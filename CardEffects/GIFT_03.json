@@ -1,0 +1,13 @@
+{
+    "_name": "Rexxar's Gift",
+    "_effect": "Discover a Temporary Quick Shot, Deadly Shot, or Explosive Shot.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

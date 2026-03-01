@@ -1,0 +1,12 @@
+{
+    "_name": "Forge of Wills",
+    "_effect": "Choose a friendly minion. Summon a Giant with its stats and Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

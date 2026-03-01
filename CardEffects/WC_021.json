@@ -1,0 +1,14 @@
+{
+    "_name": "Unstable Shadow Blast",
+    "_effect": "Deal $6 damage to a minion. Excess damage hits your hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Crooked Cook",
+    "_effect": "At the end of your turn, if you dealt 3 or more damage to the enemy hero, draw a card.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

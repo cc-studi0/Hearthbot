@@ -1,0 +1,13 @@
+{
+    "_name": "Waveshaping",
+    "_effect": "Discover a card from your deck. The others get put on the bottom.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Enhanced Dreadlord",
+    "_effect": "Taunt Deathrattle: Summon a 5/5 Dreadlord with Lifesteal.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

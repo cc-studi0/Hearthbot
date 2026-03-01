@@ -1,0 +1,14 @@
+{
+    "_name": "Devastate",
+    "_effect": "Deal $4 damage to a damaged minion.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

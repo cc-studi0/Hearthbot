@@ -1,0 +1,12 @@
+{
+    "_name": "Snap Freeze",
+    "_effect": "Freeze a minion. If it's already Frozen, destroy it.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

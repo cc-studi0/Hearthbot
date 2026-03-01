@@ -1,0 +1,13 @@
+{
+    "_name": "Mana Cyclone",
+    "_effect": "Battlecry: For each spell you've cast this turn, add a random Mage spell to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

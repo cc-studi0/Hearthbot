@@ -1,0 +1,12 @@
+{
+    "_name": "Impbalming",
+    "_effect": "Destroy a minion. Shuffle 3 Worthless Imps into your deck.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

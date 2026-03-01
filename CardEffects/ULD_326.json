@@ -1,0 +1,13 @@
+{
+    "_name": "Bazaar Burglary",
+    "_effect": "Quest: Add 4 cards from other classes to your hand. Reward: Ancient Blades.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 4
+            }
+        ]
+    }
+}

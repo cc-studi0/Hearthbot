@@ -1,0 +1,14 @@
+{
+    "_name": "Coilskar Commander",
+    "_effect": "Taunt. Battlecry: If you've cast three spells while holding this, summon two copies of this.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

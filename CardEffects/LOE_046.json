@@ -1,0 +1,13 @@
+{
+    "_name": "Huge Toad",
+    "_effect": "Deathrattle: Deal 1 damage to a random enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

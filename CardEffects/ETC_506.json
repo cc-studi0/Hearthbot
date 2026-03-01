@@ -1,0 +1,14 @@
+{
+    "_name": "Harmonic Disco",
+    "_effect": "Discover a 5-Cost minion. Summon it with +1/+1. (Swaps each turn.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

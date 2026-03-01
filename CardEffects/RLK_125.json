@@ -1,0 +1,12 @@
+{
+    "_name": "Obliterate",
+    "_effect": "Destroy a minion. Deal 3 damage to your hero.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

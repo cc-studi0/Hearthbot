@@ -1,0 +1,13 @@
+{
+    "_name": "Sire Denathrius",
+    "_effect": "Lifesteal. Battlecry: Deal 5 damage amongst enemies. Endlessly Infuse (2): Deal 1 more.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

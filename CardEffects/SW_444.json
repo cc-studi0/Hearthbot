@@ -1,0 +1,13 @@
+{
+    "_name": "Twilight Deceptor",
+    "_effect": "Battlecry: If any hero took damage this turn, draw a Shadow spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

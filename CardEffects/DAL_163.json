@@ -1,0 +1,13 @@
+{
+    "_name": "Messenger Raven",
+    "_effect": "Battlecry: Discover a Mage minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

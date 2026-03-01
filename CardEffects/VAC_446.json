@@ -1,0 +1,14 @@
+{
+    "_name": "A. F. Kay",
+    "_effect": "At the end of your turn, give all other friendly minions that didn't attack +2/+2.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

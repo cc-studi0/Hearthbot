@@ -1,0 +1,13 @@
+{
+    "_name": "Volcanomancy",
+    "_effect": "Choose a minion. When it dies, deal 3 damage to all other minions.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Tindral Sageswift",
+    "_effect": "Deathrattle: Deal 1 damage to all enemies. If it's your opponent's turn, deal 4 damage instead.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Mountainfire Armor",
+    "_effect": "Deathrattle: If it's your opponent's turn, gain 6 Armor.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 6
+            }
+        ]
+    }
+}

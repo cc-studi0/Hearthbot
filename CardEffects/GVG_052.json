@@ -1,0 +1,12 @@
+{
+    "_name": "Crush",
+    "_effect": "Destroy a minion. If you have a damaged minion, this costs (4) less.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

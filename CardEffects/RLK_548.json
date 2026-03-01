@@ -1,0 +1,13 @@
+{
+    "_name": "Arcane Wyrm",
+    "_effect": "Battlecry: Add an Arcane Bolt to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Popsicooler",
+    "_effect": "Deathrattle: Freeze two random enemy minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "freeze_all"
+            }
+        ]
+    }
+}

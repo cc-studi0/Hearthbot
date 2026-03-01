@@ -1,0 +1,22 @@
+{
+    "_name": "Bomb Squad",
+    "_effect": "Battlecry: Deal 5 damage to an enemy minion. Deathrattle: Deal 5 damage to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 5
+            }
+        ]
+    }
+}

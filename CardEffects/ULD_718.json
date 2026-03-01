@@ -1,0 +1,12 @@
+{
+    "_name": "Plague of Death",
+    "_effect": "Silence and destroy all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

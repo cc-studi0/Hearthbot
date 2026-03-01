@@ -1,0 +1,13 @@
+{
+    "_name": "Steam Guardian",
+    "_effect": "Battlecry: Draw a spell. Reduce the Cost of a Fire spell in your hand by (1).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

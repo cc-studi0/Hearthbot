@@ -1,0 +1,14 @@
+{
+    "_name": "Abominable Bowman",
+    "_effect": "Deathrattle: Summon a random friendly Beast that died this game.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

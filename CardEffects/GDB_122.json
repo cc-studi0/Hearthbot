@@ -1,0 +1,14 @@
+{
+    "_name": "Infernal Stratagem",
+    "_effect": "Give a minion +3/+3. If it's a Demon, your next one costs (2) less.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

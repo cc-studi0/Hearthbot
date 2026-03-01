@@ -1,0 +1,13 @@
+{
+    "_name": "SI:7 Agent",
+    "_effect": "Combo: Deal 2 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

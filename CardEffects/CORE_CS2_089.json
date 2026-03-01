@@ -1,0 +1,13 @@
+{
+    "_name": "Holy Light",
+    "_effect": "Restore #8 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Book Wyrm",
+    "_effect": "Battlecry: If you're holding a Dragon, destroy an enemy minion with 3 or less Attack.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

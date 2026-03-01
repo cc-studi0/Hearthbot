@@ -1,0 +1,13 @@
+{
+    "_name": "Psychic Conjurer",
+    "_effect": "Battlecry: Copy a card in your opponent’s deck and add it to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

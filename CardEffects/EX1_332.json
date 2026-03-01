@@ -1,0 +1,12 @@
+{
+    "_name": "Silence",
+    "_effect": "Silence a minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

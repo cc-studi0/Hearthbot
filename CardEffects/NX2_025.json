@@ -1,0 +1,13 @@
+{
+    "_name": "Calamity's Grasp",
+    "_effect": "Deathrattle: Add a random Outcast card to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

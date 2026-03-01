@@ -1,0 +1,14 @@
+{
+    "_name": "Serpent Wig",
+    "_effect": "Give a minion +1/+2. If you played a Naga while holding this, add a Serpent Wig to your hand.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

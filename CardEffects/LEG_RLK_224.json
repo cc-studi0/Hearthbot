@@ -1,0 +1,13 @@
+{
+    "_name": "Overseer Frigidara",
+    "_effect": "Battlecry: Draw 2 spells. If they're both Frost spells, deal 2 damage to all enemies.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

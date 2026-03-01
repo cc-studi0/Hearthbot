@@ -1,0 +1,13 @@
+{
+    "_name": "Shockspitter",
+    "_effect": "Battlecry: Deal 1 damage. (Improved by your hero attacks this game!)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

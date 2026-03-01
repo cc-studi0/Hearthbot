@@ -1,0 +1,14 @@
+{
+    "_name": "Castle Kennels",
+    "_effect": "Give a friendly minion +2 Attack. If it's a Beast, give it Rush.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

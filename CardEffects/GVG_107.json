@@ -1,0 +1,12 @@
+{
+    "_name": "Enhance-o Mechano",
+    "_effect": "Battlecry: Give your other minions Windfury, Taunt, or Divine Shield (at random).",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

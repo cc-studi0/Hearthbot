@@ -1,0 +1,14 @@
+{
+    "_name": "Galloping Savior",
+    "_effect": "Secret: After your opponent plays three cards in a turn, summon a 3/4 Steed with Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 4
+            }
+        ]
+    }
+}

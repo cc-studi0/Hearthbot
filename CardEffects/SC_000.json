@@ -1,0 +1,12 @@
+{
+    "_name": "Spawning Pool",
+    "_effect": "Get a 1/1 Zergling. Deathrattle: Your Zerg minions have Rush this turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

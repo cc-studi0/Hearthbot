@@ -1,0 +1,14 @@
+{
+    "_name": "Disco Maul",
+    "_effect": "Deathrattle: Give a random friendly minion +1/+1. (Play minions while equipped to improve!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

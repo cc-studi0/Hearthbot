@@ -1,0 +1,13 @@
+{
+    "_name": "Frost Shock",
+    "_effect": "Deal $1 damage to an enemy character and Freeze it.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

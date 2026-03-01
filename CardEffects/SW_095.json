@@ -1,0 +1,13 @@
+{
+    "_name": "Investment Opportunity",
+    "_effect": "Draw an Overload card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

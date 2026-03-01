@@ -1,0 +1,12 @@
+{
+    "_name": "Flurry (Rank 1)",
+    "_effect": "Freeze a random enemy minion. (Upgrades when you have 5 Mana.)",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Windspeaker",
+    "_effect": "Battlecry: Give a friendly minion Windfury.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_windfury"
+            }
+        ]
+    }
+}

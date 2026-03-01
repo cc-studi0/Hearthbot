@@ -1,0 +1,14 @@
+{
+    "_name": "Rhythm and Roots",
+    "_effect": "Choose One (Secretly) - Summon three 5/5 Ancients in 2 turns; or 8/8 Giants in 4 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

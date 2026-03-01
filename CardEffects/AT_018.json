@@ -1,0 +1,14 @@
+{
+    "_name": "Confessor Paletress",
+    "_effect": "Battlecry and Inspire: Summon a random Legendary minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

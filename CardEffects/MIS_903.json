@@ -1,0 +1,13 @@
+{
+    "_name": "Dubious Purchase",
+    "_effect": "Draw 3 cards. Combo: Destroy a random enemy minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

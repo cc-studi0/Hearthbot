@@ -1,0 +1,13 @@
+{
+    "_name": "Varian, King of Stormwind",
+    "_effect": "Battlecry: Draw a Rush minion to gain Rush. Repeat for Taunt and Divine Shield.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

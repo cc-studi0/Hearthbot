@@ -1,0 +1,13 @@
+{
+    "_name": "Mes'Adune the Fractured",
+    "_effect": "Battlecry: Draw an Elemental. Split it into two halves.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

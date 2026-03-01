@@ -1,0 +1,14 @@
+{
+    "_name": "Arcane Barrage",
+    "_effect": "Deal $3 damage to an enemy and $2 damage to two other random ones.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

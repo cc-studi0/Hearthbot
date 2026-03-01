@@ -1,0 +1,13 @@
+{
+    "_name": "Moonstone Mauler",
+    "_effect": "Battlecry: Shuffle 3 Asteroids into your deck that deal 2 damage to a random enemy when drawn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 2
+            }
+        ]
+    }
+}

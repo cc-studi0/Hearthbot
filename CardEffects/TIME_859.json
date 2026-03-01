@@ -1,0 +1,14 @@
+{
+    "_name": "Anomalize",
+    "_effect": "Summon a random 10 and 1-Cost minion. Scramble their stats.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

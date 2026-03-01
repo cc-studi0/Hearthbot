@@ -1,0 +1,13 @@
+{
+    "_name": "Southsea Scoundrel",
+    "_effect": "Battlecry: Discover a card in your opponent's deck. They draw theirs as well.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

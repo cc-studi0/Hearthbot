@@ -1,0 +1,13 @@
+{
+    "_name": "Beatboxer",
+    "_effect": "Combo: Deal 4 damage randomly split among all enemies.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

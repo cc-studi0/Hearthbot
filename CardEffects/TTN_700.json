@@ -1,0 +1,14 @@
+{
+    "_name": "Containment Unit",
+    "_effect": "Magnetic Deathrattle: Summon a random 8-Cost minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

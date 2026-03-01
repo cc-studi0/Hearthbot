@@ -1,0 +1,14 @@
+{
+    "_name": "Geosculptor Yip",
+    "_effect": "At the end of your turn, summon a random minion with Cost equal to your Armor (up to 10).",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

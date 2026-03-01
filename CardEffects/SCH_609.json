@@ -1,0 +1,14 @@
+{
+    "_name": "Survival of the Fittest",
+    "_effect": "Give +4/+4 to all minions in your hand, deck, and battlefield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

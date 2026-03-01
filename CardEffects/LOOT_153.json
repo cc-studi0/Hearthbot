@@ -1,0 +1,14 @@
+{
+    "_name": "Violet Wurm",
+    "_effect": "Deathrattle: Summon seven 1/1 Grubs.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

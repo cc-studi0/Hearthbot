@@ -1,0 +1,14 @@
+{
+    "_name": "Chronological Aura",
+    "_effect": "At the end of your turn, summon a 3/5 Dragon with Taunt. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 5
+            }
+        ]
+    }
+}

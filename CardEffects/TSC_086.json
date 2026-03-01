@@ -1,0 +1,14 @@
+{
+    "_name": "Swordfish",
+    "_effect": "Battlecry: Dredge. If it's a Pirate, give this weapon and the Pirate +2 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

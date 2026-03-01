@@ -1,0 +1,13 @@
+{
+    "_name": "Umbral Geist",
+    "_effect": "Deathrattle: Add a random Shadow spell to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

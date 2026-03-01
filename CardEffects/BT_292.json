@@ -1,0 +1,13 @@
+{
+    "_name": "Hand of A'dal",
+    "_effect": "Give a minion +2/+1. Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

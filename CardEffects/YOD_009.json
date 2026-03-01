@@ -1,0 +1,12 @@
+{
+    "_name": "The Amazing Reno",
+    "_effect": "Battlecry: Make all minions disappear. *Poof!*",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "clear_board"
+            }
+        ]
+    }
+}

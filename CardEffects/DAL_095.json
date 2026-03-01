@@ -1,0 +1,14 @@
+{
+    "_name": "Violet Spellsword",
+    "_effect": "Battlecry: Gain +1 Attack for each spell in your hand.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

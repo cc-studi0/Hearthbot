@@ -1,0 +1,13 @@
+{
+    "_name": "Ornery Tortoise",
+    "_effect": "Battlecry: Deal 5 damage to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

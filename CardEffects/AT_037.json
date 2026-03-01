@@ -1,0 +1,14 @@
+{
+    "_name": "Living Roots",
+    "_effect": "Choose One - Deal $2 damage; or Summon two 1/1 Saplings.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

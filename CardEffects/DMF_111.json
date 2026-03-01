@@ -1,0 +1,14 @@
+{
+    "_name": "Man'ari Mosher",
+    "_effect": "Battlecry: Give a friendly Demon +3 Attack and Lifesteal this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

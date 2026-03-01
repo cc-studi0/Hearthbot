@@ -1,0 +1,14 @@
+{
+    "_name": "Eccentric Scribe",
+    "_effect": "Deathrattle: Summon four 1/1 Vengeful Scrolls.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

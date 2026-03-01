@@ -1,0 +1,14 @@
+{
+    "_name": "Gelbin Mekkatorque",
+    "_effect": "Battlecry: Summon an AWESOME invention.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

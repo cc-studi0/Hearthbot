@@ -1,0 +1,14 @@
+{
+    "_name": "Splitting Axe",
+    "_effect": "Battlecry: Summon copies of your Totems.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

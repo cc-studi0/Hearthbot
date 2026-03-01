@@ -1,0 +1,12 @@
+{
+    "_name": "Sunfury Protector",
+    "_effect": "Battlecry: Give adjacent minions Taunt.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

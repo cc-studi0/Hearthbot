@@ -1,0 +1,13 @@
+{
+    "_name": "Corpse Widow",
+    "_effect": "Your Deathrattle cards cost (2) less.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 5
+            }
+        ]
+    }
+}

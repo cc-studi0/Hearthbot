@@ -1,0 +1,12 @@
+{
+    "_name": "Sinrunner",
+    "_effect": "Deathrattle: Destroy a random enemy minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

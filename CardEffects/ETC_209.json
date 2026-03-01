@@ -1,0 +1,13 @@
+{
+    "_name": "Hardcore Cultist",
+    "_effect": "Battlecry: Deal 2 damage. Finale: To all enemies.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

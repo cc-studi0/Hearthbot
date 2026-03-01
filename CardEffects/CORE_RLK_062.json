@@ -1,0 +1,14 @@
+{
+    "_name": "Nerubian Swarmguard",
+    "_effect": "Taunt Battlecry: Summon two copies of this minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

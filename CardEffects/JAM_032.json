@@ -1,0 +1,13 @@
+{
+    "_name": "Fiddlefire Imp",
+    "_effect": "Battlecry: Add a random Fire Mage and Fire Warlock spell to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

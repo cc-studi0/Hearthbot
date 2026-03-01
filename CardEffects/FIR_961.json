@@ -1,0 +1,12 @@
+{
+    "_name": "Ashleaf Pixie",
+    "_effect": "Battlecry: If you're holding a spell that costs (5) or more, gain Divine Shield and Lifesteal.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

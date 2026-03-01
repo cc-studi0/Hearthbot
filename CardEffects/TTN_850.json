@@ -1,0 +1,13 @@
+{
+    "_name": "Helya",
+    "_effect": "Battlecry: Shuffle all three Plagues into your opponent's deck. Plagues they draw this game are unending.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

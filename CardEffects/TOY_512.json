@@ -1,0 +1,12 @@
+{
+    "_name": "The Crystal Cove",
+    "_effect": "The next minion you summon this turn has its stats set to 4/4.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Bogbeam",
+    "_effect": "Deal $3 damage to a minion. Costs (0) if you have at least 7 Mana Crystals.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

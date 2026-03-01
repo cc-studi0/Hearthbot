@@ -1,0 +1,13 @@
+{
+    "_name": "Holy Springwater",
+    "_effect": "Restore #8 Health to a damaged character. Save any excess in a 1-Cost Bottle.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Bloodsail Howler",
+    "_effect": "Rush Battlecry: Gain +1/+1 for each other Pirate you control.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

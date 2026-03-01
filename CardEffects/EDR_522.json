@@ -1,0 +1,13 @@
+{
+    "_name": "Mimicry",
+    "_effect": "Your opponent draws 2 cards. You get copies of them.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

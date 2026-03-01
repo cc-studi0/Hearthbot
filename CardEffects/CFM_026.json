@@ -1,0 +1,14 @@
+{
+    "_name": "Hidden Cache",
+    "_effect": "Secret: After your opponent plays a minion, give a random minion in your hand +2/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

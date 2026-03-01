@@ -1,0 +1,12 @@
+{
+    "_name": "Dethrone",
+    "_effect": "Destroy a minion. Combo: Summon a random 8-Cost minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

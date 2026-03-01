@@ -1,0 +1,13 @@
+{
+    "_name": "Tuskpiercer",
+    "_effect": "Deathrattle: Draw a Deathrattle minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Ten Gallon Hat",
+    "_effect": "Draw a minion. Give it +1/+1 and \"Deathrattle: Get a Ten Gallon Hat.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Everyfin is Awesome",
+    "_effect": "Give your minions +2/+2. Costs (1) less for each Murloc you control.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

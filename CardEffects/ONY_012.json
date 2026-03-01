@@ -1,0 +1,14 @@
+{
+    "_name": "Spirit Mount",
+    "_effect": "Give a minion +1/+2 and Spell Damage +1. When it dies, summon a Spirit Raptor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Bloodrock Co. Shovel",
+    "_effect": "Deathrattle: Excavate a treasure.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

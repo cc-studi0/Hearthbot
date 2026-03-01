@@ -1,0 +1,14 @@
+{
+    "_name": "Blood Tap",
+    "_effect": "Give all minions in your hand +1/+1. Spend 2 Corpses to give them +1/+1 more.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

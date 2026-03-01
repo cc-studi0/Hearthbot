@@ -1,0 +1,13 @@
+{
+    "_name": "Weapons Expert",
+    "_effect": "Battlecry: If you have a weapon equipped, give it +1/+1. Otherwise, draw a weapon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

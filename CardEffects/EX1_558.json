@@ -1,0 +1,12 @@
+{
+    "_name": "Harrison Jones",
+    "_effect": "Battlecry: Destroy your opponent's weapon and draw cards equal to its Durability.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_weapon"
+            }
+        ]
+    }
+}

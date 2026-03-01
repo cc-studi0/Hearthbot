@@ -1,0 +1,13 @@
+{
+    "_name": "Thickhide Kodo",
+    "_effect": "Taunt Deathrattle: Gain 5 Armor.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 5
+            }
+        ]
+    }
+}

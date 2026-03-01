@@ -1,0 +1,14 @@
+{
+    "_name": "Gadgetzan Jouster",
+    "_effect": "Battlecry: Reveal a minion in each deck. If yours costs more, gain +1/+1.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

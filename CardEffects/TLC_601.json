@@ -1,0 +1,14 @@
+{
+    "_name": "Shellnado",
+    "_effect": "Spend up to 5 Armor. For each spent, deal $1 damage to all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

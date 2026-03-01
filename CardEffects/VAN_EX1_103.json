@@ -1,0 +1,14 @@
+{
+    "_name": "Coldlight Seer",
+    "_effect": "Battlecry: Give ALL other Murlocs +2 Health.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Kargal Battlescar",
+    "_effect": "Battlecry: Summon a 5/5 Lookout for each Watch Post you've summoned this game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Chronobreaker",
+    "_effect": "Deathrattle: If you're holding a Dragon, deal 3 damage to all enemy minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3
+            }
+        ]
+    }
+}

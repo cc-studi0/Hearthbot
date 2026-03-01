@@ -1,0 +1,12 @@
+{
+    "_name": "Snowed In",
+    "_effect": "Destroy a damaged minion. Freeze all other minions.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

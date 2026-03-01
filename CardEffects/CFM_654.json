@@ -1,0 +1,13 @@
+{
+    "_name": "Friendly Bartender",
+    "_effect": "At the end of your turn, restore #1 Health to your hero.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 1
+            }
+        ]
+    }
+}

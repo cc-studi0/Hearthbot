@@ -1,0 +1,14 @@
+{
+    "_name": "Kil'jaeden",
+    "_effect": "Battlecry: Replace your deck with an endless portal of Demons. Each turn, they gain an additional +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

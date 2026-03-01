@@ -1,0 +1,14 @@
+{
+    "_name": "Immortalized in Stone",
+    "_effect": "Summon a 4/8, 2/4, and 1/2 Elemental with Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 8
+            }
+        ]
+    }
+}

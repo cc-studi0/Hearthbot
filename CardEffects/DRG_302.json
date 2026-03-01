@@ -1,0 +1,14 @@
+{
+    "_name": "Grave Rune",
+    "_effect": "Give a minion \"Deathrattle: Summon 2 copies of this.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

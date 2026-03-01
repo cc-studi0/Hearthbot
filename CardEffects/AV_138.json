@@ -1,0 +1,12 @@
+{
+    "_name": "Grimtotem Bounty Hunter",
+    "_effect": "Battlecry: Destroy an enemy Legendary minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

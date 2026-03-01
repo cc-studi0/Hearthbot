@@ -1,0 +1,12 @@
+{
+    "_name": "Soulrest Ceremony",
+    "_effect": "Give your minions +1 Attack and Rush. They die at the end of your turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_rush"
+            }
+        ]
+    }
+}

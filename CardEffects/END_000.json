@@ -1,0 +1,14 @@
+{
+    "_name": "Eventuality",
+    "_effect": "Deal $2 damage. Imbue your Hero Power.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Ravencaller",
+    "_effect": "Battlecry: Add two random 1-Cost minions to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

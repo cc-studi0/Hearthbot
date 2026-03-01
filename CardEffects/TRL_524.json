@@ -1,0 +1,12 @@
+{
+    "_name": "Shieldbreaker",
+    "_effect": "Battlecry: Silence an enemy minion with Taunt.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

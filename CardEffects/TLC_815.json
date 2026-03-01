@@ -1,0 +1,14 @@
+{
+    "_name": "Gravedawn Voidbulb",
+    "_effect": "Summon a random 4-Cost minion and give it Taunt. Kindred: Do it again.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

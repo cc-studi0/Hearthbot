@@ -1,0 +1,14 @@
+{
+    "_name": "Maze Guide",
+    "_effect": "Battlecry: Summon a random 2-Cost minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

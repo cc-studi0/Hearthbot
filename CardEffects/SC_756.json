@@ -1,0 +1,14 @@
+{
+    "_name": "Carrier",
+    "_effect": "At the end of your turn, summon four 4/1 Interceptors that attack random enemies.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 1
+            }
+        ]
+    }
+}

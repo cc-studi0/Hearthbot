@@ -1,0 +1,14 @@
+{
+    "_name": "Plague of Madness",
+    "_effect": "Each player equips a 2/2 Knife with Poisonous.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 2,
+                "dur": 2
+            }
+        ]
+    }
+}

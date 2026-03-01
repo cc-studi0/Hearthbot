@@ -1,0 +1,13 @@
+{
+    "_name": "Abyssal Enforcer",
+    "_effect": "Battlecry: Deal 3 damage to all other characters.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

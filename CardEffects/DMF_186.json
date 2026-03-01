@@ -1,0 +1,14 @@
+{
+    "_name": "Auspicious Spirits",
+    "_effect": "Summon a random 4-Cost minion. Corrupt: Summon a 7-Cost minion instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Grace of the Highfather",
+    "_effect": "Restore #8 Health. Discover a card that costs the amount Overhealed.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

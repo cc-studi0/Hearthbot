@@ -1,0 +1,14 @@
+{
+    "_name": "Fire Breath",
+    "_effect": "Deal $4 damage. Give your Elementals +1/+1.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Idol",
+    "_effect": "Choose One - Summon a{1} {0} Jade Golem; or Shuffle 3 copies of this card into your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

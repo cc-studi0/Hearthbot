@@ -1,0 +1,13 @@
+{
+    "_name": "Mukla, Tyrant of the Vale",
+    "_effect": "Battlecry: Add 2 Bananas to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

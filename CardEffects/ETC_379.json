@@ -1,0 +1,13 @@
+{
+    "_name": "Harmonic Mood",
+    "_effect": "Give your hero +2 Attack this turn. Gain 4 Armor. (Swaps each turn.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "K9-0tron",
+    "_effect": "Battlecry: Dredge. If it's a 1-Cost minion, summon it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Strongshell Scavenger",
+    "_effect": "Battlecry: Give your Taunt minions +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

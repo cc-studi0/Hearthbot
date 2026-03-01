@@ -1,0 +1,185 @@
+<Window x:Class="BotMain.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:BotMain"
+        Title="炉石脚本 v1.0" Width="562" Height="595"
+        WindowStartupLocation="CenterScreen" Background="#F0F0F0"
+        FontFamily="Segoe UI" FontSize="12">
+    <Window.DataContext>
+        <local:MainViewModel/>
+    </Window.DataContext>
+    <DockPanel>
+        <!-- 顶部状态栏 -->
+        <Border DockPanel.Dock="Top" Background="#007ACC" Padding="8,5">
+            <TextBlock Foreground="White" FontSize="11" Text="{Binding TopStatusText}"/>
+        </Border>
+
+        <!-- 控制区第1行: Stop + Mode + Profile + 设置齿轮 -->
+        <Grid DockPanel.Dock="Top" Margin="4,6,4,1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <Button Content="{Binding MainButtonText}" Width="55" Height="23" Command="{Binding MainCmd}"
+                    Margin="0,0,4,0" FontSize="11"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,4,0">
+                <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                <ComboBox Width="80" Height="23" SelectedIndex="{Binding ModeIndex}" FontSize="11">
+                    <ComboBoxItem Content="Standard"/>
+                    <ComboBoxItem Content="Wild"/>
+                </ComboBox>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <TextBlock Text="Profile:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                <ComboBox Width="200" Height="23" ItemsSource="{Binding ProfileNames}"
+                          SelectedIndex="{Binding SelectedProfileIndex}" FontSize="11"/>
+                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
+                        Command="{Binding RefreshProfilesCmd}" ToolTip="刷新策略"/>
+            </StackPanel>
+            <Button Grid.Column="3" Content="⚙" Width="25" Height="23" Command="{Binding SettingsCmd}"
+                    FontSize="13" ToolTip="Settings"/>
+        </Grid>
+
+        <!-- 控制区第2行: Start + Deck + Mulligan -->
+        <Grid DockPanel.Dock="Top" Margin="4,1,4,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Content="Finish" Width="55" Height="23" Command="{Binding FinishCmd}"
+                    Margin="0,0,4,0" FontSize="11"/>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,4,0">
+                <TextBlock Text="Deck:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
+                <ComboBox Width="150" Height="23" ItemsSource="{Binding DeckNames}"
+                          SelectedIndex="{Binding SelectedDeckIndex}" FontSize="11"/>
+                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
+                        Command="{Binding RefreshDecksCmd}" ToolTip="刷新卡组"/>
+            </StackPanel>
+            <StackPanel Grid.Column="2" Orientation="Horizontal">
+                <TextBlock Text="✿ Mulligan:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
+                <ComboBox Width="180" Height="23" ItemsSource="{Binding MulliganNames}"
+                          SelectedIndex="{Binding MulliganProfileIndex}" FontSize="11"/>
+                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
+                        Command="{Binding RefreshMulliganCmd}" ToolTip="刷新留牌"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- 控制区第3行: Discover -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,1,4,4">
+            <TextBlock Text="✦ Discover:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
+            <ComboBox Width="180" Height="23" ItemsSource="{Binding DiscoverNames}"
+                      SelectedIndex="{Binding DiscoverProfileIndex}" FontSize="11"/>
+            <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
+                    Command="{Binding RefreshDiscoverCmd}" ToolTip="刷新发现策略"/>
+        </StackPanel>
+
+        <!-- 统计区 + 设置区 -->
+        <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,1,0,1" Padding="6,4">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <!-- 左侧统计 -->
+                <StackPanel>
+                    <TextBlock Text="Statistics:" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,2"/>
+                    <TextBlock FontSize="11" Foreground="#333">
+                        <Run Text="Runtime: "/><Run Text="{Binding RuntimeText, Mode=OneWay}"/>
+                        <Run Text="  -  Stats: "/><Run Text="{Binding Wins, Mode=OneWay}"/><Run Text="W "/>
+                        <Run Text="{Binding Losses, Mode=OneWay}"/><Run Text="L "/>
+                        <Run Text="{Binding Concedes, Mode=OneWay}"/><Run Text="C"/>
+                    </TextBlock>
+                    <TextBlock FontSize="11" Foreground="#333">
+                        <Run Text="WR: "/><Run Text="{Binding WinRate, Mode=OneWay}"/><Run Text="%"/>
+                        <Run Text="  -  Mana: "/><Run Text="{Binding ManaInfo, Mode=OneWay}"/>
+                    </TextBlock>
+                    <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                        <Button Content="Reset stats" Height="22" Padding="8,0" FontSize="11"
+                                Command="{Binding ResetStatsCmd}" Margin="0,0,4,0"/>
+                        <Button Content="Save log as..." Height="22" Padding="8,0" FontSize="11"
+                                Command="{Binding SaveLogCmd}"/>
+                    </StackPanel>
+                </StackPanel>
+                <!-- 右侧设置 -->
+                <StackPanel Grid.Column="1" Margin="12,0,0,0">
+                    <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,2"/>
+                    <CheckBox Content="Overlay" FontSize="11" IsChecked="{Binding OverlayMode}" Margin="0,0,0,2"/>
+                    <CheckBox Content="Auto-concede" FontSize="11" IsChecked="{Binding AutoConcede}" Margin="0,0,0,2"/>
+                    <StackPanel Orientation="Horizontal">
+                        <CheckBox Content="FPS lock:" FontSize="11" IsChecked="{Binding FpsLock}" Margin="0,0,3,0"/>
+                        <TextBox Width="30" Height="20" Text="{Binding FpsValue}" FontSize="11"
+                                 VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Tab区域 -->
+        <TabControl Margin="4,4,4,4">
+            <TabItem Header="Logs">
+                <TextBox Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
+                         Background="White" Foreground="#222" BorderThickness="0"
+                         FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" x:Name="LogBox"/>
+            </TabItem>
+            <TabItem Header="Board">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6">
+                    <StackPanel>
+                        <Border Background="#FFEBEE" Padding="6,3" Margin="0,0,0,4">
+                            <TextBlock Text="{Binding EnemyHeroInfo, StringFormat='Enemy Hero: {0}'}" FontSize="11" Foreground="#C62828"/>
+                        </Border>
+                        <TextBlock Text="Enemy Minions:" FontSize="10" Foreground="#888" Margin="0,0,0,2"/>
+                        <ItemsControl ItemsSource="{Binding EnemyMinionList}" Margin="0,0,0,6">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="#FFCDD2" CornerRadius="2" Padding="5,2" Margin="1">
+                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Separator Margin="0,2"/>
+                        <TextBlock Text="Friendly Minions:" FontSize="10" Foreground="#888" Margin="0,4,0,2"/>
+                        <ItemsControl ItemsSource="{Binding FriendMinionList}" Margin="0,0,0,6">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="#C8E6C9" CornerRadius="2" Padding="5,2" Margin="1">
+                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Border Background="#E8F5E9" Padding="6,3" Margin="0,0,0,4">
+                            <TextBlock Text="{Binding FriendHeroInfo, StringFormat='Friendly Hero: {0}'}" FontSize="11" Foreground="#2E7D32"/>
+                        </Border>
+                        <TextBlock Text="Hand:" FontSize="10" Foreground="#888" Margin="0,2,0,2"/>
+                        <ItemsControl ItemsSource="{Binding HandCardList}">
+                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate><DataTemplate>
+                                <Border Background="#BBDEFB" CornerRadius="2" Padding="5,2" Margin="1">
+                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="Misplays">
+                <TextBox Text="{Binding MisplayText, Mode=OneWay}" IsReadOnly="True"
+                         Background="White" BorderThickness="0" FontFamily="Consolas"
+                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+            </TabItem>
+            <TabItem Header="Stats">
+                <TextBox Text="{Binding StatsDetailText, Mode=OneWay}" IsReadOnly="True"
+                         Background="White" BorderThickness="0" FontFamily="Consolas"
+                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+            </TabItem>
+            <TabItem Header="Debug">
+                <TextBox Text="{Binding DebugText, Mode=OneWay}" IsReadOnly="True"
+                         Background="White" BorderThickness="0" FontFamily="Consolas"
+                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+            </TabItem>
+            <TabItem Header="Plugins">
+                <Canvas x:Name="PluginCanvas" Background="White" ClipToBounds="True"/>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
+</Window>

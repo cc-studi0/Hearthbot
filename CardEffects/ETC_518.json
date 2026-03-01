@@ -1,0 +1,12 @@
+{
+    "_name": "Record Scratcher",
+    "_effect": "Deathrattle: Refresh 1 Mana Crystal. (Play Combo cards while equipped to improve!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

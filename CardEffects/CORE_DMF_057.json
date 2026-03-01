@@ -1,0 +1,14 @@
+{
+    "_name": "Lunar Eclipse",
+    "_effect": "Deal $3 damage to a minion. Your next spell this turn costs (2) less.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Omega Agent",
+    "_effect": "Battlecry: If you have 10 Mana Crystals, summon 2 copies of this minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

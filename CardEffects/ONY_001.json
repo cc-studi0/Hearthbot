@@ -1,0 +1,14 @@
+{
+    "_name": "Onyxian Warder",
+    "_effect": "Battlecry: If you're holding a Dragon, summon two 2/1 Whelps with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

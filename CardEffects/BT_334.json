@@ -1,0 +1,13 @@
+{
+    "_name": "Lady Liadrin",
+    "_effect": "Battlecry: Add a copy of each spell you cast on friendly characters this game to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

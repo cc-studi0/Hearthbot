@@ -1,0 +1,14 @@
+{
+    "_name": "Backstab",
+    "_effect": "Deal $2 damage to an undamaged minion.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

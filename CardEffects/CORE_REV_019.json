@@ -1,0 +1,13 @@
+{
+    "_name": "Famished Fool",
+    "_effect": "Battlecry: Draw a card. Infuse (4): Draw 3 instead.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

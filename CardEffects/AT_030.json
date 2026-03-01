@@ -1,0 +1,13 @@
+{
+    "_name": "Undercity Valiant",
+    "_effect": "Combo: Deal 1 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

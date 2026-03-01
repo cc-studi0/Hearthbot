@@ -1,0 +1,13 @@
+{
+    "_name": "Scavenger's Ingenuity",
+    "_effect": "Draw a Beast. Give it +3/+3.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

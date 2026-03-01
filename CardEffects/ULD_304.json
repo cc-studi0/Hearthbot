@@ -1,0 +1,14 @@
+{
+    "_name": "King Phaoris",
+    "_effect": "Battlecry: For each spell in your hand, summon a random minion of the same Cost.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Master of Ceremonies",
+    "_effect": "Battlecry: If you have a minion with Spell Damage, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

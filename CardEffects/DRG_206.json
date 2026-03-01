@@ -1,0 +1,14 @@
+{
+    "_name": "Rain of Fire",
+    "_effect": "Deal $1 damage to all characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

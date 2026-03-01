@@ -1,0 +1,20 @@
+{
+    "_name": "Interstellar Starslicer",
+    "_effect": "Battlecry and Deathrattle: Reduce the Cost of your Librams by (1) this game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

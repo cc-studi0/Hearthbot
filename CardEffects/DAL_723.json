@@ -1,0 +1,12 @@
+{
+    "_name": "Forbidden Words",
+    "_effect": "Spend all your Mana. Destroy a minion with that much Attack or less.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

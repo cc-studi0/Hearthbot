@@ -1,0 +1,14 @@
+{
+    "_name": "Charge",
+    "_effect": "Give a friendly minion +2 Attack and Charge.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

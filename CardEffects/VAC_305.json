@@ -1,0 +1,14 @@
+{
+    "_name": "Frosty Décor",
+    "_effect": "Summon two 2/4 Elementals with Taunt and \"Deathrattle: Gain 4 Armor\".",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 4
+            }
+        ]
+    }
+}

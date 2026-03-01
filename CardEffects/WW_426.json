@@ -1,0 +1,13 @@
+{
+    "_name": "Blastmage Miner",
+    "_effect": "Battlecry: Excavate a treasure. For each card in your hand, deal 1 damage to a random enemy.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "_comment": "暗牧英雄 暗影牧师安度因 - 8费 5护甲 变换英雄",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 5
+            },
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

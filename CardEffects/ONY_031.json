@@ -1,0 +1,13 @@
+{
+    "_name": "Smokescreen",
+    "_effect": "Draw 5 cards. Trigger any Deathrattles drawn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 5
+            }
+        ]
+    }
+}

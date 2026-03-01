@@ -1,0 +1,13 @@
+{
+    "_name": "Necrium Apothecary",
+    "_effect": "Combo: Draw a Deathrattle minion from your deck and gain its Deathrattle.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

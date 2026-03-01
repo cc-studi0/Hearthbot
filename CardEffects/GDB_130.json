@@ -1,0 +1,14 @@
+{
+    "_name": "Crystal Welder",
+    "_effect": "Taunt Battlecry: If you're building a Starship, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

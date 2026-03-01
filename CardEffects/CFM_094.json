@@ -1,0 +1,14 @@
+{
+    "_name": "Felfire Potion",
+    "_effect": "Deal $5 damage to all characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "I Know a Guy",
+    "_effect": "Discover a Taunt minion. Give it +1/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

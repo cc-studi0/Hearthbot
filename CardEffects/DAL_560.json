@@ -1,0 +1,14 @@
+{
+    "_name": "Heroic Innkeeper",
+    "_effect": "Taunt. Battlecry: Gain +2/+2 for each other friendly minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

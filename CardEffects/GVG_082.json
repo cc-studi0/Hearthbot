@@ -1,0 +1,13 @@
+{
+    "_name": "Clockwork Gnome",
+    "_effect": "Deathrattle: Add a Spare Part card to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

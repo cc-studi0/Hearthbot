@@ -1,0 +1,14 @@
+{
+    "_name": "Bovine Skeleton",
+    "_effect": "Deathrattle: If this has 4 or more Attack, summon a Bovine Skeleton.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

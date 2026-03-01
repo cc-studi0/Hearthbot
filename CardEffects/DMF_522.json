@@ -1,0 +1,14 @@
+{
+    "_name": "Minefield",
+    "_effect": "Deal $5 damage randomly split among all minions.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

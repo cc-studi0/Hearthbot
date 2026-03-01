@@ -1,0 +1,13 @@
+{
+    "_name": "Defias Leper",
+    "_effect": "Battlecry: If you're holding a Shadow spell, deal 2 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

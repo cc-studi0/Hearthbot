@@ -1,0 +1,14 @@
+{
+    "_name": "Promotion",
+    "_effect": "Give a Silver Hand Recruit +3/+3 and Taunt.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

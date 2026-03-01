@@ -1,0 +1,14 @@
+{
+    "_name": "Soul Rend",
+    "_effect": "Deal $5 damage to all minions. Destroy a card in your deck for each killed.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

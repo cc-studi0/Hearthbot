@@ -1,0 +1,14 @@
+{
+    "_name": "The Badlands Bandits",
+    "_effect": "Get eight 3/2 Bandits with Bonus Effects. Any that can't fit in your hand are summoned instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 2
+            }
+        ]
+    }
+}

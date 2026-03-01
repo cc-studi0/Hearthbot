@@ -1,0 +1,13 @@
+{
+    "_name": "Knight-Captain",
+    "_effect": "Battlecry: Deal 3 damage. Honorable Kill: Gain +3/+3.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

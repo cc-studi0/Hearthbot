@@ -1,0 +1,13 @@
+{
+    "_name": "Drywhisker Armorer",
+    "_effect": "Battlecry: For each enemy minion, gain 2 Armor.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 2
+            }
+        ]
+    }
+}

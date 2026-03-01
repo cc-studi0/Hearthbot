@@ -1,0 +1,13 @@
+{
+    "_name": "Alter Time",
+    "_effect": "Discover two Arcane spells from the past. They cost (2) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

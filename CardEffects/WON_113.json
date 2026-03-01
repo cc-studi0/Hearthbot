@@ -1,0 +1,13 @@
+{
+    "_name": "Champions of Azeroth",
+    "_effect": "Choose Alliance or Horde. Get 2 of their Legendary Champions and reduce their Costs by (2).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

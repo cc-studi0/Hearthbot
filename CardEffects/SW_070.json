@@ -1,0 +1,13 @@
+{
+    "_name": "Mailbox Dancer",
+    "_effect": "Battlecry: Add a Coin to your hand. Deathrattle: Give your opponent one.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Field Contact",
+    "_effect": "After you play a Battlecry or Combo card, draw a card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Pick Pocket",
+    "_effect": "Echo Add a random card to your hand (from your opponent's class).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

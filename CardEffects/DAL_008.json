@@ -1,0 +1,13 @@
+{
+    "_name": "Dr. Boom's Scheme",
+    "_effect": "Gain 1 Armor. (Upgrades each turn!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 1
+            }
+        ]
+    }
+}

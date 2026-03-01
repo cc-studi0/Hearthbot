@@ -1,0 +1,14 @@
+{
+    "_name": "Arathi Weaponsmith",
+    "_effect": "Battlecry: Equip a 2/2 weapon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 2,
+                "dur": 2
+            }
+        ]
+    }
+}

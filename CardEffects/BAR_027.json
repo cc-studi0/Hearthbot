@@ -1,0 +1,13 @@
+{
+    "_name": "Darkspear Berserker",
+    "_effect": "Deathrattle: Deal 5 damage to your hero.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Griftah, Trusted Vendor",
+    "_effect": "Battlecry: Discover an amazing Amulet to give to both players. (The enemy's is a phony version!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

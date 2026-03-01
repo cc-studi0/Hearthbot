@@ -1,0 +1,14 @@
+{
+    "_name": "Harmonic Hip Hop",
+    "_effect": "Deal $1 damage. Give your weapon +3 Attack. (Swaps each turn.)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

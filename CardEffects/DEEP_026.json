@@ -1,0 +1,13 @@
+{
+    "_name": "Pendant of Earth",
+    "_effect": "Discover a minion from your deck. Restore Health to your hero equal to its Cost.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

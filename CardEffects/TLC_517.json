@@ -1,0 +1,14 @@
+{
+    "_name": "Knockback",
+    "_effect": "Deal $1 damage to a minion (improved for each time you've shuffled cards into your deck).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Piranha Poacher",
+    "_effect": "At the end of your turn, add a 1/1 Piranha Swarmer to your hand.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

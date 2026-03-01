@@ -1,0 +1,14 @@
+{
+    "_name": "Shadow Waltz",
+    "_effect": "Summon a 3/5 Shadow with Taunt. If a minion died this turn, summon another.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 5
+            }
+        ]
+    }
+}

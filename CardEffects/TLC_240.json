@@ -1,0 +1,14 @@
+{
+    "_name": "Tyrannogill",
+    "_effect": "Rush Deathrattle: Summon three 2/1 Murlocs. Give them each a random Bonus Effect.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

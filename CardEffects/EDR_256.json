@@ -1,0 +1,13 @@
+{
+    "_name": "Dreamwarden",
+    "_effect": "Taunt. Battlecry: If there is a card in your deck that didn't start there, draw it and gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "The Egg of Khelos",
+    "_effect": "Deathrattle: Summon a slightly cracked Egg. (Break 5 times to hatch a 20/20 Beast with Taunt!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 20,
+                "hp": 20
+            }
+        ]
+    }
+}

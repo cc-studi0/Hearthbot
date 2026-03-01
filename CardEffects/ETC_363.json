@@ -1,0 +1,13 @@
+{
+    "_name": "Verse Riff",
+    "_effect": "Give your hero +2 Attack this turn. Gain 2 Armor. Finale: Play your last Riff.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Mossy Horror",
+    "_effect": "Battlecry: Destroy all other minions with 2 or less Attack.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

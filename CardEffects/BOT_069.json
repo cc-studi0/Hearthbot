@@ -1,0 +1,14 @@
+{
+    "_name": "The Boomship",
+    "_effect": "Summon 3 random minions from your hand. Give them Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

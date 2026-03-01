@@ -1,0 +1,13 @@
+{
+    "_name": "Celestial Projectionist",
+    "_effect": "Battlecry: Choose a friendly minion. Add a Temporary copy of it to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

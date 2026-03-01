@@ -1,0 +1,14 @@
+{
+    "_name": "Swarm of Locusts",
+    "_effect": "Summon seven 1/1 Locusts with Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

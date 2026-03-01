@@ -1,0 +1,14 @@
+{
+    "_name": "Sky Gen'ral Kragg",
+    "_effect": "Taunt Battlecry: If you've played a Quest this game, summon a 4/2 Parrot with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 2
+            }
+        ]
+    }
+}

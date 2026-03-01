@@ -1,0 +1,14 @@
+{
+    "_name": "Lava Flow",
+    "_effect": "Deal $2 damage to the lowest Health enemy, three times. Overload: (1)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

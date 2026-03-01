@@ -1,0 +1,12 @@
+{
+    "_name": "Royal Librarian",
+    "_effect": "Tradeable Battlecry: Silence a minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Acupuncture",
+    "_effect": "Deal $4 damage to both heroes.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

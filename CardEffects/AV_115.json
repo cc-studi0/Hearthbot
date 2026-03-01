@@ -1,0 +1,12 @@
+{
+    "_name": "Amplified Snowflurry",
+    "_effect": "Battlecry: Your next Hero Power costs (0) and Freezes the target.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

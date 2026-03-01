@@ -1,0 +1,14 @@
+{
+    "_name": "Adorable Infestation",
+    "_effect": "Give a minion +1/+1. Summon a 1/1 Cub. Add a Cub to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

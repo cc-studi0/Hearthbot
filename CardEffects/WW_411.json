@@ -1,0 +1,13 @@
+{
+    "_name": "Stick Up",
+    "_effect": "Discover a Quickdraw card from another class.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

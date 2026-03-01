@@ -1,0 +1,14 @@
+{
+    "_name": "Treenforcements",
+    "_effect": "Choose One - Give a minion +2 Health and Taunt; or Summon a 2/2 Treant.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

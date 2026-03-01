@@ -1,0 +1,13 @@
+{
+    "_name": "Double Cross",
+    "_effect": "Secret: When your opponent spends all their Mana, draw two cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

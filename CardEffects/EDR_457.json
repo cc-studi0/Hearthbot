@@ -1,0 +1,14 @@
+{
+    "_name": "Brood Keeper",
+    "_effect": "Battlecry: If you're holding a Dragon, equip a 2/2 Sword.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 2,
+                "dur": 2
+            }
+        ]
+    }
+}

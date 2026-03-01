@@ -1,0 +1,13 @@
+{
+    "_name": "Emerald Explorer",
+    "_effect": "Taunt Battlecry: Discover a Dragon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

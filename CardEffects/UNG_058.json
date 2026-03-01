@@ -1,0 +1,13 @@
+{
+    "_name": "Razorpetal Lasher",
+    "_effect": "Battlecry: Add a Razorpetal to your hand that deals 2 damage.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

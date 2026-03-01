@@ -1,0 +1,14 @@
+{
+    "_name": "Conditioning (Rank 1)",
+    "_effect": "Give minions in your hand +1/+1. (Upgrades when you have 5 Mana.)",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

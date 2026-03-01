@@ -1,0 +1,13 @@
+{
+    "_name": "Umbral Skulker",
+    "_effect": "Battlecry: If you've Invoked twice, add 3 Coins to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

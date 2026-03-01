@@ -1,0 +1,14 @@
+{
+    "_name": "Ruinous Velocidrake",
+    "_effect": "Rush Battlecry: Cast a Shred of Time from your deck to summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

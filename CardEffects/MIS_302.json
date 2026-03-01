@@ -1,0 +1,12 @@
+{
+    "_name": "Buy One, Get One Freeze",
+    "_effect": "Freeze a minion. Summon a Frozen copy of it.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

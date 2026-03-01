@@ -1,0 +1,14 @@
+{
+    "_name": "Holy Glowsticks",
+    "_effect": "Lifesteal Deal $4 damage to a minion. Costs (1) if you've cast a Holy spell this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

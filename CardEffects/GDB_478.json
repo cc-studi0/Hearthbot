@@ -1,0 +1,14 @@
+{
+    "_name": "Assimilating Blight",
+    "_effect": "Discover a 3-Cost Deathrattle minion. Summon it with Reborn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

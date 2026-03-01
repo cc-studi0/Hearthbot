@@ -1,0 +1,13 @@
+{
+    "_name": "Star Aligner",
+    "_effect": "Battlecry: If you control 3 minions with 7 Health, deal 7 damage to all enemies.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 7
+            }
+        ]
+    }
+}

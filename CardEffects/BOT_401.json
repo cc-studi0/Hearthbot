@@ -1,0 +1,13 @@
+{
+    "_name": "Weaponized Piñata",
+    "_effect": "Deathrattle: Add a random Legendary minion to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

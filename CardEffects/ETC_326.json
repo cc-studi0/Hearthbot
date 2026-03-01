@@ -1,0 +1,13 @@
+{
+    "_name": "Paparazzi",
+    "_effect": "Battlecry: Discover a Legendary minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

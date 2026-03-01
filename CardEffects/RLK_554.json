@@ -1,0 +1,14 @@
+{
+    "_name": "Harkener of Dread",
+    "_effect": "Taunt, Reborn Deathrattle: Summon a 4/4 Undead with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Siren Song",
+    "_effect": "Get two random spells from spell schools you haven't cast this game.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

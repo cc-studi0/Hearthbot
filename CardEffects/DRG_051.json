@@ -1,0 +1,14 @@
+{
+    "_name": "Strength in Numbers",
+    "_effect": "Sidequest: Spend 10 Mana on minions. Reward: Summon a minion from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

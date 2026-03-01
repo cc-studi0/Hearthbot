@@ -1,0 +1,14 @@
+{
+    "_name": "Cliff Dive",
+    "_effect": "Summon 2 minions from your deck and give them Rush. They go back at the end of your turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

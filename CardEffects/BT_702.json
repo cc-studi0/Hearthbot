@@ -1,0 +1,14 @@
+{
+    "_name": "Ashtongue Slayer",
+    "_effect": "Battlecry: Give a Stealthed minion +3 Attack and Immune this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

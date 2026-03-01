@@ -1,0 +1,197 @@
+=== 可打出英雄牌: 45 ===
+  AV_113 cost=6 armor=5 reg=N mechs=['BATTLECRY', 'DISCOVER']
+    Battlecry:   Discover  and cast 2 Improved  Secrets .
+  AV_200 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Recast a spell from each spell school you've cast  this game.
+  AV_202 cost=7 armor=10 reg=N mechs=['BATTLECRY']
+    Battlecry:  Equip a 5/2 Unstoppable Force.
+  AV_203 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Return all minions to their owner's  hands. Summon two 4/2 Shadows with  Stealth .
+  AV_204 cost=6 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon two 1/4 Demons with  Rush .  (Improved by your hero attacks this game.)
+  AV_205 cost=5 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Set your maximum Mana to 20. Gain an empty Mana Crystal. Draw a card.
+  AV_206 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Deal 2 damage to all enemies. Equip a 2/5 Immovable Object.
+  AV_207 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Trigger the  Deathrattle  of every friendly minion that died this game.
+  AV_258 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Call upon the power of two Elements!
+  AV_316 cost=6 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Deal 3 damage to all minions. Shuffle 3 Rifts into your deck. Draw 3 cards.
+  BOT_238 cost=7 armor=7 reg=N mechs=['BATTLECRY']
+    Battlecry:  For the rest of the game, your Mechs have  Rush .
+  CORE_EX1_323 cost=8 armor=5 reg=N mechs=[]
+    Battlecry:  Equip a 3/8 Blood Fury.
+  CORE_ICC_481 cost=5 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Transform your minions into random ones that cost (2) more.
+  CORE_ICC_827 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Gain  Stealth  until your next turn.
+  CORE_ICC_828 cost=6 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Deal 2 damage to all enemy minions.
+  CORE_ICC_829 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Equip a 5/3  Lifesteal  weapon.
+  CORE_ICC_830 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Destroy all minions with 5 or more Attack.
+  CORE_ICC_831 cost=10 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon all friendly Demons that died this game.
+  CORE_ICC_832 cost=7 armor=5 reg=N mechs=['CHOOSE_ONE']
+    Choose One -  Summon 2  Poisonous  Spiders; or 2 Scarabs with  Taunt .
+  CORE_ICC_833 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon a 3/6 Water Elemental. Your Elementals have  Lifesteal  this game.
+  CORE_ICC_834 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry : Equip a 4/3 Shadowmourne that also damages adjacent minions.
+  DRG_600 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon 1 random Demon.
+  DRG_610 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Draw 1 card. It costs (0).
+  DRG_620 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon two 2/2 Storms with  Rush .
+  DRG_650 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Draw 1 minion. Give it +4/+4.
+  DRG_660 cost=7 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Destroy 1 random enemy minion.
+  EX1_323 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Equip a 3/8 Blood Fury.
+  GIL_504 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Deal 3 damage to all minions.
+  ICC_481 cost=5 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Transform your minions into random ones that cost (2) more.
+  ICC_827 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Gain  Stealth  until your next turn.
+  ICC_828 cost=6 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Deal 2 damage to all enemy minions.
+  ICC_829 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Equip a 5/3  Lifesteal  weapon.
+  ICC_830 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Destroy all minions with 5 or more Attack.
+  ICC_831 cost=10 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon all friendly Demons that died this game.
+  ICC_832 cost=7 armor=5 reg=N mechs=['CHOOSE_ONE']
+    Choose One -  Summon 2  Poisonous  Spiders; or 2 Scarabs with  Taunt .
+  ICC_833 cost=9 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon a 3/6 Water Elemental. Your Elementals have  Lifesteal  this game.
+  ICC_834 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry : Equip a 4/3 Shadowmourne that also damages adjacent minions.
+  SC_004 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon two 2/5 Hive Queens. Deal 3 damage to all enemies.
+  SC_400 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Relaunch every  Starship  that you launched this game.
+  SC_754 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Summon two 3/4 Zealots with  Charge . Your Protoss minions cost (2) less this game.
+  TOY_829 cost=6 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Destroy the enemy minion with the most  Attack!  Shuffle my Head into your deck, you must get it  back!
+  TRL_065 cost=10 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Cast all spells you've played this game  (targets chosen randomly) .
+  WON_092h cost=7 armor=8 reg=N mechs=['BATTLECRY']
+    Battlecry:  Draw a  Charge ,  Divine Shield ,  Taunt , and  Windfury  minion.
+  WW_0700 cost=8 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  If your deck started with no duplicates, remove all enemy minions from the game.
+  YOD_009 cost=10 armor=5 reg=N mechs=['BATTLECRY']
+    Battlecry:  Make all minions disappear.  *Poof!*
+
+=== 地标牌: 52 ===
+  CORE_REV_290 cost=3 health=3 reg=N
+    Give a minion +2/+1 and draw a card.
+  CORE_REV_333 cost=3 health=2 reg=N
+    Trigger a friendly minion's  Deathrattle .
+  CORE_REV_362 cost=2 health=3 reg=N
+    Give a friendly minion  +2 Attack. If it's a  Beast, give it  Rush .
+  CORE_REV_371 cost=2 health=2 reg=N
+    Give a friendly minion +1/+1. Repeat for each Imp you control.
+  CORE_REV_602 cost=3 health=3 reg=N
+    Freeze  a minion. Summon a 2/2 Volatile Skeleton.
+  CORE_REV_750 cost=3 health=2 reg=N
+    Summon a 1/1 Ghost.  (Has +1/+1 for each other card you played this turn!)
+  CORE_REV_923 cost=1 health=3 reg=N
+    Transform a friendly minion into one that costs (1) more.
+  CORE_REV_942 cost=2 health=2 reg=N
+    The next Relic you play this turn casts twice.
+  CORE_REV_983 cost=2 health=3 reg=N
+    Set a minion's Attack and Health to 3.
+  CORE_REV_990 cost=1 health=3 reg=N
+    Deal 1 damage to a  minion and give it  +2 Attack.
+  DEEP_019 cost=4 health=2 reg=N
+    Choose a damaged minion. Summon a copy of it that goes  Dormant  for one turn.
+  EDR_454 cost=2 health=2 reg=N
+    Choose a friendly Dragon. Summon a 0/2 Egg that hatches into a copy of it.
+  EDR_520 cost=1 health=3 reg=N
+    Spend all your Mana. Cast a random spell that costs that much.
+  ETC_449 cost=1 health=2 reg=N
+    Restore #3 Health to all friendly characters.
+  ETC_533 cost=2 health=2 reg=N
+    Spend 3  Corpses  to give a friendly minion  Reborn .
+  FIR_907 cost=5 health=3 reg=N
+    Summon a 1-Cost minion. Gain 1 Armor. Draw 1 card. Refresh 1 Mana |4(Crystal, Crystals).  (Improves each use!)
+  JAM_009 cost=2 health=2 reg=N
+    Give your minions  Rush .
+  MIS_919 cost=4 health=2 reg=N
+    Choose an enemy minion. Get a 1/1 copy of it that costs (1).
+  NX2_036 cost=3 health=3 reg=N
+    Destroy a friendly minion to summon a 4/5 Undead with  Rush .
+  REV_290 cost=3 health=3 reg=N
+    Give a minion +2/+1 and draw a card.
+  REV_333 cost=3 health=2 reg=N
+    Trigger a friendly minion's  Deathrattle .
+  REV_362 cost=2 health=3 reg=N
+    Give a friendly minion  +2 Attack. If it's a  Beast, give it  Rush .
+  REV_371 cost=2 health=2 reg=N
+    Give a friendly minion +1/+1. Repeat for each Imp you control.
+  REV_602 cost=3 health=3 reg=N
+    Freeze  a minion. Summon a 2/2 Volatile Skeleton.
+  REV_750 cost=3 health=2 reg=N
+    Summon a 1/1 Ghost.  (Has +1/+1 for each other card you played this turn!)
+  REV_923 cost=1 health=3 reg=N
+    Transform a friendly minion into one that costs (1) more.
+  REV_942 cost=2 health=2 reg=N
+    The next Relic you play this turn casts twice.
+  REV_983 cost=2 health=3 reg=N
+    Set a minion's Attack and Health to 3.
+  REV_990 cost=1 health=3 reg=N
+    Deal 1 damage to a  minion and give it  +2 Attack.
+  SC_000 cost=2 health=2 reg=N
+    Get a 1/1 Zergling.  Deathrattle:  Your Zerg minions have  Rush  this turn.
+  SC_019 cost=4 health=3 reg=N
+    Deal 1 damage to all enemies.  Deathrattle:  Summon an 8/8 Ultralisk with  Rush .
+  SC_403 cost=2 health=2 reg=N
+    Summon a 2/1  Starship Piece  with an effect when launched.
+  SC_751 cost=4 health=3 reg=N
+    Your next Protoss minion costs (3) less.
+  TIME_044 cost=2 health=3 reg=N
+    Give a minion +2/+1.  Advance to the present!
+  TIME_436 cost=7 health=3 reg=N
+    Summon a random Dragon that costs (5) or more.  Advance to the present!
+  TIME_446 cost=6 health=3 reg=N
+    Discover  any Demon that costs (5) or more. If your deck has no minions, your next one costs (0).
+  TIME_810 cost=4 health=3 reg=N
+    Deal 5 damage to a random enemy minion.  Advance to the present!
+  TLC_449 cost=1 health=2 reg=N
+    Discover  a  Temporary  1-Cost minion.
+  TOY_359 cost=2 health=2 reg=N
+    Deal 1 damage to a random enemy. Repeat for each friendly Beast.
+  TOY_507 cost=3 health=2 reg=N
+    Draw a  Battlecry  minion. It costs (1) less.
+  TOY_512 cost=3 health=3 reg=N
+    The next minion you summon this turn has its stats set to 4/4.
+  TOY_850 cost=2 health=3 reg=N
+    Gain  Spell Damage +1  this turn only.
+  TTN_090 cost=7 health=3 reg=N
+    Choose a character. Cast 4 random spells  (targeting it if possible) .
+  TTN_465 cost=3 health=2 reg=N
+    Choose a friendly minion. Summon a Giant with its stats and  Rush .
+  VAC_334 cost=3 health=4 reg=N
+    Draw a card. If you play it this turn, reopen this.
+  VAC_409 cost=2 health=3 reg=N
+    Your next  Battlecry  minion costs (1) less. After you play a  Battlecry  minion, reopen this.
+  VAC_425 cost=4 health=5 reg=N
+    Deal 3 damage randomly split among all enemies. After a friendly minion dies, reopen this.
+  VAC_517 cost=3 health=3 reg=N
+    Discover  a  Taunt  minion. After you gain Armor, reopen this.
+  VAC_522 cost=3 health=3 reg=N
+    Discover  a spell that costs (3) or less. After you cast a spell, reopen this.
+  VAC_929 cost=4 health=3 reg=N
+    Summon two 1/1 Pirates with  Charge . After your hero attacks, reopen this.
+  WON_015 cost=1 health=2 reg=N
+    Your next  Choose One  card this turn has both effects combined.
+  WON_103 cost=3 health=2 reg=N
+    Look at 3 cards in your hand and choose one to discard. Draw two cards.

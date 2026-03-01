@@ -1,0 +1,14 @@
+{
+    "_name": "Infectious Ghoul",
+    "_effect": "Deathrattle: Give a random friendly minion \"Deathrattle: Summon an Infectious Ghoul.\"",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

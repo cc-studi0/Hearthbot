@@ -1,0 +1,14 @@
+{
+    "_name": "Loken, Jailer of Yogg-Saron",
+    "_effect": "Battlecry: Discover a minion from your deck. Summon a Tentacle with its stats and Taunt.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

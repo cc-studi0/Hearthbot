@@ -1,0 +1,13 @@
+{
+    "_name": "Contingency",
+    "_effect": "Draw the bottom two cards from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

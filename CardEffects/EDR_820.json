@@ -1,0 +1,14 @@
+{
+    "_name": "Wyvern's Slumber",
+    "_effect": "Choose One - Summon two Dormant Dreadseeds; or Deal $2 damage to all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

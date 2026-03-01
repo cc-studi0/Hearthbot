@@ -1,0 +1,14 @@
+{
+    "_name": "Barrel of Monkeys",
+    "_effect": "Summon a 1/4 Monkey with Taunt. (3 Monkeys left!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 4
+            }
+        ]
+    }
+}

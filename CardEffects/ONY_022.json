@@ -1,0 +1,13 @@
+{
+    "_name": "Battle Vicar",
+    "_effect": "Battlecry: Discover a Holy spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

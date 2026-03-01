@@ -1,0 +1,14 @@
+{
+    "_name": "Rhyme Spinner",
+    "_effect": "Rush Combo: Gain +1/+1 for each other Combo card you've played this game.@ (@)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

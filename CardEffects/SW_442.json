@@ -1,0 +1,14 @@
+{
+    "_name": "Void Shard",
+    "_effect": "Lifesteal Deal $4 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

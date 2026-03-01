@@ -1,0 +1,13 @@
+{
+    "_name": "Claw Machine",
+    "_effect": "Rush. Deathrattle: Draw a minion and give it +3/+3.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

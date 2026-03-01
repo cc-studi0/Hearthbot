@@ -1,0 +1,13 @@
+{
+    "_name": "Frost Lotus Seedling",
+    "_effect": "Draw 1 card. Gain 5 Armor. (Blossoms in 3 turns.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

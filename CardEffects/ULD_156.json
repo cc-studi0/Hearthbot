@@ -1,0 +1,14 @@
+{
+    "_name": "Dinotamer Brann",
+    "_effect": "Battlecry: If your deck has no duplicates, summon King Krush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

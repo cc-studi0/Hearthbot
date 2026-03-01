@@ -1,0 +1,14 @@
+{
+    "_name": "Ymirjar Frostbreaker",
+    "_effect": "Battlecry: Gain +1 Attack for each Frost spell in your hand.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

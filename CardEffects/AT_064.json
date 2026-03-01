@@ -1,0 +1,14 @@
+{
+    "_name": "Bash",
+    "_effect": "Deal $3 damage. Gain 3 Armor.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

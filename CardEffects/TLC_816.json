@@ -1,0 +1,13 @@
+{
+    "_name": "Gravedawn Sunbloom",
+    "_effect": "Draw 2 cards. Kindred: This costs (2) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

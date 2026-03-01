@@ -1,0 +1,12 @@
+{
+    "_name": "Grimestreet Protector",
+    "_effect": "Taunt Battlecry: Give adjacent minions Divine Shield.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

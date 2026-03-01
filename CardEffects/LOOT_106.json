@@ -1,0 +1,13 @@
+{
+    "_name": "Deck of Wonders",
+    "_effect": "Shuffle 5 Scrolls into your deck. When drawn, cast a random spell.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

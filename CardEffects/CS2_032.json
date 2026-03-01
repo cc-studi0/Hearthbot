@@ -1,0 +1,14 @@
+{
+    "_name": "Flamestrike",
+    "_effect": "Deal $5 damage to all enemy minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Walk the Plank",
+    "_effect": "Destroy an undamaged minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

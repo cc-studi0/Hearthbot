@@ -1,0 +1,14 @@
+{
+    "_name": "Coldlight Seer",
+    "_effect": "Battlecry: Give your other Murlocs +2 Health.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

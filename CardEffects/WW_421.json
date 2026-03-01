@@ -1,0 +1,12 @@
+{
+    "_name": "Kingpin Pud",
+    "_effect": "Battlecry: Resurrect your Ogre-Gang. Give them Windfury.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_windfury"
+            }
+        ]
+    }
+}

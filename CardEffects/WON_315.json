@@ -1,0 +1,13 @@
+{
+    "_name": "Darkshire Alchemist",
+    "_effect": "Battlecry: Restore #5 Health.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 5
+            }
+        ]
+    }
+}

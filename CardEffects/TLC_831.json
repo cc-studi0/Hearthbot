@@ -1,0 +1,14 @@
+{
+    "_name": "Pterrordax Egg",
+    "_effect": "Deathrattle: Summon a 3/3 Pterrordax that steals 1 Health from all other minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

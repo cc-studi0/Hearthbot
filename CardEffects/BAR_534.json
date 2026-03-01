@@ -1,0 +1,14 @@
+{
+    "_name": "Pride's Fury",
+    "_effect": "Give your minions +1/+3.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 3
+            }
+        ]
+    }
+}

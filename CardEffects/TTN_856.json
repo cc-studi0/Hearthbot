@@ -1,0 +1,14 @@
+{
+    "_name": "Disciple of Amitus",
+    "_effect": "At the end of your turn, summon a 2/2 Earthen that gains +2/+2 for each other Earthen you've summoned this game.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

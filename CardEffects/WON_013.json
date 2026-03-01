@@ -1,0 +1,22 @@
+{
+    "_name": "Rat Sensei",
+    "_effect": "Battlecry and Deathrattle: Add two 1/1 Turtles with Taunt to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

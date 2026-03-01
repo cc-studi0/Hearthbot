@@ -1,0 +1,13 @@
+{
+    "_name": "Tomb Spider",
+    "_effect": "Battlecry: Discover a Beast.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

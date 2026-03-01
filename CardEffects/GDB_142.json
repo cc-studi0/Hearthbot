@@ -1,0 +1,12 @@
+{
+    "_name": "The Ceaseless Expanse",
+    "_effect": "Costs (1) less for each time a card was drawn, played, or destroyed. Battlecry: Destroy all other minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

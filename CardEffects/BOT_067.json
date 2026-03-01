@@ -1,0 +1,13 @@
+{
+    "_name": "Rocket Boots",
+    "_effect": "Give a minion Rush. Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "King Maluk",
+    "_effect": "Battlecry: Discard your hand. Get an Infinite Banana.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

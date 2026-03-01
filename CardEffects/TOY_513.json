@@ -1,0 +1,14 @@
+{
+    "_name": "Sand Art Elemental",
+    "_effect": "Miniaturize Battlecry: Give your hero +1 Attack and Windfury this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

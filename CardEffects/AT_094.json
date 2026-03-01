@@ -1,0 +1,13 @@
+{
+    "_name": "Flame Juggler",
+    "_effect": "Battlecry: Deal 1 damage to a random enemy.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

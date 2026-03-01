@@ -1,0 +1,13 @@
+{
+    "_name": "Insight",
+    "_effect": "Draw a minion. Corrupt: Reduce its Cost by (2).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

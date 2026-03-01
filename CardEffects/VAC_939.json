@@ -1,0 +1,12 @@
+{
+    "_name": "Eat! The! Imp!",
+    "_effect": "Destroy a friendly minion to draw 3 cards.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

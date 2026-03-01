@@ -1,0 +1,13 @@
+{
+    "_name": "Summoner Darkmarrow",
+    "_effect": "Death Knight Tourist Your Deathrattles trigger twice. After you play a Deathrattle minion, destroy it.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

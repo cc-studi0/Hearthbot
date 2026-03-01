@@ -1,0 +1,13 @@
+{
+    "_name": "Dun Baldar Bunker",
+    "_effect": "At the end of your turn, draw a Secret and set its Cost to (1). Lasts 3 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Howling Blast",
+    "_effect": "Deal $3 damage to an enemy and Freeze it. Deal $1 damage to all other enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

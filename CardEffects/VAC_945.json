@@ -1,0 +1,14 @@
+{
+    "_name": "Party Planner Vona",
+    "_effect": "Battlecry: If you've taken 8 damage on your turns, summon Ourobos.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Turn the Tides",
+    "_effect": "Give your hero +3 Attack this turn. Summon a 3/3 Elemental with Rush. Overload: (1)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

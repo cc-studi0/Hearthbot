@@ -1,0 +1,14 @@
+{
+    "_name": "Fireworker",
+    "_effect": "Deathrattle: Summon two 1/1 Boom Bots. WARNING: Bots may explode.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

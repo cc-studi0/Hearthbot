@@ -1,0 +1,12 @@
+{
+    "_name": "Convincing Infiltrator",
+    "_effect": "Taunt Deathrattle: Destroy a random enemy minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

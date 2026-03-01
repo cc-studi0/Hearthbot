@@ -1,0 +1,12 @@
+{
+    "_name": "Frost Elemental",
+    "_effect": "Battlecry: Freeze a character.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

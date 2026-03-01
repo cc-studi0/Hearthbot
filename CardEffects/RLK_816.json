@@ -1,0 +1,13 @@
+{
+    "_name": "Sister Svalna",
+    "_effect": "Battlecry: Permanently add a Vision of Darkness to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

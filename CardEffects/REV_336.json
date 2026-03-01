@@ -1,0 +1,14 @@
+{
+    "_name": "Plot of Sin",
+    "_effect": "Summon two 2/2 Treants. Infuse (5): Two 5/5 Ancients instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

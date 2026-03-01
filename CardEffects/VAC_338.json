@@ -1,0 +1,14 @@
+{
+    "_name": "Cup o' Muscle",
+    "_effect": "Give a minion in your hand +2/+1. (3 Drinks left!)",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

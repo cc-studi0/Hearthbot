@@ -1,0 +1,14 @@
+{
+    "_name": "Aimed Shot",
+    "_effect": "Deal $3 damage. Your next Hero Power deals 2 more damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

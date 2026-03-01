@@ -1,0 +1,14 @@
+{
+    "_name": "Razorfen Beastmaster",
+    "_effect": "Deathrattle: Summon a Deathrattle minion that costs (4) or less from your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

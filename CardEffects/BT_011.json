@@ -1,0 +1,14 @@
+{
+    "_name": "Libram of Justice",
+    "_effect": "Equip a 1/4 weapon. Change the Health of all enemy minions to 1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 1,
+                "dur": 4
+            }
+        ]
+    }
+}

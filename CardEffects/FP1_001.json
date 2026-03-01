@@ -1,0 +1,13 @@
+{
+    "_name": "Zombie Chow",
+    "_effect": "Deathrattle: Restore #5 Health to the enemy hero.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 5
+            }
+        ]
+    }
+}

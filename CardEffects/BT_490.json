@@ -1,0 +1,12 @@
+{
+    "_name": "Consume Magic",
+    "_effect": "Silence an enemy minion. Outcast: Draw a card.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

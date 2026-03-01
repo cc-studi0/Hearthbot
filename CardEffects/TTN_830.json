@@ -1,0 +1,13 @@
+{
+    "_name": "Flash of Lightning",
+    "_effect": "Draw a card. Next turn, your Nature spells cost (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Razorpetal Volley",
+    "_effect": "Add two Razorpetals to your hand that deal 2 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

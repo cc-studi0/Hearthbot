@@ -1,0 +1,13 @@
+{
+    "_name": "Arfus",
+    "_effect": "Deathrattle: Add a random Lich King card to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

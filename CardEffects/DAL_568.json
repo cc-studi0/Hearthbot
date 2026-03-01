@@ -1,0 +1,12 @@
+{
+    "_name": "Lightforged Blessing",
+    "_effect": "Twinspell Give a friendly minion Lifesteal.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_lifesteal"
+            }
+        ]
+    }
+}

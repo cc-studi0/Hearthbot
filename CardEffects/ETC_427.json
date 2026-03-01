@@ -1,0 +1,14 @@
+{
+    "_name": "Harmonic Metal",
+    "_effect": "Give 4 random minions in your hand +2/+2. (Swaps each turn.)",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Knight of Anointment",
+    "_effect": "Battlecry: Draw a Holy spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

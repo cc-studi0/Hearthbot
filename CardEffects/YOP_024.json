@@ -1,0 +1,13 @@
+{
+    "_name": "Guidance",
+    "_effect": "Look at two spells. Add one to your hand or Overload: (1) to get both.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

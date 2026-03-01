@@ -1,0 +1,13 @@
+{
+    "_name": "Stampede",
+    "_effect": "Each time you play a Beast this turn, add a random Beast to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

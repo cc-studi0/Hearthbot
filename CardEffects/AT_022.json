@@ -1,0 +1,14 @@
+{
+    "_name": "Fist of Jaraxxus",
+    "_effect": "When you play or discard this, deal $4 damage to a random enemy.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

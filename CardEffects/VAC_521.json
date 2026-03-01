@@ -1,0 +1,14 @@
+{
+    "_name": "Bumbling Bellhop",
+    "_effect": "Taunt Battlecry: If you're holding a spell that costs (5) or more, summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

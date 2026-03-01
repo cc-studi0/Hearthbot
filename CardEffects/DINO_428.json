@@ -1,0 +1,12 @@
+{
+    "_name": "Behemoth Mask",
+    "_effect": "Set a minion's stats to 8/10 and give it Lifesteal. Force a random enemy minion to attack it.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_lifesteal"
+            }
+        ]
+    }
+}

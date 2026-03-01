@@ -1,0 +1,14 @@
+{
+    "_name": "Pantry Spider",
+    "_effect": "Battlecry: Summon a 1/3 Spider.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 3
+            }
+        ]
+    }
+}

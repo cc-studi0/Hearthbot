@@ -1,0 +1,14 @@
+{
+    "_name": "Wreck'em and Deck'em",
+    "_effect": "Choose a friendly Mech. Summon a copy of it that attacks a random enemy, then dies.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

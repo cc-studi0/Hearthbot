@@ -1,0 +1,13 @@
+{
+    "_name": "Keywarden Ivory",
+    "_effect": "Battlecry: Discover a Dual Class spell from any class. Spellburst: Get another copy.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

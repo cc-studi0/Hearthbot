@@ -1,0 +1,12 @@
+{
+    "_name": "Cold Storage",
+    "_effect": "Freeze a minion. Add a copy of it to your hand.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

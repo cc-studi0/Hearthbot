@@ -1,0 +1,14 @@
+{
+    "_name": "Linedance Partner",
+    "_effect": "Battlecry: If you're holding another 3-Cost card, summon a random 3-Cost minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

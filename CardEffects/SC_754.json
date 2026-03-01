@@ -1,0 +1,12 @@
+{
+    "_name": "Artanis",
+    "_effect": "Battlecry: Summon two 3/4 Zealots with Charge. Your Protoss minions cost (2) less this game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

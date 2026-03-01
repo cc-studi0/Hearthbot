@@ -1,0 +1,14 @@
+{
+    "_name": "Molten Rune",
+    "_effect": "Deal $3 damage. Get a random spell. Forge: This casts twice.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

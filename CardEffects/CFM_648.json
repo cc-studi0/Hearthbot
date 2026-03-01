@@ -1,0 +1,14 @@
+{
+    "_name": "Big-Time Racketeer",
+    "_effect": "Battlecry: Summon a 6/6 Ogre.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 6,
+                "hp": 6
+            }
+        ]
+    }
+}

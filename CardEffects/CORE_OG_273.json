@@ -1,0 +1,14 @@
+{
+    "_name": "Stand Against Darkness",
+    "_effect": "Summon five 1/1 Silver Hand Recruits.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

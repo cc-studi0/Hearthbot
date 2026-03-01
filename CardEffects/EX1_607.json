@@ -1,0 +1,14 @@
+{
+    "_name": "Inner Rage",
+    "_effect": "Deal $1 damage to a minion and give it +2 Attack.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

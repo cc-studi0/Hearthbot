@@ -1,0 +1,14 @@
+{
+    "_name": "Animated Avalanche",
+    "_effect": "Battlecry: If you played an Elemental last turn, summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

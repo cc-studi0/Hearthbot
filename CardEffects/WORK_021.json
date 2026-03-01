@@ -1,0 +1,14 @@
+{
+    "_name": "Reserved Spot",
+    "_effect": "Give a random minion in your hand +4/+4. If it's the only one there, reduce its Cost by (2).",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

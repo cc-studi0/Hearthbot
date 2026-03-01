@@ -1,0 +1,27 @@
+Card definition Ver(300.6) 22 February 2026
+Support for SmartBot V74.?
+Support for UniversalDiscover V9.?
+Support for UniversalMulligan V5.?
+Support for HS v34.?
+
+SmartBot discover settings: UniversalDiscover.cs
+--------------Installed files-------------
+\DiscoverCC\UniversalDiscover.cs
+\MulliganProfiles\UniversalMulligan.cs
+\DiscoverCC\EE_Information.txt
+Discover Standard 150 files
+          discover.ini 1531 cards
+Discover Wild 439 files
+          discover.ini 5803 cards
+Discover Arena 139 files
+          discover.ini 1218 cards
+Discover Total 728 files
+          discover.ini 8552 cards
+Mulligan Standard 13501 decks
+          mulligan.json 6482 cards
+Mulligan Wild 19324 decks
+          mulligan.json 21508 cards
+Mulligan Arena 0 decks
+          mulligan.json 4930 cards
+Mulligan Total 32825 decks
+          mulligan.json 32920 cards

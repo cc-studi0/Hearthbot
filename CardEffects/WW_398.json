@@ -1,0 +1,13 @@
+{
+    "_name": "Gaslight Gatekeeper",
+    "_effect": "Battlecry: Shuffle your hand into your deck, then draw that many cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

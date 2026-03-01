@@ -1,0 +1,14 @@
+{
+    "_name": "Beastmaster Leoroxx",
+    "_effect": "Battlecry: Summon 3 Beasts from your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

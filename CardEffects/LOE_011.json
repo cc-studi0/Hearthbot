@@ -1,0 +1,13 @@
+{
+    "_name": "Reno Jackson",
+    "_effect": "Battlecry: If your deck has no duplicates, fully heal your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 99
+            }
+        ]
+    }
+}

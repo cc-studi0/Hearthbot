@@ -1,0 +1,14 @@
+{
+    "_name": "Flame Lance",
+    "_effect": "Deal $25 damage to a minion.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 25,
+                "useSP": true
+            }
+        ]
+    }
+}

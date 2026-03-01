@@ -1,0 +1,12 @@
+{
+    "_name": "Shadowblade",
+    "_effect": "Battlecry: Your hero is Immune this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "give_immune"
+            }
+        ]
+    }
+}

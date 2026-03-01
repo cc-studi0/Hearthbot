@@ -1,0 +1,13 @@
+{
+    "_name": "Multi-Shot",
+    "_effect": "Deal $3 damage to two random enemy minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 3
+            }
+        ]
+    }
+}

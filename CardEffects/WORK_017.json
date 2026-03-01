@@ -1,0 +1,14 @@
+{
+    "_name": "Silvermoon Brochure",
+    "_effect": "Give a minion Immune this turn and +2/+2. (Flips each turn.)",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

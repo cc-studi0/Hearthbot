@@ -1,0 +1,13 @@
+{
+    "_name": "Chitinous Plating",
+    "_effect": "Gain 4 Armor. At the start of your next turn, gain 4 more.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 4
+            }
+        ]
+    }
+}

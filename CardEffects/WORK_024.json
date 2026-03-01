@@ -1,0 +1,14 @@
+{
+    "_name": "Handle with Bear",
+    "_effect": "Get two 3/3 Bears with Taunt. Each turn they are in your hand, they gain +1/+1.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

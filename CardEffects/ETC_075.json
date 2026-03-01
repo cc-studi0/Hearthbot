@@ -1,0 +1,13 @@
+{
+    "_name": "Mic Drop",
+    "_effect": "Draw 2 cards. Finale: Give your weapon +2 Attack.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

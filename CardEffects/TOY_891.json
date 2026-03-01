@@ -1,0 +1,13 @@
+{
+    "_name": "Workshop Janitor",
+    "_effect": "Battlecry: If you control a location, draw 2 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

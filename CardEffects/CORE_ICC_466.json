@@ -1,0 +1,14 @@
+{
+    "_name": "Saronite Chain Gang",
+    "_effect": "Taunt Battlecry: Summon a copy of this minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

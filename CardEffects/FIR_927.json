@@ -1,0 +1,13 @@
+{
+    "_name": "Emberscarred Whelp",
+    "_effect": "Battlecry: Discover a 5-Cost card. Gain 1 Mana Crystal next turn only.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Bomb Toss",
+    "_effect": "Deal $2 damage. Summon a 0/2 Goblin Bomb.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

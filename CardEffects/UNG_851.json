@@ -1,0 +1,13 @@
+{
+    "_name": "Elise the Trailblazer",
+    "_effect": "Battlecry: Shuffle a sealed Un'Goro pack into your deck. If your deck has no duplicates, draw it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

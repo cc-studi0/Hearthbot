@@ -1,0 +1,14 @@
+{
+    "_name": "The Beast",
+    "_effect": "Deathrattle: Summon a 3/3 Pip Quickwit for your opponent.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "冰霜女巫吉安娜 (法师英雄) 9费 5护甲",
+    "_effect": "战吼：召唤一个3/6的水元素。在本局对战中，你的所有元素拥有吸血",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 6
+            }
+        ]
+    }
+}

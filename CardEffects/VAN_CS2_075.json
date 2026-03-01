@@ -1,0 +1,13 @@
+{
+    "_name": "Sinister Strike",
+    "_effect": "Deal $3 damage to the enemy hero.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 3
+            }
+        ]
+    }
+}

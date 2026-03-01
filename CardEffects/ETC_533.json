@@ -1,0 +1,12 @@
+{
+    "_name": "Mosh Pit",
+    "_effect": "Spend 3 Corpses to give a friendly minion Reborn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_reborn"
+            }
+        ]
+    }
+}

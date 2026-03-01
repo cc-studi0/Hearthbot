@@ -1,0 +1,13 @@
+{
+    "_name": "Need for Greed",
+    "_effect": "Tradeable Draw 3 cards. If drawn this turn, this costs (3).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

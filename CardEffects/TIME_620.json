@@ -1,0 +1,14 @@
+{
+    "_name": "Untimely Death",
+    "_effect": "Secret: When a friendly minion dies the turn after being played, resummon it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

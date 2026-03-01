@@ -1,0 +1,14 @@
+{
+    "_name": "Captain Hooktusk",
+    "_effect": "Battlecry: Summon 3 Pirates from your deck. Give them Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

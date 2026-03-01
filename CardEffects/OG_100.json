@@ -1,0 +1,12 @@
+{
+    "_name": "Shadow Word: Horror",
+    "_effect": "Destroy all minions with 2 or less Attack.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

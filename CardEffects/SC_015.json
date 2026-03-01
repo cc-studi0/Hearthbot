@@ -1,0 +1,13 @@
+{
+    "_name": "Nydus Worm",
+    "_effect": "Draw two Zerg cards. They cost (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

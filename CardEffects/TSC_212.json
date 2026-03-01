@@ -1,0 +1,13 @@
+{
+    "_name": "Handmaiden",
+    "_effect": "Battlecry: If you've cast three spells while holding this, draw 3 cards.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

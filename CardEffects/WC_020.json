@@ -1,0 +1,14 @@
+{
+    "_name": "Perpetual Flame",
+    "_effect": "Deal $3 damage to a random enemy minion. If it dies, recast this. Overload: (1)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

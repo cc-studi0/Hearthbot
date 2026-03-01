@@ -1,0 +1,14 @@
+{
+    "_name": "Earthen Scales",
+    "_effect": "Give a friendly minion +1/+1, then gain Armor equal to its Attack.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Sheldras Moontree",
+    "_effect": "Battlecry: The next 3 spells you draw are Cast When Drawn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Soulciologist Malicia",
+    "_effect": "Battlecry: For each Soul Fragment in your deck, summon a 3/3 Soul with Rush.@ (@)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

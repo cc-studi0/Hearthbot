@@ -1,0 +1,13 @@
+{
+    "_name": "Shadowbomber",
+    "_effect": "Battlecry: Deal 3 damage to each hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

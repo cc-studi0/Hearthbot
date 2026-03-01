@@ -1,0 +1,14 @@
+{
+    "_name": "Crowd Surfer",
+    "_effect": "Deathrattle: Give ANY other minion +1/+1 and this Deathrattle.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

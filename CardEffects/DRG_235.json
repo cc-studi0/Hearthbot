@@ -1,0 +1,14 @@
+{
+    "_name": "Dragonrider Talritha",
+    "_effect": "Deathrattle: Give a Dragon in your hand +3/+3 and this Deathrattle.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Horizon's Edge",
+    "_effect": "Deal 3 damage randomly split among all enemies. After a friendly minion dies, reopen this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

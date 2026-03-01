@@ -1,0 +1,14 @@
+{
+    "_name": "Nightshade Bud",
+    "_effect": "Choose One - Discover a minion from your deck to summon; or a spell to cast.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

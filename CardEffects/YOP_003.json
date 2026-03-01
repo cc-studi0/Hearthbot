@@ -1,0 +1,13 @@
+{
+    "_name": "Luckysoul Hoarder",
+    "_effect": "Battlecry: Shuffle 2 Soul Fragments into your deck. Corrupt: Draw a card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

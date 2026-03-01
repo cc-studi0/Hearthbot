@@ -1,0 +1,13 @@
+{
+    "_name": "Double Jump",
+    "_effect": "Draw an Outcast card from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

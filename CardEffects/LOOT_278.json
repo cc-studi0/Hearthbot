@@ -1,0 +1,14 @@
+{
+    "_name": "Unidentified Elixir",
+    "_effect": "Give a minion +2/+2. Gains a bonus effect in your hand.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

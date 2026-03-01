@@ -1,0 +1,13 @@
+{
+    "_name": "Chalk Artist",
+    "_effect": "Battlecry: Draw a minion. Transform it into a random Legendary one (keeping its original stats and Cost).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

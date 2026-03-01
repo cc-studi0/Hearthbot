@@ -1,0 +1,14 @@
+{
+    "_name": "Praise Galakrond!",
+    "_effect": "Give a minion +1 Attack. Invoke Galakrond.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

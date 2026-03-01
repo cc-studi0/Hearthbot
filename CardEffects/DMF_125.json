@@ -1,0 +1,13 @@
+{
+    "_name": "Safety Inspector",
+    "_effect": "Battlecry: Shuffle the lowest-Cost card from your hand into your deck. Draw a card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

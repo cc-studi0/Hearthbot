@@ -1,0 +1,13 @@
+{
+    "_name": "Injured Tol'vir",
+    "_effect": "Taunt Battlecry: Deal 3 damage to this minion.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

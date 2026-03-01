@@ -1,0 +1,14 @@
+{
+    "_name": "Totemic Reflection",
+    "_effect": "Give a minion +2/+2. If it's a Totem, summon a copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

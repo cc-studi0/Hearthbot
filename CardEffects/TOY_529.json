@@ -1,0 +1,12 @@
+{
+    "_name": "Wheel of DEATH!!!",
+    "_effect": "Destroy your deck. In 5 turns, destroy the enemy hero.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

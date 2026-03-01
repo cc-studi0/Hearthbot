@@ -1,0 +1,14 @@
+{
+    "_name": "Corpse Explosion",
+    "_effect": "Detonate a Corpse to deal $1 damage to all minions. If any are still alive, repeat this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

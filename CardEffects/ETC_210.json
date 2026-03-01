@@ -1,0 +1,14 @@
+{
+    "_name": "Climactic Necrotic Explosion",
+    "_effect": "Lifesteal. Deal ${0} damage. Summon {1} {2}/{3} Souls. (Randomly improved by Corpses you've spent)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

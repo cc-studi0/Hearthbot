@@ -1,0 +1,14 @@
+{
+    "_name": "Future Emissary",
+    "_effect": "Battlecry: Reduce the Cost of all Dragons in your hand by (1). Give them +1/+1.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Ancient Krakenbane",
+    "_effect": "Battlecry: If you've cast three spells while holding this, deal 5 damage.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Cumulo-Maximus",
+    "_effect": "Battlecry: If you have Overloaded Mana Crystals, deal 5 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

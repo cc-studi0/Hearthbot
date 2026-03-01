@@ -1,0 +1,12 @@
+{
+    "_name": "Arson Accusation",
+    "_effect": "Choose a minion. Destroy it after your hero takes damage.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

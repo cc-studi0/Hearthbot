@@ -1,0 +1,14 @@
+{
+    "_name": "A Light in the Darkness",
+    "_effect": "Discover a Paladin minion. Give it +2/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

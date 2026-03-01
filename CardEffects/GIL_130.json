@@ -1,0 +1,14 @@
+{
+    "_name": "Gloom Stag",
+    "_effect": "Taunt Battlecry: If your deck has only odd-Cost cards, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

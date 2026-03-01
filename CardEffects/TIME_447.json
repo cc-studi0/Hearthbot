@@ -1,0 +1,12 @@
+{
+    "_name": "Power Word: Barrier",
+    "_effect": "Give a character Divine Shield. Give minions in your hand +2 Health.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Sandbinder",
+    "_effect": "Battlecry: Draw an Elemental from your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

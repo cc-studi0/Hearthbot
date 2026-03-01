@@ -1,0 +1,13 @@
+{
+    "_name": "Noxious Infiltrator",
+    "_effect": "Poisonous Battlecry: If a friendly Undead died after your last turn, deal 1 damage to a minion.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

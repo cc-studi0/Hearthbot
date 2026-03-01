@@ -1,0 +1,13 @@
+{
+    "_name": "Burgle",
+    "_effect": "Get 3 random cards (from your opponent's class).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

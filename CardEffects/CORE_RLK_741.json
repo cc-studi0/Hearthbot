@@ -1,0 +1,12 @@
+{
+    "_name": "Soulstealer",
+    "_effect": "Battlecry: Destroy all other minions. Gain 1 Corpse for each enemy destroyed.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

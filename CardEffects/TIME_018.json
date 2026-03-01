@@ -1,0 +1,13 @@
+{
+    "_name": "Mend the Timeline",
+    "_effect": "Rewind Get 2 random Holy spells. Restore Health to your hero equal to their Costs.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

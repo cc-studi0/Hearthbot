@@ -1,0 +1,14 @@
+{
+    "_name": "Showdown!",
+    "_effect": "Both players summon three 3/3 Outlaws. Give yours Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

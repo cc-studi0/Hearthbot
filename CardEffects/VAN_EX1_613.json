@@ -1,0 +1,14 @@
+{
+    "_name": "Edwin VanCleef",
+    "_effect": "Combo: Gain +2/+2 for each card played earlier this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

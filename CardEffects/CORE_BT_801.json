@@ -1,0 +1,14 @@
+{
+    "_name": "Eye Beam",
+    "_effect": "Lifesteal. Deal $3 damage to a minion. Outcast: This costs (1).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Totemic Smash",
+    "_effect": "Deal $2 damage. Overkill: Summon a basic Totem.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Living Flame",
+    "_effect": "Deathrattle: Draw a Fire spell.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

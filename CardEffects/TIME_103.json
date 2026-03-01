@@ -1,0 +1,13 @@
+{
+    "_name": "Chromie",
+    "_effect": "Deathrattle: Draw another copy of cards you've played this game.@ (@ cards)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

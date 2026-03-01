@@ -1,0 +1,14 @@
+{
+    "_name": "From De Other Side",
+    "_effect": "Summon a copy of each minion in your hand. They attack random enemy minions, then die.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

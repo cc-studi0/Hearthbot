@@ -1,0 +1,12 @@
+{
+    "_name": "Relic Vault",
+    "_effect": "The next Relic you play this turn casts twice.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

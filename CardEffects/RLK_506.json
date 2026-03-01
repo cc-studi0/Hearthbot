@@ -1,0 +1,12 @@
+{
+    "_name": "Boneguard Commander",
+    "_effect": "Taunt Battlecry: Raise up to 6 Corpses as 1/3 Risen Footmen with Taunt.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

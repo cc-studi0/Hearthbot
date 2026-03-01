@@ -1,0 +1,14 @@
+{
+    "_name": "Day at the Faire",
+    "_effect": "Summon 3 Silver Hand Recruits. Corrupt: Summon 5.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Injured Blademaster",
+    "_effect": "Battlecry: Deal 4 damage to HIMSELF.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

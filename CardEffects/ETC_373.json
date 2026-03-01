@@ -1,0 +1,14 @@
+{
+    "_name": "Drum Circle",
+    "_effect": "Choose One - Summon five 2/2 Treants; or Give your minions +2/+4 and Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

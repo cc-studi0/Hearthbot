@@ -1,0 +1,14 @@
+{
+    "_name": "Drakefire Amulet",
+    "_effect": "Tradeable Discover 2 Dragons. Summon them.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Temporal Construct",
+    "_effect": "Battlecry: Deal 5 damage to an enemy minion. Draw cards equal to the excess damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

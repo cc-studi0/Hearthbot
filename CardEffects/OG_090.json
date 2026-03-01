@@ -1,0 +1,13 @@
+{
+    "_name": "Cabalist's Tome",
+    "_effect": "Get 3 random Mage spells.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

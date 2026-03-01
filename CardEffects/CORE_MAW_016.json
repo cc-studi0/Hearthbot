@@ -1,0 +1,13 @@
+{
+    "_name": "Order in the Court",
+    "_effect": "Reorder your deck from highest Cost to lowest Cost. Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

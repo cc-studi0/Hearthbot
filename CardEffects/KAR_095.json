@@ -1,0 +1,14 @@
+{
+    "_name": "Zoobot",
+    "_effect": "Battlecry: Give a random friendly Beast, Dragon, and Murloc +1/+1.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

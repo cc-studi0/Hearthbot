@@ -1,0 +1,13 @@
+{
+    "_name": "Loose Specimen",
+    "_effect": "Battlecry: Deal 6 damage randomly split among other friendly minions.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

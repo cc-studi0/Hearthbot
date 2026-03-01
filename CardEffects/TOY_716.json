@@ -1,0 +1,14 @@
+{
+    "_name": "Flash Sale",
+    "_effect": "Summon a 1/2 Mech with Divine Shield and Taunt. Give your minions +1/+2.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

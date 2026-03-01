@@ -1,0 +1,14 @@
+{
+    "_name": "Sensory Deprivation",
+    "_effect": "Summon a copy of an enemy minion. If you have 20 or less Health, destroy the original.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

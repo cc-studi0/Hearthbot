@@ -1,0 +1,12 @@
+{
+    "_name": "Cryopractor",
+    "_effect": "Battlecry: Give a minion +3/+3 and Freeze it.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

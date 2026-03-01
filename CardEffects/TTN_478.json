@@ -1,0 +1,13 @@
+{
+    "_name": "Inquisitive Creation",
+    "_effect": "Battlecry: Deal 1 damage to all enemy minions. (Improved by each spell school you've cast this game!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

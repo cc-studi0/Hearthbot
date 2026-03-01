@@ -1,0 +1,13 @@
+{
+    "_name": "Novice Engineer",
+    "_effect": "Battlecry: Draw a card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

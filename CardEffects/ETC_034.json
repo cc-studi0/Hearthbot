@@ -1,0 +1,13 @@
+{
+    "_name": "Opera Soloist",
+    "_effect": "Battlecry: If you control no other minions, deal 3 damage to all enemy minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3
+            }
+        ]
+    }
+}

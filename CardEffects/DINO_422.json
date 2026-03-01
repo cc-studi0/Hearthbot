@@ -1,0 +1,14 @@
+{
+    "_name": "Ankylodon",
+    "_effect": "Taunt. Deathrattle: Summon two random 3-Cost Beasts. They attack random enemies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

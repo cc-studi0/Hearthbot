@@ -1,0 +1,13 @@
+{
+    "_name": "Raven Familiar",
+    "_effect": "Battlecry: Reveal a spell in each deck. If yours costs more, draw it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Klaxxi Amber-Weaver",
+    "_effect": "Taunt Battlecry: If your C'Thun has at least 10 Attack, gain +5 Health.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 5
+            }
+        ]
+    }
+}

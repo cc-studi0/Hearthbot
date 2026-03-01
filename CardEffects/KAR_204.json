@@ -1,0 +1,14 @@
+{
+    "_name": "Onyx Bishop",
+    "_effect": "Battlecry: Summon a random friendly minion that died this game.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

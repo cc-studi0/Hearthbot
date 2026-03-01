@@ -1,0 +1,24 @@
+{
+    "_name": "Rotgill",
+    "_effect": "Battlecry: Give your other minions \"Deathrattle: Give your minions +1/+1.\"",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

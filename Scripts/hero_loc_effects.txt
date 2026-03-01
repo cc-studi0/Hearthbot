@@ -1,0 +1,52 @@
+// === RegisterHeroes ===
+            db.Register(C.AV_202,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=5,Health=2,MaxHealth=2,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=5;}); // 装备武器
+            db.Register(C.AV_203,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=4,Health=2,MaxHealth=2,IsFriend=true,IsTired=true};m0.IsStealth=true;b.FriendMinions.Add(m0);} if(b.FriendMinions.Count<7){var m1=new SimEntity{Atk=4,Health=2,MaxHealth=2,IsFriend=true,IsTired=true};m1.IsStealth=true;b.FriendMinions.Add(m1);}}); // 召唤
+            db.Register(C.AV_204,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=1,Health=4,MaxHealth=4,IsFriend=true,IsTired=true};m0.HasRush=true;b.FriendMinions.Add(m0);} if(b.FriendMinions.Count<7){var m1=new SimEntity{Atk=1,Health=4,MaxHealth=4,IsFriend=true,IsTired=true};m1.HasRush=true;b.FriendMinions.Add(m1);}}); // 召唤
+            db.Register(C.AV_205,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendCardDraw+=1;}); // 抽牌
+            db.Register(C.AV_206,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,2);if(b.EnemyHero!=null)Dmg(b,b.EnemyHero,2);b.FriendWeapon=new SimEntity{Atk=2,Health=5,MaxHealth=5,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=2;}); // AoE+武器
+            db.Register(C.AV_316,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,3);foreach(var e in b.FriendMinions.ToArray())Dmg(b,e,3);b.FriendCardDraw+=3;}); // AoE+抽牌
+            db.Register(C.CORE_EX1_323,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=3,Health=8,MaxHealth=8,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=3;}); // 装备武器
+            db.Register(C.CORE_ICC_828,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,2);}); // AoE敌方随从
+            db.Register(C.CORE_ICC_829,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=5,Health=3,MaxHealth=3,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=5;}); // 装备武器
+            db.Register(C.CORE_ICC_830,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendMinions.RemoveAll(m=>m.Atk>=5);b.EnemyMinions.RemoveAll(m=>m.Atk>=5);}); // 消灭5攻以上
+            db.Register(C.CORE_ICC_833,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=3,Health=6,MaxHealth=6,IsFriend=true,IsTired=true};b.FriendMinions.Add(m0);}}); // 召唤
+            db.Register(C.CORE_ICC_834,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=4,Health=3,MaxHealth=3,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=4;}); // 装备武器
+            db.Register(C.DRG_610,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendCardDraw+=1;}); // 抽牌
+            db.Register(C.DRG_620,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=2,Health=2,MaxHealth=2,IsFriend=true,IsTired=true};m0.HasRush=true;b.FriendMinions.Add(m0);} if(b.FriendMinions.Count<7){var m1=new SimEntity{Atk=2,Health=2,MaxHealth=2,IsFriend=true,IsTired=true};m1.HasRush=true;b.FriendMinions.Add(m1);}}); // 召唤
+            db.Register(C.DRG_660,EffectTrigger.Battlecry,(b,s,t)=>{if(b.EnemyMinions.Count>0)b.EnemyMinions[0].Health=0;}); // 消灭随机敌方
+            db.Register(C.EX1_323,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=3,Health=8,MaxHealth=8,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=3;}); // 装备武器
+            db.Register(C.GIL_504,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,3);foreach(var e in b.FriendMinions.ToArray())Dmg(b,e,3);}); // AoE全部随从
+            db.Register(C.ICC_828,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,2);}); // AoE敌方随从
+            db.Register(C.ICC_829,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=5,Health=3,MaxHealth=3,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=5;}); // 装备武器
+            db.Register(C.ICC_830,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendMinions.RemoveAll(m=>m.Atk>=5);b.EnemyMinions.RemoveAll(m=>m.Atk>=5);}); // 消灭5攻以上
+            db.Register(C.ICC_833,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=3,Health=6,MaxHealth=6,IsFriend=true,IsTired=true};b.FriendMinions.Add(m0);}}); // 召唤
+            db.Register(C.ICC_834,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendWeapon=new SimEntity{Atk=4,Health=3,MaxHealth=3,IsFriend=true};if(b.FriendHero!=null)b.FriendHero.Atk=4;}); // 装备武器
+            db.Register(C.SC_004,EffectTrigger.Battlecry,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,3);if(b.EnemyHero!=null)Dmg(b,b.EnemyHero,3);for(int i=0;i<2;i++)if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=2,Health=5,MaxHealth=5,IsFriend=true,IsTired=true});}); // AoE+召唤
+            db.Register(C.SC_754,EffectTrigger.Battlecry,(b,s,t)=>{if(b.FriendMinions.Count<7){var m0=new SimEntity{Atk=3,Health=4,MaxHealth=4,IsFriend=true,IsTired=true};m0.HasCharge=true;m0.IsTired=false;b.FriendMinions.Add(m0);} if(b.FriendMinions.Count<7){var m1=new SimEntity{Atk=3,Health=4,MaxHealth=4,IsFriend=true,IsTired=true};m1.HasCharge=true;m1.IsTired=false;b.FriendMinions.Add(m1);}}); // 召唤
+            db.Register(C.WON_092h,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendCardDraw+=4;}); // 抽牌
+            db.Register(C.WW_0700,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendMinions.Clear();b.EnemyMinions.Clear();}); // 消灭全部
+            db.Register(C.YOD_009,EffectTrigger.Battlecry,(b,s,t)=>{b.FriendMinions.Clear();b.EnemyMinions.Clear();}); // 消灭全部
+
+// === RegisterLocations ===
+            db.Register(C.CORE_REV_290,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk+=2;t.Health+=1;t.MaxHealth+=1;}b.FriendCardDraw+=1;}); // buff
+            db.Register(C.CORE_REV_371,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk+=1;t.Health+=1;t.MaxHealth+=1;}}); // buff
+            db.Register(C.CORE_REV_602,EffectTrigger.Spell,(b,s,t)=>{if(t!=null)t.IsFrozen=true;if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=2,Health=2,MaxHealth=2,IsFriend=true,IsTired=true});}); // 冰冻+召唤
+            db.Register(C.CORE_REV_750,EffectTrigger.Spell,(b,s,t)=>{if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=1,Health=1,MaxHealth=1,IsFriend=true,IsTired=true});}); // 召唤
+            db.Register(C.CORE_REV_983,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk=3;t.Health=3;t.MaxHealth=3;}}); // 设置属性
+            db.Register(C.EDR_454,EffectTrigger.Spell,(b,s,t)=>{if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=0,Health=2,MaxHealth=2,IsFriend=true,IsTired=true});}); // 召唤蛋
+            db.Register(C.ETC_449,EffectTrigger.Spell,(b,s,t)=>{foreach(var m in b.FriendMinions)m.Health=System.Math.Min(m.MaxHealth,m.Health+3);if(b.FriendHero!=null)b.FriendHero.Health=System.Math.Min(b.FriendHero.MaxHealth,b.FriendHero.Health+3);}); // 治疗全体
+            db.Register(C.FIR_907,EffectTrigger.Spell,(b,s,t)=>{b.FriendCardDraw+=1;}); // 抽牌
+            db.Register(C.NX2_036,EffectTrigger.Spell,(b,s,t)=>{if(t!=null&&t.IsFriend){t.Health=0;if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=4,Health=5,MaxHealth=5,HasRush=true,IsFriend=true,IsTired=true});}}); // 消灭+召唤
+            db.Register(C.REV_290,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk+=2;t.Health+=1;t.MaxHealth+=1;}b.FriendCardDraw+=1;}); // buff
+            db.Register(C.REV_371,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk+=1;t.Health+=1;t.MaxHealth+=1;}}); // buff
+            db.Register(C.REV_602,EffectTrigger.Spell,(b,s,t)=>{if(t!=null)t.IsFrozen=true;if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=2,Health=2,MaxHealth=2,IsFriend=true,IsTired=true});}); // 冰冻+召唤
+            db.Register(C.REV_750,EffectTrigger.Spell,(b,s,t)=>{if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=1,Health=1,MaxHealth=1,IsFriend=true,IsTired=true});}); // 召唤
+            db.Register(C.REV_983,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk=3;t.Health=3;t.MaxHealth=3;}}); // 设置属性
+            db.Register(C.SC_019,EffectTrigger.Spell,(b,s,t)=>{foreach(var e in b.EnemyMinions.ToArray())Dmg(b,e,1);if(b.EnemyHero!=null)Dmg(b,b.EnemyHero,1);}); // AoE敌方
+            db.Register(C.SC_403,EffectTrigger.Spell,(b,s,t)=>{if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=2,Health=1,MaxHealth=1,IsFriend=true,IsTired=true});}); // 召唤
+            db.Register(C.TIME_044,EffectTrigger.Spell,(b,s,t)=>{if(t!=null){t.Atk+=2;t.Health+=1;t.MaxHealth+=1;}}); // buff
+            db.Register(C.TIME_810,EffectTrigger.Spell,(b,s,t)=>{if(b.EnemyMinions.Count>0)Dmg(b,b.EnemyMinions[0],5);}); // 随机伤害
+            db.Register(C.TOY_359,EffectTrigger.Spell,(b,s,t)=>{if(b.EnemyMinions.Count>0)Dmg(b,b.EnemyMinions[0],1);else if(b.EnemyHero!=null)Dmg(b,b.EnemyHero,1);}); // 随机伤害
+            db.Register(C.VAC_334,EffectTrigger.Spell,(b,s,t)=>{b.FriendCardDraw+=1;}); // 抽牌
+            db.Register(C.VAC_425,EffectTrigger.Spell,(b,s,t)=>{var ts=new System.Collections.Generic.List<SimEntity>(b.EnemyMinions);if(b.EnemyHero!=null)ts.Add(b.EnemyHero);for(int i=0;i<3&&ts.Count>0;i++)Dmg(b,ts[i%ts.Count],1);}); // 分散伤害
+            db.Register(C.VAC_929,EffectTrigger.Spell,(b,s,t)=>{for(int i=0;i<2;i++)if(b.FriendMinions.Count<7)b.FriendMinions.Add(new SimEntity{Atk=1,Health=1,MaxHealth=1,HasCharge=true,IsTired=false,IsFriend=true});}); // 召唤

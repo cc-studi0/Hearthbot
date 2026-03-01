@@ -1,0 +1,14 @@
+{
+    "_name": "Supreme Dinomancy",
+    "_effect": "Give +2/+2 to all Beasts in your hand, deck, and battlefield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

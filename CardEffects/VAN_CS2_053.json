@@ -1,0 +1,13 @@
+{
+    "_name": "Far Sight",
+    "_effect": "Draw a card. That card costs (3) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

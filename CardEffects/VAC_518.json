@@ -1,0 +1,13 @@
+{
+    "_name": "Tortollan Traveler",
+    "_effect": "Taunt Deathrattle: Draw another Taunt minion. Reduce its Cost by (2).",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

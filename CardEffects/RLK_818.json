@@ -1,0 +1,14 @@
+{
+    "_name": "Ricochet Shot",
+    "_effect": "Deal $1 damage to three random enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

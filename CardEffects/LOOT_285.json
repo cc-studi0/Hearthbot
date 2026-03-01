@@ -1,0 +1,13 @@
+{
+    "_name": "Unidentified Shield",
+    "_effect": "Gain 5 Armor. Gains a bonus effect in your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Forbidden Ritual",
+    "_effect": "Spend all your Mana. Summon that many 1/1 Tentacles.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

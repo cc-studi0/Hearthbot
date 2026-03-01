@@ -1,0 +1,13 @@
+{
+    "_name": "Vulpera Scoundrel",
+    "_effect": "Battlecry: Discover a spell or pick a mystery choice.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

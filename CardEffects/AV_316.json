@@ -1,0 +1,12 @@
+{
+    "_name": "Dreadlich Tamsin",
+    "_effect": "Battlecry: Deal 3 damage to all minions. Shuffle 3 Rifts into your deck. Draw 3 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

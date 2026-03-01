@@ -1,0 +1,13 @@
+{
+    "_name": "Kabal Trafficker",
+    "_effect": "At the end of your turn, add a random Demon to your hand.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

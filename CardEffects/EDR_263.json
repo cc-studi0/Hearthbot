@@ -1,0 +1,14 @@
+{
+    "_name": "Grace of the Greatwolf",
+    "_effect": "Choose One - Deal $4 damage to the enemy hero; or Summon two 3/2 Wolves with Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

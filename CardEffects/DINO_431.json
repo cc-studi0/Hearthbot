@@ -1,0 +1,14 @@
+{
+    "_name": "Atlasaurus",
+    "_effect": "Taunt. Deathrattle: Summon a random Taunt minion that costs (5) or more.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

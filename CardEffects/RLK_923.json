@@ -1,0 +1,12 @@
+{
+    "_name": "Feast and Famine",
+    "_effect": "Give your hero +3 Attack this turn. Manathirst (4): And Lifesteal.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_lifesteal"
+            }
+        ]
+    }
+}

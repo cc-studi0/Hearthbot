@@ -1,0 +1,13 @@
+{
+    "_name": "Holy Maki Roll",
+    "_effect": "Restore #2 Health. Repeatable this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 2
+            }
+        ]
+    }
+}

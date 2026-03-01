@@ -1,0 +1,14 @@
+{
+    "_name": "Shadow Ascendant",
+    "_effect": "At the end of your turn, give another random friendly minion +1/+1.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

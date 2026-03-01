@@ -1,0 +1,13 @@
+{
+    "_name": "Caricature Artist",
+    "_effect": "Battlecry: Draw a minion that costs (5) or more. Give it a funny mustache!",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

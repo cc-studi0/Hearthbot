@@ -1,0 +1,14 @@
+{
+    "_name": "Open the Cages",
+    "_effect": "Secret: When your turn starts, if you control two minions, summon an Animal Companion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

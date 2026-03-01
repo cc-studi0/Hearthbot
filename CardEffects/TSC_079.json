@@ -1,0 +1,13 @@
+{
+    "_name": "Radar Detector",
+    "_effect": "Scan the bottom 5 cards of your deck. Draw any Mechs found this way, then shuffle your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

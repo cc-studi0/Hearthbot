@@ -1,0 +1,13 @@
+{
+    "_name": "Tunnel Terror",
+    "_effect": "Deathrattle: Get two random Temporary 2-Cost minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

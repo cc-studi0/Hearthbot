@@ -1,0 +1,13 @@
+{
+    "_name": "Hydralisk",
+    "_effect": "Battlecry: Deal 2 damage to a random enemy. Repeat for each other Zerg minion you control.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 2
+            }
+        ]
+    }
+}

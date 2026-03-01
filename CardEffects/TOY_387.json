@@ -1,0 +1,13 @@
+{
+    "_name": "Scale Replica",
+    "_effect": "Draw your lowest and highest Cost Dragon.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

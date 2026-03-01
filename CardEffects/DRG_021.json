@@ -1,0 +1,12 @@
+{
+    "_name": "Ritual Chopper",
+    "_effect": "Battlecry: Invoke Galakrond.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

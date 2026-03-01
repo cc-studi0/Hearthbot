@@ -1,0 +1,14 @@
+{
+    "_name": "Bearon Gla'shear",
+    "_effect": "Battlecry: For each Frost spell you've cast this game, summon a 3/4 Elemental that Freezes.@ (@)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 4
+            }
+        ]
+    }
+}

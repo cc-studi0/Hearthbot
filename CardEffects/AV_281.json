@@ -1,0 +1,14 @@
+{
+    "_name": "Felfire in the Hole!",
+    "_effect": "Draw a spell and deal $2 damage to all enemies. If it's a Fel spell, deal $1 more.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

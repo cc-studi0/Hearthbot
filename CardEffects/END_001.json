@@ -1,0 +1,12 @@
+{
+    "_name": "Jagged Edge of Time",
+    "_effect": "Battlecry: Imbue your Hero Power.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

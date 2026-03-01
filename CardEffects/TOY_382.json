@@ -1,0 +1,13 @@
+{
+    "_name": "Careless Crafter",
+    "_effect": "Deathrattle: Get two 0-Cost Bandages that restore 3 Health.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Photosynthesis",
+    "_effect": "Restore #6 Health. Get 3 random Druid spells.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 6
+            }
+        ]
+    }
+}

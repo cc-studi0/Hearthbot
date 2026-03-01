@@ -1,0 +1,13 @@
+{
+    "_name": "Jepetto Joybuzz",
+    "_effect": "Battlecry: Draw 2 minions from your deck. Set their Attack, Health, and Cost to 1.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

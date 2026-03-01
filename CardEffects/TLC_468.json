@@ -1,0 +1,14 @@
+{
+    "_name": "Blob of Tar",
+    "_effect": "Poisonous, Taunt Deathrattle: Summon a 1/2 Blob with Poisonous and a 1/2 Blob with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

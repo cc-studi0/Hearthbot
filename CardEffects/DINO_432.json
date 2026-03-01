@@ -1,0 +1,13 @@
+{
+    "_name": "Panther Mask",
+    "_effect": "Set a minion's stats to 5/4 and give it Stealth. Draw 2 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

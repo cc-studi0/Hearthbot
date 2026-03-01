@@ -1,0 +1,13 @@
+{
+    "_name": "Amphibious Elixir",
+    "_effect": "Restore #5 Health. Discover a spell.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 5
+            }
+        ]
+    }
+}

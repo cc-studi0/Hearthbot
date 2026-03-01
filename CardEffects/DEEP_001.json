@@ -1,0 +1,19 @@
+{
+    "_name": "裂魔者库尔特鲁斯 (恶魔猎手英雄) 6费 5护甲",
+    "_effect": "战吼：召唤两个1/4并具有突袭的恶魔",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 4
+            },
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 4
+            }
+        ]
+    }
+}

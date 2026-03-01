@@ -1,0 +1,13 @@
+{
+    "_name": "Witchwood Apple",
+    "_effect": "Add two 2/2 Treants to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

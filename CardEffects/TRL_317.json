@@ -1,0 +1,14 @@
+{
+    "_name": "Blast Wave",
+    "_effect": "Deal $2 damage to all minions. Overkill: Add a random Mage spell to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

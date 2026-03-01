@@ -1,0 +1,13 @@
+{
+    "_name": "Exploding Bloatbat",
+    "_effect": "Deathrattle: Deal 2 damage to all enemy minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

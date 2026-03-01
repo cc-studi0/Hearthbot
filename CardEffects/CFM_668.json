@@ -1,0 +1,14 @@
+{
+    "_name": "Doppelgangster",
+    "_effect": "Battlecry: Summon 2 copies of this minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

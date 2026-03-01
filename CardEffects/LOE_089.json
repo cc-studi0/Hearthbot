@@ -1,0 +1,14 @@
+{
+    "_name": "Wobbling Runts",
+    "_effect": "Deathrattle: Summon three 2/2 Runts.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

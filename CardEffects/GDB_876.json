@@ -1,0 +1,13 @@
+{
+    "_name": "Scrounging Shipwright",
+    "_effect": "Battlecry: Get a random Starship Piece from another class.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

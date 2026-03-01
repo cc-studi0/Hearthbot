@@ -1,0 +1,14 @@
+{
+    "_name": "Crusader Aura",
+    "_effect": "Whenever a friendly minion attacks, give it +2/+1. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

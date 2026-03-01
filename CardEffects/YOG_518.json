@@ -1,0 +1,13 @@
+{
+    "_name": "Meddlesome Servant",
+    "_effect": "Battlecry: If you've cast 5 or more spells this game, draw 2 cards.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

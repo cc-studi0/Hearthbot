@@ -1,0 +1,12 @@
+{
+    "_name": "Seal of Champions",
+    "_effect": "Give a minion +3 Attack and Divine Shield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

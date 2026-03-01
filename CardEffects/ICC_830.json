@@ -1,0 +1,13 @@
+{
+    "_name": "暗影收割者安度因 (牧师英雄) 8费 5护甲",
+    "_effect": "战吼：消灭所有攻击力大于或等于5的随从",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_high_atk",
+                "v": 5
+            }
+        ]
+    }
+}

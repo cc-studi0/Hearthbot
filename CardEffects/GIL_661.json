@@ -1,0 +1,13 @@
+{
+    "_name": "Divine Hymn",
+    "_effect": "Restore #6 Health to all friendly characters.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 6
+            }
+        ]
+    }
+}

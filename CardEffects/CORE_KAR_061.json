@@ -1,0 +1,13 @@
+{
+    "_name": "The Curator",
+    "_effect": "Taunt Battlecry: Draw a Beast, Dragon, and Murloc from your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

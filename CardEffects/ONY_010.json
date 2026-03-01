@@ -1,0 +1,14 @@
+{
+    "_name": "Dragonbane Shot",
+    "_effect": "Deal $2 damage. Honorable Kill: Add a Dragonbane Shot to your hand.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

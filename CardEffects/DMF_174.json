@@ -1,0 +1,13 @@
+{
+    "_name": "Circus Medic",
+    "_effect": "Battlecry: Restore #4 Health. Corrupt: Deal 4 damage instead.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 4
+            }
+        ]
+    }
+}

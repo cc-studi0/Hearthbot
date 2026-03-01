@@ -1,0 +1,14 @@
+{
+    "_name": "Aggramar, the Avenger",
+    "_effect": "Titan Battlecry: Equip a 3/3 Taeshalach.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 3,
+                "dur": 3
+            }
+        ]
+    }
+}

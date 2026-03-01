@@ -1,0 +1,14 @@
+{
+    "_name": "Cenarion Ward",
+    "_effect": "Gain 8 Armor. Summon a random 8-Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

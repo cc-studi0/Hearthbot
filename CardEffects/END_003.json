@@ -1,0 +1,13 @@
+{
+    "_name": "Finality",
+    "_effect": "Draw an Undead. Imbue your Hero Power twice.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

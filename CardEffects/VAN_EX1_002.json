@@ -1,0 +1,12 @@
+{
+    "_name": "The Black Knight",
+    "_effect": "Battlecry: Destroy an enemy minion with Taunt.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

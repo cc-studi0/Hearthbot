@@ -1,0 +1,13 @@
+{
+    "_name": "Emergency Meeting",
+    "_effect": "Get two 4/4 Crewmates. Put a random Demon that costs (3) or less between them.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

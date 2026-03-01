@@ -1,0 +1,14 @@
+{
+    "_name": "Dreadsteed",
+    "_effect": "Deathrattle: At the end of the turn, summon a Dreadsteed.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

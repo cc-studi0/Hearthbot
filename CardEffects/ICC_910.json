@@ -1,0 +1,13 @@
+{
+    "_name": "Spectral Pillager",
+    "_effect": "Combo: Deal 2 damage to a minion for each other card you've played this turn.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

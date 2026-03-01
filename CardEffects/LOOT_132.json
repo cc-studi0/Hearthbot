@@ -1,0 +1,13 @@
+{
+    "_name": "Dragonslayer",
+    "_effect": "Battlecry: Deal 6 damage to a Dragon.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

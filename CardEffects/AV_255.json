@@ -1,0 +1,12 @@
+{
+    "_name": "Snowfall Guardian",
+    "_effect": "Battlecry: Freeze all other minions.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

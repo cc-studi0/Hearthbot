@@ -1,0 +1,12 @@
+{
+    "_name": "Doomerang",
+    "_effect": "Throw your weapon at a minion. It deals its damage, then returns to your hand.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

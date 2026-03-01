@@ -1,0 +1,13 @@
+{
+    "_name": "Bone Baron",
+    "_effect": "Deathrattle: Add two 1/1 Skeletons to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

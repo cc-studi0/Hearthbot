@@ -1,0 +1,12 @@
+{
+    "_name": "Stampeding Kodo",
+    "_effect": "Battlecry: Destroy a random enemy minion with 2 or less Attack.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Undertaker",
+    "_effect": "Whenever you summon a minion with Deathrattle, gain +1/+1.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

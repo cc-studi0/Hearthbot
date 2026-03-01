@@ -1,0 +1,13 @@
+{
+    "_name": "Lay on Hands",
+    "_effect": "Restore #8 Health. Draw 3 cards.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

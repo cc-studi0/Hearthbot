@@ -1,0 +1,13 @@
+{
+    "_name": "Raiding Party",
+    "_effect": "Draw 2 Pirates from your deck. Combo: And a weapon.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

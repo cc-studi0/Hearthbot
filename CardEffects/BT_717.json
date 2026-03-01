@@ -1,0 +1,13 @@
+{
+    "_name": "Burrowing Scorpid",
+    "_effect": "Battlecry: Deal 2 damage. If that kills the target, gain Stealth.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

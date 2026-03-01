@@ -1,0 +1,12 @@
+{
+    "_name": "DOOM!",
+    "_effect": "Destroy all minions. Draw a card for each.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

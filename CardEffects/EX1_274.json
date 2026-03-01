@@ -1,0 +1,14 @@
+{
+    "_name": "Ethereal Arcanist",
+    "_effect": "If you control a Secret at the end of your turn, gain +2/+2.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

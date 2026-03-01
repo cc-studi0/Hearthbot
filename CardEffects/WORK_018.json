@@ -1,0 +1,14 @@
+{
+    "_name": "Workhorse",
+    "_effect": "Deathrattle: Summon two 2/1 Ponies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

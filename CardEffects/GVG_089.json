@@ -1,0 +1,13 @@
+{
+    "_name": "Illuminator",
+    "_effect": "If you control a Secret at the end of your turn, restore #4 Health to your hero.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 4
+            }
+        ]
+    }
+}

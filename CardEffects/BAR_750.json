@@ -1,0 +1,13 @@
+{
+    "_name": "Earth Revenant",
+    "_effect": "Taunt Battlecry: Deal 1 damage to all enemy minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

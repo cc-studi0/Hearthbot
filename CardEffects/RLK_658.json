@@ -1,0 +1,12 @@
+{
+    "_name": "Elder Nadox",
+    "_effect": "Battlecry: Destroy a friendly Undead. Your minions gain its Attack.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

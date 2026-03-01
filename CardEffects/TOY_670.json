@@ -1,0 +1,14 @@
+{
+    "_name": "Giggling Toymaker",
+    "_effect": "Deathrattle: Summon two 1/2 Mechs with Taunt and Divine Shield.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

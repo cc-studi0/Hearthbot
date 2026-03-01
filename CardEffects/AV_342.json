@@ -1,0 +1,14 @@
+{
+    "_name": "Protect the Innocent",
+    "_effect": "Summon a 5/5 Defender with Taunt. If your hero was healed this turn, summon another.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

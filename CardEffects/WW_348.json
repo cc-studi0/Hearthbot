@@ -1,0 +1,13 @@
+{
+    "_name": "Misfire",
+    "_effect": "Deal $3, $2, and $1 damage to random minions. Quickdraw: Choose the targets.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

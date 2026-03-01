@@ -1,0 +1,13 @@
+{
+    "_name": "Whirlwind",
+    "_effect": "Deal $1 damage to ALL minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1
+            }
+        ]
+    }
+}

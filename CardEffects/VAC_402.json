@@ -1,0 +1,12 @@
+{
+    "_name": "Frostbitten Freebooter",
+    "_effect": "Deathrattle: Freeze 3 random enemies. Any that were already Frozen take 5 damage instead.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "freeze_all"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Crowd Roaster",
+    "_effect": "Battlecry: If you're holding a Dragon, deal 7 damage to an enemy minion.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 7
+            }
+        ]
+    }
+}

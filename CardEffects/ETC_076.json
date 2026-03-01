@@ -1,0 +1,14 @@
+{
+    "_name": "Breakdance",
+    "_effect": "Return a friendly minion to your hand. Summon a Dancer with its stats and Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "孤胆游侠雷诺 (法师英雄) 9费 5护甲",
+    "_effect": "战吼：如果你的牌库中没有相同的牌，则使所有敌方随从消失",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 30
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Needlerock Totem",
+    "_effect": "At the end of your turn, gain 2 Armor and draw a card.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Defias Cleaner",
+    "_effect": "Battlecry: Silence a minion with Deathrattle.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

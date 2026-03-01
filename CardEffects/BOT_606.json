@@ -1,0 +1,13 @@
+{
+    "_name": "Kaboom Bot",
+    "_effect": "Deathrattle: Deal 4 damage to a random enemy minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 4
+            }
+        ]
+    }
+}

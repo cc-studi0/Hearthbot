@@ -1,0 +1,14 @@
+{
+    "_name": "Taste of Chaos",
+    "_effect": "Deal $2 damage to a minion. Finale: Discover a Fel spell.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

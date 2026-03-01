@@ -1,0 +1,13 @@
+{
+    "_name": "Dragonscale Armaments",
+    "_effect": "Draw a spell that started in your deck and one that didn't.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

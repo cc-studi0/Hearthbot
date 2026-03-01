@@ -1,0 +1,13 @@
+{
+    "_name": "Frightened Flunky",
+    "_effect": "Taunt Battlecry: Discover a Taunt minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Igneous Elemental",
+    "_effect": "Deathrattle: Add two 1/2 Flame Elementals to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Toysnatching Geist",
+    "_effect": "Gigantify Battlecry: Discover an Undead. Reduce its Cost by this minion's Attack.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

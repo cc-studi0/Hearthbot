@@ -1,0 +1,13 @@
+{
+    "_name": "Springpaw",
+    "_effect": "Rush Battlecry: Add a 1/1 Lynx with Rush to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

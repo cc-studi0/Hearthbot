@@ -1,0 +1,14 @@
+{
+    "_name": "Mister Clocksworth",
+    "_effect": "Rewind, Rewind, Rewind Battlecry: Summon 2 random Legendary minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

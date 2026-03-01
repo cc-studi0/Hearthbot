@@ -1,0 +1,14 @@
+{
+    "_name": "Heir of Hereafter",
+    "_effect": "Taunt Battlecry: Gain +2/+2 for each damaged minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

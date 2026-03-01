@@ -1,0 +1,14 @@
+{
+    "_name": "Al'ar",
+    "_effect": "Deathrattle: Summon a 0/3 Ashes of Al'ar that resurrects this minion on your next turn.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 3
+            }
+        ]
+    }
+}

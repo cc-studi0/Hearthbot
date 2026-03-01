@@ -1,0 +1,14 @@
+{
+    "_name": "Hagatha's Scheme",
+    "_effect": "Deal $1 damage to all minions. (Upgrades each turn!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

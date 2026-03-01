@@ -1,0 +1,13 @@
+{
+    "_name": "Crow's Nest Lookout",
+    "_effect": "Battlecry: Deal 2 damage to the left and right-most enemy minions.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

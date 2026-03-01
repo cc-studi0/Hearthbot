@@ -1,0 +1,14 @@
+{
+    "_name": "Sindragosa",
+    "_effect": "Battlecry: Summon two 0/1 Frozen Champions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 1
+            }
+        ]
+    }
+}

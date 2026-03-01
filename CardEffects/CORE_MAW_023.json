@@ -1,0 +1,12 @@
+{
+    "_name": "Theft Accusation",
+    "_effect": "Choose a minion. Destroy it after you play a card copied from the opponent.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

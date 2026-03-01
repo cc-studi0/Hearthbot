@@ -1,0 +1,14 @@
+{
+    "_name": "Lion's Guard",
+    "_effect": "Battlecry: If you have 15 or less Health, gain +2/+4 and Taunt.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 4
+            }
+        ]
+    }
+}

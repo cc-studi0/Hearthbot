@@ -1,0 +1,14 @@
+{
+    "_name": "Proving Grounds",
+    "_effect": "Summon two minions from your deck. They fight!",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

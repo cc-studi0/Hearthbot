@@ -1,0 +1,13 @@
+{
+    "_name": "Missile Launcher",
+    "_effect": "Magnetic At the end of your turn, deal 1 damage to all other characters.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

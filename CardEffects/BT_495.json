@@ -1,0 +1,13 @@
+{
+    "_name": "Glaivebound Adept",
+    "_effect": "Battlecry: If your hero attacked this turn, deal 4 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Rewind",
+    "_effect": "Discover a copy of another spell you've cast this game.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

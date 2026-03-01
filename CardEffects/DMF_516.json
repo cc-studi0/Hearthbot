@@ -1,0 +1,13 @@
+{
+    "_name": "Grand Empress Shek'zara",
+    "_effect": "Battlecry: Discover a card in your deck and draw all copies of it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

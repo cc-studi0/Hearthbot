@@ -1,0 +1,13 @@
+{
+    "_name": "Arcsplitter",
+    "_effect": "Deathrattle: Add 2 Arcane Bolts to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

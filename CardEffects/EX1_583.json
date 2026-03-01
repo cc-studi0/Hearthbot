@@ -1,0 +1,13 @@
+{
+    "_name": "Priestess of Elune",
+    "_effect": "Battlecry: Restore #4 Health to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 4
+            }
+        ]
+    }
+}

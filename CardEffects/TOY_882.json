@@ -1,0 +1,13 @@
+{
+    "_name": "Trinket Artist",
+    "_effect": "Battlecry: Draw a Divine Shield minion and an Aura.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

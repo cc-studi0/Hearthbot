@@ -1,0 +1,12 @@
+{
+    "_name": "Cryopreservation",
+    "_effect": "Freeze an enemy. Excavate a treasure.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

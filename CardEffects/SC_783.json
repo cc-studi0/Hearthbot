@@ -1,0 +1,14 @@
+{
+    "_name": "Void Ray",
+    "_effect": "Rush, Divine Shield Battlecry: If this costs (0), gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Shadow Suffusion",
+    "_effect": "Give your minions \"Deathrattle: Deal 3 damage to a random enemy.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 3
+            }
+        ]
+    }
+}

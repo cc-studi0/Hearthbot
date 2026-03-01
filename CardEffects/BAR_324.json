@@ -1,0 +1,22 @@
+{
+    "_name": "Apothecary Helbrim",
+    "_effect": "Battlecry and Deathrattle: Add a random Poison to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

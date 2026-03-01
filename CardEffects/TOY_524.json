@@ -1,0 +1,13 @@
+{
+    "_name": "Game Master Nemsy",
+    "_effect": "Battlecry: Draw a Demon. Deathrattle: Swap places with it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

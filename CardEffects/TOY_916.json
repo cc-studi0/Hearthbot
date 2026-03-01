@@ -1,0 +1,13 @@
+{
+    "_name": "Sketch Artist",
+    "_effect": "Battlecry: Draw a Shadow spell. Get a Temporary copy of it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

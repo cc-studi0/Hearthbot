@@ -1,0 +1,14 @@
+{
+    "_name": "Factory Assemblybot",
+    "_effect": "Miniaturize At the end of your turn, summon a 6/7 Bot that attacks a random enemy.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 6,
+                "hp": 7
+            }
+        ]
+    }
+}

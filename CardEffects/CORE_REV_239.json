@@ -1,0 +1,12 @@
+{
+    "_name": "Suffocating Shadows",
+    "_effect": "When you play or discard this, destroy a random enemy minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

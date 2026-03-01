@@ -1,0 +1,14 @@
+{
+    "_name": "Runes of Darkness",
+    "_effect": "Discover a weapon. Spend 3 Corpses to give it +1/+1.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

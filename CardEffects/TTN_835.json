@@ -1,0 +1,13 @@
+{
+    "_name": "Thorim, Stormlord",
+    "_effect": "Battlecry: Unlock your Overloaded Mana Crystals. Draw that many cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

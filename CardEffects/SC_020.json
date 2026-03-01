@@ -1,0 +1,13 @@
+{
+    "_name": "Consume",
+    "_effect": "Remove 1 Durability from a friendly location to restore #8 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

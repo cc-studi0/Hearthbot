@@ -1,0 +1,13 @@
+{
+    "_name": "Mind Vision",
+    "_effect": "Put a copy of a random card in your opponent's hand into your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

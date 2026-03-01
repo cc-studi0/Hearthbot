@@ -1,0 +1,13 @@
+{
+    "_name": "Harbor Scamp",
+    "_effect": "Battlecry: Draw a Pirate.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

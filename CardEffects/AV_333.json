@@ -1,0 +1,14 @@
+{
+    "_name": "Revive Pet",
+    "_effect": "Discover a friendly Beast that died this game. Summon it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

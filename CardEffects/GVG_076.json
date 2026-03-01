@@ -1,0 +1,13 @@
+{
+    "_name": "Explosive Sheep",
+    "_effect": "Deathrattle: Deal 2 damage to all minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2
+            }
+        ]
+    }
+}

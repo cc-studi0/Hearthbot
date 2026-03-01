@@ -1,0 +1,14 @@
+{
+    "_name": "Big Dreams",
+    "_effect": "Summon the highest Cost Beast from your hand. It goes Dormant for 2 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

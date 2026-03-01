@@ -1,0 +1,13 @@
+{
+    "_name": "Plot Twist",
+    "_effect": "Shuffle your hand into your deck. Draw that many cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

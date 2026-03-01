@@ -1,0 +1,24 @@
+{
+    "_name": "Reefwalker",
+    "_effect": "Battlecry and Deathrattle: Summon a 1/1 Piranha Swarmer.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

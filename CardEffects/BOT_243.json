@@ -1,0 +1,13 @@
+{
+    "_name": "Myra Rotspring",
+    "_effect": "Battlecry: Discover a Deathrattle minion. Also gain its Deathrattle.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

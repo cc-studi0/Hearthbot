@@ -1,0 +1,14 @@
+{
+    "_name": "Batty Guest",
+    "_effect": "Deathrattle: Summon a 2/1 Bat.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

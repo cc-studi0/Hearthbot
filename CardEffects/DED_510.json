@@ -1,0 +1,13 @@
+{
+    "_name": "Edwin, Defias Kingpin",
+    "_effect": "Battlecry: Draw a card. If you play it this turn, gain +2/+2 and repeat this effect.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

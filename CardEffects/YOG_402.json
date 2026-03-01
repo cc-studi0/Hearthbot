@@ -1,0 +1,13 @@
+{
+    "_name": "Mindbender",
+    "_effect": "Battlecry: Deal 1 damage for each card you have drawn this turn.@ (@)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

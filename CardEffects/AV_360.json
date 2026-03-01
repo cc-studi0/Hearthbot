@@ -1,0 +1,14 @@
+{
+    "_name": "Frostwolf Kennels",
+    "_effect": "At the end of your turn, summon a 2/2 Wolf with Stealth. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

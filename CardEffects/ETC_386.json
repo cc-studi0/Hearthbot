@@ -1,0 +1,14 @@
+{
+    "_name": "Zok Fogsnout",
+    "_effect": "Battlecry: Summon two {0}/{1} Quilboar with Taunt. (Improved by your hero Attack & Armor gained this turn!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Brightwing",
+    "_effect": "Battlecry: Add a random Legendary minion to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

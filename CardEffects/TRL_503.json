@@ -1,0 +1,14 @@
+{
+    "_name": "Scarab Egg",
+    "_effect": "Deathrattle: Summon three 1/1 Scarabs.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

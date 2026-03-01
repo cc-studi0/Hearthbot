@@ -1,0 +1,12 @@
+{
+    "_name": "Riftcleaver",
+    "_effect": "Battlecry: Destroy a minion. Your hero takes damage equal to its Health.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

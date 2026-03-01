@@ -1,0 +1,22 @@
+{
+    "_name": "Kryxis the Voracious",
+    "_effect": "Battlecry: Discard your hand. Deathrattle: Draw 3 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

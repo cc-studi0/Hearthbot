@@ -1,0 +1,14 @@
+{
+    "_name": "Dark Arakkoa",
+    "_effect": "Taunt Battlecry: Give your C'Thun +4/+4 (wherever it is).",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Blossom",
+    "_effect": "Summon a{1} {0} Jade Golem. Gain an empty Mana Crystal.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

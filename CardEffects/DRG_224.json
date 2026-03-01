@@ -1,0 +1,14 @@
+{
+    "_name": "Nithogg",
+    "_effect": "Battlecry: Summon two 0/3 Eggs. Next turn they hatch into 4/4 Drakes with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 3
+            }
+        ]
+    }
+}

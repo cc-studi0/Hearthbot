@@ -1,0 +1,12 @@
+{
+    "_name": "Clean the Scene",
+    "_effect": "Destroy all minions with 3 or less Attack. Infuse (3): 6 or less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Pyroblast",
+    "_effect": "Deal $10 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 10,
+                "useSP": true
+            }
+        ]
+    }
+}

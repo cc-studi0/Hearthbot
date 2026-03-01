@@ -1,0 +1,13 @@
+{
+    "_name": "Knickknack Shack",
+    "_effect": "Draw a card. If you play it this turn, reopen this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

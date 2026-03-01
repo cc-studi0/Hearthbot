@@ -1,0 +1,13 @@
+{
+    "_name": "Spitting Camel",
+    "_effect": "At the end of your turn, deal 1 damage to another random friendly minion.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 1
+            }
+        ]
+    }
+}

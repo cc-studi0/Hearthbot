@@ -1,0 +1,14 @@
+{
+    "_name": "Young Priestess",
+    "_effect": "At the end of your turn, give another random friendly minion +1 Health.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 0,
+                "hp": 1
+            }
+        ]
+    }
+}

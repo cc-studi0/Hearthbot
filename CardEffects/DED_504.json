@@ -1,0 +1,14 @@
+{
+    "_name": "Wicked Shipment",
+    "_effect": "Tradeable Summon 2 1/1 Imps. (Upgrades by 2 when Traded!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

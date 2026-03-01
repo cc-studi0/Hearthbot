@@ -1,0 +1,13 @@
+{
+    "_name": "Bonechill Stegodon",
+    "_effect": "Deathrattle: Deal 6 damage to three random enemies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 6
+            }
+        ]
+    }
+}

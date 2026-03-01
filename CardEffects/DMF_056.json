@@ -1,0 +1,13 @@
+{
+    "_name": "G'huun the Blood God",
+    "_effect": "Battlecry: Draw 2 cards. They cost Health instead of Mana.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

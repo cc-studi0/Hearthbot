@@ -1,0 +1,13 @@
+{
+    "_name": "Chorus Riff",
+    "_effect": "Draw a minion. Give it +3/+3. Finale: Play your last Riff.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

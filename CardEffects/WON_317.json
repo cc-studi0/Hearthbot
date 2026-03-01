@@ -1,0 +1,13 @@
+{
+    "_name": "Undercity Huckster",
+    "_effect": "Deathrattle: Get a random card (from your opponent's class).",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

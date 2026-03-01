@@ -1,0 +1,13 @@
+{
+    "_name": "Blessed Goods",
+    "_effect": "Discover a Secret, weapon, or Divine Shield minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Siphoning Growth",
+    "_effect": "Destroy a friendly minion to gain 8 Armor.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

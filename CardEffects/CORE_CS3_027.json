@@ -1,0 +1,12 @@
+{
+    "_name": "Focused Will",
+    "_effect": "Silence a minion, then give it +3 Health.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

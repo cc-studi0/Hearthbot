@@ -1,0 +1,13 @@
+{
+    "_name": "Taelan Fordring",
+    "_effect": "Taunt, Divine Shield Deathrattle: Draw your highest Cost minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

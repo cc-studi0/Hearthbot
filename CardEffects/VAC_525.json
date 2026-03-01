@@ -1,0 +1,12 @@
+{
+    "_name": "The Ryecleaver",
+    "_effect": "Battlecry and Deathrattle: Get a Slice of Bread. (Get 2 to Sandwich any minions in between!)",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Heavy Plate",
+    "_effect": "Tradeable Gain 8 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 8
+            }
+        ]
+    }
+}

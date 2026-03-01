@@ -1,0 +1,13 @@
+{
+    "_name": "Witch's Brew",
+    "_effect": "Restore #4 Health. Repeatable this turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 4
+            }
+        ]
+    }
+}

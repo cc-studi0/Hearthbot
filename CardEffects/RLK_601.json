@@ -1,0 +1,13 @@
+{
+    "_name": "Last Stand",
+    "_effect": "Draw a Taunt minion. Manathirst (7): Double its stats.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

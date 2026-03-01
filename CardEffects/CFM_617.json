@@ -1,0 +1,14 @@
+{
+    "_name": "Celestial Dreamer",
+    "_effect": "Battlecry: If you control a minion with 5 or more Attack, gain +2/+2.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

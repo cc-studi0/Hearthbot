@@ -1,0 +1,14 @@
+{
+    "_name": "Wrath",
+    "_effect": "Choose One - Deal $3 damage to a minion; or $1 damage and draw a card.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

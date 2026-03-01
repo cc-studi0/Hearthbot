@@ -1,0 +1,14 @@
+{
+    "_name": "Arbor Up",
+    "_effect": "Summon two 2/2 Treants. Give your minions +2/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

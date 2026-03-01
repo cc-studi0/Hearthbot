@@ -1,0 +1,14 @@
+{
+    "_name": "Molten Breath",
+    "_effect": "Deal $5 damage to a minion. If you're holding a Dragon, gain 5 Armor.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

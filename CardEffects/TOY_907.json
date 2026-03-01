@@ -1,0 +1,13 @@
+{
+    "_name": "Safety Goggles",
+    "_effect": "Gain 6 Armor. Costs (0) if you don't have any Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 6
+            }
+        ]
+    }
+}

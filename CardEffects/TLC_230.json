@@ -1,0 +1,14 @@
+{
+    "_name": "TREEEES!!!",
+    "_effect": "Choose a minion. Summon four 2/2 Treants that attack it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

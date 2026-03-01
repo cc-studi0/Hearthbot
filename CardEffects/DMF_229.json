@@ -1,0 +1,13 @@
+{
+    "_name": "Stiltstepper",
+    "_effect": "Battlecry: Draw a card. If you play it this turn, give your hero +4 Attack this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

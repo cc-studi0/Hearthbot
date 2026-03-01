@@ -1,0 +1,14 @@
+{
+    "_name": "Underbelly Fence",
+    "_effect": "Battlecry: If you're holding a card from another class, gain +1/+1 and Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

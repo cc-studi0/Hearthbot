@@ -1,0 +1,14 @@
+{
+    "_name": "Impferno",
+    "_effect": "Give your Demons +1 Attack. Deal $1 damage to all enemy minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

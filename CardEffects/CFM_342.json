@@ -1,0 +1,14 @@
+{
+    "_name": "Luckydo Buccaneer",
+    "_effect": "Battlecry: If your weapon has at least 3 Attack, gain +4/+4.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 4,
+                "hp": 4
+            }
+        ]
+    }
+}

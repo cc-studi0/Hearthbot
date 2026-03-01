@@ -1,0 +1,12 @@
+{
+    "_name": "Chillspine Stegodon",
+    "_effect": "Battlecry: Deal 2 damage to two random enemy minions. Kindred: And Freeze them.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

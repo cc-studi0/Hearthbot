@@ -1,0 +1,14 @@
+{
+    "_name": "Summoning Ward",
+    "_effect": "Secret: When your turn starts, summon a copy of your highest Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

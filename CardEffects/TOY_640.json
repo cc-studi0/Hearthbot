@@ -1,0 +1,14 @@
+{
+    "_name": "Workshop Mishap",
+    "_effect": "Deal $5 damage to a minion. Excess damages both neighbors. Outcast: Gain Lifesteal.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

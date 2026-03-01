@@ -1,0 +1,14 @@
+{
+    "_name": "Azsharan Vessel",
+    "_effect": "Summon two 3/3 Pirates with Stealth. Put a 'Sunken Vessel' on the bottom of your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

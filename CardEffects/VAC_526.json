@@ -1,0 +1,14 @@
+{
+    "_name": "Char",
+    "_effect": "Deal $7 damage to a minion. Give a minion in your hand stats equal to the excess damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 7,
+                "useSP": true
+            }
+        ]
+    }
+}

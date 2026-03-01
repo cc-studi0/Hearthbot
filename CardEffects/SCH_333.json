@@ -1,0 +1,13 @@
+{
+    "_name": "Nature Studies",
+    "_effect": "Discover a spell. Your next one costs (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

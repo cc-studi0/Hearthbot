@@ -1,0 +1,14 @@
+{
+    "_name": "Snowball Fight!",
+    "_effect": "Deal $1 damage to a minion and Freeze it. If it survives, repeat this on another minion!",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

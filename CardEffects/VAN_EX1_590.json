@@ -1,0 +1,14 @@
+{
+    "_name": "Blood Knight",
+    "_effect": "Battlecry: All minions lose Divine Shield. Gain +3/+3 for each Shield lost.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

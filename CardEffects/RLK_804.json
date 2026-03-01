@@ -1,0 +1,14 @@
+{
+    "_name": "Conjured Arrow",
+    "_effect": "Deal $2 damage to a minion. Manathirst (6): Draw that many cards.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

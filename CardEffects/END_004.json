@@ -1,0 +1,13 @@
+{
+    "_name": "Remnant of Rage",
+    "_effect": "Costs (1) less for each minion that died this turn. Battlecry: Draw 2 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Symphony of Sins",
+    "_effect": "Discover and play a Movement. Shuffle the other 6 into your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Daring Escape",
+    "_effect": "Return all friendly minions to your hand.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

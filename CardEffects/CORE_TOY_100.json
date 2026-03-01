@@ -1,0 +1,13 @@
+{
+    "_name": "Gnomelia, S.A.F.E. Pilot",
+    "_effect": "Rush. Also damages minions next to whomever this attacks. Deathrattle: Deal 2 damage to all enemies.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

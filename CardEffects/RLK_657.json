@@ -1,0 +1,22 @@
+{
+    "_name": "Underking",
+    "_effect": "Rush Battlecry and Deathrattle: Gain 6 Armor.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 6
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 6
+            }
+        ]
+    }
+}

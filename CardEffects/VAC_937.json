@@ -1,0 +1,12 @@
+{
+    "_name": "Sailboat Captain",
+    "_effect": "Battlecry: Give a friendly Pirate Windfury.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_windfury"
+            }
+        ]
+    }
+}

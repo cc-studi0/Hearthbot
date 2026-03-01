@@ -1,0 +1,14 @@
+{
+    "_name": "Extra Arms",
+    "_effect": "Give a minion +2/+2. Add 'More Arms!' to your hand that gives +2/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Mortal Eradication",
+    "_effect": "Deal $5 damage randomly split among all enemy minions. Restore #2 Health to your hero for each killed.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Sandhoof Waterbearer",
+    "_effect": "At the end of your turn, restore #5 Health to a damaged friendly character.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 5
+            }
+        ]
+    }
+}

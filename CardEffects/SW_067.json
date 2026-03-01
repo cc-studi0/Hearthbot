@@ -1,0 +1,12 @@
+{
+    "_name": "Stockades Guard",
+    "_effect": "Battlecry: Give a friendly minion Taunt.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Shadowhoof Slayer",
+    "_effect": "Battlecry: Give your hero +1 Attack this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

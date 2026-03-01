@@ -1,0 +1,14 @@
+{
+    "_name": "Jam Session",
+    "_effect": "Give a friendly minion +3/+3. Deal $1 damage to all other minions. Overload: (1)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

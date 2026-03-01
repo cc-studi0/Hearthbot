@@ -1,0 +1,13 @@
+{
+    "_name": "Fatespinner",
+    "_effect": "Choose a Deathrattle (Secretly) - Deal 3 damage to all minions; or Give them +2/+2.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Val'anyr",
+    "_effect": "Deathrattle: Give a minion in your hand +4/+2. When it dies, reequip this.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 4,
+                "hp": 2
+            }
+        ]
+    }
+}

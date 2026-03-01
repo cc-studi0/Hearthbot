@@ -1,0 +1,13 @@
+{
+    "_name": "Jackpot!",
+    "_effect": "Add two random spells from other classes that cost (5) or more to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

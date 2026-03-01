@@ -1,0 +1,13 @@
+{
+    "_name": "Fracking",
+    "_effect": "Look at the bottom 3 cards of your deck. Draw one and destroy the others.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

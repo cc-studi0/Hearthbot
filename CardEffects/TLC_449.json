@@ -1,0 +1,12 @@
+{
+    "_name": "Bloodpetal Biome",
+    "_effect": "Discover a Temporary 1-Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

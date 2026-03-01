@@ -1,0 +1,14 @@
+{
+    "_name": "Shady Dealer",
+    "_effect": "Battlecry: If you have a Pirate, gain +1/+1.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

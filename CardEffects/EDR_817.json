@@ -1,0 +1,14 @@
+{
+    "_name": "Sanguine Infestation",
+    "_effect": "Draw 2 cards. Summon two 0/2 Leeches.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

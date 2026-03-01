@@ -1,0 +1,13 @@
+{
+    "_name": "Blessing of Wisdom",
+    "_effect": "Choose a minion. Whenever it attacks, draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Sandstorm Elemental",
+    "_effect": "Battlecry: Deal 1 damage to all enemy minions. Overload: (1)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Blackjack Stunner",
+    "_effect": "Battlecry: If you control a Secret, return a minion to its owner's hand. It costs (2) more.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

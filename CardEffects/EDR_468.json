@@ -1,0 +1,13 @@
+{
+    "_name": "Eggbasher",
+    "_effect": "Battlecry: Deal 1 damage to a minion and give it +4 Attack.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

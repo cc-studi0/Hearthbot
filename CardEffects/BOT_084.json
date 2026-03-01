@@ -1,0 +1,13 @@
+{
+    "_name": "Violet Haze",
+    "_effect": "Add 2 random Deathrattle cards to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

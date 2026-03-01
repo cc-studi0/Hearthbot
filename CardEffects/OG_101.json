@@ -1,0 +1,14 @@
+{
+    "_name": "Forbidden Shaping",
+    "_effect": "Spend all your Mana. Summon a random minion that costs that much.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

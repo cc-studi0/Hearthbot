@@ -1,0 +1,22 @@
+{
+    "_name": "Lord Barov",
+    "_effect": "Battlecry: Set the Health of all other minions to 1. Deathrattle: Deal 1 damage to all minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1
+            }
+        ]
+    }
+}

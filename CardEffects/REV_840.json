@@ -1,0 +1,14 @@
+{
+    "_name": "Deathborne",
+    "_effect": "Deal $2 damage to all minions. Summon a 2/2 Volatile Skeleton for each killed.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

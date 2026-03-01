@@ -1,0 +1,14 @@
+{
+    "_name": "Divine Star",
+    "_effect": "Deal $3 damage to a minion. Give a random minion in your hand +3 Health.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

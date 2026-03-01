@@ -1,0 +1,13 @@
+{
+    "_name": "Barista Lynchen",
+    "_effect": "Battlecry: Add a copy of each of your other Battlecry minions to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Avenging Wrath",
+    "_effect": "Deal $8 damage randomly split among all enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 8,
+                "useSP": true
+            }
+        ]
+    }
+}

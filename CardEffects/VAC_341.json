@@ -1,0 +1,12 @@
+{
+    "_name": "Undercooked Calamari",
+    "_effect": "Battlecry: Destroy an enemy minion with Attack less than or equal to this minion's.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

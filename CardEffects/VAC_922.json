@@ -1,0 +1,14 @@
+{
+    "_name": "Lifesaving Aura",
+    "_effect": "At the end of your turn, get a 1-Cost Sunscreen that gives +1/+2. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

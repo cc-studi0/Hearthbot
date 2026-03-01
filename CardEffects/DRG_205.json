@@ -1,0 +1,14 @@
+{
+    "_name": "Nether Breath",
+    "_effect": "Deal $2 damage. If you're holding a Dragon, deal $4 damage with Lifesteal instead.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

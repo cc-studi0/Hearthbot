@@ -1,0 +1,13 @@
+{
+    "_name": "Theotar, the Mad Duke",
+    "_effect": "Battlecry: Discover a card in each player's hand and swap them.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

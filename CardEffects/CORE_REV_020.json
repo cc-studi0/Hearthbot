@@ -1,0 +1,14 @@
+{
+    "_name": "Dinner Performer",
+    "_effect": "Battlecry: Summon a random minion from your deck that you can afford to play.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

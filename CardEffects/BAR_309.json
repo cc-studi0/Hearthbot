@@ -1,0 +1,13 @@
+{
+    "_name": "Desperate Prayer",
+    "_effect": "Restore #5 Health to each hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 5
+            }
+        ]
+    }
+}

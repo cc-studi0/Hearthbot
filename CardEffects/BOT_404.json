@@ -1,0 +1,13 @@
+{
+    "_name": "Juicy Psychmelon",
+    "_effect": "Draw a 7, 8, 9, and 10-Cost minion from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

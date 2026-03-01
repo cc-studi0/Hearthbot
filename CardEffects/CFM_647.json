@@ -1,0 +1,13 @@
+{
+    "_name": "Blowgill Sniper",
+    "_effect": "Battlecry: Deal 1 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

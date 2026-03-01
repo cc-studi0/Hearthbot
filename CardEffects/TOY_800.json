@@ -1,0 +1,14 @@
+{
+    "_name": "Sparkling Phial",
+    "_effect": "Deal $2 damage. Your next card this turn costs that much less.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

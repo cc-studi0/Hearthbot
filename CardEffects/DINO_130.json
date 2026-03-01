@@ -1,0 +1,14 @@
+{
+    "_name": "Longneck Egg",
+    "_effect": "Deathrattle: Summon a 3/3 Beast. Give your minions +1/+1.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

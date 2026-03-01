@@ -1,0 +1,14 @@
+{
+    "_name": "Glacial Advance",
+    "_effect": "Deal $4 damage. Your next spell this turn costs (2) less.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Ambush",
+    "_effect": "Secret: After your opponent plays a minion, summon a 2/3 Ambusher with Poisonous.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Habeas Corpses",
+    "_effect": "Discover a friendly minion to resurrect and give it Rush. It dies at the end of turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_rush"
+            }
+        ]
+    }
+}

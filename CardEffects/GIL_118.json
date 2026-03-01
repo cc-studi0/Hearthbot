@@ -1,0 +1,13 @@
+{
+    "_name": "Deranged Doctor",
+    "_effect": "Deathrattle: Restore #8 Health to your hero.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 8
+            }
+        ]
+    }
+}

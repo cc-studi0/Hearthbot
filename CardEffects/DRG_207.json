@@ -1,0 +1,14 @@
+{
+    "_name": "Abyssal Summoner",
+    "_effect": "Battlecry: Summon a Demon with Taunt and stats equal to your hand size.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

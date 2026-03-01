@@ -1,0 +1,14 @@
+{
+    "_name": "Corpsicle",
+    "_effect": "Deal $3 damage. Spend 3 Corpses to return this to your hand at the end of your turn.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

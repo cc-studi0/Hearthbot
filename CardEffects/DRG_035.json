@@ -1,0 +1,13 @@
+{
+    "_name": "Bloodsail Flybooter",
+    "_effect": "Battlecry: Add two 1/1 Pirates to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

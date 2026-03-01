@@ -1,0 +1,14 @@
+{
+    "_name": "Captain Galvangar",
+    "_effect": "Battlecry: If you have gained 15 or more Armor this game, gain +3/+3 and Charge.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

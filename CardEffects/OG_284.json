@@ -1,0 +1,14 @@
+{
+    "_name": "Twilight Geomancer",
+    "_effect": "Taunt Battlecry: Give your C'Thun +1/+1 and Taunt (wherever it is).",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

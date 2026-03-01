@@ -1,0 +1,13 @@
+{
+    "_name": "Mana Tide Totem",
+    "_effect": "At the end of your turn, draw a card.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

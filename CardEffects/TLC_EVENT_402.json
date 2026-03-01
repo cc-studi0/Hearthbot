@@ -1,0 +1,12 @@
+{
+    "_name": "Staff of the Endbringer",
+    "_effect": "Deathrattle: Destroy all minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "clear_board"
+            }
+        ]
+    }
+}

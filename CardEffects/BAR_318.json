@@ -1,0 +1,13 @@
+{
+    "_name": "Silverleaf Poison",
+    "_effect": "Give your weapon \"After your hero attacks, draw a card.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

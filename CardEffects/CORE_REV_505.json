@@ -1,0 +1,14 @@
+{
+    "_name": "Cold Case",
+    "_effect": "Summon two 2/2 Volatile Skeletons. Gain 4 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

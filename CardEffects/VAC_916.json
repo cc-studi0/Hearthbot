@@ -1,0 +1,12 @@
+{
+    "_name": "Divine Brew",
+    "_effect": "Give a character Divine Shield. (3 Drinks left!)",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

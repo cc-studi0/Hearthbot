@@ -1,0 +1,13 @@
+{
+    "_name": "Siege Tank",
+    "_effect": "Battlecry: Deal 10 damage to a random enemy minion. (Transforms if you launched a Starship this game.)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 10
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Iceblood Garrison",
+    "_effect": "At the end of your turn, deal $1 damage to all minions. Lasts 3 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

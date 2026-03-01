@@ -1,0 +1,13 @@
+{
+    "_name": "Medivh's Valet",
+    "_effect": "Battlecry: If you control a Secret, deal 3 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

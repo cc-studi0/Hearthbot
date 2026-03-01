@@ -1,0 +1,14 @@
+{
+    "_name": "Shadow Sensei",
+    "_effect": "Battlecry: Give a Stealthed minion +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

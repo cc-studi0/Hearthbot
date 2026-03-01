@@ -1,0 +1,22 @@
+{
+    "_name": "Dust Bunny",
+    "_effect": "Battlecry and Deathrattle: Add a random piece of junk to your hand (a Coin, Rock, Banana, or Knife).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

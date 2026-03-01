@@ -1,0 +1,13 @@
+{
+    "_name": "Mana Bind",
+    "_effect": "Secret: When your opponent casts a spell, add a copy to your hand that costs (0).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

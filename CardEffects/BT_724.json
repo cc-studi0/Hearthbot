@@ -1,0 +1,13 @@
+{
+    "_name": "Ethereal Augmerchant",
+    "_effect": "Battlecry: Deal 1 damage to a minion and give it Spell Damage +1.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

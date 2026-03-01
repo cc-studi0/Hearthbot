@@ -1,0 +1,13 @@
+{
+    "_name": "Identity Theft",
+    "_effect": "Discover a copy of a card from your opponent's hand and deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

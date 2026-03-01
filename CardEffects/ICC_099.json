@@ -1,0 +1,13 @@
+{
+    "_name": "Ticking Abomination",
+    "_effect": "Deathrattle: Deal 5 damage to your minions.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 5
+            }
+        ]
+    }
+}

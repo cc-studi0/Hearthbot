@@ -1,0 +1,14 @@
+{
+    "_name": "Stewart the Steward",
+    "_effect": "Deathrattle: Give the next Silver Hand Recruit you summon +3/+3 and this Deathrattle.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

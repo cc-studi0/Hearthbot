@@ -1,0 +1,14 @@
+{
+    "_name": "Naga Corsair",
+    "_effect": "Battlecry: Give your weapon +1 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Beakered Lightning",
+    "_effect": "Deal $1 damage to all minions. Overload: (2)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Conjure Mana Biscuit",
+    "_effect": "Add a Biscuit to your hand that refreshes 2 Mana Crystals.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

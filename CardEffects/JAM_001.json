@@ -1,0 +1,13 @@
+{
+    "_name": "Costumed Singer",
+    "_effect": "At the end of your turn, draw a Secret.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

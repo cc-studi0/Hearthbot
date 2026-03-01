@@ -1,0 +1,23 @@
+{
+    "_name": "刀锋女王凯瑞甘 (猎人英雄·星际争霸) 8费 5护甲",
+    "_effect": "战吼：召唤两个2/5的巢群虫后。对所有敌人造成3点伤害",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3
+            },
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 5
+            },
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 5
+            }
+        ]
+    }
+}

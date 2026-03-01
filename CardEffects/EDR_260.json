@@ -1,0 +1,14 @@
+{
+    "_name": "Illusory Greenwing",
+    "_effect": "Taunt. Deathrattle: Shuffle two 4/5 Dragons with Taunt into your deck. They're Summoned When Drawn.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 5
+            }
+        ]
+    }
+}

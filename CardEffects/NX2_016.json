@@ -1,0 +1,14 @@
+{
+    "_name": "Nofin's Imp-ossible",
+    "_effect": "Give all friendly Demons and Murlocs \"Deathrattle: Summon a 2/2 Imploc.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

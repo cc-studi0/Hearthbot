@@ -1,0 +1,13 @@
+{
+    "_name": "Malygos the Spellweaver",
+    "_effect": "Battlecry: Draw spells until your hand is full.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

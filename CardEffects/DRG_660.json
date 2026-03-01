@@ -1,0 +1,12 @@
+{
+    "_name": "Galakrond, the Unspeakable",
+    "_effect": "Battlecry: Destroy 1 random enemy minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

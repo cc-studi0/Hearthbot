@@ -1,0 +1,14 @@
+{
+    "_name": "Revenge",
+    "_effect": "Deal $1 damage to all minions. If you have 12 or less Health, deal $3 damage instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

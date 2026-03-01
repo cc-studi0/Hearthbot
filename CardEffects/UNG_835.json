@@ -1,0 +1,13 @@
+{
+    "_name": "Chittering Tunneler",
+    "_effect": "Battlecry: Discover a spell. Deal damage to your hero equal to its Cost.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

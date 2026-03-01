@@ -1,0 +1,13 @@
+{
+    "_name": "Fetch!",
+    "_effect": "Draw a minion. If it's a Beast, draw a spell.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

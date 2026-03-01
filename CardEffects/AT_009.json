@@ -1,0 +1,13 @@
+{
+    "_name": "Rhonin",
+    "_effect": "Deathrattle: Add 3 copies of Arcane Missiles to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

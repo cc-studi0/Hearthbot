@@ -1,0 +1,13 @@
+{
+    "_name": "Volume Up",
+    "_effect": "Draw 3 spells. Finale: Discover a copy of one.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

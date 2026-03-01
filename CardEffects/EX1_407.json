@@ -1,0 +1,12 @@
+{
+    "_name": "Brawl",
+    "_effect": "Destroy all minions except one. (chosen randomly)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Y'Shaarj, the Defiler",
+    "_effect": "Battlecry: Add a copy of each Corrupted card you've played this game to your hand. They cost (0) this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

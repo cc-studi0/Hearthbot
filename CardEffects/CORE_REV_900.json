@@ -1,0 +1,14 @@
+{
+    "_name": "Scuttlebutt Ghoul",
+    "_effect": "Taunt Battlecry: If you control a Secret, summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

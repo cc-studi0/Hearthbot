@@ -1,0 +1,13 @@
+{
+    "_name": "Sunfury Clergy",
+    "_effect": "Battlecry: Restore 3 Health to all friendly characters. Manathirst (6): Restore 6 Health instead.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Malfunction",
+    "_effect": "Deal $3 damage split among all enemy minions. If your deck has no minions, deal $3 more.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

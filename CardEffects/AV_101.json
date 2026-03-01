@@ -1,0 +1,13 @@
+{
+    "_name": "Herald of Lokholar",
+    "_effect": "Battlecry: Draw a Frost spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

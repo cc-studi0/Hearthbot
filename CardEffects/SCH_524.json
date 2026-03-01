@@ -1,0 +1,12 @@
+{
+    "_name": "Shield of Honor",
+    "_effect": "Give a damaged minion +3 Attack and Divine Shield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

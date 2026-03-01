@@ -1,0 +1,13 @@
+{
+    "_name": "Commanding Shout",
+    "_effect": "Your minions can't be reduced below 1 Health this turn. Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

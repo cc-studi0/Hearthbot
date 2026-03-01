@@ -1,0 +1,13 @@
+{
+    "_name": "Torga",
+    "_effect": "Battlecry: Draw a Kindred card and another card that activates it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

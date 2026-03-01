@@ -1,0 +1,13 @@
+{
+    "_name": "Bracing Cold",
+    "_effect": "Restore #5 Health to your hero. Reduce the Cost of a random spell in your hand by (2).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 5
+            }
+        ]
+    }
+}

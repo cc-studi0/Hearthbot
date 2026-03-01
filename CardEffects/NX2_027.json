@@ -1,0 +1,14 @@
+{
+    "_name": "Fleshshaper",
+    "_effect": "Taunt. Battlecry: If you have 5 or more Armor, summon a copy of this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Shadowlight Scholar",
+    "_effect": "Battlecry: Destroy a Soul Fragment in your deck to deal 3 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

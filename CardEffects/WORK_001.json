@@ -1,0 +1,13 @@
+{
+    "_name": "Trust Fall",
+    "_effect": "Discover two minions that cost (5) or less. They gain each other's Attack and Health.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

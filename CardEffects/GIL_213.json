@@ -1,0 +1,13 @@
+{
+    "_name": "Tanglefur Mystic",
+    "_effect": "Battlecry: Add a random 2-Cost minion to each player's hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Devouring Ectoplasm",
+    "_effect": "Deathrattle: Summon a 2/2 Adventurer with a random bonus effect.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

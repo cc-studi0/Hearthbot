@@ -1,0 +1,14 @@
+{
+    "_name": "Snoozin' Zookeeper",
+    "_effect": "Battlecry: Summon an 8/8 Beast for your opponent. It attacks all of their minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 8,
+                "hp": 8
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Morbid Swarm",
+    "_effect": "Choose One - Summon two 1/1 Ants; or Spend 2 Corpses to deal $4 damage to a minion.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

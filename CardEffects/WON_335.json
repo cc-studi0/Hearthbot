@@ -1,0 +1,12 @@
+{
+    "_name": "Reincarnate",
+    "_effect": "Destroy a minion, then return it to life with full Health.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

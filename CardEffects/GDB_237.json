@@ -1,0 +1,14 @@
+{
+    "_name": "Alien Encounters",
+    "_effect": "Summon two 2/4 Beasts with Taunt. Costs (1) less for each card you Discovered this game.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 4
+            }
+        ]
+    }
+}

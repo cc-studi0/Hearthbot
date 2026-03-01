@@ -1,0 +1,13 @@
+{
+    "_name": "Potion of Illusion",
+    "_effect": "Add 1/1 copies of your minions to your hand. They cost (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

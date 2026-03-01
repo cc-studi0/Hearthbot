@@ -1,0 +1,13 @@
+{
+    "_name": "Voracious Reader",
+    "_effect": "At the end of your turn, draw until you have 3 cards.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

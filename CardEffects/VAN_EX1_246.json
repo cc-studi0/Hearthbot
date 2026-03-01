@@ -1,0 +1,12 @@
+{
+    "_name": "Hex",
+    "_effect": "Transform a minion into a 0/1 Frog with Taunt.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

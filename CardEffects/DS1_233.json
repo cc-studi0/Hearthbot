@@ -1,0 +1,14 @@
+{
+    "_name": "Mind Blast",
+    "_effect": "Deal $5 damage to the enemy hero.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

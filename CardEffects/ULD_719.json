@@ -1,0 +1,14 @@
+{
+    "_name": "Desert Hare",
+    "_effect": "Battlecry: Summon two 1/1 Desert Hares.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

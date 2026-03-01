@@ -1,0 +1,14 @@
+{
+    "_name": "Gift of Luminance",
+    "_effect": "Give a minion Divine Shield, then summon a 1/1 copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

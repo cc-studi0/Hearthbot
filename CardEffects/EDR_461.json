@@ -1,0 +1,14 @@
+{
+    "_name": "Ritual of the New Moon",
+    "_effect": "Summon two random 3-Cost minions. (Cast 3 spells to summon 6-Cost minions instead.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

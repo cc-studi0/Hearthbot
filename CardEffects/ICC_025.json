@@ -1,0 +1,24 @@
+{
+    "_name": "Rattling Rascal",
+    "_effect": "Battlecry: Summon a 5/5 Skeleton. Deathrattle: Summon one for your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

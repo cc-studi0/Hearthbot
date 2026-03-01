@@ -1,0 +1,12 @@
+{
+    "_name": "Coroner",
+    "_effect": "Battlecry: Freeze an enemy minion. Manathirst (6): Silence it first.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

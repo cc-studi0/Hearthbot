@@ -1,0 +1,13 @@
+{
+    "_name": "Valeera's Gift",
+    "_effect": "Discover a Temporary Backstab, Deadly Poison, or Fan of Knives.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

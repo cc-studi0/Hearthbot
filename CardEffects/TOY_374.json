@@ -1,0 +1,14 @@
+{
+    "_name": "Spot the Difference",
+    "_effect": "Discover a 3-Cost minion to summon. If your deck has no minions, repeat this.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

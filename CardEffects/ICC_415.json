@@ -1,0 +1,13 @@
+{
+    "_name": "Stitched Tracker",
+    "_effect": "Battlecry: Discover a copy of a minion in your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

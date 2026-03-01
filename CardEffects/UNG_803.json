@@ -1,0 +1,13 @@
+{
+    "_name": "Emerald Reaver",
+    "_effect": "Battlecry: Deal 1 damage to each hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

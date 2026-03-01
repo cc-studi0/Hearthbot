@@ -1,0 +1,14 @@
+{
+    "_name": "Death Revenant",
+    "_effect": "Battlecry: Gain +1/+1 for each damaged minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

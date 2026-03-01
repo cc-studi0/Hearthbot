@@ -1,0 +1,13 @@
+{
+    "_name": "Artificer Xy'mox",
+    "_effect": "Battlecry: Discover and cast a Relic. Infuse (5): Cast all three instead.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

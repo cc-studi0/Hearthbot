@@ -1,0 +1,14 @@
+{
+    "_name": "Matching Outfits",
+    "_effect": "Transform a minion into a random one that costs (1) more, then summon a copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Surfalopod",
+    "_effect": "Battlecry: The next spell you draw is Cast When Drawn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

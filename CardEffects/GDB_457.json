@@ -1,0 +1,14 @@
+{
+    "_name": "Lightspeed",
+    "_effect": "Give a minion +1/+2 and Rush. Repeatable this turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 2
+            }
+        ]
+    }
+}

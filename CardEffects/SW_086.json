@@ -1,0 +1,14 @@
+{
+    "_name": "Shady Bartender",
+    "_effect": "Tradeable Battlecry: Give your Demons +2/+2.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

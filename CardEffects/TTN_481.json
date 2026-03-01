@@ -1,0 +1,14 @@
+{
+    "_name": "Ra-den",
+    "_effect": "Taunt. Deathrattle: Summon each other minion you've played this game that did not start in your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

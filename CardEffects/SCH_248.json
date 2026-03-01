@@ -1,0 +1,13 @@
+{
+    "_name": "Pen Flinger",
+    "_effect": "Battlecry: Deal 1 damage to a minion. Spellburst: Return this to your hand.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1
+            }
+        ]
+    }
+}

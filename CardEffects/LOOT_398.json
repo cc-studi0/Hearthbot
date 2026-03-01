@@ -1,0 +1,13 @@
+{
+    "_name": "Benevolent Djinn",
+    "_effect": "At the end of your turn, restore #3 Health to your hero.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "heal_hero",
+                "v": 3
+            }
+        ]
+    }
+}

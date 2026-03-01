@@ -1,0 +1,14 @@
+{
+    "_name": "Catch of the Day",
+    "_effect": "Rush Battlecry: Summon a 2/1 Worm for your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

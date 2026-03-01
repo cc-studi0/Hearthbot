@@ -1,0 +1,14 @@
+{
+    "_name": "Wings of Hate (Rank 1)",
+    "_effect": "Summon two 1/1 Felwings. (Upgrades when you have 5 Mana.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

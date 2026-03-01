@@ -1,0 +1,14 @@
+{
+    "_name": "Landslide",
+    "_effect": "Deal $1 damage to all enemy minions. If you're Overloaded, deal $1 damage again.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

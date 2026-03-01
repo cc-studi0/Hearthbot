@@ -1,0 +1,14 @@
+{
+    "_name": "Star Power",
+    "_effect": "Deal $5 damage to a random enemy minion. Repeat this with 1 less damage.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

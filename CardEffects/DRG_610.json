@@ -1,0 +1,13 @@
+{
+    "_name": "Galakrond, the Nightmare",
+    "_effect": "Battlecry: Draw 1 card. It costs (0).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Plague Strike",
+    "_effect": "Deal $3 damage to a minion. If that kills it, summon a 2/2 Zombie with Rush.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Sludge Slurper",
+    "_effect": "Battlecry: Add a Lackey to your hand. Overload: (1)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

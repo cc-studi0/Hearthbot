@@ -1,0 +1,13 @@
+{
+    "_name": "Brasswing",
+    "_effect": "At the end of your turn, deal 2 damage to all enemies. Honorable Kill: Restore 4 Health to your hero.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

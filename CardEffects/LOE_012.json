@@ -1,0 +1,13 @@
+{
+    "_name": "Tomb Pillager",
+    "_effect": "Deathrattle: Get a Coin.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

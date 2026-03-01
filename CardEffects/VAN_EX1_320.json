@@ -1,0 +1,13 @@
+{
+    "_name": "Bane of Doom",
+    "_effect": "Deal $2 damage to a character. If that kills it, summon a random Demon.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

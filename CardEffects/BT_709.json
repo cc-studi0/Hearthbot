@@ -1,0 +1,13 @@
+{
+    "_name": "Dirty Tricks",
+    "_effect": "Secret: After your opponent casts a spell, draw 2 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

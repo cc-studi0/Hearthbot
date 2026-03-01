@@ -1,0 +1,12 @@
+{
+    "_name": "Kabal Songstealer",
+    "_effect": "Battlecry: Silence a minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

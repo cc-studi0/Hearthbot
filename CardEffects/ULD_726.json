@@ -1,0 +1,13 @@
+{
+    "_name": "Ancient Mysteries",
+    "_effect": "Draw a Secret from your deck. It costs (0).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

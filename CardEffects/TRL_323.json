@@ -1,0 +1,13 @@
+{
+    "_name": "Emberscale Drake",
+    "_effect": "Battlecry: If you're holding a Dragon, gain 5 Armor.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 5
+            }
+        ]
+    }
+}

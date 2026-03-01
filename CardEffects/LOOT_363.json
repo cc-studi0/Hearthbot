@@ -1,0 +1,13 @@
+{
+    "_name": "Drygulch Jailor",
+    "_effect": "Deathrattle: Add 3 Silver Hand Recruits to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

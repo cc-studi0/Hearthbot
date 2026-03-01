@@ -1,0 +1,14 @@
+{
+    "_name": "Ultimate Infestation",
+    "_effect": "Deal $5 damage. Draw 5 cards. Gain 5 Armor. Summon a 5/5 Ghoul.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5,
+                "useSP": true
+            }
+        ]
+    }
+}

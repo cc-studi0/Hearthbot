@@ -1,0 +1,14 @@
+{
+    "_name": "Muster for Battle",
+    "_effect": "Summon three 1/1 Silver Hand Recruits. Equip a 1/4 Weapon.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

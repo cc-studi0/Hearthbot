@@ -1,0 +1,14 @@
+{
+    "_name": "Disciple of Argus",
+    "_effect": "Deathrattle: Summon two 2/2 Elementals with Taunt.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

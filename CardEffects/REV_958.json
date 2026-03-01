@@ -1,0 +1,14 @@
+{
+    "_name": "Buffet Biggun",
+    "_effect": "Battlecry: Summon two Silver Hand Recruits. Infuse (3): Give them +2 Attack and Divine Shield.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

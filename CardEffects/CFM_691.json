@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Swarmer",
+    "_effect": "Stealth Deathrattle: Summon a{1} {0} Jade Golem.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

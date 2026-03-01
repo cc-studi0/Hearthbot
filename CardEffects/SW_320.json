@@ -1,0 +1,18 @@
+{
+    "_name": "光铸凯瑞尔 (圣骑士英雄) 8费 5护甲",
+    "_effect": "战吼：对所有敌人造成2点伤害。装备一块2/5的无法撼动之物",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            },
+            {
+                "type": "equip",
+                "atk": 2,
+                "dur": 5
+            }
+        ]
+    }
+}

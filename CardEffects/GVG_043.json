@@ -1,0 +1,14 @@
+{
+    "_name": "Glaivezooka",
+    "_effect": "Battlecry: Give a random friendly minion +1 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

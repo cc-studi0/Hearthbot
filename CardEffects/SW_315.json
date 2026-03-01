@@ -1,0 +1,13 @@
+{
+    "_name": "Alliance Bannerman",
+    "_effect": "Battlecry: Draw a minion. Give minions in your hand +1/+1.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

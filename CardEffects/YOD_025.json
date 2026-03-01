@@ -1,0 +1,13 @@
+{
+    "_name": "Twisted Knowledge",
+    "_effect": "Discover 2 Warlock cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

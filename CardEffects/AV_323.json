@@ -1,0 +1,13 @@
+{
+    "_name": "Scrapsmith",
+    "_effect": "Taunt Battlecry: Add two 2/4 Grunts with Taunt to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

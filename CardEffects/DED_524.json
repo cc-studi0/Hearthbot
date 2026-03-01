@@ -1,0 +1,13 @@
+{
+    "_name": "Multicaster",
+    "_effect": "Battlecry: Draw a card for each different spell school you've cast this game.@ (@)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Dragoncaller Alanna",
+    "_effect": "Battlecry: Summon a 5/5 Dragon for each spell you cast this game that costs (5) or more.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Primordial Drake",
+    "_effect": "Taunt Battlecry: Deal 2 damage to all other minions.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

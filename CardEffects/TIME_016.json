@@ -1,0 +1,14 @@
+{
+    "_name": "Neon Innovation",
+    "_effect": "Discover a Paladin Mech from the past. Give it +5/+5.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 5,
+                "hp": 5
+            }
+        ]
+    }
+}

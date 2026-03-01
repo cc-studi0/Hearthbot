@@ -1,0 +1,14 @@
+{
+    "_name": "Dark Prophecy",
+    "_effect": "Discover a 2-Cost minion. Summon it and give it +3 Health.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

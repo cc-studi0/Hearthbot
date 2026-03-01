@@ -1,0 +1,14 @@
+{
+    "_name": "Scrap Shot",
+    "_effect": "Deal $3 damage. Give a random Beast in your hand +3/+3.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

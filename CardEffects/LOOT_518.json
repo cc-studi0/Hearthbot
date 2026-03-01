@@ -1,0 +1,14 @@
+{
+    "_name": "Windshear Stormcaller",
+    "_effect": "Battlecry: If you control all 4 basic Totems, summon Al'Akir the Windlord.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Runic Egg",
+    "_effect": "Deathrattle: Draw a card.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

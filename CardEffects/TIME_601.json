@@ -1,0 +1,13 @@
+{
+    "_name": "Arrow Retriever",
+    "_effect": "Battlecry: Draw until you have 3 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

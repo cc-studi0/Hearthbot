@@ -1,0 +1,14 @@
+{
+    "_name": "Power Spike",
+    "_effect": "Deal $4 damage. Give a random friendly minion +4/+4.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "_name": "Countess Ashmore",
+    "_effect": "Battlecry: Draw a Rush, Lifesteal, and Deathrattle card from your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

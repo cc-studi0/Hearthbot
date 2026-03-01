@@ -1,0 +1,12 @@
+{
+    "_name": "Suffocate",
+    "_effect": "Destroy a minion. If you're building a Starship, also destroy a random neighbor.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

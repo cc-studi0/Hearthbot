@@ -1,0 +1,12 @@
+{
+    "_name": "Whispers of the Deep",
+    "_effect": "Silence a friendly minion, then deal damage equal to its Attack randomly split among all enemy minions.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

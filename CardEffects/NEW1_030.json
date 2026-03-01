@@ -1,0 +1,12 @@
+{
+    "_name": "Deathwing",
+    "_effect": "Battlecry: Destroy all other minions and discard your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

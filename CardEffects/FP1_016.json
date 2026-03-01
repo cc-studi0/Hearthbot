@@ -1,0 +1,12 @@
+{
+    "_name": "Wailing Soul",
+    "_effect": "Battlecry: Silence your other minions.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

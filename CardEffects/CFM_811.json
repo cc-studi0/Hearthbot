@@ -1,0 +1,13 @@
+{
+    "_name": "Lunar Visions",
+    "_effect": "Draw 2 cards. Minions drawn cost (2) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

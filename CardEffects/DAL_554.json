@@ -1,0 +1,14 @@
+{
+    "_name": "Chef Nomi",
+    "_effect": "Battlecry: If your deck is empty, summon six 6/6 Greasefire Elementals.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 6,
+                "hp": 6
+            }
+        ]
+    }
+}

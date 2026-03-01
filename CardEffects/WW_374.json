@@ -1,0 +1,14 @@
+{
+    "_name": "Corpse Farm",
+    "_effect": "Spend up to 8 Corpses to summon a random minion of that Cost.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

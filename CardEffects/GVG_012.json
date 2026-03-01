@@ -1,0 +1,14 @@
+{
+    "_name": "Light of the Naaru",
+    "_effect": "Restore #3 Health. If the target is still damaged, summon a Lightwarden.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

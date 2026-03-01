@@ -1,0 +1,13 @@
+{
+    "_name": "Skarr, the Catastrophe",
+    "_effect": "Battlecry: Deal 1 damage to all enemies (improved by each turn in a row you've played an Elemental).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

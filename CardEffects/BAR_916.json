@@ -1,0 +1,13 @@
+{
+    "_name": "Blood Shard Bristleback",
+    "_effect": "Lifesteal. Battlecry: If your deck contains 10 or fewer cards, deal 6 damage to a minion.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

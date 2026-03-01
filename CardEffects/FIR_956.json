@@ -1,0 +1,14 @@
+{
+    "_name": "Dragon Turtle",
+    "_effect": "Battlecry: If you're holding a minion with a Dark Gift, give your hero +3 Attack this turn and 6 Armor.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

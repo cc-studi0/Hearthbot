@@ -1,0 +1,13 @@
+{
+    "_name": "Aeroponics",
+    "_effect": "Draw 2 cards. Costs (2) less for each Treant you control.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

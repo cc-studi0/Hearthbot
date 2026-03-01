@@ -1,0 +1,13 @@
+{
+    "_name": "Anduin's Gift",
+    "_effect": "Discover a Temporary Power Word: Shield, Shadow Word: Pain, or Mind Control.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

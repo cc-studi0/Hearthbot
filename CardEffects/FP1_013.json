@@ -1,0 +1,14 @@
+{
+    "_name": "Kel'Thuzad",
+    "_effect": "At the end of each turn, summon all friendly minions that died this turn.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

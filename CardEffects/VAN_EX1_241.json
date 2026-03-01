@@ -1,0 +1,13 @@
+{
+    "_name": "Lava Burst",
+    "_effect": "Deal $5 damage. Overload: (2)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

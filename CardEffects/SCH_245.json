@@ -1,0 +1,13 @@
+{
+    "_name": "Steward of Scrolls",
+    "_effect": "Spell Damage +1 Battlecry: Discover a spell.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

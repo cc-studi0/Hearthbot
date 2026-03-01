@@ -1,0 +1,14 @@
+{
+    "_name": "Tame Beast (Rank 1)",
+    "_effect": "Summon a 2/2 Beast with Rush. (Upgrades when you have 5 Mana.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

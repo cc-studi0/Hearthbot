@@ -1,0 +1,13 @@
+{
+    "_name": "Mystery Winner",
+    "_effect": "Battlecry: Discover a Secret.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

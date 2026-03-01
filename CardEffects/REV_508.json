@@ -1,0 +1,13 @@
+{
+    "_name": "Relic of Dimensions",
+    "_effect": "Draw two cards and reduce their Cost by (1). Improve your future Relics.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

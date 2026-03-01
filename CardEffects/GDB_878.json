@@ -1,0 +1,22 @@
+{
+    "_name": "Braingill",
+    "_effect": "Battlecry: Give your other Murlocs \"Deathrattle: Draw a card.\"",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

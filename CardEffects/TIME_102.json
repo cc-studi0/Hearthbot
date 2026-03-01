@@ -1,0 +1,13 @@
+{
+    "_name": "Circadiamancer",
+    "_effect": "Battlecry: Add a random 8-Cost minion to your hand. At the start of your turns, reduce its Cost by (1).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

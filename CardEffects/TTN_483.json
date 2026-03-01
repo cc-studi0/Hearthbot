@@ -1,0 +1,12 @@
+{
+    "_name": "Serenity",
+    "_effect": "Give all enemy minions -2 Attack. Destroy any with 0 Attack.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

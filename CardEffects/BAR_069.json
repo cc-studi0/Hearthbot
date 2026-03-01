@@ -1,0 +1,13 @@
+{
+    "_name": "Injured Marauder",
+    "_effect": "Taunt Battlecry: Deal 6 damage to this minion.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6
+            }
+        ]
+    }
+}

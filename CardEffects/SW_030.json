@@ -1,0 +1,13 @@
+{
+    "_name": "Cargo Guard",
+    "_effect": "At the end of your turn, gain 3 Armor.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Magatha, Bane of Music",
+    "_effect": "Battlecry: Draw 5 cards. Give any spells drawn to your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 5
+            }
+        ]
+    }
+}

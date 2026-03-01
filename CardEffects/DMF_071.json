@@ -1,0 +1,12 @@
+{
+    "_name": "Tenwu of the Red Smoke",
+    "_effect": "Battlecry: Return a friendly minion to your hand. It costs (1) this turn.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Swindle",
+    "_effect": "Draw a spell. Combo: And a minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

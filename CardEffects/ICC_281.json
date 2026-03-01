@@ -1,0 +1,13 @@
+{
+    "_name": "Forge of Souls",
+    "_effect": "Draw 2 weapons from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Ring of Courage",
+    "_effect": "Tradeable Give a minion +1/+1. Repeat for each enemy minion.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

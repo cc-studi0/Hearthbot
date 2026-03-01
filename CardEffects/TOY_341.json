@@ -1,0 +1,13 @@
+{
+    "_name": "Nostalgic Clown",
+    "_effect": "Miniaturize Battlecry: If you've played a higher Cost card while holding this, deal 4 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

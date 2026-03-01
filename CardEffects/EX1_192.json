@@ -1,0 +1,13 @@
+{
+    "_name": "Radiance",
+    "_effect": "Restore #5 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 5
+            }
+        ]
+    }
+}

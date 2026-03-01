@@ -1,0 +1,13 @@
+{
+    "_name": "Frozen Clone",
+    "_effect": "Secret: After your opponent plays a minion, add two copies of it to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

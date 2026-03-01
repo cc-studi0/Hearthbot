@@ -1,0 +1,13 @@
+{
+    "_name": "Volatile Skeleton",
+    "_effect": "Deathrattle: Deal 2 damage to a random enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "INFERNAL!",
+    "_effect": "Taunt Battlecry: Set your hero's remaining Health to 15.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Dark Iron Harbinger",
+    "_effect": "Deathrattle: Summon a 0/7 Doomsayer that destroys ALL minions at the start of your turn.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 0,
+                "hp": 7
+            }
+        ]
+    }
+}

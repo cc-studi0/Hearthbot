@@ -1,0 +1,13 @@
+{
+    "_name": "Blind Box",
+    "_effect": "Get 2 random Demons. Outcast: Discover them instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

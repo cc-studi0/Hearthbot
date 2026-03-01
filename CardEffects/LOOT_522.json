@@ -1,0 +1,12 @@
+{
+    "_name": "Crushing Walls",
+    "_effect": "Destroy your opponent's left and right-most minions.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

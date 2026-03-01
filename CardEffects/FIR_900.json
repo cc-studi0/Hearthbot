@@ -1,0 +1,13 @@
+{
+    "_name": "Cremate",
+    "_effect": "Discover a minion with a Dark Gift. It costs (2) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

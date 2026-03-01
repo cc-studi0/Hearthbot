@@ -1,0 +1,13 @@
+{
+    "_name": "Sense Demons",
+    "_effect": "Draw 2 Demons from your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

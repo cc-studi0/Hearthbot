@@ -1,0 +1,14 @@
+{
+    "_name": "Lothar",
+    "_effect": "At the end of your turn, attack a random enemy minion. If it dies, gain +3/+3.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Delayed Product",
+    "_effect": "Discover and summon a minion that costs (8) or more. It goes Dormant for 2 turns.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

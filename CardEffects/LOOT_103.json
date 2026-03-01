@@ -1,0 +1,13 @@
+{
+    "_name": "Lesser Ruby Spellstone",
+    "_effect": "Add 1 random Mage spell to your hand. (Play 2 Elementals to upgrade.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

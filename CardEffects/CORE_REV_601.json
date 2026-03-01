@@ -1,0 +1,14 @@
+{
+    "_name": "Frozen Touch",
+    "_effect": "Deal $3 damage. Infuse (3): Add a Frozen Touch to your hand.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

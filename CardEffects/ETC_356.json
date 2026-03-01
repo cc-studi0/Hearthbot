@@ -1,0 +1,14 @@
+{
+    "_name": "Altered Chord",
+    "_effect": "Lifesteal Deal $6 damage to a minion. Costs (3) less if you're Overloaded.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6,
+                "useSP": true
+            }
+        ]
+    }
+}

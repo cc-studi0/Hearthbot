@@ -1,0 +1,12 @@
+{
+    "_name": "Light's Champion",
+    "_effect": "Battlecry: Silence a Demon.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "silence"
+            }
+        ]
+    }
+}

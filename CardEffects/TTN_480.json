@@ -1,0 +1,14 @@
+{
+    "_name": "Elemental Inspiration",
+    "_effect": "For each spell school you have cast this game, summon a 4/5 Vortex with a random Bonus Effect.@ (@)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 4,
+                "hp": 5
+            }
+        ]
+    }
+}

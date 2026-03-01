@@ -1,0 +1,13 @@
+{
+    "_name": "Naval Mine",
+    "_effect": "Deathrattle: Deal 4 damage to the enemy hero.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_face",
+                "v": 4
+            }
+        ]
+    }
+}

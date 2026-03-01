@@ -1,0 +1,13 @@
+{
+    "_name": "Blazing Accretion",
+    "_effect": "Battlecry: Destroy the top 3 cards of your deck. Any Fire spells or Elementals are drawn instead.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

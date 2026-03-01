@@ -1,0 +1,13 @@
+{
+    "_name": "Benevolent Banker",
+    "_effect": "Battlecry: Discover a spell from your deck. Quickdraw: Enemy deck instead.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

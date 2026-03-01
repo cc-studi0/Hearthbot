@@ -1,0 +1,14 @@
+{
+    "_name": "Extraterrestrial Egg",
+    "_effect": "Deathrattle: Summon a 3/5 Beast that attacks the lowest Health enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 5
+            }
+        ]
+    }
+}

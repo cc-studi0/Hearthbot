@@ -1,0 +1,14 @@
+{
+    "_name": "Possessifier",
+    "_effect": "Battlecry: Summon two 1/1 Fighters with Rush and Reborn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

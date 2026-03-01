@@ -1,0 +1,12 @@
+{
+    "_name": "Seedcloud Buckler",
+    "_effect": "Deathrattle: Give your minions Divine Shield.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

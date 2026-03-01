@@ -1,0 +1,14 @@
+{
+    "_name": "Lava Shock",
+    "_effect": "Deal $2 damage. Unlock your Overloaded Mana Crystals.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

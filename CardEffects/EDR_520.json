@@ -1,0 +1,12 @@
+{
+    "_name": "Forbidden Shrine",
+    "_effect": "Spend all your Mana. Cast a random spell that costs that much.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Ozumat",
+    "_effect": "Colossal +6 Deathrattle: For each of Ozumat's Tentacles, destroy a random enemy minion.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

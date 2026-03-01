@@ -1,0 +1,14 @@
+{
+    "_name": "Mecha-Leaper",
+    "_effect": "Magnetic Deathrattle: Give a friendly Mech +2/+2 and this Deathrattle.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

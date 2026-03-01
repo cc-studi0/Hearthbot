@@ -1,0 +1,13 @@
+{
+    "_name": "Gone Fishin'",
+    "_effect": "Dredge. Combo: Draw a card.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

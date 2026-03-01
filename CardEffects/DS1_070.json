@@ -1,0 +1,14 @@
+{
+    "_name": "Houndmaster",
+    "_effect": "Battlecry: Give a friendly Beast +2/+2 and Taunt.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

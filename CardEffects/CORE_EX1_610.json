@@ -1,0 +1,14 @@
+{
+    "_name": "Explosive Trap",
+    "_effect": "Secret: When your hero is attacked, deal $2 damage to all enemies.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Table Flip",
+    "_effect": "Deal $3 damage to all enemy minions. Costs (1) less for each other card in your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

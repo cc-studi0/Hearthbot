@@ -1,0 +1,13 @@
+{
+    "_name": "Aspect's Embrace",
+    "_effect": "Restore #4 Health. Draw a card. Imbue your Hero Power.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 4
+            }
+        ]
+    }
+}

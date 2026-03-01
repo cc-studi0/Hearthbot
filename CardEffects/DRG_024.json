@@ -1,0 +1,13 @@
+{
+    "_name": "Sky Raider",
+    "_effect": "Battlecry: Add a random Pirate to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

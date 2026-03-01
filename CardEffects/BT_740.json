@@ -1,0 +1,14 @@
+{
+    "_name": "Soul Cleave",
+    "_effect": "Lifesteal Deal $2 damage to two random enemy minions.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

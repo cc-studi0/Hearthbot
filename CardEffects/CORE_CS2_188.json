@@ -1,0 +1,14 @@
+{
+    "_name": "Abusive Sergeant",
+    "_effect": "Battlecry: Give a minion +2 Attack this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

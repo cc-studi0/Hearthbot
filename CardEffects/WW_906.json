@@ -1,0 +1,13 @@
+{
+    "_name": "Rowdy Partner",
+    "_effect": "Battlecry: If you're holding another 4-Cost card, deal 4 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

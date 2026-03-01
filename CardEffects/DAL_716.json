@@ -1,0 +1,14 @@
+{
+    "_name": "Vendetta",
+    "_effect": "Deal $4 damage to a minion. Costs (0) if you're holding a card from another class.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

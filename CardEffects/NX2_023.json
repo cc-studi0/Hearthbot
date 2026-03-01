@@ -1,0 +1,13 @@
+{
+    "_name": "The Purator",
+    "_effect": "Taunt Battlecry: If your deck has no Neutral cards, draw a minion of each minion type.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

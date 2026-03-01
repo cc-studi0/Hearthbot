@@ -1,0 +1,13 @@
+{
+    "_name": "Firework Elemental",
+    "_effect": "Battlecry: Deal 3 damage to a minion. Corrupt: Deal 12 instead.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

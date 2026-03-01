@@ -1,0 +1,14 @@
+{
+    "_name": "Primal Talismans",
+    "_effect": "Give your minions \"Deathrattle: Summon a random basic Totem.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

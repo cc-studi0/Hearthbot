@@ -1,0 +1,13 @@
+{
+    "_name": "Jotun, the Eternal",
+    "_effect": "Battlecry: For the rest of the game, cast a copy of the first spell you draw each turn at enemies.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

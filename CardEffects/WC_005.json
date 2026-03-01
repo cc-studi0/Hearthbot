@@ -1,0 +1,13 @@
+{
+    "_name": "Primal Dungeoneer",
+    "_effect": "Battlecry: Draw a spell. If it's a Nature spell, also draw an Elemental.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

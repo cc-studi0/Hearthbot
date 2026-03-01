@@ -1,0 +1,13 @@
+{
+    "_name": "Pilfer",
+    "_effect": "Add a random card from another class to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

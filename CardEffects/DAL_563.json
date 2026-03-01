@@ -1,0 +1,14 @@
+{
+    "_name": "Eager Underling",
+    "_effect": "Deathrattle: Give two random friendly minions +2/+2.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

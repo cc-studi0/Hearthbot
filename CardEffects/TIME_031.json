@@ -1,0 +1,13 @@
+{
+    "_name": "RAFAAM LADDER!!",
+    "_effect": "Draw 3 cards of different Costs.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

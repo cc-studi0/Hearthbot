@@ -1,0 +1,14 @@
+{
+    "_name": "Dredger Staff",
+    "_effect": "Battlecry: Give minions in your hand +1 Health.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 0,
+                "hp": 1
+            }
+        ]
+    }
+}

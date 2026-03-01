@@ -1,0 +1,24 @@
+{
+    "_name": "Amorphous Slime",
+    "_effect": "Battlecry: Discard a random Undead. Deathrattle: Summon a copy of it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

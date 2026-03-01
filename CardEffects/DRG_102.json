@@ -1,0 +1,13 @@
+{
+    "_name": "Azure Explorer",
+    "_effect": "Spell Damage +2 Battlecry: Discover a Dragon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

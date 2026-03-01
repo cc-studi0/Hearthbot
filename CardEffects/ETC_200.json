@@ -1,0 +1,13 @@
+{
+    "_name": "Rush the Stage",
+    "_effect": "Draw two Rush minions. They cost (1) less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

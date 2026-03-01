@@ -1,0 +1,13 @@
+{
+    "_name": "Sigil of Alacrity",
+    "_effect": "At the start of your next turn, draw a card and reduce its Cost by (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

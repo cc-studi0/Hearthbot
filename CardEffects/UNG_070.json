@@ -1,0 +1,12 @@
+{
+    "_name": "Tol'vir Stoneshaper",
+    "_effect": "Battlecry: If you played an Elemental last turn, gain Taunt and Divine Shield.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Falric",
+    "_effect": "You gain twice as many Corpses as normal. Battlecry: Draw a card that spends Corpses.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

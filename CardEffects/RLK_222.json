@@ -1,0 +1,13 @@
+{
+    "_name": "Astalor Bloodsworn",
+    "_effect": "Battlecry: Add Astalor, the Protector to your hand. Manathirst (5): Deal 2 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

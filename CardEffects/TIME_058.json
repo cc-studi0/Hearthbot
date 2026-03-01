@@ -1,0 +1,14 @@
+{
+    "_name": "Paltry Flutterwing",
+    "_effect": "Deathrattle: Summon a random 2-Cost minion that is Dormant for 2 turns.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

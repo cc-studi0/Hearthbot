@@ -1,0 +1,12 @@
+{
+    "_name": "Shadow Word: Steal",
+    "_effect": "Return an enemy minion to YOUR hand.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

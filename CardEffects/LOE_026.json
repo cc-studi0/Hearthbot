@@ -1,0 +1,14 @@
+{
+    "_name": "Anyfin Can Happen",
+    "_effect": "Summon 7 Murlocs that died this game.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

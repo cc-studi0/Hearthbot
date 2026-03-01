@@ -1,0 +1,14 @@
+{
+    "_name": "Primordial Protector",
+    "_effect": "Battlecry: Draw your highest Cost spell. Summon a random minion with the same Cost.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

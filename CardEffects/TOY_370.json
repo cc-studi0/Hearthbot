@@ -1,0 +1,13 @@
+{
+    "_name": "Triplewick Trickster",
+    "_effect": "Battlecry: Deal 2 damage to a random enemy, three times.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Menacing Nimbus",
+    "_effect": "Battlecry: Add a random Elemental to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

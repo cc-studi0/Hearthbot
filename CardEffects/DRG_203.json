@@ -1,0 +1,13 @@
+{
+    "_name": "Veiled Worshipper",
+    "_effect": "Battlecry: If you've Invoked twice, draw 3 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

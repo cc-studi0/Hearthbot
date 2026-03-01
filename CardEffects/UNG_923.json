@@ -1,0 +1,13 @@
+{
+    "_name": "Iron Hide",
+    "_effect": "Gain 5 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 5
+            }
+        ]
+    }
+}

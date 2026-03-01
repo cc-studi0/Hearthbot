@@ -1,0 +1,13 @@
+{
+    "_name": "The Soularium",
+    "_effect": "Draw 3 cards. They are Temporary.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

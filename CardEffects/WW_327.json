@@ -1,0 +1,13 @@
+{
+    "_name": "Cactus Cutter",
+    "_effect": "Battlecry: Draw a spell. If you cast it this turn, gain +1/+2 and Taunt.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

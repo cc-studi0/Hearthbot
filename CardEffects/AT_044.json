@@ -1,0 +1,12 @@
+{
+    "_name": "Mulch",
+    "_effect": "Destroy a minion. Add a random minion to your opponent's hand.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

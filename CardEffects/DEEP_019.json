@@ -1,0 +1,12 @@
+{
+    "_name": "Crimson Expanse",
+    "_effect": "Choose a damaged minion. Summon a copy of it that goes Dormant for one turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

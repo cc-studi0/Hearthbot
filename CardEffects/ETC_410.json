@@ -1,0 +1,14 @@
+{
+    "_name": "Snakebite",
+    "_effect": "Rush Battlecry: Gain +1/+1 for each minion that died this turn.@ (@)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

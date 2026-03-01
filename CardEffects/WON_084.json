@@ -1,0 +1,14 @@
+{
+    "_name": "Jade Chieftain",
+    "_effect": "Battlecry: Summon a{1} {0} Jade Golem. Give it Taunt.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

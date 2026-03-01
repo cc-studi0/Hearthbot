@@ -1,0 +1,14 @@
+{
+    "_name": "Blessing of the Ancients",
+    "_effect": "Twinspell Give your minions +1/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Arkwing Pilot",
+    "_effect": "At the end of your turn, deal 3 damage to a random enemy. Spellburst: Summon an Arkwing Pilot.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 3
+            }
+        ]
+    }
+}

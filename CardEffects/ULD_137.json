@@ -1,0 +1,14 @@
+{
+    "_name": "Garden Gnome",
+    "_effect": "Battlecry: If you're holding a spell that costs (5) or more, summon two 2/2 Treants.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

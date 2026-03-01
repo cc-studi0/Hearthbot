@@ -1,0 +1,12 @@
+{
+    "_name": "Metal Detector",
+    "_effect": "Deathrattle: Get a Coin.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

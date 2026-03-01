@@ -1,0 +1,14 @@
+{
+    "_name": "Rise to the Occasion",
+    "_effect": "Questline: Play 3 different 1-Cost cards. Reward: Equip a 1/4 Light's Justice.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 1,
+                "dur": 4
+            }
+        ]
+    }
+}

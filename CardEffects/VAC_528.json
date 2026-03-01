@@ -1,0 +1,13 @@
+{
+    "_name": "All You Can Eat",
+    "_effect": "Draw three minions of different minion types.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

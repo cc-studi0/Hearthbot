@@ -1,0 +1,14 @@
+{
+    "_name": "Pocket Sand",
+    "_effect": "Deal $3 damage. Quickdraw: Your opponent's next card costs (1) more.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

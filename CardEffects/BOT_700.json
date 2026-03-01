@@ -1,0 +1,14 @@
+{
+    "_name": "SN1P-SN4P",
+    "_effect": "Magnetic, Echo Deathrattle: Summon two 1/1 Microbots.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

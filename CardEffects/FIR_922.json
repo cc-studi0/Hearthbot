@@ -1,0 +1,14 @@
+{
+    "_name": "Cindersword",
+    "_effect": "Battlecry: If you're holding a minion with a Dark Gift, gain +3 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

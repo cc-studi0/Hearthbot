@@ -1,0 +1,13 @@
+{
+    "_name": "Blazecaller",
+    "_effect": "Battlecry: If you played an Elemental last turn, deal 5 damage.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 5
+            }
+        ]
+    }
+}

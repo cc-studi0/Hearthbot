@@ -1,0 +1,14 @@
+{
+    "_name": "Silvermoon Portal",
+    "_effect": "Give a minion +2/+2. Summon a random 2-Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

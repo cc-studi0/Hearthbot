@@ -1,0 +1,13 @@
+{
+    "_name": "Skeletal Dragon",
+    "_effect": "Taunt At the end of your turn, add a Dragon to your hand.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

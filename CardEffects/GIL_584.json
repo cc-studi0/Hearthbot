@@ -1,0 +1,13 @@
+{
+    "_name": "Witchwood Piper",
+    "_effect": "Battlecry: Draw the lowest Cost minion from your deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

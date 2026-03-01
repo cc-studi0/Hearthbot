@@ -1,0 +1,14 @@
+{
+    "_name": "Tooth of Nefarian",
+    "_effect": "Deal $3 damage. Honorable Kill: Discover a spell from another class.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

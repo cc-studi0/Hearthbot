@@ -1,0 +1,14 @@
+{
+    "_name": "Cold Blood",
+    "_effect": "Give a minion +2 Attack. Combo: +4 Attack instead.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

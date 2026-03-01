@@ -1,0 +1,14 @@
+{
+    "_name": "Woodland Wonders",
+    "_effect": "Summon two 2/5 Beetles with Taunt. Costs (3) less if you have Spell Damage.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 5
+            }
+        ]
+    }
+}

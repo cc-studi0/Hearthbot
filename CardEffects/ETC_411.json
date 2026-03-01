@@ -1,0 +1,14 @@
+{
+    "_name": "SECURITY!!",
+    "_effect": "Summon two 1/1 Illidari with Rush. Outcast: Summon one more.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

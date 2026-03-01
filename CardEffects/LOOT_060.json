@@ -1,0 +1,14 @@
+{
+    "_name": "Crushing Hand",
+    "_effect": "Deal $8 damage to a minion. Overload: (3)",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 8,
+                "useSP": true
+            }
+        ]
+    }
+}

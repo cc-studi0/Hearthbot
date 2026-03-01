@@ -1,0 +1,13 @@
+{
+    "_name": "Jar Dealer",
+    "_effect": "Deathrattle: Add a random 1-Cost minion to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

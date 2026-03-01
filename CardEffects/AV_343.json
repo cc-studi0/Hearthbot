@@ -1,0 +1,13 @@
+{
+    "_name": "Stonehearth Vindicator",
+    "_effect": "Battlecry: Draw a spell that costs (3) or less. It costs (0) this turn.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

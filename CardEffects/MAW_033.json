@@ -1,0 +1,12 @@
+{
+    "_name": "Sylvanas, the Accused",
+    "_effect": "Battlecry: Destroy an enemy minion. Infuse (7): Take control of it instead.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

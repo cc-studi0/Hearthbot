@@ -1,0 +1,13 @@
+{
+    "_name": "Cagematch Custodian",
+    "_effect": "Battlecry: Draw a weapon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

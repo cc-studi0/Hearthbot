@@ -1,0 +1,13 @@
+{
+    "_name": "Reforestation",
+    "_effect": "Choose One - Draw a spell; or Draw a minion. (Hold this for 3 turns to do both!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

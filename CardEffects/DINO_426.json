@@ -1,0 +1,14 @@
+{
+    "_name": "Ritual of Life",
+    "_effect": "Discover a 3-Cost minion. Summon a 2/3 copy of it.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    }
+}

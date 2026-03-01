@@ -1,0 +1,13 @@
+{
+    "_name": "Splintergraft",
+    "_effect": "Battlecry: Choose a friendly minion. Add a 10/10 copy to your hand that costs (10).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

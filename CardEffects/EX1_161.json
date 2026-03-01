@@ -1,0 +1,12 @@
+{
+    "_name": "Naturalize",
+    "_effect": "Destroy a minion. Your opponent draws 2 cards.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

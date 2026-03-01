@@ -1,0 +1,14 @@
+{
+    "_name": "Dive the Golakka Depths",
+    "_effect": "Repeatable Quest: Summon 6 Murlocs. Reward: Murlocs you summon gain +1/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

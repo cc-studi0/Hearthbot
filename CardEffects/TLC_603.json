@@ -1,0 +1,13 @@
+{
+    "_name": "Platysaur",
+    "_effect": "Battlecry: Draw a card. Deathrattle: Discard it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

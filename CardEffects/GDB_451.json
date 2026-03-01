@@ -1,0 +1,13 @@
+{
+    "_name": "Triangulate",
+    "_effect": "Discover a different spell from your deck. Shuffle 3 copies of it into your deck.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

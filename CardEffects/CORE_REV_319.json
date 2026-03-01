@@ -1,0 +1,13 @@
+{
+    "_name": "Sesselie of the Fae Court",
+    "_effect": "Taunt Deathrattle: Draw a minion. Reduce its Cost by (8).",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

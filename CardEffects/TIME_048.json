@@ -1,0 +1,14 @@
+{
+    "_name": "Clockwork Rager",
+    "_effect": "Battlecry: Gain +1 Health for each turn you've taken this game.@ (@ turns)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 1
+            }
+        ]
+    }
+}

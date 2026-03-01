@@ -1,0 +1,13 @@
+{
+    "_name": "Raid the Docks",
+    "_effect": "Questline: Play 3 Pirates. Reward: Draw a weapon.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

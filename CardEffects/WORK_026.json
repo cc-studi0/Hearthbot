@@ -1,0 +1,13 @@
+{
+    "_name": "Burndown",
+    "_effect": "Draw 3 cards and light them on fire. In 3 turns, any still in hand are destroyed!",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

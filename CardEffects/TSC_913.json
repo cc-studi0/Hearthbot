@@ -1,0 +1,12 @@
+{
+    "_name": "Azsharan Trident",
+    "_effect": "Deathrattle: Put a 'Sunken Trident' on the bottom of your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

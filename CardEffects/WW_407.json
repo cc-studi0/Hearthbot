@@ -1,0 +1,14 @@
+{
+    "_name": "Parched Desperado",
+    "_effect": "Battlecry: If you've cast a spell while holding this, give your hero +3 Attack this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

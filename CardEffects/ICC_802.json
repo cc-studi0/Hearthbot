@@ -1,0 +1,14 @@
+{
+    "_name": "Spirit Lash",
+    "_effect": "Lifesteal Deal $1 damage to all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

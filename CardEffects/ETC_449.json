@@ -1,0 +1,12 @@
+{
+    "_name": "Fan Club",
+    "_effect": "Restore #3 Health to all friendly characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

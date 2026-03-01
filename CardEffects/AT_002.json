@@ -1,0 +1,14 @@
+{
+    "_name": "Effigy",
+    "_effect": "Secret: When a friendly minion dies, summon a random minion with the same Cost.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

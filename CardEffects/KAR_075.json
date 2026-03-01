@@ -1,0 +1,14 @@
+{
+    "_name": "Moonglade Portal",
+    "_effect": "Restore #6 Health. Summon a random 6-Cost minion.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

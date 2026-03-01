@@ -1,0 +1,14 @@
+{
+    "_name": "Ward of Earth",
+    "_effect": "Gain 5 Armor. Summon a random 5-Cost minion and give it Taunt.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

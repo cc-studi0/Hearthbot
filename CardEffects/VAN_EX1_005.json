@@ -1,0 +1,12 @@
+{
+    "_name": "Big Game Hunter",
+    "_effect": "Battlecry: Destroy a minion with 7 or more Attack.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

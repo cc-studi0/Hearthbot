@@ -1,0 +1,14 @@
+{
+    "_name": "Ticket Master",
+    "_effect": "Deathrattle: Shuffle 3 Tickets into your deck. When drawn, summon a 3/3 Plush Bear.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

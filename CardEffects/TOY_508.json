@@ -1,0 +1,14 @@
+{
+    "_name": "Pop-Up Book",
+    "_effect": "Deal $2 damage. Summon two 0/1 Frogs with Taunt.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Power Word: Feast",
+    "_effect": "Give a minion +2/+2. Restore it to full Health at the end of this turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

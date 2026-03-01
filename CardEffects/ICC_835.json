@@ -1,0 +1,14 @@
+{
+    "_name": "Hadronox",
+    "_effect": "Deathrattle: Summon your Taunt minions that died this game.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

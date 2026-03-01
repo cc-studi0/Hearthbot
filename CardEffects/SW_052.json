@@ -1,0 +1,13 @@
+{
+    "_name": "Find the Imposter",
+    "_effect": "Questline: Play 2 SI:7 cards. Reward: Add a Spy Gizmo to your hand.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

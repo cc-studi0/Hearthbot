@@ -1,0 +1,14 @@
+{
+    "_name": "Blessing of Might",
+    "_effect": "Give a minion +3 Attack.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

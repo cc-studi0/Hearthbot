@@ -1,0 +1,14 @@
+{
+    "_name": "Hecklebot",
+    "_effect": "Taunt Battlecry: Your opponent summons a minion from their deck.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Spawn of Deathwing",
+    "_effect": "Battlecry: Destroy a random enemy minion. Discard a random card.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

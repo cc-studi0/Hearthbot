@@ -1,0 +1,12 @@
+{
+    "_name": "Magtheridon",
+    "_effect": "Dormant. Battlecry: Summon three 1/3 enemy Warders. When they die, destroy all minions and awaken.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

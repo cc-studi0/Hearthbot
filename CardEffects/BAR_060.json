@@ -1,0 +1,14 @@
+{
+    "_name": "Hog Rancher",
+    "_effect": "Battlecry: Summon a 2/1 Hog with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Medivh the Hallowed",
+    "_effect": "Fabled. Costs (0) if you control Karazhan. Battlecry: Silence and destroy all other minions.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

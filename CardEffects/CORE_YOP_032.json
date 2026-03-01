@@ -1,0 +1,13 @@
+{
+    "_name": "Armor Vendor",
+    "_effect": "Battlecry: Give 4 Armor to each hero.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 4
+            }
+        ]
+    }
+}

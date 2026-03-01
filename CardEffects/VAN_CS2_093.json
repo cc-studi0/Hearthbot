@@ -1,0 +1,13 @@
+{
+    "_name": "Consecration",
+    "_effect": "Deal $2 damage to all enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

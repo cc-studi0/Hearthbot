@@ -1,0 +1,12 @@
+{
+    "_name": "Kidnapper",
+    "_effect": "Combo: Return a minion to its owner's hand.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "bounce"
+            }
+        ]
+    }
+}

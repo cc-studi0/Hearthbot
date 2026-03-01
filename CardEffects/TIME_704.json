@@ -1,0 +1,13 @@
+{
+    "_name": "Highborne Mentor",
+    "_effect": "Battlecry: Get a 2/2 Pupil. Discover a spell that costs (7) or more from the past to teach it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

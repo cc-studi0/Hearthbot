@@ -1,0 +1,13 @@
+{
+    "_name": "Murloc Tastyfin",
+    "_effect": "Deathrattle: Draw 2 Murlocs from your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

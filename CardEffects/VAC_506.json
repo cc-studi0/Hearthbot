@@ -1,0 +1,14 @@
+{
+    "_name": "Cruise Captain Lora",
+    "_effect": "Battlecry: Summon 2 random locations.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

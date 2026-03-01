@@ -1,0 +1,14 @@
+{
+    "_name": "Toyrantus",
+    "_effect": "Taunt, Elusive Battlecry: If you have 10 Mana Crystals, gain +7/+7.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 7,
+                "hp": 7
+            }
+        ]
+    }
+}

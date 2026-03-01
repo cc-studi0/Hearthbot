@@ -1,0 +1,13 @@
+{
+    "_name": "Sightless Magistrate",
+    "_effect": "Battlecry: Both players draw until they have 5 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

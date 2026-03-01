@@ -1,0 +1,13 @@
+{
+    "_name": "Sigil of Time",
+    "_effect": "At the start of your next turn, draw 3 additional cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

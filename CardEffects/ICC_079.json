@@ -1,0 +1,13 @@
+{
+    "_name": "Gnash",
+    "_effect": "Give your hero +3 Attack this turn. Gain 3 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 3
+            }
+        ]
+    }
+}

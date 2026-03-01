@@ -1,0 +1,13 @@
+{
+    "_name": "Netherwalker",
+    "_effect": "Battlecry: Discover a Demon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

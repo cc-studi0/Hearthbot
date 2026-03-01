@@ -1,0 +1,13 @@
+{
+    "_name": "Healing Rain",
+    "_effect": "Restore #12 Health randomly split among all friendly characters.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 12
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Blazing Power",
+    "_effect": "Give a minion +1/+1. Repeat for each damaged friendly character.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

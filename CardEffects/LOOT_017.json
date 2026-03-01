@@ -1,0 +1,12 @@
+{
+    "_name": "Dark Pact",
+    "_effect": "Destroy a friendly minion. Restore #8 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

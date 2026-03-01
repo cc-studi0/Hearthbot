@@ -1,0 +1,14 @@
+{
+    "_name": "Into the Fray",
+    "_effect": "Give all Taunt minions in your hand +2/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

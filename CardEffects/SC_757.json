@@ -1,0 +1,14 @@
+{
+    "_name": "Hallucination",
+    "_effect": "Summon a copy of a friendly Protoss minion. It takes double damage.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

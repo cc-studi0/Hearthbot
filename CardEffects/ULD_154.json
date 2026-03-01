@@ -1,0 +1,14 @@
+{
+    "_name": "Hyena Alpha",
+    "_effect": "Battlecry: If you control a Secret, summon two 2/2 Hyenas.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

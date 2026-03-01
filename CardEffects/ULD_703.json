@@ -1,0 +1,13 @@
+{
+    "_name": "Desert Obelisk",
+    "_effect": "If you control 3 of these at the end of your turn, deal 5 damage to a random enemy.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 5
+            }
+        ]
+    }
+}

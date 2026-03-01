@@ -1,0 +1,14 @@
+{
+    "_name": "Raid Boss Onyxia",
+    "_effect": "Rush. Immune while you control a Whelp. Battlecry: Summon six 2/1 Whelps with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

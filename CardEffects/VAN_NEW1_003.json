@@ -1,0 +1,12 @@
+{
+    "_name": "Sacrificial Pact",
+    "_effect": "Destroy a Demon. Restore #5 Health to your hero.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

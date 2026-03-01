@@ -1,0 +1,13 @@
+{
+    "_name": "Framester",
+    "_effect": "Battlecry: Shuffle 3 'Framed' cards into the opponent's deck. When drawn, they Overload for (2).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

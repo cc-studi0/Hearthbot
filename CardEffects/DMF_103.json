@@ -1,0 +1,14 @@
+{
+    "_name": "Mask of C'Thun",
+    "_effect": "Deal $10 damage randomly split among all enemies.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 10,
+                "useSP": true
+            }
+        ]
+    }
+}

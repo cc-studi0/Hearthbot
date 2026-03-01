@@ -1,0 +1,14 @@
+{
+    "_name": "Cursed Campaign",
+    "_effect": "Give a friendly minion \"Deathrattle: Summon two copies of this minion that are Dormant for 2 turns.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

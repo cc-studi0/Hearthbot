@@ -1,0 +1,14 @@
+{
+    "_name": "Power of the Wild",
+    "_effect": "Choose One - Give your minions +1/+1; or Summon a 3/2 Panther.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 2
+            }
+        ]
+    }
+}

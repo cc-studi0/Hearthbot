@@ -1,0 +1,14 @@
+{
+    "_name": "Gravelsnout Knight",
+    "_effect": "Battlecry: Summon a random 1-Cost minion for your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

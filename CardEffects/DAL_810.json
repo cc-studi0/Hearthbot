@@ -1,0 +1,12 @@
+{
+    "_comment": "萨满英雄 胡卡尔大地使者 - 5费 5护甲 对所有随从造成1点伤害",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 1
+            }
+        ]
+    }
+}

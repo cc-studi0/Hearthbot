@@ -1,0 +1,13 @@
+{
+    "_name": "Libram of Clarity",
+    "_effect": "Draw 2 minions. If this costs (0), give them +2/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

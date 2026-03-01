@@ -1,0 +1,14 @@
+{
+    "_name": "Lesser Sapphire Spellstone",
+    "_effect": "Summon 1 copy of a friendly minion. (Overload 3 Mana Crystals to upgrade.)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

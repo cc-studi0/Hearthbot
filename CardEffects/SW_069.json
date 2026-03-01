@@ -1,0 +1,22 @@
+{
+    "_name": "Enthusiastic Banker",
+    "_effect": "At the end of your turn, store a card from your deck. Deathrattle: Add the stored cards to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    },
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

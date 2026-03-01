@@ -1,0 +1,14 @@
+{
+    "_name": "Pet Collector",
+    "_effect": "Battlecry: Summon a Beast from your deck that costs (5) or less.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

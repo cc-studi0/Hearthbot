@@ -1,0 +1,12 @@
+{
+    "_name": "Deathwing the Destroyer",
+    "_effect": "Battlecry: Destroy all other minions. Discard a card for each destroyed.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_all"
+            }
+        ]
+    }
+}

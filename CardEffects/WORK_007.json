@@ -1,0 +1,12 @@
+{
+    "_name": "Deadline",
+    "_effect": "Tradeable, Temporary Destroy a minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Madame Lazul",
+    "_effect": "Battlecry: Discover a copy of a card in your opponent's hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

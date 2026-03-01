@@ -1,0 +1,13 @@
+{
+    "_name": "Valdris Felgorge",
+    "_effect": "Battlecry: Increase your maximum hand size to 12. Draw 4 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 4
+            }
+        ]
+    }
+}

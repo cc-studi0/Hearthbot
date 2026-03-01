@@ -1,0 +1,14 @@
+{
+    "_name": "Birdwatching",
+    "_effect": "Discover a minion from your deck. Give all copies of it +2/+1 (wherever they are).",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

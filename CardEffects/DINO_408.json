@@ -1,0 +1,22 @@
+{
+    "_name": "Crystal Tusk",
+    "_effect": "Battlecry: Shuffle the left- most card in your hand into your deck. Deathrattle: Draw 2 cards.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

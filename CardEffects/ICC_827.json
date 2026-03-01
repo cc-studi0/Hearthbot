@@ -1,0 +1,8 @@
+{
+    "_name": "虚空之影瓦莉拉 (盗贼英雄) 9费 5护甲",
+    "_effect": "战吼：获得潜行直到你的下个回合",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": []
+    }
+}

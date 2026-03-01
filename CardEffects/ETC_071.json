@@ -1,0 +1,13 @@
+{
+    "_name": "Rin, Orchestrator of Doom",
+    "_effect": "Taunt. Deathrattle: Both players draw 2 cards, discard 2 cards, and destroy the top 2 cards of their deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

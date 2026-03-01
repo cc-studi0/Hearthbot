@@ -1,0 +1,14 @@
+{
+    "_name": "Valstann Staghelm",
+    "_effect": "Deathrattle: Summon a Taunt minion from your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

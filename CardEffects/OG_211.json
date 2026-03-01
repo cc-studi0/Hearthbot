@@ -1,0 +1,14 @@
+{
+    "_name": "Call of the Wild",
+    "_effect": "Summon all three Animal Companions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

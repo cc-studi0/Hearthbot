@@ -1,0 +1,14 @@
+{
+    "_name": "Sigil of Flame",
+    "_effect": "At the start of your next turn, deal $3 damage to all minions.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

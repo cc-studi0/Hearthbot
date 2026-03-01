@@ -1,0 +1,14 @@
+{
+    "_name": "Holy Ripple",
+    "_effect": "Deal $1 damage to all enemies. Restore #1 Health to all friendly characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

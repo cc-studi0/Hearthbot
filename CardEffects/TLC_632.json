@@ -1,0 +1,13 @@
+{
+    "_name": "Story of Sulfuras",
+    "_effect": "Swap your Hero Power to \"Deal 8 damage to a random enemy.\" After 2 uses, swap back.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 8
+            }
+        ]
+    }
+}

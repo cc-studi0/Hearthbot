@@ -1,0 +1,13 @@
+{
+    "_name": "Pocket Dimension",
+    "_effect": "Discover a spell. Repeat until you see one for the second time.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Flames of the Firelord",
+    "_effect": "Deal $4 damage to a random enemy minion. If you're holding a card that costs (8) or more, deal $8 instead.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Solar Flare",
+    "_effect": "Deal $2 damage to all enemies. Costs (1) less for each Elemental you control.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

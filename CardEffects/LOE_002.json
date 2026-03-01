@@ -1,0 +1,14 @@
+{
+    "_name": "Forgotten Torch",
+    "_effect": "Deal $3 damage. Shuffle a 'Roaring Torch' into your deck that deals 6 damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

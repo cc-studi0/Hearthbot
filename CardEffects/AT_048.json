@@ -1,0 +1,13 @@
+{
+    "_name": "Healing Wave",
+    "_effect": "Restore #8 Health. Reveal a minion in each deck. If yours costs more, restore #16 instead.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 8
+            }
+        ]
+    }
+}

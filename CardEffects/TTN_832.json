@@ -1,0 +1,13 @@
+{
+    "_name": "Trogg Exile",
+    "_effect": "Rush Battlecry: Deal 4 damage to your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

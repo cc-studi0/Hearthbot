@@ -1,0 +1,13 @@
+{
+    "_name": "Refreshing Spring Water",
+    "_effect": "Draw 2 cards. Refresh 2 Mana Crystals for each spell drawn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

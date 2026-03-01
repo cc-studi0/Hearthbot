@@ -1,0 +1,12 @@
+{
+    "_name": "Smolderthorn Lancer",
+    "_effect": "Battlecry: If you're holding a Dragon, destroy a damaged enemy minion.",
+    "Battlecry": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

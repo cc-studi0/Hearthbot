@@ -1,0 +1,13 @@
+{
+    "_name": "Dig for Treasure",
+    "_effect": "Draw a minion. If it's a Pirate, get a Coin.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

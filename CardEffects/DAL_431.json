@@ -1,0 +1,13 @@
+{
+    "_name": "Swampqueen Hagatha",
+    "_effect": "Battlecry: Add a 5/5 Horror to your hand. Teach it two Shaman spells.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Freezing Potion",
+    "_effect": "Freeze an enemy.",
+    "Spell": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Crystalweaver",
+    "_effect": "Battlecry: Give your Demons +1/+1.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

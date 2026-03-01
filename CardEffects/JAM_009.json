@@ -1,0 +1,12 @@
+{
+    "_name": "Dance Floor",
+    "_effect": "Give your minions Rush.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

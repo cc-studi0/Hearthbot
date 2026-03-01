@@ -1,0 +1,14 @@
+{
+    "_name": "Marsh Drake",
+    "_effect": "Battlecry: Summon a 2/1 Poisonous Drakeslayer for your opponent.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 1
+            }
+        ]
+    }
+}

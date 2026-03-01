@@ -1,0 +1,12 @@
+{
+    "_name": "Hyldnir Frostrider",
+    "_effect": "Battlecry: Freeze your other minions.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

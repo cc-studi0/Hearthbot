@@ -1,0 +1,14 @@
+{
+    "_name": "Bladed Cultist",
+    "_effect": "Combo: Gain +1/+1.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

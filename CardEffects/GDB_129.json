@@ -1,0 +1,13 @@
+{
+    "_name": "Doommaiden",
+    "_effect": "Battlecry: Draw a card from your opponent's deck. If you don't play it this turn, put it back.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

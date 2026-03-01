@@ -1,0 +1,14 @@
+{
+    "_name": "Infested Tauren",
+    "_effect": "Taunt Deathrattle: Summon a 2/2 Slime.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

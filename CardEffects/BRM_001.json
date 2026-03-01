@@ -1,0 +1,13 @@
+{
+    "_name": "Solemn Vigil",
+    "_effect": "Draw 2 cards. Costs (1) less for each minion that died this turn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

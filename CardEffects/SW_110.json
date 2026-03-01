@@ -1,0 +1,14 @@
+{
+    "_name": "Ignite",
+    "_effect": "Deal $2 damage. Shuffle an Ignite into your deck that deals one more damage.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

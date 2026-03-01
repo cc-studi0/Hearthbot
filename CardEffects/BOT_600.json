@@ -1,0 +1,13 @@
+{
+    "_name": "Research Project",
+    "_effect": "Each player draws 2 cards.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

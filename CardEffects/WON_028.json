@@ -1,0 +1,14 @@
+{
+    "_name": "Trial of the Jormungars",
+    "_effect": "Summon copies of two Beasts in your deck that cost (3) or less.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

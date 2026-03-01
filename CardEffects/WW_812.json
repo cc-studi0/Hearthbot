@@ -1,0 +1,14 @@
+{
+    "_name": "Saddle Up!",
+    "_effect": "Give your minions \"Deathrattle: Summon a random Beast that costs (3) or less.\"",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

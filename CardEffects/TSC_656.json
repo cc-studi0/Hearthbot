@@ -1,0 +1,14 @@
+{
+    "_name": "Miracle Growth",
+    "_effect": "Draw 3 cards. Summon a Plant with Taunt and stats equal to your hand size.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Shimmer Shot",
+    "_effect": "Deal $1 damage. Summon a random minion of that Cost.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 1,
+                "useSP": true
+            }
+        ]
+    }
+}

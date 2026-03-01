@@ -1,0 +1,14 @@
+{
+    "_name": "Holy Nova",
+    "_effect": "Deal $2 damage to all enemy minions. Restore #2 Health to all friendly characters.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2,
+                "useSP": true
+            }
+        ]
+    }
+}

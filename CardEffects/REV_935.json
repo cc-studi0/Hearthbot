@@ -1,0 +1,14 @@
+{
+    "_name": "Party Favor Totem",
+    "_effect": "At the end of your turn, summon a random basic Totem. Infuse (2): Summon two instead.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

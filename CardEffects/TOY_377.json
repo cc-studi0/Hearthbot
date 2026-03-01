@@ -1,0 +1,14 @@
+{
+    "_name": "Frost Lich Cross-Stitch",
+    "_effect": "Deal $3 damage to a character. If it dies, summon a 3/6 Water Elemental that Freezes.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

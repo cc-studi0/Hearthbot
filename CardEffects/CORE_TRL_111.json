@@ -1,0 +1,12 @@
+{
+    "_name": "Headhunter's Hatchet",
+    "_effect": "Battlecry: If you control a Beast, gain +1 Durability.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Waggle Pick",
+    "_effect": "Deathrattle: Return a random friendly minion to your hand. It costs (2) less.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

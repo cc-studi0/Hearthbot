@@ -1,0 +1,13 @@
+{
+    "_name": "Jettison",
+    "_effect": "Discover a spell. Spend 2 Armor to Discover another.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

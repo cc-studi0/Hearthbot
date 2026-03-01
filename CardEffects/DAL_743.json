@@ -1,0 +1,14 @@
+{
+    "_name": "Hench-Clan Hogsteed",
+    "_effect": "Rush Deathrattle: Summon a 1/1 Murloc.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

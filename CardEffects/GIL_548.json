@@ -1,0 +1,13 @@
+{
+    "_name": "Book of Specters",
+    "_effect": "Draw 3 cards. Discard any spells drawn.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

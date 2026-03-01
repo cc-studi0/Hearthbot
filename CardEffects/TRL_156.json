@@ -1,0 +1,13 @@
+{
+    "_name": "Stolen Steel",
+    "_effect": "Discover a weapon (from another class).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

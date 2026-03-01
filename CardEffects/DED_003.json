@@ -1,0 +1,13 @@
+{
+    "_name": "Jerry Rig Carpenter",
+    "_effect": "Battlecry: Draw a Choose One spell and split it.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

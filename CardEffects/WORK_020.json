@@ -1,0 +1,13 @@
+{
+    "_name": "Monkey Business",
+    "_effect": "Add 8 Bananas to your hand. Any that can't fit are randomly fed to friendly minions in play.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 8
+            }
+        ]
+    }
+}

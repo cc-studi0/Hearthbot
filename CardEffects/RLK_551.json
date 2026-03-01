@@ -1,0 +1,13 @@
+{
+    "_name": "Blightblood Berserker",
+    "_effect": "Taunt, Lifesteal, Reborn Deathrattle: Deal 3 damage to a random enemy.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 3
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "加拉克苏斯大王 (术士英雄) 8/9费",
+    "_effect": "战吼：装备一把3/8的血怒",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "equip",
+                "atk": 3,
+                "dur": 8
+            }
+        ]
+    }
+}

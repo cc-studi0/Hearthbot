@@ -1,0 +1,13 @@
+{
+    "_name": "死亡猎手雷克萨 (猎人英雄) 6费 5护甲",
+    "_effect": "战吼：对所有敌方随从造成2点伤害",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,22 @@
+{
+    "_name": "Expired Merchant",
+    "_effect": "Battlecry: Discard your highest Cost card. Deathrattle: Add 2 copies of it to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

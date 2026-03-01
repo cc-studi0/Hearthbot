@@ -1,0 +1,14 @@
+{
+    "_name": "Tachyon Barrage",
+    "_effect": "Deal $6 damage split among all enemies. Shuffle 2 Shreds of Time into your deck.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 6,
+                "useSP": true
+            }
+        ]
+    }
+}

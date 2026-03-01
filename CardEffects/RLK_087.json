@@ -1,0 +1,12 @@
+{
+    "_name": "Asphyxiate",
+    "_effect": "Destroy the highest Attack enemy minion.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "destroy"
+            }
+        ]
+    }
+}

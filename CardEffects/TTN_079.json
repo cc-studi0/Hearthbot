@@ -1,0 +1,14 @@
+{
+    "_name": "Always a Bigger Jormungar",
+    "_effect": "Give a minion +2 Attack and \"Excess damage dealt by attacks hits the enemy hero.\"",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 0
+            }
+        ]
+    }
+}

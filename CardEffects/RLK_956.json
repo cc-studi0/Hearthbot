@@ -1,0 +1,14 @@
+{
+    "_name": "Nerubian Flyer",
+    "_effect": "Battlecry: If a friendly Undead died after your last turn, summon a 2/2 Nerubian.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,13 @@
+{
+    "_name": "Skull of Gul'dan",
+    "_effect": "Draw 3 cards. Outcast: Reduce their Cost by (3).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 3
+            }
+        ]
+    }
+}

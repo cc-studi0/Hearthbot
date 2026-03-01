@@ -1,0 +1,14 @@
+{
+    "_name": "Jan'alai, the Dragonhawk",
+    "_effect": "Battlecry: If your Hero Power dealt 8 damage this game, summon Ragnaros the Firelord.@ ({0} left!)@ (Ready!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

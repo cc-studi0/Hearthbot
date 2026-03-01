@@ -1,0 +1,24 @@
+{
+    "_name": "General Vezax",
+    "_effect": "Rush Battlecry: Gain 4 Armor. Deathrattle: Lose 4 Armor to resummon this.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Virmen Sensei",
+    "_effect": "Battlecry: Give a friendly Beast +3/+3.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 3
+            }
+        ]
+    }
+}

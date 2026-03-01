@@ -1,0 +1,12 @@
+{
+    "_name": "First Blade of Wrynn",
+    "_effect": "Divine Shield Battlecry: Gain Rush if this has at least 4 Attack.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_rush"
+            }
+        ]
+    }
+}

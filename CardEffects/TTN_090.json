@@ -1,0 +1,13 @@
+{
+    "_name": "Prison of Yogg-Saron",
+    "_effect": "Choose a character. Cast 4 random spells (targeting it if possible).",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4
+            }
+        ]
+    }
+}

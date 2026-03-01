@@ -1,0 +1,13 @@
+{
+    "_name": "Noxious Cadaver",
+    "_effect": "Battlecry: Deal 2 damage to an enemy and your hero.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

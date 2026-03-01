@@ -1,0 +1,13 @@
+{
+    "_name": "Cursed Castaway",
+    "_effect": "Rush Deathrattle: Draw a Combo card from your deck.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,12 @@
+{
+    "_name": "Animated Broomstick",
+    "_effect": "Rush Battlecry: Give your other minions Rush.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_rush"
+            }
+        ]
+    }
+}

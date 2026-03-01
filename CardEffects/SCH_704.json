@@ -1,0 +1,14 @@
+{
+    "_name": "Soulshard Lapidary",
+    "_effect": "Battlecry: Destroy a Soul Fragment in your deck to give your hero +5 Attack this turn.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 5,
+                "hp": 0
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Celestial Shot",
+    "_effect": "Deal $3 damage. Your next spell has Spell Damage +2.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3,
+                "useSP": true
+            }
+        ]
+    }
+}

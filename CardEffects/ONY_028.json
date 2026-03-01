@@ -1,0 +1,14 @@
+{
+    "_name": "Mi'da, Pure Light",
+    "_effect": "Divine Shield, Lifesteal Deathrattle: Shuffle a Fragment into your deck that resummons Mi'da when drawn.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

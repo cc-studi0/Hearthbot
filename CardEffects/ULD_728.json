@@ -1,0 +1,13 @@
+{
+    "_name": "Subdue",
+    "_effect": "Set a minion's Attack and Health to 1.",
+    "Spell": {
+        "targetType": "AnyMinion",
+        "effects": [
+            {
+                "type": "set_hp",
+                "v": 1
+            }
+        ]
+    }
+}

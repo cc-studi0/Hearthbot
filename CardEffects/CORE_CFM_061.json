@@ -1,0 +1,13 @@
+{
+    "_name": "Jinyu Waterspeaker",
+    "_effect": "Battlecry: Restore #6 Health. Overload: (1)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "heal",
+                "v": 6
+            }
+        ]
+    }
+}

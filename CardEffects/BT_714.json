@@ -1,0 +1,12 @@
+{
+    "_name": "Frozen Shadoweaver",
+    "_effect": "Battlecry: Freeze an enemy.",
+    "Battlecry": {
+        "targetType": "EnemyOnly",
+        "effects": [
+            {
+                "type": "freeze"
+            }
+        ]
+    }
+}

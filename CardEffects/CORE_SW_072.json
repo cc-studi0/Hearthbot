@@ -1,0 +1,12 @@
+{
+    "_name": "Rustrot Viper",
+    "_effect": "Tradeable Battlecry: Destroy your opponent's weapon.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "destroy_weapon"
+            }
+        ]
+    }
+}

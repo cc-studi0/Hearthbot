@@ -1,0 +1,13 @@
+{
+    "_name": "Grand Crusader",
+    "_effect": "Battlecry: Add a random Paladin card to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

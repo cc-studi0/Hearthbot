@@ -1,0 +1,13 @@
+{
+    "_name": "Incredible Value",
+    "_effect": "Discover a 4-Cost minion. Set its Attack and Health to 7.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

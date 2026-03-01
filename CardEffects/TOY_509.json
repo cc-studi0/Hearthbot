@@ -1,0 +1,13 @@
+{
+    "_name": "Wind-Up Musician",
+    "_effect": "Tradeable Battlecry: Deal 1 damage to all enemy minions. (Trade to upgrade!)",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_enemy",
+                "v": 1
+            }
+        ]
+    }
+}

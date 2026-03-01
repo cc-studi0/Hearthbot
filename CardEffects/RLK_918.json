@@ -1,0 +1,14 @@
+{
+    "_name": "For Quel'Thalas!",
+    "_effect": "Give a friendly minion +3 Attack. Give your hero +2 Attack this turn.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 3,
+                "hp": 0
+            }
+        ]
+    }
+}

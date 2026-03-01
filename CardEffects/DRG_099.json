@@ -1,0 +1,13 @@
+{
+    "_name": "Kronx Dragonhoof",
+    "_effect": "Battlecry: Draw Galakrond. If you're already Galakrond, unleash a Devastation.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

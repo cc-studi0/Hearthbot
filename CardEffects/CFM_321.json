@@ -1,0 +1,13 @@
+{
+    "_name": "Grimestreet Informant",
+    "_effect": "Battlecry: Discover a Hunter, Paladin, or Warrior card.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

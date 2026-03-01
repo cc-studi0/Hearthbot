@@ -1,0 +1,14 @@
+{
+    "_name": "Apotheosis",
+    "_effect": "Give a minion +2/+3 and Lifesteal.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    }
+}

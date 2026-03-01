@@ -1,0 +1,13 @@
+{
+    "_name": "Sands of Time",
+    "_effect": "Rewind Discover a spell from ANY class. (Or just your class after you Rewind!)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

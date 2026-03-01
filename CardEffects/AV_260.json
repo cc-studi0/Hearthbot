@@ -1,0 +1,13 @@
+{
+    "_name": "Sleetbreaker",
+    "_effect": "Battlecry: Add a Windchill to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

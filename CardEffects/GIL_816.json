@@ -1,0 +1,13 @@
+{
+    "_name": "Swamp Dragon Egg",
+    "_effect": "Deathrattle: Add a random Dragon to your hand.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

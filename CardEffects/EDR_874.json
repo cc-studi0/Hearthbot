@@ -1,0 +1,13 @@
+{
+    "_name": "Stellar Balance",
+    "_effect": "Get a Moonfire and a Starfire. Give them Spell Damage +1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

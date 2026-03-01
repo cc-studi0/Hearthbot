@@ -1,0 +1,14 @@
+{
+    "_name": "Portal Keeper",
+    "_effect": "Battlecry: Shuffle 3 Portals into your deck. When drawn, summon a 2/2 Demon with Rush.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

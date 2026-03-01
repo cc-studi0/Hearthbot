@@ -1,0 +1,13 @@
+{
+    "_name": "Jeweled Macaw",
+    "_effect": "Battlecry: Add a random Beast to your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Sharp Shipment",
+    "_effect": "Give your weapon +2/+2.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Elekk Mount",
+    "_effect": "Give a minion +4/+7 and Taunt. When it dies, summon an Elekk.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

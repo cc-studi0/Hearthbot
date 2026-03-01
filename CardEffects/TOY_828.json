@@ -1,0 +1,14 @@
+{
+    "_name": "Amateur Puppeteer",
+    "_effect": "Miniaturize, Taunt Deathrattle: Give Undead in your hand +2/+2.",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 2
+            }
+        ]
+    }
+}

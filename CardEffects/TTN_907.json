@@ -1,0 +1,13 @@
+{
+    "_name": "Astral Serpent",
+    "_effect": "At the end of your turn, if this didn't attack, draw 2 cards.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 2
+            }
+        ]
+    }
+}

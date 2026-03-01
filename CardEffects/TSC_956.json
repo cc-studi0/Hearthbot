@@ -1,0 +1,14 @@
+{
+    "_name": "Dragged Below",
+    "_effect": "Deal $4 damage to a minion. Give your opponent an Abyssal Curse.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

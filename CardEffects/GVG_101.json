@@ -1,0 +1,22 @@
+{
+    "_name": "Scarlet Purifier",
+    "_effect": "Battlecry: Deal 2 damage to all minions with Deathrattle.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_all",
+                "v": 2
+            }
+        ]
+    }
+}

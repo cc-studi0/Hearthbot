@@ -1,0 +1,13 @@
+{
+    "_name": "Night Elf Huntress",
+    "_effect": "Battlecry: Deal 3 damage to three different enemies. (You pick the targets!)",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 3
+            }
+        ]
+    }
+}

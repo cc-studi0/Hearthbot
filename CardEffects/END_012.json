@@ -1,0 +1,12 @@
+{
+    "_name": "Hand of Infinity",
+    "_effect": "Can't attack heroes. Battlecry: Set this weapon's Attack to INFINITY this turn!",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

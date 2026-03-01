@@ -1,0 +1,14 @@
+{
+    "_name": "Deathweaver Aura",
+    "_effect": "Give a minion \"Deathrattle: Summon two 3/2 Zombies.\" Overload: (1)",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 3,
+                "hp": 2
+            }
+        ]
+    }
+}

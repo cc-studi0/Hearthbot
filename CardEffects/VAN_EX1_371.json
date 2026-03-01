@@ -1,0 +1,12 @@
+{
+    "_name": "Hand of Protection",
+    "_effect": "Give a minion Divine Shield.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_ds"
+            }
+        ]
+    }
+}

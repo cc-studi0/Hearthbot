@@ -1,0 +1,12 @@
+{
+    "_name": "Lilypad Lurker",
+    "_effect": "Battlecry: If you played an Elemental last turn, transform an enemy minion into a 0/1 Frog with Taunt.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "give_taunt"
+            }
+        ]
+    }
+}

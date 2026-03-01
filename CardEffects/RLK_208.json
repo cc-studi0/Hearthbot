@@ -1,0 +1,14 @@
+{
+    "_name": "Fel'dorei Warband",
+    "_effect": "Deal $4 damage. If your deck has no minions, summon four 1/1 Illidari with Rush.",
+    "Spell": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 4,
+                "useSP": true
+            }
+        ]
+    }
+}

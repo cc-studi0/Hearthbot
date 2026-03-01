@@ -1,0 +1,13 @@
+{
+    "_name": "Barkskin",
+    "_effect": "Give a minion +3 Health. Gain 3 Armor.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "armor",
+                "v": 3
+            }
+        ]
+    }
+}

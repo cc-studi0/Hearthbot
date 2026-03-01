@@ -1,0 +1,13 @@
+{
+    "_name": "Dark Iron Skulker",
+    "_effect": "Battlecry: Deal 2 damage to all undamaged enemy minions.",
+    "Battlecry": {
+        "targetType": "AnyCharacter",
+        "effects": [
+            {
+                "type": "dmg",
+                "v": 2
+            }
+        ]
+    }
+}

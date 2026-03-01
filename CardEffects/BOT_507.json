@@ -1,0 +1,14 @@
+{
+    "_name": "Gloop Sprayer",
+    "_effect": "Battlecry: Summon a copy of each adjacent minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

@@ -1,0 +1,24 @@
+{
+    "_name": "Ranger Gilly",
+    "_effect": "Warrior Tourist. At the end of your turn, get a 2/3 Crocolisk. Deathrattle: Give all minions in your hand +2/+3.",
+    "EndOfTurn": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    },
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_all",
+                "atk": 2,
+                "hp": 3
+            }
+        ]
+    }
+}

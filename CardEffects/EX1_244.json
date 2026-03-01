@@ -1,0 +1,14 @@
+{
+    "_name": "Totemic Might",
+    "_effect": "Give your Totems +2 Health.",
+    "Spell": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 0,
+                "hp": 2
+            }
+        ]
+    }
+}

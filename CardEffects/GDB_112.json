@@ -1,0 +1,14 @@
+{
+    "_name": "Soulbound Spire",
+    "_effect": "Deathrattle: Summon a minion with Cost equal to this minion's Attack (up to 10). Starship Piece",
+    "Deathrattle": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

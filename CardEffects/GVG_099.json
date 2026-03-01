@@ -1,0 +1,13 @@
+{
+    "_name": "Bomb Lobber",
+    "_effect": "Battlecry: Deal 4 damage to a random enemy minion.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "dmg_random",
+                "v": 4
+            }
+        ]
+    }
+}

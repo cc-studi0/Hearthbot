@@ -1,0 +1,13 @@
+{
+    "_name": "Tentacled Menace",
+    "_effect": "Battlecry: Each player draws a card. Swap their Costs.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

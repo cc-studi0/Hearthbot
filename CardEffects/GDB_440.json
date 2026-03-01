@@ -1,0 +1,12 @@
+{
+    "_name": "Mystified To'cha",
+    "_effect": "Battlecry: If the combined Health of both heroes is exactly 42, set your hero's Health to 42.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "noop"
+            }
+        ]
+    }
+}

@@ -1,0 +1,14 @@
+{
+    "_name": "Dragonmaw Sentinel",
+    "_effect": "Battlecry: If you're holding a Dragon, gain +1 Attack and Lifesteal.",
+    "Battlecry": {
+        "targetType": "FriendlyMinion",
+        "effects": [
+            {
+                "type": "buff",
+                "atk": 1,
+                "hp": 0
+            }
+        ]
+    }
+}

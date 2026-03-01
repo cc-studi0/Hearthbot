@@ -1,0 +1,14 @@
+{
+    "_name": "Temple Enforcer",
+    "_effect": "Battlecry: Give a friendly minion +3 Health.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "buff_self",
+                "atk": 0,
+                "hp": 3
+            }
+        ]
+    }
+}

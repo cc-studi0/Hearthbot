@@ -1,0 +1,13 @@
+{
+    "_name": "Final Showdown",
+    "_effect": "Questline: Draw 4 cards in one turn. Reward: Reduce the Cost of the cards drawn by (1).",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 4
+            }
+        ]
+    }
+}

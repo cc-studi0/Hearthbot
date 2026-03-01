@@ -1,0 +1,13 @@
+{
+    "_name": "Bartend-O-Bot",
+    "_effect": "Battlecry: Draw an Outcast card and slide it to the left side of your hand.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

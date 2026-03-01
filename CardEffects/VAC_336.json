@@ -1,0 +1,13 @@
+{
+    "_name": "Maestra, Mask Merchant",
+    "_effect": "Warlock Tourist Battlecry: Discover a Hero card from the past (from another class).",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "draw",
+                "n": 1
+            }
+        ]
+    }
+}

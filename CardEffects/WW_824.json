@@ -1,0 +1,14 @@
+{
+    "_name": "Rheastrasza",
+    "_effect": "Battlecry: If your deck started with no duplicates, summon the Purified Dragon Nest.",
+    "Battlecry": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}

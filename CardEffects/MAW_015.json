@@ -1,0 +1,14 @@
+{
+    "_name": "Jury Duty",
+    "_effect": "Summon two Silver Hand Recruits. Give your Silver Hand Recruits +1/+1.",
+    "Spell": {
+        "targetType": "None",
+        "effects": [
+            {
+                "type": "summon",
+                "atk": 1,
+                "hp": 1
+            }
+        ]
+    }
+}
