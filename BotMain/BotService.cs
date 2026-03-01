@@ -113,6 +113,8 @@ namespace BotMain
         private string _archetypeDir;
         private string _localDataDir;
         private string _pluginDir;
+        private string _smartBotRootOverride;
+        private string _hbRootOverride;
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
@@ -180,6 +182,12 @@ namespace BotMain
             _selectedDeck = string.IsNullOrWhiteSpace(deckName) ? "(auto)" : deckName;
             _mulliganProfile = string.IsNullOrWhiteSpace(mulliganProfile) ? "None" : mulliganProfile;
             _discoverProfile = string.IsNullOrWhiteSpace(discoverProfile) ? "None" : discoverProfile;
+        }
+
+        public void SetExternalPaths(string smartBotRoot, string hbRoot)
+        {
+            _smartBotRootOverride = NormalizeExternalPath(smartBotRoot);
+            _hbRootOverride = NormalizeExternalPath(hbRoot);
         }
 
         public void Prepare()
@@ -471,31 +479,45 @@ namespace BotMain
             var root = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
             _sbapiPath = Path.Combine(root, "Libs", "SBAPI.dll");
             _localDataDir = root;
-            var smartbotRoot = Path.Combine(root, "smartbot");
-            EnsureScriptAssemblyResolution(root, _sbapiPath);
+            _smartBotRootOverride = ResolveSmartBotRoot(root);
+            _hbRootOverride = ResolveHbRoot();
+            var smartbotRoot = _smartBotRootOverride;
+            EnsureScriptAssemblyResolution(root, _sbapiPath, smartbotRoot);
 
             if (!_profilesLoadAttempted)
             {
                 _profilesLoadAttempted = true;
-                try
-                {
-                    Log("Syncing from smartbot...");
-                    _profileDir = ResourceSync.SyncProfiles(smartbotRoot, root);
-                    _mulliganDir = ResourceSync.SyncMulliganProfiles(smartbotRoot, root);
-                    _discoverDir = ResourceSync.SyncDiscoverCC(smartbotRoot, root);
-                    ResourceSync.SyncArenaCC(smartbotRoot, root);
-                    Log("Sync completed.");
-                }
-                catch (Exception ex)
-                {
-                    Log($"Sync failed: {ex.Message}");
-                    _profileDir = Path.Combine(root, "Profiles");
-                    _mulliganDir = Path.Combine(root, "MulliganProfiles");
-                    _discoverDir = Path.Combine(root, "DiscoverCC");
-                }
+                _profileDir = Path.Combine(root, "Profiles");
+                _mulliganDir = Path.Combine(root, "MulliganProfiles");
+                _discoverDir = Path.Combine(root, "DiscoverCC");
                 _pluginDir = Path.Combine(root, "Plugins");
                 _arenaDir = Path.Combine(root, "ArenaCC");
                 _archetypeDir = Path.Combine(root, "Archetypes");
+
+                if (!string.IsNullOrWhiteSpace(smartbotRoot))
+                {
+                    try
+                    {
+                        Log($"Syncing from external SmartBot: {smartbotRoot}");
+                        _profileDir = ResourceSync.SyncProfiles(smartbotRoot, root);
+                        _mulliganDir = ResourceSync.SyncMulliganProfiles(smartbotRoot, root);
+                        _discoverDir = ResourceSync.SyncDiscoverCC(smartbotRoot, root);
+                        ResourceSync.SyncArenaCC(smartbotRoot, root);
+                        Log("Sync completed.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"Sync failed: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    Log("SmartBotRoot not configured, using local resources only.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(_hbRootOverride))
+                    Log($"HBRoot configured: {_hbRootOverride}");
+
                 LoadProfiles(_profileDir, _sbapiPath);
                 LoadMulliganProfiles(_mulliganDir, _sbapiPath);
                 LoadDiscoverProfiles(_discoverDir, _sbapiPath);
@@ -1821,30 +1843,47 @@ namespace BotMain
             var refs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AddCompilerReference(refs, sbapiPath);
 
-            var baseDir = _localDataDir ?? string.Empty;
-            AddCompilerReference(refs, Path.Combine(baseDir, "smartbot", "smartbot", "Newtonsoft.Json.dll"));
-            AddCompilerReference(refs, Path.Combine(baseDir, "smartbot", "smartbot", "Temp", "Newtonsoft.Json.dll"));
+            AddCompilerReference(refs, Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Newtonsoft.Json.dll"));
 
             var libsDir = Path.GetDirectoryName(sbapiPath);
             if (!string.IsNullOrEmpty(libsDir))
                 AddCompilerReference(refs, Path.Combine(libsDir, "Newtonsoft.Json.dll"));
 
-            var pluginLibsDir = Path.Combine(baseDir, "smartbot", "smartbot", "Plugins", "libs");
-            if (Directory.Exists(pluginLibsDir))
-                foreach (var dll in Directory.GetFiles(pluginLibsDir, "*.dll"))
+            var projectRoot = _localDataDir ?? string.Empty;
+            var localPluginLibsDir = Path.Combine(projectRoot, "Plugins", "libs");
+            if (Directory.Exists(localPluginLibsDir))
+                foreach (var dll in Directory.GetFiles(localPluginLibsDir, "*.dll"))
                     AddCompilerReference(refs, dll);
+
+            var externalDataRoot = ResourceSync.ResolveSmartBotDataRoot(_smartBotRootOverride)
+                ?? ResourceSync.ResolveSmartBotDataRoot(projectRoot);
+
+            if (!string.IsNullOrWhiteSpace(externalDataRoot))
+            {
+                AddCompilerReference(refs, Path.Combine(externalDataRoot, "Newtonsoft.Json.dll"));
+                AddCompilerReference(refs, Path.Combine(externalDataRoot, "Temp", "Newtonsoft.Json.dll"));
+
+                var pluginLibsDir = Path.Combine(externalDataRoot, "Plugins", "libs");
+                if (Directory.Exists(pluginLibsDir))
+                    foreach (var dll in Directory.GetFiles(pluginLibsDir, "*.dll"))
+                        AddCompilerReference(refs, dll);
+            }
 
             return refs.ToArray();
         }
 
-        private void EnsureScriptAssemblyResolution(string rootDir, string sbapiPath)
+        private void EnsureScriptAssemblyResolution(string rootDir, string sbapiPath, string smartbotRoot)
         {
             var dirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AddAssemblySearchDir(dirs, AppDomain.CurrentDomain.BaseDirectory);
             AddAssemblySearchDir(dirs, Path.GetDirectoryName(sbapiPath));
-            AddAssemblySearchDir(dirs, Path.Combine(rootDir, "smartbot", "smartbot"));
-            AddAssemblySearchDir(dirs, Path.Combine(rootDir, "smartbot", "smartbot", "Temp"));
-            AddAssemblySearchDir(dirs, Path.Combine(rootDir, "smartbot", "smartbot", "Plugins", "libs"));
+            AddAssemblySearchDir(dirs, rootDir);
+            AddAssemblySearchDir(dirs, Path.Combine(rootDir, "Plugins", "libs"));
+
+            var externalDataRoot = ResourceSync.ResolveSmartBotDataRoot(smartbotRoot);
+            AddAssemblySearchDir(dirs, externalDataRoot);
+            AddAssemblySearchDir(dirs, Path.Combine(externalDataRoot ?? string.Empty, "Temp"));
+            AddAssemblySearchDir(dirs, Path.Combine(externalDataRoot ?? string.Empty, "Plugins", "libs"));
 
             _assemblyResolveSearchDirs = dirs.ToArray();
 
@@ -1916,6 +1955,47 @@ namespace BotMain
             }
 
             return null;
+        }
+
+        private string ResolveSmartBotRoot(string projectRoot)
+        {
+            var candidate = NormalizeExternalPath(_smartBotRootOverride)
+                ?? NormalizeExternalPath(Environment.GetEnvironmentVariable("HEARTHBOT_SMARTBOT_ROOT"))
+                ?? NormalizeExternalPath(Path.Combine(projectRoot, "..", "smartbot"));
+
+            if (string.IsNullOrWhiteSpace(candidate))
+                return null;
+
+            var dataRoot = ResourceSync.ResolveSmartBotDataRoot(candidate);
+            if (string.IsNullOrWhiteSpace(dataRoot))
+            {
+                Log($"SmartBotRoot invalid (Profiles not found): {candidate}");
+                return null;
+            }
+
+            return candidate;
+        }
+
+        private string ResolveHbRoot()
+        {
+            return NormalizeExternalPath(_hbRootOverride)
+                ?? NormalizeExternalPath(Environment.GetEnvironmentVariable("HEARTHBOT_HB_ROOT"))
+                ?? NormalizeExternalPath(Path.Combine(_localDataDir ?? string.Empty, "..", "HB1.1.8"));
+        }
+
+        private static string NormalizeExternalPath(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return null;
+
+            try
+            {
+                return Path.GetFullPath(Environment.ExpandEnvironmentVariables(value.Trim()));
+            }
+            catch
+            {
+                return value.Trim();
+            }
         }
 
         private static void AddCompilerReference(ISet<string> refs, string path)

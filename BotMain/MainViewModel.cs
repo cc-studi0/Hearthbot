@@ -27,6 +27,7 @@ namespace BotMain
         private const int MaxBufferedLogChars = 200000;
         private static readonly string SettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         private string _savedProfileName, _savedDeckName, _savedMulliganName, _savedDiscoverName;
+        private string _savedSmartBotRoot, _savedHbRoot;
         private bool _settingsLoaded;
 
         public MainViewModel()
@@ -320,20 +321,37 @@ namespace BotMain
         {
             try
             {
-                var dict = new Dictionary<string, JsonElement>
+                var dict = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase);
+                if (File.Exists(SettingsPath))
                 {
-                    ["CoachMode"] = JsonSerializer.SerializeToElement(CoachMode),
-                    ["OverlayMode"] = JsonSerializer.SerializeToElement(OverlayMode),
-                    ["AutoConcede"] = JsonSerializer.SerializeToElement(AutoConcede),
-                    ["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock),
-                    ["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue),
-                    ["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex),
+                    var existing = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(SettingsPath));
+                    if (existing != null)
+                        foreach (var kv in existing)
+                            dict[kv.Key] = kv.Value;
+                }
 
-                    ["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName),
-                    ["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName),
-                    ["MulliganName"] = JsonSerializer.SerializeToElement(SelectedMulliganName),
-                    ["DiscoverName"] = JsonSerializer.SerializeToElement(SelectedDiscoverName),
-                };
+                dict["CoachMode"] = JsonSerializer.SerializeToElement(CoachMode);
+                dict["OverlayMode"] = JsonSerializer.SerializeToElement(OverlayMode);
+                dict["AutoConcede"] = JsonSerializer.SerializeToElement(AutoConcede);
+                dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
+                dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
+                dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
+
+                dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
+                dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
+                dict["MulliganName"] = JsonSerializer.SerializeToElement(SelectedMulliganName);
+                dict["DiscoverName"] = JsonSerializer.SerializeToElement(SelectedDiscoverName);
+
+                if (!string.IsNullOrWhiteSpace(_savedSmartBotRoot))
+                    dict["SmartBotRoot"] = JsonSerializer.SerializeToElement(_savedSmartBotRoot);
+                else
+                    dict.Remove("SmartBotRoot");
+
+                if (!string.IsNullOrWhiteSpace(_savedHbRoot))
+                    dict["HBRoot"] = JsonSerializer.SerializeToElement(_savedHbRoot);
+                else
+                    dict.Remove("HBRoot");
+
                 File.WriteAllText(SettingsPath, JsonSerializer.Serialize(dict));
             }
             catch { }
@@ -343,23 +361,37 @@ namespace BotMain
         {
             try
             {
-                if (!File.Exists(SettingsPath)) return;
-                var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(SettingsPath));
-                if (dict == null) return;
+                if (File.Exists(SettingsPath))
+                {
+                    var dict = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(SettingsPath));
+                    if (dict != null)
+                    {
+                        if (dict.TryGetValue("CoachMode", out var v)) CoachMode = v.GetBoolean();
+                        if (dict.TryGetValue("OverlayMode", out v)) OverlayMode = v.GetBoolean();
+                        if (dict.TryGetValue("AutoConcede", out v)) AutoConcede = v.GetBoolean();
+                        if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
+                        if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
+                        if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
 
-                if (dict.TryGetValue("CoachMode", out var v)) CoachMode = v.GetBoolean();
-                if (dict.TryGetValue("OverlayMode", out v)) OverlayMode = v.GetBoolean();
-                if (dict.TryGetValue("AutoConcede", out v)) AutoConcede = v.GetBoolean();
-                if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
-                if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
-                if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
-
-                if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
-                if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
-                if (dict.TryGetValue("MulliganName", out v)) _savedMulliganName = v.GetString();
-                if (dict.TryGetValue("DiscoverName", out v)) _savedDiscoverName = v.GetString();
+                        if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
+                        if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
+                        if (dict.TryGetValue("MulliganName", out v)) _savedMulliganName = v.GetString();
+                        if (dict.TryGetValue("DiscoverName", out v)) _savedDiscoverName = v.GetString();
+                        if (dict.TryGetValue("SmartBotRoot", out v)) _savedSmartBotRoot = ReadOptionalString(v);
+                        if (dict.TryGetValue("HBRoot", out v)) _savedHbRoot = ReadOptionalString(v);
+                    }
+                }
             }
             catch { }
+
+            _bot.SetExternalPaths(_savedSmartBotRoot, _savedHbRoot);
+        }
+
+        private static string ReadOptionalString(JsonElement element)
+        {
+            if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined)
+                return null;
+            return element.GetString();
         }
 
         public event PropertyChangedEventHandler PropertyChanged;
