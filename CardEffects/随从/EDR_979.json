@@ -1,0 +1,10 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "draw",
+        "n": 1
+      }
+    ]
+  }
+}

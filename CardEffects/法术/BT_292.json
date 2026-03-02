@@ -1,0 +1,12 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 2,
+        "hp": 1
+      }
+    ],
+    "targetType": "AnyMinion"
+  }
+}

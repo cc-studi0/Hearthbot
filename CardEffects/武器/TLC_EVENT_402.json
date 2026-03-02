@@ -1,0 +1,9 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "destroy_all"
+      }
+    ]
+  }
+}

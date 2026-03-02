@@ -8,7 +8,8 @@ using SmartBotAPI.Stats;
 namespace BotMain
 {
     /// <summary>
-    /// 澶勭悊 SBAPI Bot 绫荤殑闈欐€佸瓧娈佃疆璇㈠拰鐘舵€佸悓姝?    /// Bot 绫荤殑鏂规硶閫氳繃璁剧疆闈欐€?flag 瀛楁閫氱煡瀹夸富锛屽涓昏疆璇㈠悗鎵ц骞舵竻闄?flag
+    /// 处理 SBAPI Bot 类的静态字段轮询和状态同步
+    /// Bot 类的方法通过设置静态 flag 字段通知宿主，宿主轮询后执行并清除 flag
     /// </summary>
     public class BotApiHandler
     {
@@ -65,7 +66,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾寤惰繜鏁版嵁鍒?Bot._averageLatency/_minLatency/_maxLatency
+        /// 同步延迟数据到 Bot._averageLatency/_minLatency/_maxLatency
         /// </summary>
         public void SetLatency(int avg, int min, int max)
         {
@@ -75,7 +76,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾瀵规墜 ID 鍒?Bot._currentOpponent/_lastOpponent
+        /// 同步对手 ID 到 Bot._currentOpponent/_lastOpponent
         /// </summary>
         public void SetOpponentId(long current, long previous)
         {
@@ -84,7 +85,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鏇存柊 Bot 绫荤殑鍙鐘舵€佸瓧娈碉紙渚涙煡璇㈡柟娉曚娇鐢級
+        /// 更新 Bot 类的可见状态字段（供查询方法使用）
         /// </summary>
         public void UpdateBotState(
             bool isRunning,
@@ -112,7 +113,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾褰撳墠妫嬬洏鍒?Bot._currentBoard锛堝甫閿侊級
+        /// 同步当前棋盘到 Bot._currentBoard（带锁）
         /// </summary>
         public void SetCurrentBoard(Board board)
         {
@@ -128,7 +129,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾褰撳墠鍦烘櫙鍒?Bot._currentScene
+        /// 同步当前场景到 Bot._currentScene
         /// </summary>
         public void SetCurrentScene(Bot.Scene scene)
         {
@@ -136,7 +137,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾鎻掍欢鍒楄〃鍒?Bot._plugins
+        /// 同步插件列表到 Bot._plugins
         /// </summary>
         public void SetPlugins(List<SmartBot.Plugins.Plugin> plugins)
         {
@@ -144,7 +145,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾鍗＄粍鍒楄〃鍒?Bot._decks
+        /// 同步卡组列表到 Bot._decks
         /// </summary>
         public void SetDecks(List<Deck> decks)
         {
@@ -152,7 +153,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾鍖烘湇鍒?Bot._region
+        /// 同步区服到 Bot._region
         /// </summary>
         public void SetRegion(SmartBotAPI.Stats.BnetRegion region)
         {
@@ -161,7 +162,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾 Archetype 鍒楄〃
+        /// 同步 Archetype 列表
         /// </summary>
         public void SetArchetypes(List<SmartBotAPI.Plugins.API.Archetype> archetypes)
         {
@@ -169,7 +170,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 鍚屾 Arena 绛栫暐鍒楄〃
+        /// 同步 Arena 策略列表
         /// </summary>
         public void SetArenaProfiles(List<string> names)
         {
@@ -177,7 +178,9 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 杞 Bot 绫荤殑鎵€鏈?flag 瀛楁锛屾墽琛屽搴旀搷浣?        /// 鍦?MainLoop 姣忔杩唬涓皟鐢?        /// </summary>
+        /// 轮询 Bot 类的所有 flag 字段，执行对应操作
+        /// 在 MainLoop 每次迭代中调用
+        /// </summary>
         public void Poll()
         {
             PollLogs();

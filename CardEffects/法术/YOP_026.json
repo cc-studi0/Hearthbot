@@ -1,0 +1,11 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "buff_all",
+        "atk": 2,
+        "hp": 1
+      }
+    ]
+  }
+}

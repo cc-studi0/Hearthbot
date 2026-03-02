@@ -1,0 +1,21 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 5,
+        "hp": 5
+      }
+    ],
+    "targetType": "FriendlyMinion"
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 5,
+        "hp": 5
+      }
+    ]
+  }
+}

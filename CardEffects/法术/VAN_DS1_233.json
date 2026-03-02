@@ -1,0 +1,11 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "dmg_face",
+        "v": 5,
+        "useSP": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "equip",
+        "atk": 3,
+        "dur": 3
+      }
+    ]
+  }
+}

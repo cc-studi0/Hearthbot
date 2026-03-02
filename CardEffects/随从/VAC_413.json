@@ -1,0 +1,20 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 2,
+        "hp": 3
+      }
+    ]
+  },
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 2,
+        "hp": 3
+      }
+    ]
+  }
+}

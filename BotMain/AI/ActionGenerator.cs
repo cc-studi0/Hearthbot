@@ -40,7 +40,9 @@ namespace BotMain.AI
                         ? $"HERO_POWER|{SourceEntityId}|{TargetEntityId}"
                         : $"HERO_POWER|{SourceEntityId}|0";
                 case ActionType.UseLocation:
-                    return $"USE_LOCATION|{SourceEntityId}";
+                    return TargetEntityId > 0
+                        ? $"USE_LOCATION|{SourceEntityId}|{TargetEntityId}"
+                        : $"USE_LOCATION|{SourceEntityId}";
                 case ActionType.EndTurn:
                     return "END_TURN";
                 default:

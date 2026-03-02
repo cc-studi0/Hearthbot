@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "heal_all",
+        "v": 4
+      }
+    ]
+  }
+}

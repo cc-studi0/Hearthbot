@@ -214,7 +214,15 @@ namespace HearthstonePayload
                     {
                         _pipe.Write(ActionExecutor.ApplyChoice(int.Parse(cmd.Substring("APPLY_CHOICE:".Length))));
                     }
-                    else if (cmd == "WAIT_READY")
+                    else if (cmd.StartsWith("CLICK_SCREEN:", StringComparison.Ordinal))
+                    {
+                        var xy = cmd.Substring("CLICK_SCREEN:".Length).Split(',');
+                        if (xy.Length == 2 && float.TryParse(xy[0], out var rx) && float.TryParse(xy[1], out var ry))
+                            _pipe.Write(ActionExecutor.ClickScreen(rx, ry));
+                        else
+                            _pipe.Write("ERROR:CLICK_SCREEN:bad_args");
+                    }
+                                        else if (cmd == "WAIT_READY")
                     {
                         _pipe.Write(ActionExecutor.IsGameReady() ? "READY" : "BUSY");
                     }

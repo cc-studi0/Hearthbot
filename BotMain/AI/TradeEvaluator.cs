@@ -65,20 +65,31 @@ namespace BotMain.AI
 
             // ── 如果对面有高威胁随从没解，打脸可能不明智 ──
             bool hasHighThreat = false;
+            int totalEnemyAtk = 0;
             foreach (var m in board.EnemyMinions)
             {
                 if (m.Type == Card.CType.LOCATION || m.IsStealth) continue;
+                totalEnemyAtk += m.Atk;
                 if (m.Atk >= 5 || m.HasPoison || (m.Atk >= 3 && m.IsWindfury))
                 {
                     hasHighThreat = true;
-                    break;
                 }
             }
+
+            // 对方场攻接近我方生命值时，解场比打脸更重要
+            int friendEhp = 30;
+            if (board.FriendHero != null) friendEhp = board.FriendHero.Health + board.FriendHero.Armor;
 
             if (hasHighThreat && enemyEhp > 15)
             {
                 // 对方血多 + 场上有大威胁 = 打脸不太好
                 bonus -= 2f;
+            }
+
+            // 如果对方场攻 >= 我方有效血量的 60%，打脸太危险
+            if (totalEnemyAtk >= friendEhp * 0.6f && enemyEhp > 10)
+            {
+                bonus -= 3f;
             }
 
             // ── 用剧毒随从打脸是浪费 ──
@@ -152,6 +163,10 @@ namespace BotMain.AI
                 // 但如果是在磨嘲讽，还行
                 if (target.IsTaunt)
                     bonus += 2f;
+
+                // 撞掉圣盾 = 有价值（为后续攻击铺路）
+                if (target.IsDivineShield)
+                    bonus += 2.5f;
             }
             else // !targetDies && attackerDies
             {

@@ -1,0 +1,10 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "armor",
+        "v": 3
+      }
+    ]
+  }
+}

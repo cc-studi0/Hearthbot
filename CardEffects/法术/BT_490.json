@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "silence"
+      }
+    ],
+    "targetType": "EnemyMinion"
+  }
+}

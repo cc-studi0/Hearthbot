@@ -1,0 +1,11 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 0,
+        "hp": 5
+      }
+    ]
+  }
+}

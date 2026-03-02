@@ -110,11 +110,12 @@ namespace BotMain.AI
                 score += friendHp * W_FriendHeroHp * defCoef;
                 score += friendArmor * W_FriendHeroArmor * defCoef;
 
-                // 低血量非线性惩罚：血越低，每点血越值钱
-                if (friendEhp <= 15)
-                    score += W_FriendLowHpPenalty * (16 - friendEhp) * 0.3f * defCoef;
-                if (friendEhp <= 8)
-                    score += W_FriendLowHpPenalty * (9 - friendEhp) * 0.5f * defCoef;
+                // 低血量连续惩罚：越低越危急，无硬阈值跳变
+                if (friendEhp < 30)
+                {
+                    float dangerRatio = Math.Max(0f, 1f - friendEhp / 30f); // 0~1
+                    score += W_FriendLowHpPenalty * dangerRatio * dangerRatio * 15f * defCoef;
+                }
 
                 // 友方有嘲讽时低血量没那么危险
                 if (friendTauntCount > 0 && friendEhp <= 15)
@@ -131,11 +132,12 @@ namespace BotMain.AI
                 score -= enemyHp * W_EnemyHeroHp * aggCoef;
                 score -= enemyArmor * W_EnemyHeroArmor * aggCoef;
 
-                // 接近斩杀时奖励更大
-                if (enemyEhp <= 15)
-                    score += W_EnemyLowHpBonus * (16 - enemyEhp) * 0.3f * aggCoef;
-                if (enemyEhp <= 8)
-                    score += W_EnemyLowHpBonus * (9 - enemyEhp) * 0.5f * aggCoef;
+                // 接近斩杀连续奖励
+                if (enemyEhp < 30)
+                {
+                    float killRatio = Math.Max(0f, 1f - enemyEhp / 30f);
+                    score += W_EnemyLowHpBonus * killRatio * killRatio * 15f * aggCoef;
+                }
 
                 // 场攻可以威胁对手
                 if (friendTotalAtk > 0 && enemyEhp > 0 && enemyTauntCount == 0)
@@ -172,6 +174,12 @@ namespace BotMain.AI
                 if (board.FriendHero != null && board.FriendHero.CanAttack)
                     score += board.FriendWeapon.Atk * 1.5f * weaponCoef;
             }
+            else if (board.FriendHero != null && board.FriendHero.Atk > 0 && board.FriendHero.CanAttack)
+            {
+                // 无武器但英雄有攻击力（如德鲁伊变形、恶魔猎手技能等）
+                float weaponCoef = GetModifierCoef(param?.GlobalWeaponsAttackModifier);
+                score += board.FriendHero.Atk * 1.5f * weaponCoef;
+            }
             if (board.EnemyWeapon != null)
             {
                 float wv = WeaponValue(board.EnemyWeapon);
@@ -201,10 +209,16 @@ namespace BotMain.AI
             {
                 float defCoef = GetModifierCoef(param?.GlobalDefenseModifier);
                 int friendEhp3 = board.FriendHero.Health + board.FriendHero.Armor;
-                // 血量越低，嘲讽越值钱
-                float tauntBonus = friendTauntCount * 2f;
-                if (friendEhp3 <= 15) tauntBonus *= 1.5f;
-                if (friendEhp3 <= 10) tauntBonus *= 2f;
+                // 嘲讽墙价值 = 嘲讽总血量防御力 + 我方血越低嘲讽越值钱
+                float tauntTotalHp = 0;
+                foreach (var m in board.FriendMinions)
+                    if (m.IsTaunt && m.Type != Card.CType.LOCATION) tauntTotalHp += m.Health;
+                float tauntBonus = friendTauntCount * 1.5f + tauntTotalHp * 0.5f;
+                if (friendEhp3 < 30)
+                {
+                    float urgency = Math.Max(0f, 1f - friendEhp3 / 30f);
+                    tauntBonus *= 1f + urgency * 2f;
+                }
                 score += tauntBonus * defCoef;
             }
 

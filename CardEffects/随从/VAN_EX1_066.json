@@ -1,0 +1,9 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "destroy_weapon"
+      }
+    ]
+  }
+}

@@ -153,21 +153,33 @@ namespace BotMain
         {
             var result = new List<string>();
             var myMinions = board.MinionFriend;
-            var targets = board.MinionEnemy;
+            var enemyMinions = board.MinionEnemy;
 
-            if (myMinions.Count > 0 && targets.Count > 0)
+            // 确定攻击目标：有嘲讽打嘲讽，否则打随从或打脸
+            var tauntTargets = enemyMinions.Where(m => m.IsTaunt && !m.IsStealth).ToList();
+            var defaultTarget = tauntTargets.Count > 0
+                ? tauntTargets.First()
+                : (enemyMinions.Count > 0 ? enemyMinions.First() : board.HeroEnemy);
+
+            // 随从攻击
+            if (myMinions.Count > 0 && defaultTarget != null)
             {
                 foreach (var minion in myMinions)
                 {
                     if (minion.CanAttack && !minion.IsFrozen && minion.CurrentAtk > 0)
                     {
-                        var target = targets.FirstOrDefault();
-                        if (target != null)
-                        {
-                            result.Add($"ATTACK {minion.Id} {target.Id}");
-                        }
+                        result.Add($"ATTACK|{minion.Id}|{defaultTarget.Id}");
                     }
                 }
+            }
+
+            // 英雄攻击
+            if (board.HeroFriend != null && board.HeroFriend.CanAttack
+                && !board.HeroFriend.IsFrozen && board.HeroFriend.CurrentAtk > 0)
+            {
+                var heroTarget = defaultTarget ?? board.HeroEnemy;
+                if (heroTarget != null)
+                    result.Add($"ATTACK|{board.HeroFriend.Id}|{heroTarget.Id}");
             }
 
             result.Add("END_TURN");

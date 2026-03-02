@@ -32,6 +32,8 @@ namespace BotMain.AI
                 {
                     var deadWeapon = board.FriendWeapon;
                     board.FriendWeapon = null;
+                    // 武器被打掉后清除英雄的武器攻击力
+                    if (board.FriendHero != null) board.FriendHero.Atk = 0;
                     if (_db.TryGet(deadWeapon.CardId, EffectTrigger.Deathrattle, out var drFn))
                         drFn(board, deadWeapon, null);
                 }
@@ -219,7 +221,15 @@ namespace BotMain.AI
                 else if (d.HasDeathrattle)
                     FallbackDeathrattle(board, d);
                 if (d.HasReborn)
-                    board.FriendMinions.Add(new SimEntity { CardId = d.CardId, Atk = d.Atk, Health = 1, MaxHealth = d.MaxHealth, IsFriend = true, IsTired = true });
+                    board.FriendMinions.Add(new SimEntity
+                    {
+                        CardId = d.CardId, Atk = d.Atk, Health = 1, MaxHealth = d.MaxHealth,
+                        IsFriend = true, IsTired = true,
+                        IsTaunt = d.IsTaunt, HasPoison = d.HasPoison, IsWindfury = d.IsWindfury,
+                        IsDivineShield = false, HasReborn = false, // 复生只触发一次
+                        IsLifeSteal = d.IsLifeSteal, HasDeathrattle = d.HasDeathrattle,
+                        Type = d.Type,
+                    });
             }
             // 敌方死亡
             var deadEnemy = board.EnemyMinions.Where(m => !m.IsAlive).ToList();
@@ -231,7 +241,15 @@ namespace BotMain.AI
                 else if (d.HasDeathrattle)
                     FallbackDeathrattle(board, d);
                 if (d.HasReborn)
-                    board.EnemyMinions.Add(new SimEntity { CardId = d.CardId, Atk = d.Atk, Health = 1, MaxHealth = d.MaxHealth, IsFriend = false, IsTired = true });
+                    board.EnemyMinions.Add(new SimEntity
+                    {
+                        CardId = d.CardId, Atk = d.Atk, Health = 1, MaxHealth = d.MaxHealth,
+                        IsFriend = false, IsTired = true,
+                        IsTaunt = d.IsTaunt, HasPoison = d.HasPoison, IsWindfury = d.IsWindfury,
+                        IsDivineShield = false, HasReborn = false,
+                        IsLifeSteal = d.IsLifeSteal, HasDeathrattle = d.HasDeathrattle,
+                        Type = d.Type,
+                    });
             }
         }
 

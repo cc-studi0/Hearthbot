@@ -322,6 +322,44 @@ namespace HearthstonePayload
             return FallbackMulliganConfirm(out x, out y);
         }
 
+        /// <summary>
+        /// 获取当前手牌中所有卡牌的EntityId列表（用于诊断）
+        /// </summary>
+        public static System.Collections.Generic.List<int> GetHandEntityIds()
+        {
+            var result = new System.Collections.Generic.List<int>();
+            try
+            {
+                if (!EnsureTypes()) return result;
+                var gs = InvokeStatic(_gameStateType, "Get");
+                if (gs == null) return result;
+                var friendly = Invoke(gs, "GetFriendlySidePlayer")
+                    ?? Invoke(gs, "GetFriendlyPlayer")
+                    ?? Invoke(gs, "GetLocalPlayer");
+                if (friendly == null) return result;
+                var handZone = Invoke(friendly, "GetHandZone")
+                    ?? Invoke(friendly, "GetHand")
+                    ?? GetProp(friendly, "m_handZone")
+                    ?? GetProp(friendly, "HandZone");
+                if (handZone == null) return result;
+                var cards = Invoke(handZone, "GetCards") as IEnumerable
+                    ?? GetProp(handZone, "Cards") as IEnumerable
+                    ?? GetProp(handZone, "m_cards") as IEnumerable
+                    ?? handZone as IEnumerable;
+                if (cards == null) return result;
+                var tagType = _asm?.GetType("GAME_TAG");
+                foreach (var card in cards)
+                {
+                    if (card == null) continue;
+                    var entity = Invoke(card, "GetEntity");
+                    if (entity == null) continue;
+                    result.Add(GetEntityIdFromObject(entity, tagType));
+                }
+            }
+            catch { }
+            return result;
+        }
+
         #region Fallback固定比例坐标
 
         private static bool FallbackMulliganCard(int index, int totalCards, out int x, out int y)

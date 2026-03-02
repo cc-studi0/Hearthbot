@@ -1,8 +1,0 @@
-{
-    "_name": "鲜血掠夺者古尔丹 (术士英雄) 10费 5护甲",
-    "_effect": "战吼：召唤所有在本局对战中死亡的友方恶魔",
-    "Battlecry": {
-        "targetType": "None",
-        "effects": []
-    }
-}

@@ -1,0 +1,17 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "destroy"
+      }
+    ],
+    "targetType": "AnyMinion"
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "destroy"
+      }
+    ]
+  }
+}

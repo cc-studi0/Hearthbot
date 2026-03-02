@@ -1,0 +1,10 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "draw",
+        "n": 3
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 5
+      }
+    ]
+  }
+}

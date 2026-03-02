@@ -1,0 +1,27 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 2
+      },
+      {
+        "type": "draw",
+        "n": 1
+      }
+    ],
+    "targetType": "AnyCharacter"
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 2
+      },
+      {
+        "type": "draw",
+        "n": 1
+      }
+    ]
+  }
+}

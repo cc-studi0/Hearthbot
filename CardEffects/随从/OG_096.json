@@ -1,0 +1,10 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "heal_hero",
+        "v": 10
+      }
+    ]
+  }
+}

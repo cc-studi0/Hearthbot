@@ -1,0 +1,16 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 5,
+        "useSP": true
+      },
+      {
+        "type": "draw",
+        "n": 2
+      }
+    ],
+    "targetType": "AnyMinion"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "heal",
+        "v": 2
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 0,
+        "hp": 2
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "buff_all",
+        "atk": 1,
+        "hp": 1
+      }
+    ]
+  }
+}

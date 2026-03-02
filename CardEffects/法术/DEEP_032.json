@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "freeze"
+      }
+    ],
+    "targetType": "AnyMinion"
+  }
+}

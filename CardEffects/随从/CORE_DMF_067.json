@@ -1,0 +1,18 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "draw",
+        "n": 1
+      }
+    ]
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "draw",
+        "n": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "give_reborn"
+      }
+    ],
+    "targetType": "AnyMinion"
+  }
+}

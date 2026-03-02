@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "bounce"
+      }
+    ],
+    "targetType": "EnemyMinion"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "heal_hero",
+        "v": 4
+      }
+    ]
+  }
+}

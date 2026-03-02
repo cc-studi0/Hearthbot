@@ -1,0 +1,11 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "equip",
+        "atk": 15,
+        "dur": 3
+      }
+    ]
+  }
+}

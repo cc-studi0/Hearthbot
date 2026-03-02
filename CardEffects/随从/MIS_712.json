@@ -1,0 +1,12 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "buff",
+        "atk": 7,
+        "hp": 7
+      }
+    ],
+    "targetType": "FriendlyMinion"
+  }
+}

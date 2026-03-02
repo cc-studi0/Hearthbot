@@ -1,0 +1,18 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "dmg_all",
+        "v": 1
+      }
+    ]
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "dmg_all",
+        "v": 1
+      }
+    ]
+  }
+}

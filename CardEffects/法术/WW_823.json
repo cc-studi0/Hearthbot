@@ -1,0 +1,11 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "heal",
+        "v": 7
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

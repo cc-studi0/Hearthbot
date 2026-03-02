@@ -1,0 +1,12 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 10,
+        "useSP": true
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

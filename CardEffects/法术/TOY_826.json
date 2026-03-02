@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "dmg_all",
+        "v": 1
+      }
+    ]
+  }
+}

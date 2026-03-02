@@ -1,0 +1,11 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "summon",
+        "atk": 6,
+        "hp": 6
+      }
+    ]
+  }
+}

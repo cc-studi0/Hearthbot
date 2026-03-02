@@ -1,0 +1,11 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 10
+      }
+    ],
+    "targetType": "EnemyMinion"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "summon",
+        "atk": 3,
+        "hp": 3
+      },
+      {
+        "type": "summon",
+        "atk": 3,
+        "hp": 3
+      }
+    ]
+  }
+}

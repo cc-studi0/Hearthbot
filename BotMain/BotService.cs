@@ -38,7 +38,7 @@ namespace BotMain
         private volatile bool _finishAfterGame;
         private volatile bool _suspended;
 
-        // 寤惰繜鐩戞帶
+        // 延迟监控
         private int _latencyAvg;
         private int _latencyMin = int.MaxValue;
         private int _latencyMax;
@@ -60,12 +60,12 @@ namespace BotMain
         private string _arenaProfile = "None";
         private string _afterArenaMode = "Standard";
 
-        // 鍖归厤瓒呮椂璺熻釜
+        // 匹配超时跟踪
         private DateTime? _findingGameSince;
         private bool _wasMatchmaking;
         private const int MatchmakingTimeoutSeconds = 60;
 
-        // 杩愯闄愬埗璁剧疆
+        // 运行限制设置
         private int _maxWins;
         private int _maxLosses;
         private double _maxHours;
@@ -267,7 +267,7 @@ namespace BotMain
             }
         }
 
-        // 鈹€鈹€ Bot API 鏂规硶锛堜緵 BotApiHandler 璋冪敤锛?鈹€鈹€
+        // ── Bot API 方法（供 BotApiHandler 调用）──
 
         private volatile bool _concedeRequested;
 
@@ -580,6 +580,7 @@ namespace BotMain
             bool wasInGame = false;
             int lastTurnNumber = -1;
             int resimulationCount = 0;
+            int actionFailStreak = 0;
             DateTime nextTickUtc = DateTime.UtcNow;
 
             while (_running && pipe != null && pipe.IsConnected)
@@ -599,14 +600,14 @@ namespace BotMain
                     MulliganProfileNames,
                     DiscoverProfileNames);
 
-                // 鍚屾寤惰繜鏁版嵁
+                // 同步延迟数据
                 var (lavg, lmin, lmax) = GetLatency();
                 _botApiHandler?.SetLatency(lavg, lmin, lmax);
 
                 _stats?.PollReset();
                 _stats?.UpdateElapsed();
 
-                // 鍚屾鎻掍欢鍒楄〃鍒?Bot._plugins
+                // 同步插件列表到 Bot._plugins
                 if (_pluginSystem != null)
                     _botApiHandler?.SetPlugins(_pluginSystem.Plugins);
 
@@ -616,7 +617,7 @@ namespace BotMain
                     nextTickUtc = DateTime.UtcNow.AddMilliseconds(300);
                 }
 
-                // 鎶曢檷璇锋眰澶勭悊
+                // 投降请求处理
                 if (_concedeRequested)
                 {
                     _concedeRequested = false;
@@ -659,7 +660,7 @@ namespace BotMain
                     || resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal)
                     || resp == "PONG" || resp == "READY" || resp == "BUSY")
                 {
-                    Log($"[MainLoop] GET_SEED 鏀跺埌閿欎綅鍝嶅簲锛屼涪寮? {resp.Substring(0, Math.Min(resp.Length, 40))}");
+                    Log($"[MainLoop] GET_SEED 收到错位响应，丢弃  {resp.Substring(0, Math.Min(resp.Length, 40))}");
                     Thread.Sleep(300);
                     continue;
                 }
@@ -694,7 +695,7 @@ namespace BotMain
                         notOurTurnStreak = 0;
                         mulliganStreak++;
 
-                        // 棣栨妫€娴嬪埌鐣欑墝闃舵锛岀瓑寰?2绉掑啀澶勭悊
+                        // 首次检测到留牌阶段，等待2秒再处理
                         if (mulliganStreak == 1)
                         {
                             Log("[MainLoop] mulligan phase detected; waiting mulligan ui ready...");
@@ -780,6 +781,7 @@ namespace BotMain
                             _pluginSystem?.FireOnTurnEnd();
                         lastTurnNumber = turnNumber;
                         resimulationCount = 0;
+                        actionFailStreak = 0;
                         _pluginSystem?.FireOnTurnBegin();
                     }
                 }
@@ -804,7 +806,7 @@ namespace BotMain
 
                 _pluginSystem?.FireOnSimulation();
 
-                // 鈹€鈹€ 鏌ヨ鐗屽簱鍓╀綑鍗＄墝 鈹€鈹€
+                // 查询牌库剩余卡牌
                 List<Card.Cards> deckCards = null;
                 try
                 {
@@ -824,7 +826,7 @@ namespace BotMain
                         }
                     }
                 }
-                catch { /* 鏌ヨ澶辫触鏃?deckCards 淇濇寔 null锛屼笉褰卞搷 AI 杩愯 */ }
+                catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
                 var sw = Stopwatch.StartNew();
                 AIDecisionPlan decision;
@@ -851,7 +853,7 @@ namespace BotMain
                     var action = actions[ai];
                     if (!_running) break;
 
-                    // 瑙﹀彂鎻掍欢 OnActionExecute
+                    // 触发插件 OnActionExecute
                     if (actionIndex < sbActions.Count)
                         _pluginSystem?.FireOnActionExecute(sbActions[actionIndex]);
                     actionIndex++;
@@ -876,6 +878,7 @@ namespace BotMain
 
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                            || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
                             || isAttack)
                         {
                             var cancelResult = pipe.SendAndReceive("ACTION:CANCEL", 3000) ?? "NO_RESPONSE";
@@ -885,30 +888,38 @@ namespace BotMain
                         break;
                     }
 
-                    // 鍑虹墝/鏀诲嚮璇︾粏鏃ュ織
+                    // 出牌/攻击详细日志
                     try
                     {
                         var parts = action.Split('|');
                         if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
                         {
                             var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                            Log($"[Action] 鎵撳嚭 {desc}");
+                            Log($"[Action] 打出 {desc}");
                         }
                         else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
                         {
                             var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
                             var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
-                            Log($"[Action] {atk} 鈫?{def}");
+                            Log($"[Action] {atk} → {def}");
                         }
                         else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
                         {
                             var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                            Log($"[Action] 婵€娲诲湴鏍?{desc}");
+                            if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
+                            {
+                                var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
+                                Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
+                            }
+                            else
+                            {
+                                Log($"[Action] 激活地标 {desc}");
+                            }
                         }
                     }
                     catch { }
 
-                    // 杩炵画鏀诲嚮锛氬揩閫熻疆璇㈠氨缁紝璺宠繃鍥哄畾寤惰繜
+                    // 连续攻击：快速轮询就绪，跳过固定延迟
                     if (isAttack && nextIsAttack)
                     {
                         WaitForGameReady(pipe, 40, 50);
@@ -919,7 +930,7 @@ namespace BotMain
                         WaitForGameReady(pipe, 30);
                     }
 
-                    // 鍑虹墝/鑻遍泟鎶€鑳?鍦版爣婵€娲诲悗妫€娴嬪彂鐜伴€夋嫨
+                    // 出牌/英雄技能/地标激活后检测发现选择
                     if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                         || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                         || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
@@ -962,7 +973,18 @@ namespace BotMain
 
                 if (actionFailed)
                 {
-                    Thread.Sleep(1000);
+                    actionFailStreak++;
+                    if (actionFailStreak >= 3)
+                    {
+                        Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
+                        try { pipe.SendAndReceive("ACTION:END_TURN", 5000); } catch { }
+                        actionFailStreak = 0;
+                        Thread.Sleep(2000);
+                    }
+                    else
+                    {
+                        Thread.Sleep(1000);
+                    }
                     continue;
                 }
 
@@ -1011,7 +1033,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 绛夊緟娓告垙灏辩华锛屾敮鎸佽嚜瀹氫箟杞闂撮殧
+        /// 等待游戏就绪，支持自定义轮询间隔
         /// </summary>
         private static bool WaitForGameReady(PipeServer pipe, int maxRetries, int intervalMs)
         {
@@ -1027,26 +1049,27 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 閫氳繃EntityId鍦ㄦ鐩樹腑鏌ユ壘鍗＄墝鐨勬樉绀轰俊鎭?        /// </summary>
+        /// 通过EntityId在棋盘中查找卡牌的显示信息
+        /// </summary>
         private static string DescribeEntity(Board board, int entityId, bool withStats = false)
         {
             if (board == null || entityId <= 0) return entityId.ToString();
             try
             {
                 Card found = null;
-                // 鎵嬬墝
+                // 手牌
                 if (found == null && board.Hand != null)
                     found = board.Hand.FirstOrDefault(c => c?.Id == entityId);
-                // 鎴戞柟闅忎粠
+                // 我方随从
                 if (found == null && board.MinionFriend != null)
                     found = board.MinionFriend.FirstOrDefault(c => c?.Id == entityId);
-                // 鏁屾柟闅忎粠
+                // 敌方随从
                 if (found == null && board.MinionEnemy != null)
                     found = board.MinionEnemy.FirstOrDefault(c => c?.Id == entityId);
-                // 鎴戞柟鑻遍泟
+                // 我方英雄
                 if (found == null && board.HeroFriend?.Id == entityId)
                     found = board.HeroFriend;
-                // 鏁屾柟鑻遍泟
+                // 敌方英雄
                 if (found == null && board.HeroEnemy?.Id == entityId)
                     found = board.HeroEnemy;
 
@@ -1084,6 +1107,14 @@ namespace BotMain
                 return true;
             }
 
+            // 攻击后检测：如果攻击的目标是随从且预计会死亡，触发重新模拟
+            if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                && IsAttackLikelyToCauseDeaths(action, planningBoard, out var attackReason))
+            {
+                reason = attackReason;
+                return true;
+            }
+
             if (forcedResimulationCards == null || forcedResimulationCards.Count == 0)
                 return false;
 
@@ -1095,6 +1126,55 @@ namespace BotMain
 
             reason = $"ForcedResimulationCardList hit: {sourceCardId}";
             return true;
+        }
+
+        /// <summary>
+        /// 判断攻击是否可能导致随从死亡，需要重新模拟棋面
+        /// </summary>
+        private static bool IsAttackLikelyToCauseDeaths(
+            string action, Board board, out string reason)
+        {
+            reason = null;
+            if (board == null) return false;
+
+            var parts = action.Split('|');
+            if (parts.Length < 3) return false;
+            if (!int.TryParse(parts[1], out var atkId)) return false;
+            if (!int.TryParse(parts[2], out var tgtId)) return false;
+
+            // 攻击英雄不会导致随从位置变化
+            if (board.HeroEnemy?.Id == tgtId || board.HeroFriend?.Id == tgtId)
+                return false;
+
+            // 查找目标随从
+            var target = board.MinionEnemy?.FirstOrDefault(m => m?.Id == tgtId);
+            if (target == null)
+                target = board.MinionFriend?.FirstOrDefault(m => m?.Id == tgtId);
+            if (target == null) return false;
+
+            // 查找攻击者
+            Card attacker = board.MinionFriend?.FirstOrDefault(m => m?.Id == atkId);
+            if (attacker == null && board.HeroFriend?.Id == atkId)
+                attacker = board.HeroFriend;
+            if (attacker == null) return false;
+
+            // 预测：攻击力 >= 目标血量 → 目标可能死亡
+            bool targetMayDie = attacker.CurrentAtk >= target.CurrentHealth;
+            // 预测：反击伤害 >= 攻击者血量 → 攻击者可能死亡（且是随从）
+            bool attackerIsMinion = board.MinionFriend?.Any(m => m?.Id == atkId) == true;
+            bool attackerMayDie = attackerIsMinion && target.CurrentAtk >= attacker.CurrentHealth;
+
+            if (targetMayDie)
+            {
+                reason = $"AttackDeathPredicted:target={tgtId}({target.Template?.Id})";
+                return true;
+            }
+            if (attackerMayDie)
+            {
+                reason = $"AttackDeathPredicted:attacker={atkId}({attacker.Template?.Id})";
+                return true;
+            }
+            return false;
         }
 
         private static bool TryGetPlaySourceCardId(string action, Board planningBoard, out ApiCard.Cards sourceCardId)
@@ -1162,7 +1242,7 @@ namespace BotMain
 
         private void TryHandleDiscover(PipeServer pipe, string seed)
         {
-            // 绛夊緟鍙戠幇鐣岄潰鍑虹幇
+            // 等待发现界面出现
             for (int retry = 0; retry < 3; retry++)
             {
                 var maxRetries = retry == 0 ? 4 : 12;
@@ -1195,10 +1275,24 @@ namespace BotMain
 
                 if (choiceCardIds.Count == 0) return;
 
-                var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                var pickedIndex = RunDiscoverStrategy(originCardId, choiceCardIds, strategySeed);
-                if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
-                    pickedIndex = 0;
+                // ── 回溯 (Rewind) 选择特殊处理 ──
+                // TIME_000ta = 维持时间线, TIME_000tb = 回溯时间线
+                // 始终选择"维持"，避免回溯导致无限循环
+                int pickedIndex = -1;
+                var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
+                if (maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb"))
+                {
+                    pickedIndex = maintainIdx;
+                    Log($"[Discover] Rewind detected (origin={originCardId}), auto-picking Maintain (index={pickedIndex})");
+                }
+
+                if (pickedIndex < 0)
+                {
+                    var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                    pickedIndex = RunDiscoverStrategy(originCardId, choiceCardIds, strategySeed);
+                    if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
+                        pickedIndex = 0;
+                }
 
                 var pickResult = pipe.SendAndReceive(
                     "APPLY_CHOICE:" + choiceEntityIds[pickedIndex], 5000) ?? "NO_RESPONSE";
@@ -1216,7 +1310,7 @@ namespace BotMain
                     }
                 }
                 catch { }
-                Log($"[Discover] 閫夋嫨浜? {pickedCardName} ({pickedCardId})");
+                Log($"[Discover] 选择了  {pickedCardName} ({pickedCardId})");
                 Log($"[Discover] origin={originCardId} choices=[{string.Join(",", choiceCardIds)}] " +
                     $"picked={pickedCardId} -> {pickResult}");
 
@@ -1305,7 +1399,7 @@ namespace BotMain
 
                 string stateResp = null;
 
-                // 閲嶈瘯鏈哄埗锛氬鏋滄敹鍒伴敊浣嶇殑鍝嶅簲锛堝 MULLIGAN銆丯O_GAME 绛夛級锛屼涪寮冨苟閲嶈瘯
+                // 重试机制：如果收到错位的响应（如 MULLIGAN、NO_GAME 等），丢弃并重试
                 for (int attempt = 0; attempt < 3; attempt++)
                 {
                     stateResp = pipe.SendAndReceive("GET_MULLIGAN_STATE", 5000);
@@ -1317,9 +1411,9 @@ namespace BotMain
 
                     if (stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
                         || stateResp == "NO_MULLIGAN")
-                        break;  // 姝ｇ‘鐨勫搷搴?
-                    // 閿欎綅鍝嶅簲锛屼涪寮冨苟閲嶈瘯
-                    Log($"[Mulligan] GET_MULLIGAN_STATE 鏀跺埌閿欎綅鍝嶅簲锛屼涪寮? {stateResp}");
+                        break;  // 正确的响应
+                    // 错位响应，丢弃并重试
+                    Log($"[Mulligan] GET_MULLIGAN_STATE 收到错位响应，丢弃  {stateResp}");
                     stateResp = null;
                     Thread.Sleep(500);
                 }
@@ -1504,14 +1598,14 @@ namespace BotMain
 
             if (scene == "GAMEPLAY")
             {
-                Log("[AutoQueue] 娓告垙缁撴潫鍔ㄧ敾涓紝鐐瑰嚮璺宠繃...");
+                Log("[AutoQueue] 游戏结束动画中，点击跳过...");
                 pipe.SendAndReceive("CLICK_DISMISS", 5000);
                 _findingGameSince = null;
                 Thread.Sleep(2000);
                 return;
             }
 
-            // 妫€鏌ユ槸鍚﹀凡鍦ㄥ尮閰嶄腑
+            // 检查是否已在匹配中
             var finding = pipe.SendAndReceive("IS_FINDING", 5000);
             if (finding == "YES")
             {
@@ -1519,30 +1613,30 @@ namespace BotMain
                 if (_findingGameSince == null)
                 {
                     _findingGameSince = DateTime.UtcNow;
-                    Log("[AutoQueue] 寮€濮嬪尮閰嶏紝绛夊緟杩涘叆娓告垙...");
+                    Log("[AutoQueue] 开始匹配，等待进入游戏...");
                 }
 
                 var elapsed = (DateTime.UtcNow - _findingGameSince.Value).TotalSeconds;
                 if (elapsed >= MatchmakingTimeoutSeconds)
                 {
-                    Log($"[AutoQueue] 鍖归厤瓒呮椂 ({elapsed:F0}s >= {MatchmakingTimeoutSeconds}s)锛岄噸鍚父鎴?..");
+                    Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {MatchmakingTimeoutSeconds}s)，重启游戏...");
                     _wasMatchmaking = false;
                     RestartHearthstone();
                     return;
                 }
 
                 if ((int)elapsed % 10 < 3)
-                    Log($"[AutoQueue] 鍖归厤涓?.. 宸茬瓑寰?{elapsed:F0}s");
+                    Log($"[AutoQueue] 匹配中... 已等待 {elapsed:F0}s");
                 Thread.Sleep(2000);
                 return;
             }
 
-            // 鍖归厤鍒氱粨鏉燂紙鎵惧埌瀵规墜锛夛紝绛夊緟娓告垙鍔犺浇
+            // 匹配刚结束（找到对手），等待游戏加载
             if (_wasMatchmaking)
             {
                 _wasMatchmaking = false;
                 _findingGameSince = null;
-                Log("[AutoQueue] 鍖归厤缁撴潫锛岀瓑寰呮父鎴忓姞杞?(15s)...");
+                Log("[AutoQueue] 匹配结束，等待游戏加载(15s)...");
                 Thread.Sleep(15000);
                 return;
             }
@@ -1552,33 +1646,33 @@ namespace BotMain
             if (scene != "TOURNAMENT")
             {
                 var navResp = pipe.SendAndReceive("NAV_TO:TOURNAMENT", 5000);
-                Log($"[AutoQueue] 瀵艰埅鍒颁紶缁熷鎴? {navResp}");
+                Log($"[AutoQueue] 导航到传统对战 {navResp}");
                 Thread.Sleep(5000);
                 return;
             }
 
-            // 3. 璁剧疆妯″紡 (VFT_STANDARD=2, VFT_WILD=1)
+            // 3. 设置模式 (VFT_STANDARD=2, VFT_WILD=1)
             int vft = _modeIndex == 0 ? 2 : 1;
             var fmtResp = pipe.SendAndReceive("SET_FORMAT:" + vft, 5000);
-            Log($"[AutoQueue] 璁剧疆妯″紡: vft={vft} -> {fmtResp}");
+            Log($"[AutoQueue] 设置模式: vft={vft} -> {fmtResp}");
             Thread.Sleep(1000);
 
             var deckName = StripClassSuffix(_selectedDeck);
             var idResp = pipe.SendAndReceive("GET_DECK_ID:" + deckName, 5000);
             if (idResp == null || !long.TryParse(idResp, out long deckId))
             {
-                Log($"[AutoQueue] 鍗＄粍鏌ユ壘澶辫触: {deckName} -> {idResp}");
+                Log($"[AutoQueue] 卡组查找失败: {deckName} -> {idResp}");
                 Thread.Sleep(5000);
                 return;
             }
 
-            // 5. 灏濊瘯鍦?UI 涓€夋嫨鍗＄粍
+            // 5. 尝试在 UI 中选择卡组
             var selResp = pipe.SendAndReceive("SELECT_DECK:" + deckId, 5000);
-            Log($"[AutoQueue] 閫夋嫨鍗＄粍: {deckName}(id={deckId}) -> {selResp}");
+            Log($"[AutoQueue] 选择卡组: {deckName}(id={deckId}) -> {selResp}");
             Thread.Sleep(1000);
 
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
-            Log($"[AutoQueue] 鐐瑰嚮寮€濮? {playResp}");
+            Log($"[AutoQueue] 点击开始 {playResp}");
             Thread.Sleep(5000);
         }
 
@@ -1589,21 +1683,21 @@ namespace BotMain
             {
                 foreach (var proc in System.Diagnostics.Process.GetProcessesByName("Hearthstone"))
                 {
-                    Log($"[Restart] 鍏抽棴鐐夌煶杩涚▼ PID={proc.Id}");
+                    Log($"[Restart] 关闭炉石进程 PID={proc.Id}");
                     proc.Kill();
                     proc.WaitForExit(10000);
                 }
             }
             catch (Exception ex)
             {
-                Log($"[Restart] 鍏抽棴杩涚▼澶辫触: {ex.Message}");
+                Log($"[Restart] 关闭进程失败: {ex.Message}");
             }
 
             try { _pipe?.Dispose(); } catch { }
             _pipe = null;
             _prepared = false;
             _decksLoaded = false;
-            Log("[Restart] 宸查噸缃繛鎺ョ姸鎬侊紝绛夊緟鐐夌煶閲嶆柊鍚姩骞堕噸鏂拌繛鎺?..");
+            Log("[Restart] 已重置连接状态，等待炉石重新启动并重新连接...");
         }
 
         private static string StripClassSuffix(string name)
@@ -2032,7 +2126,8 @@ namespace BotMain
         private void StatusChanged(string s) => OnStatusChanged?.Invoke(s);
 
         /// <summary>
-        /// 閫氳繃鍙嶅皠瑙﹀彂 Debug 绫荤殑闈欐€佷簨浠?        /// </summary>
+        /// 通过反射触发 Debug 类的静态事件
+        /// </summary>
         private static void InvokeDebugEvent(string eventName, string text)
         {
             try

@@ -75,7 +75,9 @@ namespace HearthstonePayload
                     return _coroutine.RunAndWait(MouseHeroPower(
                         parts.Length > 2 ? int.Parse(parts[2]) : 0));
                 case "USE_LOCATION":
-                    return _coroutine.RunAndWait(MouseUseLocation(int.Parse(parts[1])));
+                    return _coroutine.RunAndWait(MouseUseLocation(
+                        int.Parse(parts[1]),
+                        parts.Length > 2 ? int.Parse(parts[2]) : 0));
                 case "CONCEDE":
                     Concede();
                     return "OK:CONCEDE";
@@ -131,9 +133,9 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 点击场上地标激活效果
+        /// 点击场上地标激活效果，支持选择目标
         /// </summary>
-        private static IEnumerator<float> MouseUseLocation(int entityId)
+        private static IEnumerator<float> MouseUseLocation(int entityId, int targetEntityId)
         {
             InputHook.Simulating = true;
             if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
@@ -147,6 +149,26 @@ namespace HearthstonePayload
             yield return 0.1f;
             MouseSimulator.LeftUp();
             yield return 0.5f;
+
+            // 如果有目标，点击目标随从
+            if (targetEntityId > 0)
+            {
+                bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
+                if (!gotTarget)
+                    gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+                if (!gotTarget)
+                {
+                    _coroutine.SetResult("FAIL:USE_LOCATION:target_pos:" + targetEntityId);
+                    yield break;
+                }
+                MouseSimulator.MoveTo(tx, ty);
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                yield return 0.5f;
+            }
+
             _coroutine.SetResult("OK:USE_LOCATION:" + entityId);
         }
 
@@ -163,44 +185,69 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 鼠标拖拽出牌
+        /// 混合出牌：API抓取卡牌 + 鼠标模拟拖动/释放/选目标
+        /// 阶段1: 通过API抓取卡牌（让游戏内部进入持有卡牌状态）
+        /// 阶段2: 鼠标模拟拖动到目标位置
+        /// 阶段3: 鼠标模拟释放（松手出牌）
+        /// 阶段4: 如有战吼目标，鼠标模拟点击目标
         /// </summary>
         private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position)
         {
             InputHook.Simulating = true;
-            int sx = 0, sy = 0;
-            bool foundSource = false;
-            for (int retry = 0; retry < 5; retry++)
+
+            // ========== 阶段1: 抓取卡牌 ==========
+            // 优先通过 API 抓取（不依赖屏幕坐标，最可靠）
+            bool grabbedViaAPI = TryGrabCardViaAPI(entityId);
+
+            if (grabbedViaAPI)
             {
-                if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
+                // API 抓取成功，需要同步设置鼠标按下状态
+                // 游戏每帧检查 Input.GetMouseButton(0) 来判断玩家是否还在持有卡牌
+                // 如果不设置 LeftDown，游戏会认为玩家立即松手导致卡牌弹回
+                int midX = MouseSimulator.GetScreenWidth() / 2;
+                int midY = MouseSimulator.GetScreenHeight() / 2;
+                MouseSimulator.MoveTo(midX, midY);
+                MouseSimulator.LeftDown();
+                yield return 0.15f;
+            }
+            else
+            {
+                // API 失败，回退到鼠标点击手牌位置抓取
+                int sx = 0, sy = 0;
+                bool foundSource = false;
+                for (int retry = 0; retry < 5; retry++)
                 {
-                    foundSource = true;
-                    break;
+                    if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
+                    {
+                        foundSource = true;
+                        break;
+                    }
+                    yield return 0.5f;
                 }
-                yield return 0.5f; // 等待500ms让视觉层加载
-            }
-            if (!foundSource)
-            {
-                _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
-                yield break;
+                if (!foundSource)
+                {
+                    var handIds = GameObjectFinder.GetHandEntityIds();
+                    var handStr = handIds.Count > 0 ? string.Join(",", handIds) : "empty";
+                    _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId + ":hand=[" + handStr + "]");
+                    yield break;
+                }
+                MouseSimulator.MoveTo(sx, sy);
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.15f;
             }
 
-            // 瞬移到手牌位置并拾取
-            MouseSimulator.MoveTo(sx, sy);
-            yield return 0.05f;
-            MouseSimulator.LeftDown();
-            yield return 0.1f;
-
+            // ========== 阶段2+3: 拖动并释放 ==========
             if (targetEntityId > 0)
             {
-                // 有目标：先拖到场中央触发出牌
+                // 有目标的牌（指向性法术/战吼）：拖到场中央触发出牌
                 int midX = MouseSimulator.GetScreenWidth() / 2;
                 int midY = MouseSimulator.GetScreenHeight() / 2;
                 foreach (var w in SmoothMove(midX, midY, 15)) yield return w;
                 MouseSimulator.LeftUp();
                 yield return 0.5f;
 
-                // 点击目标
+                // ========== 阶段4: 选择目标 ==========
                 bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
                 if (!gotTarget)
                     gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
@@ -209,7 +256,7 @@ namespace HearthstonePayload
                     _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
                     yield break;
                 }
-                // 瞬移到目标并点击
+                // 模拟点击目标
                 MouseSimulator.MoveTo(tx, ty);
                 yield return 0.05f;
                 MouseSimulator.LeftDown();
@@ -218,7 +265,7 @@ namespace HearthstonePayload
             }
             else
             {
-                // 无目标：拖到放置位置
+                // 无目标的牌（随从/非指向法术）：拖到场上放置位置
                 int totalMinions = GetFriendlyMinionCount();
                 if (!GameObjectFinder.GetBoardDropZoneScreenPos(position, totalMinions, out var dx, out var dy))
                 {
@@ -230,7 +277,99 @@ namespace HearthstonePayload
             }
 
             yield return 0.5f;
-            _coroutine.SetResult("OK:PLAY:" + entityId);
+            var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
+            _coroutine.SetResult("OK:PLAY:" + entityId + ":" + method);
+        }
+
+        /// <summary>
+        /// 通过 InputManager API 抓取手牌中的卡牌
+        /// 调用游戏内部的卡牌点击处理，让游戏进入"持有卡牌"状态
+        /// 这比屏幕坐标定位更可靠，因为不依赖视觉层的 Transform 位置
+        /// </summary>
+        private static bool TryGrabCardViaAPI(int entityId)
+        {
+            try
+            {
+                if (!EnsureTypes()) return false;
+
+                var gs = GetGameState();
+                if (gs == null) return false;
+
+                var entity = GetEntity(gs, entityId);
+                if (entity == null) return false;
+
+                // 获取 Card 对象（InputManager 的方法需要 Card 或 Entity）
+                var card = Invoke(entity, "GetCard");
+
+                var inputMgr = GetSingleton(_inputMgrType);
+                if (inputMgr == null) return false;
+
+                // 尝试多种 InputManager 方法来"抓取"手牌
+                // 炉石不同版本可能使用不同的方法名
+                var grabMethods = new[]
+                {
+                    "HandleClickOnCardInHand",
+                    "GrabCard",
+                    "PickUpCard",
+                    "HandleCardMouseDown",
+                    "OnCardGrabbed",
+                    "DoNetworkPlay"
+                };
+
+                var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+                foreach (var methodName in grabMethods)
+                {
+                    var methods = _inputMgrType.GetMethods(flags)
+                        .Where(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase))
+                        .ToArray();
+
+                    foreach (var mi in methods)
+                    {
+                        var parameters = mi.GetParameters();
+                        if (parameters.Length == 0) continue;
+
+                        try
+                        {
+                            // 构造参数：优先传 Card，然后试 Entity
+                            var args = BuildArgs(parameters, card ?? entity, 0, 0);
+                            mi.Invoke(inputMgr, args);
+
+                            // 验证是否成功进入持有状态
+                            var heldCard = GetFieldOrProp(inputMgr, "m_heldCard")
+                                ?? GetFieldOrProp(inputMgr, "heldCard")
+                                ?? Invoke(inputMgr, "GetHeldCard");
+
+                            if (heldCard != null)
+                            {
+                                System.IO.File.AppendAllText("payload_error.log",
+                                    DateTime.Now + ": [Action] API grabbed card entityId=" + entityId
+                                    + " via " + methodName + Environment.NewLine);
+                                return true;
+                            }
+
+                            // 即使没检测到 heldCard，某些版本可能不暴露该字段
+                            // 如果调用没抛异常，也认为可能成功
+                            System.IO.File.AppendAllText("payload_error.log",
+                                DateTime.Now + ": [Action] API grab call no heldCard verify entityId="
+                                + entityId + " via " + methodName + Environment.NewLine);
+                            return true;
+                        }
+                        catch
+                        {
+                            // 该方法签名不兼容，尝试下一个
+                        }
+                    }
+                }
+
+                return false;
+            }
+            catch (Exception ex)
+            {
+                System.IO.File.AppendAllText("payload_error.log",
+                    DateTime.Now + ": [Action] TryGrabCardViaAPI exception: " + ex.Message + Environment.NewLine);
+                return false;
+            }
         }
 
         /// <summary>
@@ -1595,11 +1734,43 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 按屏幕比例坐标点击（用于 Rewind 等 UI 按钮）
+        /// ratioX/ratioY 取值 0.0~1.0
+        /// </summary>
+        public static string ClickScreen(float ratioX, float ratioY)
+        {
+            if (_coroutine == null) return "ERROR:no_coroutine";
+            return _coroutine.RunAndWait(MouseClickScreenCoroutine(ratioX, ratioY));
+        }
+
+        private static IEnumerator<float> MouseClickScreenCoroutine(float ratioX, float ratioY)
+        {
+            InputHook.Simulating = true;
+            int w = MouseSimulator.GetScreenWidth();
+            int h = MouseSimulator.GetScreenHeight();
+            int x = (int)(w * ratioX);
+            int y = (int)(h * ratioY);
+            MouseSimulator.MoveTo(x, y);
+            yield return 0.1f;
+            MouseSimulator.LeftDown();
+            yield return 0.05f;
+            MouseSimulator.LeftUp();
+            yield return 0.3f;
+            _coroutine.SetResult("OK:CLICK_SCREEN:" + x + "," + y);
+        }
+
+        /// <summary>
         /// 通过鼠标点击执行发现选择
         /// </summary>
         public static string ApplyChoice(int entityId)
         {
             if (!EnsureTypes()) return "ERROR:not_initialized";
+
+            // 优先通过游戏内部 API 提交选择（不依赖屏幕坐标）
+            var netResult = TrySendChoiceViaNetwork(entityId);
+            if (netResult != null) return netResult;
+
+            // 网络方式失败，回退到鼠标点击
             if (_coroutine == null) return "ERROR:no_coroutine";
             return _coroutine.RunAndWait(MouseClickChoice(entityId));
         }

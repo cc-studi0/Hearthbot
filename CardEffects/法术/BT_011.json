@@ -1,0 +1,11 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "equip",
+        "atk": 1,
+        "dur": 4
+      }
+    ]
+  }
+}

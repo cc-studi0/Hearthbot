@@ -1,0 +1,10 @@
+{
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 6
+      }
+    ]
+  }
+}

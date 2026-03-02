@@ -1,0 +1,10 @@
+{
+  "EndOfTurn": {
+    "effects": [
+      {
+        "type": "heal_all",
+        "v": 2
+      }
+    ]
+  }
+}

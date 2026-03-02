@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "destroy"
+      }
+    ],
+    "targetType": "EnemyMinion"
+  }
+}

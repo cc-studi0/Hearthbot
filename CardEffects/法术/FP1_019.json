@@ -1,0 +1,9 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "destroy_all"
+      }
+    ]
+  }
+}

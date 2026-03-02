@@ -1,0 +1,20 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "summon",
+        "atk": 2,
+        "hp": 2
+      }
+    ]
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "summon",
+        "atk": 2,
+        "hp": 2
+      }
+    ]
+  }
+}

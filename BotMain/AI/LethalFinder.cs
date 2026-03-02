@@ -298,11 +298,13 @@ namespace BotMain.AI
             // ─── 3. 英雄技能 ───
             if (!board.HeroPowerUsed && board.HeroPower != null && board.HeroPower.Cost <= board.Mana)
             {
-                int hpPriority = GetHeroPowerLethalPriority(board.FriendClass);
+                int hpPriority = GetHeroPowerLethalPriority(board);
                 if (hpPriority > 0)
                 {
-                    // 有指向的英雄技能
-                    if (board.FriendClass == Card.CClass.MAGE && !enemyHero.IsImmune)
+                    // 有指向的英雄技能（法师、牧师伤害型）
+                    bool isDirectedDamageHP = board.FriendClass == Card.CClass.MAGE
+                        || (board.FriendClass == Card.CClass.PRIEST && IsPriestDamageHeroPower(board));
+                    if (isDirectedDamageHP && !enemyHero.IsImmune)
                     {
                         actions.Add((new GameAction
                         {
@@ -313,9 +315,9 @@ namespace BotMain.AI
                             TargetEntityId = enemyHero.EntityId
                         }, hpPriority));
                     }
-                    else
+                    else if (!isDirectedDamageHP)
                     {
-                        // 无指向英雄技能（猎人稳固射击、盗贼匕首等）
+                        // 无指向英雄技能（猎人稳固射击、盗贼匹首等）
                         actions.Add((new GameAction
                         {
                             Type = ActionType.HeroPower,
@@ -325,8 +327,10 @@ namespace BotMain.AI
                         }, hpPriority));
                     }
 
-                    // 法师技能打嘲讽
-                    if (board.FriendClass == Card.CClass.MAGE && hasTaunt)
+                    // 指向性技能打嘲讽（法师 + 牧师伤害型）
+                    if ((board.FriendClass == Card.CClass.MAGE
+                        || (board.FriendClass == Card.CClass.PRIEST && IsPriestDamageHeroPower(board)))
+                        && hasTaunt)
                     {
                         foreach (var taunt in tauntMinions)
                         {
@@ -494,7 +498,7 @@ namespace BotMain.AI
             // 英雄技能
             if (!board.HeroPowerUsed && board.HeroPower != null && board.HeroPower.Cost <= remainingMana)
             {
-                dmg += GetHeroPowerDamage(board.FriendClass);
+                dmg += GetHeroPowerDamage(board);
             }
 
             return dmg;
@@ -547,32 +551,52 @@ namespace BotMain.AI
             return ehp;
         }
 
-        /// <summary>英雄技能的斩杀参与度</summary>
-        private static int GetHeroPowerLethalPriority(Card.CClass friendClass)
+        /// <summary>英雄技能的斩杀参与度（接受 SimBoard 以判断牧师技能类型）</summary>
+        private int GetHeroPowerLethalPriority(SimBoard board)
         {
-            switch (friendClass)
+            switch (board.FriendClass)
             {
                 case Card.CClass.HUNTER: return 600;  // 稳固射击 2 点打脸
                 case Card.CClass.MAGE:   return 550;  // 火焰冲击 1 点指向
+                case Card.CClass.PRIEST:
+                    // 伤害型英雄技能（心灵尖刺）：2点指向伤害
+                    if (IsPriestDamageHeroPower(board)) return 570;
+                    return 0;
                 case Card.CClass.DRUID:  return 500;  // +1攻+1甲，英雄可以打
-                case Card.CClass.ROGUE:  return 450;  // 装1/2匕首
+                case Card.CClass.ROGUE:  return 450;  // 装1/2匹首
                 case Card.CClass.DEMONHUNTER: return 500; // +1攻
                 default: return 0;
             }
         }
 
         /// <summary>英雄技能的直接伤害</summary>
-        private static int GetHeroPowerDamage(Card.CClass friendClass)
+        private int GetHeroPowerDamage(SimBoard board)
         {
-            switch (friendClass)
+            switch (board.FriendClass)
             {
                 case Card.CClass.HUNTER: return 2;
                 case Card.CClass.MAGE:   return 1;
+                case Card.CClass.PRIEST:
+                    if (IsPriestDamageHeroPower(board)) return 2;
+                    return 0;
                 case Card.CClass.DRUID:  return 1;
                 case Card.CClass.ROGUE:  return 1;
                 case Card.CClass.DEMONHUNTER: return 1;
                 default: return 0;
             }
+        }
+
+        /// <summary>判断牧师当前英雄技能是否为伤害型（心灵尖刺系列）</summary>
+        private static bool IsPriestDamageHeroPower(SimBoard board)
+        {
+            if (board.HeroPower == null) return false;
+            var name = board.HeroPower.CardId.ToString();
+            return name == "EX1_625"   // Mind Spike
+                || name == "EX1_625t"  // Mind Shatter
+                || name.Contains("MindSpike")
+                || name.Contains("SCH_270")
+                || name.Contains("YOP_028")
+                ;
         }
 
         /// <summary>攻击嘲讽的优先级：能一刀杀的最高</summary>

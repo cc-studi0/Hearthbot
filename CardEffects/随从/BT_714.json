@@ -1,0 +1,10 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "freeze"
+      }
+    ],
+    "targetType": "EnemyOnly"
+  }
+}

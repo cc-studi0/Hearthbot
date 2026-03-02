@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "armor",
+        "v": 3
+      }
+    ]
+  }
+}

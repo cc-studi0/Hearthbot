@@ -68,14 +68,15 @@ namespace BotMain.AI
         }
 
         /// <summary>
-        /// 扫描 cardEffectsDir 目录下所有 *.json 文件，加载到 db。
+        /// 递归扫描 cardEffectsDir 目录及子目录下所有 *.json 文件，加载到 db。
+        /// 支持按卡牌类型分子目录存放（如 随从/、法术/、地标/ 等）。
         /// </summary>
         public static int LoadFromDirectory(CardEffectDB db, string cardEffectsDir)
         {
             if (!Directory.Exists(cardEffectsDir)) return 0;
 
             int loaded = 0;
-            foreach (var file in Directory.GetFiles(cardEffectsDir, "*.json"))
+            foreach (var file in Directory.GetFiles(cardEffectsDir, "*.json", SearchOption.AllDirectories))
             {
                 var cardName = Path.GetFileNameWithoutExtension(file);
                 if (!_cardIdMap.TryGetValue(cardName, out var cardId)) continue;
@@ -107,7 +108,10 @@ namespace BotMain.AI
                 // 解析目标类型
                 var targetType = BattlecryTargetType.None;
                 if (block["targetType"] is JToken ttToken)
-                    TryParseTargetType(ttToken.ToString(), out targetType);
+                {
+                    if (!TryParseTargetType(ttToken.ToString(), out targetType))
+                        System.Diagnostics.Debug.WriteLine($"[CardEffectFileLoader] 警告: {cardId} targetType \"{ttToken}\" 无效，有效值: None/AnyCharacter/AnyMinion/EnemyOnly/EnemyMinion/FriendlyOnly/FriendlyMinion");
+                }
 
                 // 构建复合效果 lambda
                 var effectList = block["effects"] as JArray;
@@ -323,6 +327,9 @@ namespace BotMain.AI
 
                 case "noop":
                     return (b, s, t) => { };
+
+                case "add_mana":
+                    return (b, s, t) => { b.Mana += v; };
 
                 case "hero_atk":
                     return (b, s, t) =>

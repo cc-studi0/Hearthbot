@@ -1,0 +1,10 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "give_poison"
+      }
+    ],
+    "targetType": "AnyMinion"
+  }
+}

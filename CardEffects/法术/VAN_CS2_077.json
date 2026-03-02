@@ -1,0 +1,10 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "draw",
+        "n": 4
+      }
+    ]
+  }
+}

@@ -24,6 +24,7 @@ namespace BotMain
             var hand = ParseEntityList(parts[20]);
             var friendlyMinions = ParseEntityList(parts[18]);
             var enemyMinions = ParseEntityList(parts[19]);
+            var heroFriend = ParseEntity(parts[14]);
             var heroEnemy = ParseEntity(parts[15]);
             var enemyTargetId = heroEnemy?.EntityId ?? 0;
 
@@ -62,7 +63,20 @@ namespace BotMain
                 }
             }
 
-            // 4. 结束回合
+            // 4. 英雄攻击（有攻击力且未耗尽时）
+            if (heroFriend != null && heroFriend.Atk > 0 && !heroFriend.Exhausted)
+            {
+                if (tauntTargets.Count > 0)
+                {
+                    actions.Add($"ATTACK|{heroFriend.EntityId}|{tauntTargets[0].EntityId}");
+                }
+                else if (heroEnemy != null)
+                {
+                    actions.Add($"ATTACK|{heroFriend.EntityId}|{heroEnemy.EntityId}");
+                }
+            }
+
+            // 5. 结束回合
             actions.Add("END_TURN");
             return actions;
         }

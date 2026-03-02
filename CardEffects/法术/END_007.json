@@ -1,0 +1,20 @@
+{
+  "Spell": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 1,
+        "useSP": true
+      },
+      {
+        "type": "draw",
+        "n": 1
+      },
+      {
+        "type": "armor",
+        "v": 1
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

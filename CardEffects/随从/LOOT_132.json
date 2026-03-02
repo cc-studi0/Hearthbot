@@ -1,0 +1,11 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "dmg",
+        "v": 6
+      }
+    ],
+    "targetType": "AnyCharacter"
+  }
+}

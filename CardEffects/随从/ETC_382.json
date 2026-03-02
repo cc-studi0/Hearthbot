@@ -1,0 +1,18 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "armor",
+        "v": 1
+      }
+    ]
+  },
+  "Deathrattle": {
+    "effects": [
+      {
+        "type": "armor",
+        "v": 1
+      }
+    ]
+  }
+}

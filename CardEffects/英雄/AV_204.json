@@ -1,0 +1,16 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "summon",
+        "atk": 1,
+        "hp": 4
+      },
+      {
+        "type": "summon",
+        "atk": 1,
+        "hp": 4
+      }
+    ]
+  }
+}

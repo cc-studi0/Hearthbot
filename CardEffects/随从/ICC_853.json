@@ -1,0 +1,10 @@
+{
+  "Battlecry": {
+    "effects": [
+      {
+        "type": "give_lifesteal"
+      }
+    ],
+    "targetType": "FriendlyMinion"
+  }
+}
