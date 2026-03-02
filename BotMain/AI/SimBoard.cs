@@ -61,6 +61,12 @@ namespace BotMain.AI
             sb.FriendWeapon = board.WeaponFriend != null ? ConvertCard(board.WeaponFriend, true) : null;
             sb.EnemyWeapon = board.WeaponEnemy != null ? ConvertCard(board.WeaponEnemy, false) : null;
 
+            // 兼容部分版本里 Hero.CurrentAtk 未正确反映武器攻击力的情况
+            if (sb.FriendHero != null && sb.FriendHero.Atk <= 0 && sb.FriendWeapon != null && sb.FriendWeapon.Health > 0)
+                sb.FriendHero.Atk = sb.FriendWeapon.Atk;
+            if (sb.EnemyHero != null && sb.EnemyHero.Atk <= 0 && sb.EnemyWeapon != null && sb.EnemyWeapon.Health > 0)
+                sb.EnemyHero.Atk = sb.EnemyWeapon.Atk;
+
             if (board.MinionFriend != null)
                 sb.FriendMinions = board.MinionFriend.Select(c => ConvertCard(c, true)).ToList();
             if (board.MinionEnemy != null)
@@ -74,11 +80,24 @@ namespace BotMain.AI
         private static SimEntity ConvertCard(Card c, bool isFriend)
         {
             if (c == null) return null;
+
+            var atk = c.CurrentAtk;
+            if (c.Type == Card.CType.HERO && atk <= 0)
+            {
+                // 英雄攻击在不同客户端版本上有时落在 tag 而非 CurrentAtk
+                var atkTag = c.GetTag(Card.GAME_TAG.ATK);
+                atk = Math.Max(atk, atkTag);
+            }
+
+            var isTired = c.Type == Card.CType.HERO
+                ? c.GetTag(Card.GAME_TAG.EXHAUSTED) == 1
+                : c.IsTired && !c.CanAttack;
+
             return new SimEntity
             {
                 CardId = c.Template?.Id ?? 0,
                 EntityId = c.Id,
-                Atk = c.CurrentAtk,
+                Atk = atk,
                 Health = c.CurrentHealth,
                 MaxHealth = c.MaxHealth,
                 Armor = c.CurrentArmor,
@@ -97,7 +116,8 @@ namespace BotMain.AI
                 IsStealth = c.IsStealth,
                 HasCharge = c.IsCharge,
                 HasRush = c.HasRush,
-                IsTired = c.IsTired && !c.CanAttack,
+                IsTired = isTired,
+                IsTradeable = c.GetTag(Card.GAME_TAG.TRADEABLE) > 0,
                 HasBattlecry = c.Template?.HasBattlecry ?? false,
                 HasDeathrattle = c.Template?.HasDeathrattle ?? false,
                 CountAttack = c.CountAttack,

@@ -1,9 +1,0 @@
-{
-  "EndOfTurn": {
-    "effects": [
-      {
-        "type": "destroy"
-      }
-    ]
-  }
-}

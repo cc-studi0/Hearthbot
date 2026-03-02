@@ -50,6 +50,12 @@ namespace BotMain
                     case "HERO_POWER":
                         return new PushAction(0, source, target);
 
+                    case "USE_LOCATION":
+                        return new PushAction(0, source, target);
+
+                    case "TRADE":
+                        return new PushAction(0, source, null);
+
                     default:
                         return null;
                 }

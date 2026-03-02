@@ -18,6 +18,10 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\effects_data.json" CopyToOutputDirectory="PreserveNewest" Link="effects_data.json" />
+    <ProjectReference Include="..\BotCore\BotCore.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="AI\**\*.cs" />
+    <Compile Remove="SimpleAI.cs" />
   </ItemGroup>
 </Project>

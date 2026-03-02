@@ -1,9 +1,0 @@
-{
-  "Deathrattle": {
-    "effects": [
-      {
-        "type": "bounce"
-      }
-    ]
-  }
-}

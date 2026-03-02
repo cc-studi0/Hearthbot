@@ -14,15 +14,35 @@ namespace BotMain.AI
         public void Attack(SimBoard board, SimEntity attacker, SimEntity target)
         {
             attacker.CountAttack++;
+            if (attacker.Type == Card.CType.HERO)
+            {
+                if (!attacker.IsWindfury || attacker.CountAttack >= 2)
+                    attacker.IsTired = true;
+            }
+
+            var attackerAtk = attacker.Atk;
+            if (attacker == board.FriendHero && attackerAtk <= 0 && board.FriendWeapon != null && board.FriendWeapon.Health > 0)
+                attackerAtk = board.FriendWeapon.Atk;
+            else if (attacker == board.EnemyHero && attackerAtk <= 0 && board.EnemyWeapon != null && board.EnemyWeapon.Health > 0)
+                attackerAtk = board.EnemyWeapon.Atk;
 
             // 双方互相造成伤害
-            DealDamage(board, target, attacker.Atk, attacker.HasPoison);
+            DealDamage(board, target, attackerAtk, attacker.HasPoison);
             if (target.Atk > 0)
                 DealDamage(board, attacker, target.Atk, target.HasPoison);
 
+            // 攻击敌方随从后触发（如“攻击一个随从后...”）
+            if (attacker != null
+                && target != null
+                && target.Type == Card.CType.MINION
+                && _db.TryGet(attacker.CardId, EffectTrigger.AfterAttackMinion, out var afterAttackFn))
+            {
+                afterAttackFn(board, attacker, target);
+            }
+
             // 吸血
             if (attacker.IsLifeSteal && board.FriendHero != null)
-                board.FriendHero.Health = Math.Min(board.FriendHero.MaxHealth, board.FriendHero.Health + attacker.Atk);
+                board.FriendHero.Health = Math.Min(board.FriendHero.MaxHealth, board.FriendHero.Health + attackerAtk);
 
             // 武器耐久
             if (attacker == board.FriendHero && board.FriendWeapon != null)
@@ -40,10 +60,12 @@ namespace BotMain.AI
             }
 
             ProcessDeaths(board);
+            ApplyAuras(board);
         }
 
         public void PlayCard(SimBoard board, SimEntity card, SimEntity target)
         {
+            ApplyAuras(board);
             board.Mana -= card.Cost;
             board.Hand.Remove(card);
             board.CardsPlayedThisTurn++;
@@ -54,18 +76,14 @@ namespace BotMain.AI
                 card.CountAttack = 0;
                 board.FriendMinions.Add(card);
 
-                // 触发战吼，未注册则按费用兜底
+                // 只执行已注册的卡牌效果脚本
                 if (_db.TryGet(card.CardId, EffectTrigger.Battlecry, out var fn))
                     fn(board, card, target);
-                else if (card.HasBattlecry)
-                    FallbackBattlecry(board, card, target);
             }
             else if (card.Type == Card.CType.SPELL)
             {
                 if (_db.TryGet(card.CardId, EffectTrigger.Spell, out var fn))
                     fn(board, card, target);
-                else
-                    FallbackSpell(board, card, target);
             }
             else if (card.Type == Card.CType.WEAPON)
             {
@@ -94,6 +112,41 @@ namespace BotMain.AI
             }
 
             ProcessDeaths(board);
+            ApplyAuras(board);
+        }
+
+        public void TradeCard(SimBoard board, SimEntity card)
+        {
+            if (board == null || card == null) return;
+            if (!card.IsTradeable) return;
+            if (board.Mana < 1) return;
+
+            board.Mana -= 1;
+            board.Hand.Remove(card);
+
+            // 可交易：原牌洗回牌库
+            board.FriendDeckCards.Add(card.CardId);
+
+            // 抽 1 张：若有可见牌库，则按当前牌库顺序抽取一张用于模拟
+            if (board.Hand.Count < 10)
+            {
+                if (board.FriendDeckCards.Count > 0)
+                {
+                    var drawId = board.FriendDeckCards[0];
+                    board.FriendDeckCards.RemoveAt(0);
+                    var drawn = CreateDeckDrawEntity(drawId);
+                    if (drawn != null)
+                        board.Hand.Add(drawn);
+                    else
+                        board.FriendCardDraw += 1;
+                }
+                else
+                {
+                    board.FriendCardDraw += 1;
+                }
+            }
+
+            ApplyAuras(board);
         }
 
         public void UseHeroPower(SimBoard board, SimEntity target)
@@ -102,6 +155,7 @@ namespace BotMain.AI
             board.HeroPowerUsed = true;
             ApplyHeroPower(board, target);
             ProcessDeaths(board);
+            ApplyAuras(board);
         }
 
         public void UseLocation(SimBoard board, SimEntity location, SimEntity target)
@@ -112,6 +166,8 @@ namespace BotMain.AI
                 fn(board, location, target);
             else if (_db.TryGet(location.CardId, EffectTrigger.Spell, out var spFn))
                 spFn(board, location, target);
+            ProcessDeaths(board);
+            ApplyAuras(board);
         }
 
         public void EndTurn(SimBoard board)
@@ -125,6 +181,7 @@ namespace BotMain.AI
                     fn(board, m, null);
 
             ProcessDeaths(board);
+            ApplyAuras(board);
         }
 
         private void ApplyHeroPower(SimBoard board, SimEntity target)
@@ -175,6 +232,12 @@ namespace BotMain.AI
             }
         }
 
+        private static SimEntity CreateDeckDrawEntity(Card.Cards cardId)
+        {
+            if (cardId == 0) return null;
+            return CardEffectsScripts.CardEffectScriptHelpers.CreateCardInHand(cardId, true);
+        }
+
         /// <summary>
         /// 判断牧师当前英雄技能是否为伤害型（心灵尖刺系列）
         /// 伤害型：Mind Spike、Mind Shatter 等
@@ -207,6 +270,10 @@ namespace BotMain.AI
             target.Health -= dmg;
             if (hasPoison && target.Health > 0 && target != board.FriendHero && target != board.EnemyHero)
                 target.Health = 0;
+
+            // 受伤后触发（仅存活目标）
+            if (target.Health > 0 && _db.TryGet(target.CardId, EffectTrigger.AfterDamaged, out var damagedFn))
+                damagedFn(board, target, null);
         }
 
         private void ProcessDeaths(SimBoard board)
@@ -218,8 +285,6 @@ namespace BotMain.AI
                 board.FriendMinions.Remove(d);
                 if (_db.TryGet(d.CardId, EffectTrigger.Deathrattle, out var fn))
                     fn(board, d, null);
-                else if (d.HasDeathrattle)
-                    FallbackDeathrattle(board, d);
                 if (d.HasReborn)
                     board.FriendMinions.Add(new SimEntity
                     {
@@ -238,8 +303,6 @@ namespace BotMain.AI
                 board.EnemyMinions.Remove(d);
                 if (_db.TryGet(d.CardId, EffectTrigger.Deathrattle, out var fn))
                     fn(board, d, null);
-                else if (d.HasDeathrattle)
-                    FallbackDeathrattle(board, d);
                 if (d.HasReborn)
                     board.EnemyMinions.Add(new SimEntity
                     {
@@ -253,31 +316,20 @@ namespace BotMain.AI
             }
         }
 
-        // 未注册法术的兜底：对目标造成 max(1, cost-1) 伤害
-        private void FallbackSpell(SimBoard board, SimEntity card, SimEntity target)
+        private void ApplyAuras(SimBoard board)
         {
-            int dmg = Math.Max(1, card.Cost - 1);
-            if (target != null)
-                DealDamage(board, target, dmg, false);
-            else if (board.EnemyHero != null)
-                DealDamage(board, board.EnemyHero, dmg, false);
+            foreach (var c in board.Hand.ToArray())
+                if (_db.TryGet(c.CardId, EffectTrigger.Aura, out var fn))
+                    fn(board, c, null);
+
+            foreach (var m in board.FriendMinions.ToArray())
+                if (_db.TryGet(m.CardId, EffectTrigger.Aura, out var fn))
+                    fn(board, m, null);
+
+            foreach (var m in board.EnemyMinions.ToArray())
+                if (_db.TryGet(m.CardId, EffectTrigger.Aura, out var fn))
+                    fn(board, m, null);
         }
 
-        // 未注册战吼的兜底：对目标造成 max(1, cost/2) 伤害
-        private void FallbackBattlecry(SimBoard board, SimEntity card, SimEntity target)
-        {
-            int dmg = Math.Max(1, card.Cost / 2);
-            if (target != null)
-                DealDamage(board, target, dmg, false);
-        }
-
-        // 未注册亡语的兜底：召唤 cost/3 / cost/3 随从
-        private void FallbackDeathrattle(SimBoard board, SimEntity dead)
-        {
-            int stat = Math.Max(1, dead.Cost / 3);
-            var list = dead.IsFriend ? board.FriendMinions : board.EnemyMinions;
-            if (list.Count < 7)
-                list.Add(new SimEntity { Atk = stat, Health = stat, MaxHealth = stat, IsFriend = dead.IsFriend, IsTired = true });
-        }
     }
 }

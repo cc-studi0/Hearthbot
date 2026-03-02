@@ -9,14 +9,18 @@ namespace BotMain.AI
         public bool IsFriend, IsTaunt, IsDivineShield, IsWindfury, HasPoison;
         public bool IsLifeSteal, HasReborn, IsFrozen, IsImmune, IsSilenced, IsStealth;
         public bool HasCharge, HasRush, IsTired;
+        public bool IsTradeable;
         public bool HasBattlecry, HasDeathrattle;
+        public bool EnrageBonusActive;
         public int CountAttack;
         public Card.CType Type;
 
         public bool CanAttack =>
-            Atk > 0 && !IsFrozen &&
-            CountAttack < (IsWindfury ? 2 : 1) &&
-            !IsTired;
+            Type == Card.CType.HERO
+                ? Atk > 0 && !IsFrozen && !IsTired
+                : Atk > 0 && !IsFrozen &&
+                  CountAttack < (IsWindfury ? 2 : 1) &&
+                  !IsTired;
 
         public bool IsAlive => Health > 0;
 

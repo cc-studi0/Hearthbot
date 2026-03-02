@@ -1,9 +1,0 @@
-{
-  "Spell": {
-    "effects": [
-      {
-        "type": "freeze_all"
-      }
-    ]
-  }
-}

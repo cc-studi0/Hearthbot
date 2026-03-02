@@ -5,7 +5,7 @@ using SmartBot.Plugins.API;
 
 namespace BotMain.AI
 {
-    public enum ActionType { PlayCard, Attack, HeroPower, EndTurn, UseLocation }
+    public enum ActionType { PlayCard, TradeCard, Attack, HeroPower, EndTurn, UseLocation }
 
     /// <summary>战吼目标类型</summary>
     public enum BattlecryTargetType
@@ -33,6 +33,8 @@ namespace BotMain.AI
             {
                 case ActionType.PlayCard:
                     return $"PLAY|{SourceEntityId}|{TargetEntityId}|0";
+                case ActionType.TradeCard:
+                    return $"TRADE|{SourceEntityId}";
                 case ActionType.Attack:
                     return $"ATTACK|{SourceEntityId}|{TargetEntityId}";
                 case ActionType.HeroPower:
@@ -65,6 +67,7 @@ namespace BotMain.AI
             var actions = new List<GameAction>();
 
             GenerateAttacks(board, actions);
+            GenerateTrades(board, actions);
             GeneratePlayCards(board, actions);
             GenerateHeroPower(board, actions);
             GenerateLocationActivations(board, actions);
@@ -143,6 +146,17 @@ namespace BotMain.AI
                     if (board.EnemyHero != null && !board.EnemyHero.IsImmune)
                         actions.Add(MakePlayAction(card, board.EnemyHero));
                 }
+            }
+        }
+
+        private void GenerateTrades(SimBoard board, List<GameAction> actions)
+        {
+            if (board.Mana < 1) return;
+
+            foreach (var card in board.Hand)
+            {
+                if (!card.IsTradeable) continue;
+                actions.Add(MakeTradeAction(card));
             }
         }
 
@@ -399,6 +413,16 @@ namespace BotMain.AI
                 Target = target,
                 SourceEntityId = card.EntityId,
                 TargetEntityId = target?.EntityId ?? 0
+            };
+        }
+
+        private static GameAction MakeTradeAction(SimEntity card)
+        {
+            return new GameAction
+            {
+                Type = ActionType.TradeCard,
+                Source = card,
+                SourceEntityId = card.EntityId
             };
         }
 

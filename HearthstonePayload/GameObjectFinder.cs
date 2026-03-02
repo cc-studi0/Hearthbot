@@ -266,6 +266,38 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 我方牌库位置（用于可交易拖拽目标）
+        /// </summary>
+        public static bool GetFriendlyDeckScreenPos(out int x, out int y)
+        {
+            x = y = 0;
+            if (!EnsureTypes()) return FallbackFriendlyDeck(out x, out y);
+
+            var gs = InvokeStatic(_gameStateType, "Get");
+            if (gs == null) return FallbackFriendlyDeck(out x, out y);
+
+            var friendly = Invoke(gs, "GetFriendlySidePlayer")
+                ?? Invoke(gs, "GetFriendlyPlayer")
+                ?? Invoke(gs, "GetLocalPlayer");
+            if (friendly == null) return FallbackFriendlyDeck(out x, out y);
+
+            var deckZone = Invoke(friendly, "GetDeckZone")
+                ?? Invoke(friendly, "GetDeck")
+                ?? GetProp(friendly, "m_deckZone")
+                ?? GetProp(friendly, "DeckZone");
+            if (deckZone == null) return FallbackFriendlyDeck(out x, out y);
+
+            var pos = GetTransformPos(deckZone);
+            if (pos == null) return FallbackFriendlyDeck(out x, out y);
+
+            if (!MouseSimulator.WorldToScreen(
+                GetFloat(pos, "x"), GetFloat(pos, "y"), GetFloat(pos, "z"), out x, out y))
+                return FallbackFriendlyDeck(out x, out y);
+
+            return true;
+        }
+
+        /// <summary>
         /// 留牌卡牌位置（通过反射获取MulliganManager中的卡牌位置）
         /// </summary>
         public static bool GetMulliganCardScreenPos(int index, int totalCards, out int x, out int y)
@@ -425,6 +457,16 @@ namespace HearthstonePayload
             float ratio = (position + 0.5f) / slots;
             x = (int)(w * (0.25 + ratio * 0.5));
             y = (int)(h * 0.55);
+            return true;
+        }
+
+        private static bool FallbackFriendlyDeck(out int x, out int y)
+        {
+            int w = MouseSimulator.GetScreenWidth();
+            int h = MouseSimulator.GetScreenHeight();
+            if (w <= 0 || h <= 0) { x = y = 0; return false; }
+            x = (int)(w * 0.88);
+            y = (int)(h * 0.79);
             return true;
         }
 

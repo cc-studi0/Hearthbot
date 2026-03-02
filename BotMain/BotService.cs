@@ -859,6 +859,7 @@ namespace BotMain
                     actionIndex++;
 
                     bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                    bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
                     bool nextIsAttack = ai + 1 < actions.Count
                         && actions[ai + 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
 
@@ -879,6 +880,7 @@ namespace BotMain
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                            || isTrade
                             || isAttack)
                         {
                             var cancelResult = pipe.SendAndReceive("ACTION:CANCEL", 3000) ?? "NO_RESPONSE";
@@ -915,6 +917,11 @@ namespace BotMain
                             {
                                 Log($"[Action] 激活地标 {desc}");
                             }
+                        }
+                        else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                        {
+                            var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                            Log($"[Action] 交易 {desc}");
                         }
                     }
                     catch { }
@@ -1100,6 +1107,12 @@ namespace BotMain
 
             if (action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
                 return false;
+
+            if (action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "TradeCard";
+                return true;
+            }
 
             if (forceResimulation)
             {

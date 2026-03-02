@@ -1,9 +1,0 @@
-{
-  "Battlecry": {
-    "effects": [
-      {
-        "type": "freeze_all"
-      }
-    ]
-  }
-}

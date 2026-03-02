@@ -262,6 +262,11 @@ namespace BotMain.AI
                                 }
                                 break;
 
+                            case ActionType.TradeCard:
+                                var tradeCardName = action.Source?.CardId.ToString() ?? $"Entity#{action.SourceEntityId}";
+                                desc = $"交易：{tradeCardName}（消耗 1 法力）";
+                                break;
+
                             case ActionType.Attack:
                                 string atkDesc = DescribeEntity(action.Source);
                                 string defDesc = DescribeEntity(action.Target);
@@ -419,6 +424,13 @@ namespace BotMain.AI
                         _sim.PlayCard(board, card, playTgt);
                         return true;
 
+                    case ActionType.TradeCard:
+                        var tradeSourceId = action.Source?.EntityId ?? action.SourceEntityId;
+                        var tradeCard = board.Hand.FirstOrDefault(c => c.EntityId == tradeSourceId);
+                        if (tradeCard == null) return false;
+                        _sim.TradeCard(board, tradeCard);
+                        return true;
+
                     case ActionType.HeroPower:
                         var hpTgt = action.Target != null ? FindEntity(board, action.Target, null) : null;
                         _sim.UseHeroPower(board, hpTgt);
@@ -515,4 +527,3 @@ namespace BotMain.AI
         }
     }
 }
-

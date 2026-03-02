@@ -1,9 +1,0 @@
-{
-  "Spell": {
-    "effects": [
-      {
-        "type": "destroy_weapon"
-      }
-    ]
-  }
-}

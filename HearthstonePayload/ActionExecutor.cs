@@ -69,8 +69,19 @@ namespace HearthstonePayload
                         parts.Length > 2 ? int.Parse(parts[2]) : 0,
                         parts.Length > 3 ? int.Parse(parts[3]) : 0));
                 case "ATTACK":
-                    return _coroutine.RunAndWait(MouseAttack(
-                        int.Parse(parts[1]), int.Parse(parts[2])));
+                    {
+                        int attackerId = int.Parse(parts[1]);
+                        int targetId = int.Parse(parts[2]);
+                        bool sourceIsFriendlyHero = false;
+                        try
+                        {
+                            var s = reader?.ReadGameState();
+                            sourceIsFriendlyHero = s?.HeroFriend != null && s.HeroFriend.EntityId == attackerId;
+                        }
+                        catch { }
+
+                        return _coroutine.RunAndWait(MouseAttack(attackerId, targetId, sourceIsFriendlyHero));
+                    }
                 case "HERO_POWER":
                     return _coroutine.RunAndWait(MouseHeroPower(
                         parts.Length > 2 ? int.Parse(parts[2]) : 0));
@@ -78,6 +89,8 @@ namespace HearthstonePayload
                     return _coroutine.RunAndWait(MouseUseLocation(
                         int.Parse(parts[1]),
                         parts.Length > 2 ? int.Parse(parts[2]) : 0));
+                case "TRADE":
+                    return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
                 case "CONCEDE":
                     Concede();
                     return "OK:CONCEDE";
@@ -282,6 +295,62 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 可交易：抓取手牌并拖拽到牌库位置后松手。
+        /// </summary>
+        private static IEnumerator<float> MouseTradeCard(int entityId)
+        {
+            InputHook.Simulating = true;
+
+            bool grabbedViaAPI = TryGrabCardViaAPI(entityId);
+            if (grabbedViaAPI)
+            {
+                int midX = MouseSimulator.GetScreenWidth() / 2;
+                int midY = MouseSimulator.GetScreenHeight() / 2;
+                MouseSimulator.MoveTo(midX, midY);
+                MouseSimulator.LeftDown();
+                yield return 0.12f;
+            }
+            else
+            {
+                int sx = 0, sy = 0;
+                bool foundSource = false;
+                for (int retry = 0; retry < 5; retry++)
+                {
+                    if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
+                    {
+                        foundSource = true;
+                        break;
+                    }
+                    yield return 0.35f;
+                }
+                if (!foundSource)
+                {
+                    _coroutine.SetResult("FAIL:TRADE:source_pos:" + entityId);
+                    yield break;
+                }
+
+                MouseSimulator.MoveTo(sx, sy);
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.12f;
+            }
+
+            if (!GameObjectFinder.GetFriendlyDeckScreenPos(out var dx, out var dy))
+            {
+                MouseSimulator.LeftUp();
+                _coroutine.SetResult("FAIL:TRADE:deck_pos");
+                yield break;
+            }
+
+            foreach (var w in SmoothMove(dx, dy, 18)) yield return w;
+            MouseSimulator.LeftUp();
+            yield return 0.45f;
+
+            var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
+            _coroutine.SetResult("OK:TRADE:" + entityId + ":" + method);
+        }
+
+        /// <summary>
         /// 通过 InputManager API 抓取手牌中的卡牌
         /// 调用游戏内部的卡牌点击处理，让游戏进入"持有卡牌"状态
         /// 这比屏幕坐标定位更可靠，因为不依赖视觉层的 Transform 位置
@@ -375,12 +444,12 @@ namespace HearthstonePayload
         /// <summary>
         /// 鼠标拖拽攻击
         /// </summary>
-        private static IEnumerator<float> MouseAttack(int attackerEntityId, int targetEntityId)
+        private static IEnumerator<float> MouseAttack(int attackerEntityId, int targetEntityId, bool sourceIsFriendlyHero)
         {
             InputHook.Simulating = true;
             int sx = 0, sy = 0;
             bool gotAttacker = false;
-            var isFriendlyHeroAttacker = IsFriendlyHeroEntityId(attackerEntityId);
+            var isFriendlyHeroAttacker = sourceIsFriendlyHero || IsFriendlyHeroEntityId(attackerEntityId);
             for (int retry = 0; retry < 5; retry++)
             {
                 if (GameObjectFinder.GetEntityScreenPos(attackerEntityId, out sx, out sy))
