@@ -107,7 +107,29 @@ namespace HearthstonePayload
                     {
                         var state = reader.ReadGameState();
                         if (state == null)
-                            _pipe.Write("NO_GAME");
+                        {
+                            // ReadGameState 在切场/结算过渡帧可能短暂返回 null，不能直接当作 NO_GAME。
+                            var endScreenShown = reader.IsEndGameScreenShown(out var endScreenClass);
+                            if (endScreenShown)
+                            {
+                                if (!string.IsNullOrWhiteSpace(endScreenClass))
+                                {
+                                    var lower = endScreenClass.ToLowerInvariant();
+                                    if (lower.Contains("victory")) _lastGameResult = "WIN";
+                                    else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
+                                    else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
+                                }
+                                _pipe.Write("NO_GAME");
+                            }
+                            else
+                            {
+                                var scene = nav.GetScene();
+                                if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                                    _pipe.Write("NOT_OUR_TURN");
+                                else
+                                    _pipe.Write("NO_GAME");
+                            }
+                        }
                         else
                         {
                             if (state.IsGameOver || state.Result != GameResult.None)
@@ -126,6 +148,11 @@ namespace HearthstonePayload
                             else
                                 _pipe.Write("SEED:" + SeedBuilder.Build(state));
                         }
+                    }
+                    else if (cmd == "GET_ENDGAME_STATE")
+                    {
+                        var shown = reader.IsEndGameScreenShown(out var endClass);
+                        _pipe.Write("ENDGAME:" + (shown ? "1" : "0") + ":" + (endClass ?? string.Empty));
                     }
                     else if (cmd == "GET_RESULT")
                     {

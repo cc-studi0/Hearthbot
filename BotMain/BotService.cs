@@ -1834,26 +1834,31 @@ namespace BotMain
 
             if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
-                // 仅当 GET_SEED 明确为 NO_GAME 时，才认为是结算页并执行连续点击。
-                // 匹配进场/加载中的 GAMEPLAY 也会出现在这里，不能误点。
+                // 结算检测采用“双保险”：
+                // 1) GET_SEED == NO_GAME
+                // 2) payload 侧 EndGameScreen 明确处于显示状态
                 var seedProbe = pipe.SendAndReceive("GET_SEED", 2500) ?? "NO_RESPONSE";
-                if (!string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal))
+                var endgameProbe = pipe.SendAndReceive("GET_ENDGAME_STATE", 2500) ?? "ENDGAME:0:";
+                var endgameShown = TryParseEndgameState(endgameProbe, out var endgameClass);
+                var seedNoGame = string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal);
+                if (!seedNoGame && !endgameShown)
                 {
                     if (seedProbe.StartsWith("SEED:", StringComparison.Ordinal)
                         || string.Equals(seedProbe, "MULLIGAN", StringComparison.Ordinal)
                         || string.Equals(seedProbe, "NOT_OUR_TURN", StringComparison.Ordinal))
                     {
-                        Log($"[AutoQueue] scene=GAMEPLAY 但 seed={ShortenSeedProbe(seedProbe)}，判定为对局中/加载中，不执行结算点击。");
+                        Log($"[AutoQueue] scene=GAMEPLAY，seed={ShortenSeedProbe(seedProbe)}，endgame=0，判定为对局中/加载中，不执行结算点击。");
                     }
                     else
                     {
-                        Log($"[AutoQueue] scene=GAMEPLAY 且 seed={ShortenSeedProbe(seedProbe)}，暂不点击，等待下一轮确认。");
+                        Log($"[AutoQueue] scene=GAMEPLAY，seed={ShortenSeedProbe(seedProbe)}，endgame=0，暂不点击，等待下一轮确认。");
                     }
                     Thread.Sleep(500);
                     return;
                 }
 
-                Log("[AutoQueue] 检测到 NO_GAME，开始连续点击跳过...");
+                var reason = seedNoGame ? "seed=NO_GAME" : $"endgame=1({endgameClass})";
+                Log($"[AutoQueue] 检测到对局结算({reason})，开始连续点击跳过...");
                 _findingGameSince = null;
 
                 var currentScene = scene;
@@ -1864,7 +1869,10 @@ namespace BotMain
                     && string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 {
                     var loopSeed = pipe.SendAndReceive("GET_SEED", 2000) ?? "NO_RESPONSE";
-                    if (!string.Equals(loopSeed, "NO_GAME", StringComparison.Ordinal))
+                    var loopEndgameResp = pipe.SendAndReceive("GET_ENDGAME_STATE", 2000) ?? "ENDGAME:0:";
+                    var loopEndgameShown = TryParseEndgameState(loopEndgameResp, out _);
+                    var loopSeedNoGame = string.Equals(loopSeed, "NO_GAME", StringComparison.Ordinal);
+                    if (!loopSeedNoGame && !loopEndgameShown)
                     {
                         if (loopSeed.StartsWith("SEED:", StringComparison.Ordinal)
                             || string.Equals(loopSeed, "MULLIGAN", StringComparison.Ordinal)
@@ -1878,6 +1886,11 @@ namespace BotMain
                     var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 2500) ?? "NO_RESPONSE";
                     clickCount++;
 
+                    // 某些结算界面不会响应中心点，周期性补点底部中间区域。
+                    string extraClickResp = null;
+                    if (clickCount % 3 == 0)
+                        extraClickResp = pipe.SendAndReceive("CLICK_SCREEN:0.5,0.78", 2000) ?? "NO_RESPONSE";
+
                     var sceneResp = pipe.SendAndReceive("GET_SCENE", 2500) ?? "NO_RESPONSE";
                     currentScene = sceneResp.StartsWith("SCENE:", StringComparison.Ordinal)
                         ? sceneResp.Substring("SCENE:".Length)
@@ -1887,7 +1900,8 @@ namespace BotMain
                         || clickCount % 5 == 0
                         || !string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                     {
-                        Log($"[AutoQueue] CLICK_DISMISS[{clickCount}] -> {dismissResp}, scene={currentScene}");
+                        var extraInfo = extraClickResp == null ? "" : $", extra={extraClickResp}";
+                        Log($"[AutoQueue] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene={currentScene}");
                     }
 
                     if (!string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
@@ -1985,6 +1999,21 @@ namespace BotMain
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
             Log($"[AutoQueue] 点击开始 {playResp}");
             Thread.Sleep(5000);
+        }
+
+        private static bool TryParseEndgameState(string resp, out string endgameClass)
+        {
+            endgameClass = string.Empty;
+            if (string.IsNullOrWhiteSpace(resp)) return false;
+            if (!resp.StartsWith("ENDGAME:", StringComparison.Ordinal)) return false;
+
+            var payload = resp.Substring("ENDGAME:".Length);
+            var idx = payload.IndexOf(':');
+            var shownPart = idx >= 0 ? payload.Substring(0, idx) : payload;
+            endgameClass = idx >= 0 && idx + 1 < payload.Length ? payload.Substring(idx + 1) : string.Empty;
+
+            return shownPart == "1"
+                || shownPart.Equals("true", StringComparison.OrdinalIgnoreCase);
         }
 
         private static string ShortenSeedProbe(string probe)

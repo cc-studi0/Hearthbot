@@ -885,27 +885,34 @@ namespace HearthstonePayload
 
         /// <summary>
         /// 对局结束页通常“任意位置可点击继续”，
-        /// 这里固定以屏幕中心为主，辅以轻微偏移点做容错。
+        /// 这里采用中心+底部中间+左右偏移多点，兼容不同结算/奖励弹窗。
         /// </summary>
         private IEnumerator<float> MouseDismissClickSequence(int w, int h)
         {
             InputHook.Simulating = true;
             var cx = w / 2;
             var cy = h / 2;
+            var lowerY = (int)(h * 0.70f);
+            var bottomY = (int)(h * 0.82f);
+            var sideOffset = Math.Max(14, w / 12);
             var points = new[]
             {
                 (x: cx, y: cy),
-                (x: cx + Math.Max(10, w / 40), y: cy),
-                (x: cx - Math.Max(10, w / 40), y: cy),
+                (x: cx, y: lowerY),
+                (x: cx, y: bottomY),
+                (x: cx - sideOffset, y: lowerY),
+                (x: cx + sideOffset, y: lowerY),
+                (x: cx, y: cy),
             };
 
             foreach (var p in points)
             {
-                foreach (var wait in SmoothMove(p.x, p.y)) yield return wait;
+                MouseSimulator.MoveTo(p.x, p.y);
+                yield return 0.03f;
                 MouseSimulator.LeftDown();
-                yield return 0.05f;
+                yield return 0.03f;
                 MouseSimulator.LeftUp();
-                yield return 0.18f;
+                yield return 0.10f;
             }
 
             _coroutine.SetResult("OK:center_multi");

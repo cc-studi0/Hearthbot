@@ -449,6 +449,28 @@ namespace HearthstonePayload
             return false;
         }
 
+        /// <summary>
+        /// 仅读取结算界面状态（不依赖完整对局状态对象）。
+        /// 用于在 ReadGameState 暂时不可读时，避免把过渡帧误判成 NO_GAME。
+        /// </summary>
+        public bool IsEndGameScreenShown(out string className)
+        {
+            className = string.Empty;
+            if (!Init()) return false;
+
+            try
+            {
+                if (!TryGetEndGameScreenState(out var shown, out var rawClass))
+                    return false;
+                className = rawClass ?? string.Empty;
+                return shown;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private bool TryGetEndGameScreenState(out bool shown, out string className)
         {
             shown = false;
