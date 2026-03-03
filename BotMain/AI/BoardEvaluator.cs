@@ -26,16 +26,16 @@ namespace BotMain.AI
         // 英雄生命
         private const float W_FriendHeroHp      = 1.5f;   // 每点友方血量
         private const float W_FriendHeroArmor    = 1.4f;   // 每点护甲（略低于血量因为可以回复）
-        private const float W_EnemyHeroHp        = 0.95f;  // 每点敌方血量（扣分）
-        private const float W_EnemyHeroArmor     = 0.9f;
+        private const float W_EnemyHeroHp        = 1.2f;   // 每点敌方血量（扣分）
+        private const float W_EnemyHeroArmor     = 1.1f;
 
         // 低血量惩罚/奖励
         private const float W_FriendLowHpPenalty = -8f;    // 友方 ≤15 血时的额外惩罚系数
-        private const float W_EnemyLowHpBonus    = 4.5f;   // 敌方 ≤15 血时的额外奖励系数
+        private const float W_EnemyLowHpBonus    = 6f;     // 敌方 ≤15 血时的额外奖励系数
 
         // 场面控制
-        private const float W_BoardControlBonus  = 12f;    // 有场面优势时的奖励
-        private const float W_EmptyBoardPenalty  = -8f;    // 己方没随从的惩罚
+        private const float W_BoardControlBonus  = 8f;     // 有场面优势时的奖励
+        private const float W_EmptyBoardPenalty  = -5f;    // 己方没随从的惩罚
 
         // 手牌
         private const float W_HandCard           = 2.5f;   // 每张手牌
@@ -62,8 +62,6 @@ namespace BotMain.AI
                 return -100000f;
 
             float score = 0;
-            float controlBias = ComputeControlBias(param);
-            float aggroBias = ComputeAggroBias(param);
 
             // ── 1. 场上随从评估 ──
             float friendBoardValue = 0;
@@ -102,24 +100,11 @@ namespace BotMain.AI
 
             // ── 2. 场面控制评判 ──
             if (friendMinionCount > 0 && enemyMinionCount == 0)
-                score += W_BoardControlBonus * controlBias;    // 完全控场
+                score += W_BoardControlBonus;    // 完全控场
             else if (friendMinionCount == 0 && enemyMinionCount > 0)
-                score += W_EmptyBoardPenalty * controlBias;     // 没有随从很危险
+                score += W_EmptyBoardPenalty;     // 没有随从很危险
             else if (friendMinionCount > enemyMinionCount)
-                score += (friendMinionCount - enemyMinionCount) * 1.5f * controlBias; // 数量优势
-            else if (enemyMinionCount > friendMinionCount)
-                score -= (enemyMinionCount - friendMinionCount) * 2.2f * controlBias; // 数量劣势
-
-            // 持续控场导向：我方站场越多越好，对方站场越多越差
-            score += friendMinionCount * 1.3f * controlBias;
-            score -= enemyMinionCount * 2.2f * controlBias;
-
-            // 场面价值领先奖励 / 落后惩罚（落后惩罚更重）
-            float boardLead = friendBoardValue - enemyBoardValue;
-            if (boardLead >= 0f)
-                score += Math.Min(12f, boardLead * 0.18f) * controlBias;
-            else
-                score += Math.Max(-18f, boardLead * 0.32f) * controlBias;
+                score += (friendMinionCount - enemyMinionCount) * 1.5f; // 数量优势
 
             // ── 3. 英雄血量 ──
             if (board.FriendHero != null)
@@ -151,23 +136,21 @@ namespace BotMain.AI
                 int enemyArmor = board.EnemyHero.Armor;
                 int enemyEhp = enemyHp + enemyArmor;
 
-                score -= enemyHp * W_EnemyHeroHp * aggCoef * aggroBias;
-                score -= enemyArmor * W_EnemyHeroArmor * aggCoef * aggroBias;
+                score -= enemyHp * W_EnemyHeroHp * aggCoef;
+                score -= enemyArmor * W_EnemyHeroArmor * aggCoef;
 
                 // 接近斩杀连续奖励
                 if (enemyEhp < 30)
                 {
                     float killRatio = Math.Max(0f, 1f - enemyEhp / 30f);
-                    score += W_EnemyLowHpBonus * killRatio * killRatio * 15f * aggCoef * aggroBias;
+                    score += W_EnemyLowHpBonus * killRatio * killRatio * 15f * aggCoef;
                 }
 
                 // 场攻可以威胁对手
                 if (friendTotalAtk > 0 && enemyEhp > 0 && enemyTauntCount == 0)
                 {
                     float lethalPressure = Math.Min(1f, (float)friendTotalAtk / enemyEhp);
-                    float pressureWeight = enemyMinionCount == 0 ? 5f : 2.5f;
-                    if (enemyEhp <= 15) pressureWeight += 1f;
-                    score += lethalPressure * pressureWeight * aggCoef * aggroBias;
+                    score += lethalPressure * 5f * aggCoef;
                 }
             }
 
@@ -221,11 +204,11 @@ namespace BotMain.AI
 
                 // 如果下回合可能致命，大幅惩罚
                 if (incomingDmg >= friendEhp2 && enemyMinionCount > 0)
-                    score -= 38f * controlBias;
+                    score -= 30f;
                 else if (incomingDmg >= friendEhp2 * 0.6f)
-                    score -= incomingDmg * 1.1f * controlBias;
+                    score -= incomingDmg * 0.8f;
                 else
-                    score -= incomingDmg * (enemyMinionCount >= 2 ? 0.55f : 0.4f) * controlBias;
+                    score -= incomingDmg * 0.3f;
             }
 
             // ── 8.5 敌方反打换子风险（近似 enemyTurnPen） ──
@@ -450,26 +433,6 @@ namespace BotMain.AI
 
             if (attacker.HasPoison) return true;
             return attacker.Atk >= defender.Health;
-        }
-
-        private static float ComputeControlBias(ProfileParameters param)
-        {
-            int aggro = param?.GlobalAggroModifier?.Value ?? 100;
-            int defense = param?.GlobalDefenseModifier?.Value ?? 100;
-            float aggroNorm = Clamp((aggro - 100f) / 220f, -2f, 2f);
-            float defenseNorm = Clamp((defense - 100f) / 220f, -2f, 2f);
-            float bias = 1f + defenseNorm * 0.32f - aggroNorm * 0.38f;
-            return Clamp(bias, 0.45f, 1.9f);
-        }
-
-        private static float ComputeAggroBias(ProfileParameters param)
-            => Clamp(2f - ComputeControlBias(param), 0.55f, 1.7f);
-
-        private static float Clamp(float value, float min, float max)
-        {
-            if (value < min) return min;
-            if (value > max) return max;
-            return value;
         }
 
         // ────────────────────────────────────────────────
