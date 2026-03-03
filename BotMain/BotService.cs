@@ -65,6 +65,12 @@ namespace BotMain
         private DateTime? _findingGameSince;
         private bool _wasMatchmaking;
         private const int MatchmakingTimeoutSeconds = 60;
+        /// <summary>
+        /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
+        /// 在保护期内不会导航到传统对战，防止把正在加载的对局拉出来。
+        /// </summary>
+        private DateTime? _matchEndedUtc;
+        private const int MatchLoadGracePeriodSeconds = 30;
 
         // 运行限制设置
         private int _maxWins;
@@ -702,6 +708,7 @@ namespace BotMain
                         if (!wasInGame)
                         {
                             wasInGame = true;
+                            _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                             _pluginSystem?.FireOnGameBegin();
                         }
                         notOurTurnStreak = 0;
@@ -780,18 +787,23 @@ namespace BotMain
                             }
 
                             var readyResp = pipe.SendAndReceive("WAIT_READY", 1200) ?? "NO_RESPONSE";
-                            var shouldForceDismiss = wasInGame && notOurTurnStreak >= 60;
-                            if (string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase) || shouldForceDismiss)
+                            // 强制点击条件更严格：
+                            // 1) 必须已在对局中 (wasInGame)
+                            // 2) NOT_OUR_TURN 持续 >= 250 次 (≈75s，接近单回合时间上限)
+                            // 3) WAIT_READY 返回 READY（而非 BUSY）—— BUSY 说明对手还在操作，不应点击
+                            var isReady = string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase);
+                            var shouldForceDismiss = wasInGame && notOurTurnStreak >= 250 && isReady;
+                            if (isReady || shouldForceDismiss)
                             {
                                 var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 3000) ?? "NO_RESPONSE";
-                                var reason = string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase)
-                                    ? "WAIT_READY=READY"
-                                    : $"force(streak={notOurTurnStreak},ready={readyResp})";
+                                var reason = shouldForceDismiss
+                                    ? $"force(streak={notOurTurnStreak},ready={readyResp})"
+                                    : "WAIT_READY=READY";
                                 Log($"[MainLoop] NOT_OUR_TURN 持续 {notOurTurnStreak} 次，{reason}，尝试点击跳过结算 -> {dismissResp}");
                             }
 
                             // 卡住越久，尝试频率越高
-                            nextPostGameDismissUtc = notOurTurnStreak >= 120
+                            nextPostGameDismissUtc = notOurTurnStreak >= 300
                                 ? DateTime.UtcNow.AddSeconds(1)
                                 : DateTime.UtcNow.AddSeconds(2);
                         }
@@ -821,6 +833,7 @@ namespace BotMain
                 if (!wasInGame)
                 {
                     wasInGame = true;
+                    _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                     _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
                     _pluginSystem?.FireOnGameBegin();
                 }
@@ -1923,6 +1936,16 @@ namespace BotMain
 
             // 检查是否已在匹配中
             var finding = pipe.SendAndReceive("IS_FINDING", 5000);
+
+            // IS_FINDING 超时（返回 null）说明 payload 侧正忙/游戏无响应，
+            // 可能是匹配成功后游戏正在加载，不能继续往下走导航逻辑。
+            if (finding == null)
+            {
+                Log("[AutoQueue] IS_FINDING 超时（payload 无响应），等待重试...");
+                Thread.Sleep(2000);
+                return;
+            }
+
             if (finding == "YES")
             {
                 _wasMatchmaking = true;
@@ -1937,6 +1960,7 @@ namespace BotMain
                 {
                     Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {MatchmakingTimeoutSeconds}s)，重启游戏...");
                     _wasMatchmaking = false;
+                    _matchEndedUtc = null;
                     RestartHearthstone();
                     return;
                 }
@@ -1947,17 +1971,97 @@ namespace BotMain
                 return;
             }
 
-            // 匹配刚结束（找到对手），等待游戏加载
+            // 匹配刚结束（找到对手），记录结束时间并轮询等待游戏加载
             if (_wasMatchmaking)
             {
                 _wasMatchmaking = false;
                 _findingGameSince = null;
-                Log("[AutoQueue] 匹配结束，等待游戏加载(15s)...");
-                Thread.Sleep(15000);
+                _matchEndedUtc = DateTime.UtcNow;
+                Log("[AutoQueue] 匹配结束，轮询等待游戏加载...");
+
+                var loadDeadline = DateTime.UtcNow.AddSeconds(60);
+                while (_running && DateTime.UtcNow < loadDeadline)
+                {
+                    Thread.Sleep(3000);
+                    var probe = pipe.SendAndReceive("GET_SEED", 3000);
+                    if (probe != null)
+                    {
+                        if (probe.StartsWith("SEED:", StringComparison.Ordinal)
+                            || string.Equals(probe, "MULLIGAN", StringComparison.Ordinal)
+                            || string.Equals(probe, "NOT_OUR_TURN", StringComparison.Ordinal))
+                        {
+                            Log($"[AutoQueue] 游戏已加载完成 (seed={ShortenSeedProbe(probe)})，返回主循环。");
+                            return; // 返回 MainLoop，由主循环正常处理对局
+                        }
+                    }
+
+                    var elapsed = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
+                    if ((int)elapsed % 9 < 4)
+                        Log($"[AutoQueue] 等待游戏加载中... {elapsed:F0}s, probe={ShortenSeedProbe(probe ?? "null")}");
+                }
+
+                Log("[AutoQueue] 加载等待超时(60s)，继续正常流程。");
                 return;
             }
 
             _findingGameSince = null;
+
+            // ── 加载保护期 ──
+            // 匹配成功后的一段时间内，游戏窗口会重新加载并短暂无响应，
+            // 此时场景可能返回 UNKNOWN / HUB 等假值。在保护期内禁止导航，
+            // 避免把正在加载的对局拉出来。
+            if (_matchEndedUtc != null)
+            {
+                var sincEnd = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
+                if (sincEnd < MatchLoadGracePeriodSeconds)
+                {
+                    // 保护期内，重新确认场景和游戏状态
+                    var graceScene = pipe.SendAndReceive("GET_SCENE", 3000);
+                    // 只信任带 SCENE: 前缀的正常响应，其他一律视为不可靠（可能是串包）
+                    var graceSceneParsed = graceScene != null && graceScene.StartsWith("SCENE:", StringComparison.Ordinal)
+                        ? graceScene.Substring(6) : null;
+                    var graceSeed = pipe.SendAndReceive("GET_SEED", 3000) ?? "NO_RESPONSE";
+
+                    // 如果 GET_SEED 返回了有效游戏数据，说明已进入对局，继续保护
+                    var seedIndicatesGame = graceSeed.StartsWith("SEED:", StringComparison.Ordinal)
+                        || string.Equals(graceSeed, "MULLIGAN", StringComparison.Ordinal)
+                        || string.Equals(graceSeed, "NOT_OUR_TURN", StringComparison.Ordinal);
+
+                    // 只有确认场景是已知的安全大厅场景（白名单）才允许提前结束保护期
+                    // 注意：GET_SCENE 可能收到串包响应（如 NO_GAME），不能用排除法判断
+                    var isKnownLobby = graceSceneParsed != null
+                        && (string.Equals(graceSceneParsed, "HUB", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(graceSceneParsed, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
+                            || string.Equals(graceSceneParsed, "LOGIN", StringComparison.OrdinalIgnoreCase));
+
+                    if (!isKnownLobby || seedIndicatesGame)
+                    {
+                        Log($"[AutoQueue] 匹配加载保护期({sincEnd:F0}s/{MatchLoadGracePeriodSeconds}s)：scene={graceSceneParsed ?? graceScene ?? "null"}，seed={ShortenSeedProbe(graceSeed)}，等待加载完成...");
+                        Thread.Sleep(3000);
+                        return;
+                    }
+
+                    // 场景已确认回到大厅（HUB/TOURNAMENT等），保护期提前结束
+                    Log($"[AutoQueue] 加载保护期提前结束：scene={graceSceneParsed}，继续正常排队流程。");
+                    _matchEndedUtc = null;
+                }
+                else
+                {
+                    // 保护期已过
+                    _matchEndedUtc = null;
+                }
+            }
+
+            // ── 安全检查：绝不在 GAMEPLAY / UNKNOWN 场景下导航 ──
+            // 即使不在保护期，如果场景是 GAMEPLAY 或 UNKNOWN，也不应该导航到传统对战
+            if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
+                || string.IsNullOrWhiteSpace(scene))
+            {
+                Log($"[AutoQueue] 场景={scene}，不适合导航，等待场景变化...");
+                Thread.Sleep(3000);
+                return;
+            }
 
             if (scene != "TOURNAMENT")
             {
@@ -1972,6 +2076,9 @@ namespace BotMain
             {
                 var playOnlyResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
                 Log($"[AutoQueue] 测试模式：直接点击开始 -> {playOnlyResp}");
+                // 点击开始后立即标记为匹配中，防止匹配瞬间完成时保护机制来不及生效
+                _wasMatchmaking = true;
+                _findingGameSince = DateTime.UtcNow;
                 Thread.Sleep(5000);
                 return;
             }
@@ -1998,6 +2105,9 @@ namespace BotMain
 
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
             Log($"[AutoQueue] 点击开始 {playResp}");
+            // 点击开始后立即标记为匹配中，防止匹配瞬间完成时保护机制来不及生效
+            _wasMatchmaking = true;
+            _findingGameSince = DateTime.UtcNow;
             Thread.Sleep(5000);
         }
 
@@ -2028,6 +2138,7 @@ namespace BotMain
         private void RestartHearthstone()
         {
             _findingGameSince = null;
+            _matchEndedUtc = null;
             try
             {
                 foreach (var proc in System.Diagnostics.Process.GetProcessesByName("Hearthstone"))

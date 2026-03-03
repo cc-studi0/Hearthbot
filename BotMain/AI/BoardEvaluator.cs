@@ -275,11 +275,9 @@ namespace BotMain.AI
             // 法术强度额外加分
             if (m.SpellPower > 0) val += m.SpellPower * 2f;
 
-            // 可攻击的随从比不能攻击的更有价值
-            if (m.CanAttack)
-                val += m.Atk * 0.5f; // 能打 = 即时威胁
+            // 刚下场的随从本回合不能用，价值略低
             if (m.IsTired)
-                val -= 0.5f;         // 刚下场，本回合用不上
+                val -= 0.5f;
 
             return val;
         }

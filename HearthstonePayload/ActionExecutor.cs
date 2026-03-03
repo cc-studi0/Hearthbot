@@ -69,6 +69,7 @@ namespace HearthstonePayload
                         int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
                         int targetHeroSide = -1; // -1: 不是英雄目标, 0: 我方英雄, 1: 敌方英雄
+                        bool sourceIsMinionCard = false;
 
                         if (targetId > 0)
                         {
@@ -77,11 +78,15 @@ namespace HearthstonePayload
                                 var s = reader?.ReadGameState();
                                 if (s?.HeroFriend != null && s.HeroFriend.EntityId == targetId) targetHeroSide = 0;
                                 else if (s?.HeroEnemy != null && s.HeroEnemy.EntityId == targetId) targetHeroSide = 1;
+
+                                var gs = GetGameState();
+                                if (gs != null)
+                                    TryIsMinionCardEntity(gs, sourceId, out sourceIsMinionCard);
                             }
                             catch { }
                         }
 
-                        return _coroutine.RunAndWait(MousePlayCard(sourceId, targetId, position, targetHeroSide));
+                        return _coroutine.RunAndWait(MousePlayCard(sourceId, targetId, position, targetHeroSide, sourceIsMinionCard));
                     }
                 case "ATTACK":
                     {
@@ -313,7 +318,7 @@ namespace HearthstonePayload
         /// 阶段3: 鼠标模拟释放（松手出牌）
         /// 阶段4: 如有战吼目标，鼠标模拟点击目标
         /// </summary>
-        private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position, int targetHeroSide)
+        private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceIsMinionCard)
         {
             InputHook.Simulating = true;
 
@@ -362,41 +367,86 @@ namespace HearthstonePayload
             // ========== 阶段2+3: 拖动并释放 ==========
             if (targetEntityId > 0)
             {
-                // 有目标的牌（指向性法术/战吼）：拖到场中央触发出牌
-                int midX = MouseSimulator.GetScreenWidth() / 2;
-                int midY = MouseSimulator.GetScreenHeight() / 2;
-                foreach (var w in SmoothMove(midX, midY, 15)) yield return w;
-                MouseSimulator.LeftUp();
-                yield return 0.5f;
-
-                // ========== 阶段4: 选择目标 ==========
-                bool gotTarget = false;
-                int tx = 0, ty = 0;
-                for (int retry = 0; retry < 4 && !gotTarget; retry++)
+                if (sourceIsMinionCard)
                 {
-                    if (targetHeroSide == 0)
-                        gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
-                    else if (targetHeroSide == 1)
-                        gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+                    // 指向性随从（战吼选目标）必须先落位，再点击目标。
+                    int totalMinions = GetFriendlyMinionCount();
+                    if (!GameObjectFinder.GetBoardDropZoneScreenPos(position, totalMinions, out var dx, out var dy))
+                    {
+                        MouseSimulator.LeftUp();
+                        _coroutine.SetResult("FAIL:PLAY:drop_pos");
+                        yield break;
+                    }
+
+                    foreach (var w in SmoothMove(dx, dy, 15)) yield return w;
+                    MouseSimulator.LeftUp();
+                    yield return 0.18f;
+
+                    bool gotTarget = false;
+                    int tx = 0, ty = 0;
+                    for (int retry = 0; retry < 6 && !gotTarget; retry++)
+                    {
+                        if (targetHeroSide == 0)
+                            gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
+                        else if (targetHeroSide == 1)
+                            gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+
+                        if (!gotTarget)
+                            gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
+
+                        if (!gotTarget && retry < 5)
+                            yield return 0.1f;
+                    }
 
                     if (!gotTarget)
-                        gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
+                    {
+                        _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
+                        yield break;
+                    }
 
-                    if (!gotTarget && retry < 3)
-                        yield return 0.12f;
+                    MouseSimulator.MoveTo(tx, ty);
+                    yield return 0.05f;
+                    MouseSimulator.LeftDown();
+                    yield return 0.04f;
+                    MouseSimulator.LeftUp();
                 }
-
-                if (!gotTarget)
+                else
                 {
-                    _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
-                    yield break;
+                    // 指向性法术：保持原流程，先释放出牌再点目标。
+                    int midX = MouseSimulator.GetScreenWidth() / 2;
+                    int midY = MouseSimulator.GetScreenHeight() / 2;
+                    foreach (var w in SmoothMove(midX, midY, 15)) yield return w;
+                    MouseSimulator.LeftUp();
+                    yield return 0.5f;
+
+                    bool gotTarget = false;
+                    int tx = 0, ty = 0;
+                    for (int retry = 0; retry < 4 && !gotTarget; retry++)
+                    {
+                        if (targetHeroSide == 0)
+                            gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
+                        else if (targetHeroSide == 1)
+                            gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+
+                        if (!gotTarget)
+                            gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
+
+                        if (!gotTarget && retry < 3)
+                            yield return 0.12f;
+                    }
+
+                    if (!gotTarget)
+                    {
+                        _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
+                        yield break;
+                    }
+
+                    MouseSimulator.MoveTo(tx, ty);
+                    yield return 0.05f;
+                    MouseSimulator.LeftDown();
+                    yield return 0.05f;
+                    MouseSimulator.LeftUp();
                 }
-                // 模拟点击目标
-                MouseSimulator.MoveTo(tx, ty);
-                yield return 0.05f;
-                MouseSimulator.LeftDown();
-                yield return 0.05f;
-                MouseSimulator.LeftUp();
             }
             else
             {
@@ -427,6 +477,51 @@ namespace HearthstonePayload
             yield return 0.2f;
             var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
             _coroutine.SetResult("OK:PLAY:" + entityId + ":" + method);
+        }
+
+        private static bool TryIsMinionCardEntity(object gameState, int entityId, out bool isMinion)
+        {
+            isMinion = false;
+            if (gameState == null || entityId <= 0)
+                return false;
+
+            try
+            {
+                var entity = GetEntity(gameState, entityId);
+                if (entity == null)
+                    return false;
+
+                var ctx = ReflectionContext.Instance;
+                if (!ctx.Init())
+                    return false;
+
+                var cardTypeTag = ctx.GetTagValue(entity, "CARDTYPE");
+                if (cardTypeTag > 0)
+                {
+                    try
+                    {
+                        var cardTypeEnum = ctx.AsmCSharp?.GetType("TAG_CARDTYPE");
+                        if (cardTypeEnum != null)
+                        {
+                            var minionValue = Convert.ToInt32(Enum.Parse(cardTypeEnum, "MINION", true));
+                            isMinion = cardTypeTag == minionValue;
+                            return true;
+                        }
+                    }
+                    catch
+                    {
+                    }
+
+                    // TAG_CARDTYPE 不可用时退回常量：MINION 通常为 4
+                    isMinion = cardTypeTag == 4;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         /// <summary>

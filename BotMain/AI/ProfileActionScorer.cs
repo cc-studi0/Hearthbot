@@ -14,8 +14,6 @@ namespace BotMain.AI
 
     public class ProfileActionScorer
     {
-        private const int HardDisableThreshold = 9000;
-
         public ProfileActionScore Evaluate(SimBoard board, GameAction action, ProfileParameters param)
         {
             var score = new ProfileActionScore();
@@ -255,13 +253,6 @@ namespace BotMain.AI
 
         private static void ApplyPropensityValue(ProfileActionScore score, List<string> details, string label, int value)
         {
-            if (value >= HardDisableThreshold)
-            {
-                score.HardBlocked = true;
-                details.Add($"{label}={value}(block)");
-                return;
-            }
-
             score.Bonus += 100 - value;
             details.Add($"{label}={value}");
         }
