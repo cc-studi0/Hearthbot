@@ -101,7 +101,7 @@ namespace BotMain.AI
                 : c.IsTired && !c.CanAttack;
             var countAttack = ReadCountAttackThisTurn(c);
 
-            // 以游戏实时可攻击状态为准做校正，避免“明明能打却在模拟里被禁攻”
+            // 以游戏实时可攻击状态为准做校正，避免"明明能打却在模拟里被禁攻"
             if (c.CanAttack)
             {
                 isTired = false;
@@ -109,6 +109,14 @@ namespace BotMain.AI
                     countAttack = 0;
                 else if (countAttack > 1)
                     countAttack = 1;
+            }
+
+            // 英雄额外校正：即使 Card.CanAttack 为 false（某些客户端版本不可靠），
+            // 如果英雄有攻击力且本回合攻击次数为 0、未冰冻，EXHAUSTED 很可能是残留值。
+            // 此时清除 isTired，让 SimEntity.CanAttack 能依靠 localReady 判断。
+            if (c.Type == Card.CType.HERO && !c.CanAttack && isTired && atk > 0 && countAttack == 0 && !c.IsFrozen)
+            {
+                isTired = false;
             }
 
             return new SimEntity

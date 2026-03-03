@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using SmartBot.Plugins.API;
+using SmartBotProfiles;
 
 namespace BotMain.AI
 {
@@ -27,7 +28,7 @@ namespace BotMain.AI
         /// 评估一次攻击动作的交换质量，返回额外分数。
         /// 正分 = 鼓励这个交换，负分 = 不鼓励。
         /// </summary>
-        public float EvaluateAttack(SimBoard board, GameAction action)
+        public float EvaluateAttack(SimBoard board, GameAction action, ProfileParameters param = null)
         {
             if (action.Type != ActionType.Attack) return 0f;
 
@@ -38,18 +39,20 @@ namespace BotMain.AI
             bool isGoingFace = (board.EnemyHero != null && target.EntityId == board.EnemyHero.EntityId);
 
             if (isGoingFace)
-                return EvaluateFaceAttack(board, attacker);
+                return EvaluateFaceAttack(board, attacker, param);
             else
-                return EvaluateMinionTrade(board, attacker, target);
+                return EvaluateMinionTrade(board, attacker, target, param);
         }
 
         // ────────────────────────────────────────────────
         //  打脸评估
         // ────────────────────────────────────────────────
 
-        private float EvaluateFaceAttack(SimBoard board, SimEntity attacker)
+        private float EvaluateFaceAttack(SimBoard board, SimEntity attacker, ProfileParameters param)
         {
             float bonus = 0f;
+            float controlBias = ComputeControlBias(param);
+            float aggroBias = ComputeAggroBias(param);
 
             int enemyEhp = 0;
             if (board.EnemyHero != null)
@@ -61,22 +64,33 @@ namespace BotMain.AI
                 if (m.CanAttack && m.Type != Card.CType.LOCATION) totalFaceAtk += m.Atk;
             if (board.FriendHero != null && board.FriendHero.CanAttack)
                 totalFaceAtk += board.FriendHero.Atk;
+            bool lethalWindow = enemyEhp > 0 && enemyEhp <= totalFaceAtk + Math.Max(2, attacker.Atk);
 
             // ── 如果打脸可以接近斩杀，奖励 ──
             if (enemyEhp > 0 && enemyEhp <= totalFaceAtk * 1.5f)
             {
-                bonus += 3f; // 接近斩杀，打脸很好
+                bonus += 3f * aggroBias; // 接近斩杀，打脸很好
                 if (enemyEhp <= attacker.Atk)
-                    bonus += 5f; // 这一刀就能杀
+                    bonus += 5f * aggroBias; // 这一刀就能杀
             }
 
             // ── 如果对面有高威胁随从没解，打脸可能不明智 ──
             bool hasHighThreat = false;
             int totalEnemyAtk = 0;
+            int enemyMinionCount = 0;
+            float enemyThreatScore = 0f;
             foreach (var m in board.EnemyMinions)
             {
-                if (m.Type == Card.CType.LOCATION || m.IsStealth) continue;
+                if (m.Type == Card.CType.LOCATION) continue;
+                enemyMinionCount++;
                 totalEnemyAtk += m.Atk;
+                float threat = m.Atk * 1.2f + m.Health * 0.35f;
+                if (m.HasPoison) threat += 4f;
+                if (m.IsWindfury) threat += m.Atk * 1.2f;
+                if (m.SpellPower > 0) threat += m.SpellPower * 1.5f;
+                if (m.IsDivineShield) threat += 1.5f;
+                if (m.IsTaunt) threat += 1f;
+                enemyThreatScore += threat;
                 if (m.Atk >= 5 || m.HasPoison || (m.Atk >= 3 && m.IsWindfury))
                 {
                     hasHighThreat = true;
@@ -86,6 +100,19 @@ namespace BotMain.AI
             // 对方场攻接近我方生命值时，解场比打脸更重要
             int friendEhp = 30;
             if (board.FriendHero != null) friendEhp = board.FriendHero.Health + board.FriendHero.Armor;
+            int friendMinionCount = board.FriendMinions.Count(m => m != null && m.Type != Card.CType.LOCATION);
+
+            // 控场模式：敌方有场且无明显斩杀窗口时，强烈不鼓励打脸。
+            if (enemyMinionCount > 0 && !lethalWindow)
+            {
+                float controlPenalty = 2.5f + enemyMinionCount * 1.1f;
+                controlPenalty += enemyThreatScore * 0.12f;
+                if (enemyMinionCount >= friendMinionCount)
+                    controlPenalty += 1.8f;
+                if (totalEnemyAtk >= Math.Max(1, friendEhp) * 0.35f)
+                    controlPenalty += 1.5f;
+                bonus -= controlPenalty * controlBias;
+            }
 
             if (hasHighThreat && enemyEhp > 15)
             {
@@ -111,6 +138,10 @@ namespace BotMain.AI
                 bonus -= 1f;
             }
 
+            // 对面空场时，打脸就是推进节奏。
+            if (enemyMinionCount == 0 && enemyEhp > 0 && !lethalWindow)
+                bonus += 0.8f * aggroBias;
+
             // 具有持续收益能力的随从（如回合结束触发/Aura）在非斩杀局面更应优先保留解场价值
             if (IsPersistentValueMinion(attacker) && hasHighThreat && enemyEhp > 10)
             {
@@ -124,9 +155,11 @@ namespace BotMain.AI
         //  随从交换评估
         // ────────────────────────────────────────────────
 
-        private float EvaluateMinionTrade(SimBoard board, SimEntity attacker, SimEntity target)
+        private float EvaluateMinionTrade(SimBoard board, SimEntity attacker, SimEntity target, ProfileParameters param)
         {
             float bonus = 0f;
+            float controlBias = ComputeControlBias(param);
+            float aggroBias = ComputeAggroBias(param);
 
             // 预判交换结果
             bool attackerDies = WillDie(attacker, target);
@@ -136,9 +169,12 @@ namespace BotMain.AI
             float targetValue = GetTradeValue(target);
             bool attackerIsPersistent = IsPersistentValueMinion(attacker);
             bool targetHighThreat = IsHighThreatTarget(target);
+            bool targetKeyThreat = targetHighThreat || target.IsTaunt || target.IsDivineShield;
             int followupDamage = EstimateFollowupDamage(board, attacker);
             int remainingTargetHealth = EstimateRemainingHealthAfterAttack(target, attacker);
             bool setsUpKill = !targetDies && followupDamage >= remainingTargetHealth;
+            int enemyMinionCount = board.EnemyMinions.Count(m => m != null && m.Type != Card.CType.LOCATION);
+            int friendMinionCount = board.FriendMinions.Count(m => m != null && m.Type != Card.CType.LOCATION);
 
             // ── 1. 交换效率核心计算 ──
             if (targetDies && !attackerDies)
@@ -146,6 +182,10 @@ namespace BotMain.AI
                 // 最佳交换：杀死对方、自己存活
                 float efficiency = targetValue / Math.Max(1f, attackerValue);
                 bonus += 6f + Math.Min(10f, efficiency * 2.2f);
+                if (targetKeyThreat)
+                    bonus += 2.5f * controlBias;
+                if (enemyMinionCount >= friendMinionCount)
+                    bonus += 1.5f * controlBias;
 
                 // 剧毒换大怪特别赚
                 if (attacker.HasPoison && targetValue >= 8f)
@@ -223,25 +263,37 @@ namespace BotMain.AI
             // ── 2. 目标优先级 ──
             // 高攻随从应该优先解
             if (target.Atk >= 5)
-                bonus += 2f;
+                bonus += 3f * controlBias;
             if (target.Atk >= 8)
-                bonus += 2f;
+                bonus += 3f * controlBias;
 
             // 剧毒随从必须优先解
             if (target.HasPoison)
-                bonus += 3f;
+                bonus += 5f * controlBias;
 
             // 风怒随从威胁翻倍
             if (target.IsWindfury)
-                bonus += target.Atk * 0.5f;
+                bonus += target.Atk * 0.8f * controlBias;
 
             // 法术强度随从值得解
             if (target.SpellPower > 0)
-                bonus += target.SpellPower * 1.5f;
+                bonus += target.SpellPower * 2f * controlBias;
+
+            if (target.IsTaunt)
+                bonus += 2.2f * controlBias;
+            if (target.IsDivineShield)
+                bonus += 1.8f * controlBias;
 
             // 有亡语的目标要谨慎
             if (target.HasDeathrattle)
                 bonus -= 1f;
+
+            if (targetHighThreat && targetDies)
+                bonus += 3f * controlBias;
+            if (targetDies && enemyMinionCount >= 3)
+                bonus += 1.5f * controlBias;
+            if (attackerDies && !targetDies && !targetHighThreat)
+                bonus -= 2f * Math.Max(0.8f, controlBias);
 
             // ── 3. Overkill 惩罚 ──
             if (targetDies && !attacker.HasPoison)
@@ -256,14 +308,18 @@ namespace BotMain.AI
             // ── 4. 攻击者特殊考虑 ──
             // 用高攻随从换低价值目标不划算
             if (attacker.Atk >= 5 && targetValue <= 4f && attackerDies)
-                bonus -= 3f;
+                bonus -= 3f * Math.Max(1f, controlBias * 0.85f);
 
             // 风怒随从价值高，用来换不太好（除非目标威胁大）
             if (attacker.IsWindfury && attackerDies && targetValue < attacker.Atk * 2)
-                bonus -= 2f;
+                bonus -= 2f * Math.Max(0.8f, controlBias);
 
             if (attackerIsPersistent && attackerDies)
-                bonus -= Math.Min(6f, attackerValue * 0.4f);
+                bonus -= Math.Min(6f, attackerValue * 0.4f) * Math.Max(1f, controlBias * 0.8f);
+
+            // 极端快攻 profile 里，非关键交换的基础奖励略降，避免无意义换子拖慢节奏。
+            if (aggroBias > 1.25f && !targetHighThreat && !target.IsTaunt && target.Atk <= 2)
+                bonus -= (aggroBias - 1.25f) * 1.5f;
 
             return bonus;
         }
@@ -366,6 +422,26 @@ namespace BotMain.AI
 
             return _db.Has(m.CardId, EffectTrigger.EndOfTurn)
                 || _db.Has(m.CardId, EffectTrigger.Aura);
+        }
+
+        private static float ComputeControlBias(ProfileParameters param)
+        {
+            int aggro = param?.GlobalAggroModifier?.Value ?? 100;
+            int defense = param?.GlobalDefenseModifier?.Value ?? 100;
+            float aggroNorm = Clamp((aggro - 100f) / 220f, -2f, 2f);
+            float defenseNorm = Clamp((defense - 100f) / 220f, -2f, 2f);
+            float bias = 1f + defenseNorm * 0.32f - aggroNorm * 0.38f;
+            return Clamp(bias, 0.45f, 1.9f);
+        }
+
+        private static float ComputeAggroBias(ProfileParameters param)
+            => Clamp(2f - ComputeControlBias(param), 0.55f, 1.7f);
+
+        private static float Clamp(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
         }
     }
 }

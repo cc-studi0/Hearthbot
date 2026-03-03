@@ -175,7 +175,7 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var priority = EstimateActionPriority(beam.Board, action, profileScore);
+                        var priority = EstimateActionPriority(beam.Board, action, profileScore, param);
                         nonEndActions.Add((action, profileScore, priority));
                     }
 
@@ -190,6 +190,13 @@ namespace BotMain.AI
                             attackerCount++;
                         var totalNonEnd = actions.Count(a => a.Type != ActionType.EndTurn);
                         OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
+                        // 英雄攻击诊断日志
+                        var hero = beam.Board.FriendHero;
+                        if (hero != null)
+                        {
+                            var hasWeapon = beam.Board.FriendWeapon != null && beam.Board.FriendWeapon.Health > 0;
+                            OnLog?.Invoke($"[AI] hero attack diag: atk={hero.Atk}, canAttack={hero.CanAttack}, isTired={hero.IsTired}, countAttack={hero.CountAttack}, boardCanAttack={hero.BoardCanAttack}, useBoardHint={hero.UseBoardCanAttack}, isFrozen={hero.IsFrozen}, windfury={hero.IsWindfury}, hasWeapon={hasWeapon}, weaponAtk={beam.Board.FriendWeapon?.Atk ?? 0}");
+                        }
                         if (hasProfileRules && blockedCount > 0)
                             OnLog?.Invoke($"[AI] profile blocked {blockedCount} action(s), sample={blockedSample}");
                         if (heuristicBlockedInBeam > 0)
@@ -245,7 +252,7 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action);
+                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action, param);
                         var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
                         var finalScore = boardScore + cumulativeAdjustment;
 
@@ -766,11 +773,13 @@ namespace BotMain.AI
             return value;
         }
 
-        private static float EstimateActionPriority(SimBoard board, GameAction action, ProfileActionScore profileScore)
+        private static float EstimateActionPriority(SimBoard board, GameAction action, ProfileActionScore profileScore, ProfileParameters param)
         {
             if (action == null) return 0f;
 
             float p = profileScore?.Bonus ?? 0f;
+            float controlBias = ComputeControlBias(param);
+            float aggroBias = ComputeAggroBias(param);
 
             switch (action.Type)
             {
@@ -779,21 +788,67 @@ namespace BotMain.AI
                         var source = action.Source;
                         var target = action.Target;
                         if (target == null) return p;
+                        int enemyBoardCount = board?.EnemyMinions?.Count(m => m != null && m.Type != Card.CType.LOCATION) ?? 0;
+                        float enemyBoardThreat = board?.EnemyMinions?
+                            .Where(m => m != null && m.Type != Card.CType.LOCATION)
+                            .Sum(m =>
+                            {
+                                float threat = m.Atk * 1.2f + m.Health * 0.25f;
+                                if (m.HasPoison) threat += 4f;
+                                if (m.IsWindfury) threat += m.Atk * 1.2f;
+                                if (m.SpellPower > 0) threat += m.SpellPower * 1.5f;
+                                if (m.IsDivineShield) threat += 1.2f;
+                                return threat;
+                            }) ?? 0f;
 
                         var isFace = board?.EnemyHero != null && target.EntityId == board.EnemyHero.EntityId;
                         if (isFace)
                         {
-                            p += Math.Max(0f, (source?.Atk ?? 0) * 0.35f);
+                            p += Math.Max(0f, (source?.Atk ?? 0) * 0.25f * aggroBias);
                             int enemyEhp = (board?.EnemyHero?.Health ?? 0) + (board?.EnemyHero?.Armor ?? 0);
-                            if (enemyEhp > 0 && enemyEhp <= 15) p += 2f;
+                            int totalFaceDamage = 0;
+                            if (board != null)
+                            {
+                                totalFaceDamage += board.FriendMinions
+                                    .Where(m => m != null && m.Type != Card.CType.LOCATION && m.CanAttack && !m.IsFrozen)
+                                    .Sum(m => Math.Max(0, m.Atk));
+                                if (board.FriendHero != null && board.FriendHero.CanAttack && !board.FriendHero.IsFrozen)
+                                    totalFaceDamage += Math.Max(0, board.FriendHero.Atk);
+                            }
+
+                            bool nearLethal = enemyEhp > 0 && totalFaceDamage >= enemyEhp - 2;
+                            if (enemyEhp > 0 && enemyEhp <= 15)
+                                p += nearLethal ? 3f * aggroBias : 1f * aggroBias;
+
+                            // Beam 前层强制“先控场”倾向：敌方有场且无斩杀窗口时，下调打脸优先级。
+                            if (enemyBoardCount > 0 && !nearLethal)
+                            {
+                                p -= (3f + enemyBoardCount * 0.9f + enemyBoardThreat * 0.08f) * controlBias;
+                                int friendBoardCount = board?.FriendMinions?.Count(m => m != null && m.Type != Card.CType.LOCATION) ?? 0;
+                                if (enemyBoardCount >= friendBoardCount)
+                                    p -= 1.8f * controlBias;
+                            }
+                            else if (enemyBoardCount == 0)
+                            {
+                                p += 1f * aggroBias;
+                            }
                         }
                         else
                         {
-                            p += target.Atk * 0.55f + target.Health * 0.15f;
-                            if (target.HasPoison) p += 2.5f;
-                            if (target.IsWindfury) p += 1.5f;
-                            if (target.SpellPower > 0) p += target.SpellPower * 1.2f;
-                            if (target.IsTaunt) p += 1.2f;
+                            p += (target.Atk * 0.55f + target.Health * 0.15f) * controlBias;
+                            if (target.HasPoison) p += 2.5f * controlBias;
+                            if (target.IsWindfury) p += 1.5f * controlBias;
+                            if (target.SpellPower > 0) p += target.SpellPower * 1.2f * controlBias;
+                            if (target.IsTaunt) p += 2.4f * controlBias;
+                            if (target.IsDivineShield) p += 1.4f * controlBias;
+
+                            bool canLikelyKillTarget = source != null
+                                && (source.HasPoison
+                                    || (!target.IsImmune
+                                        && ((!target.IsDivineShield && source.Atk >= target.Health)
+                                            || (target.IsDivineShield && source.IsWindfury && source.Atk >= target.Health))));
+                            if (canLikelyKillTarget) p += 2.2f * controlBias;
+                            if (enemyBoardCount >= 2) p += 0.8f * controlBias;
                         }
 
                         if (source != null)
@@ -837,6 +892,26 @@ namespace BotMain.AI
             }
 
             return p;
+        }
+
+        private static float ComputeControlBias(ProfileParameters param)
+        {
+            int aggro = param?.GlobalAggroModifier?.Value ?? 100;
+            int defense = param?.GlobalDefenseModifier?.Value ?? 100;
+            float aggroNorm = Clamp((aggro - 100f) / 220f, -2f, 2f);
+            float defenseNorm = Clamp((defense - 100f) / 220f, -2f, 2f);
+            float bias = 1f + defenseNorm * 0.32f - aggroNorm * 0.38f;
+            return Clamp(bias, 0.45f, 1.9f);
+        }
+
+        private static float ComputeAggroBias(ProfileParameters param)
+            => Clamp(2f - ComputeControlBias(param), 0.55f, 1.7f);
+
+        private static float Clamp(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
         }
 
         private const ulong FnvOffsetBasis = 14695981039346656037UL;

@@ -1834,7 +1834,26 @@ namespace BotMain
 
             if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
-                Log("[AutoQueue] 游戏结束动画中，开始连续点击跳过...");
+                // 仅当 GET_SEED 明确为 NO_GAME 时，才认为是结算页并执行连续点击。
+                // 匹配进场/加载中的 GAMEPLAY 也会出现在这里，不能误点。
+                var seedProbe = pipe.SendAndReceive("GET_SEED", 2500) ?? "NO_RESPONSE";
+                if (!string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal))
+                {
+                    if (seedProbe.StartsWith("SEED:", StringComparison.Ordinal)
+                        || string.Equals(seedProbe, "MULLIGAN", StringComparison.Ordinal)
+                        || string.Equals(seedProbe, "NOT_OUR_TURN", StringComparison.Ordinal))
+                    {
+                        Log($"[AutoQueue] scene=GAMEPLAY 但 seed={ShortenSeedProbe(seedProbe)}，判定为对局中/加载中，不执行结算点击。");
+                    }
+                    else
+                    {
+                        Log($"[AutoQueue] scene=GAMEPLAY 且 seed={ShortenSeedProbe(seedProbe)}，暂不点击，等待下一轮确认。");
+                    }
+                    Thread.Sleep(500);
+                    return;
+                }
+
+                Log("[AutoQueue] 检测到 NO_GAME，开始连续点击跳过...");
                 _findingGameSince = null;
 
                 var currentScene = scene;
@@ -1844,6 +1863,18 @@ namespace BotMain
                     && DateTime.UtcNow < deadline
                     && string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 {
+                    var loopSeed = pipe.SendAndReceive("GET_SEED", 2000) ?? "NO_RESPONSE";
+                    if (!string.Equals(loopSeed, "NO_GAME", StringComparison.Ordinal))
+                    {
+                        if (loopSeed.StartsWith("SEED:", StringComparison.Ordinal)
+                            || string.Equals(loopSeed, "MULLIGAN", StringComparison.Ordinal)
+                            || string.Equals(loopSeed, "NOT_OUR_TURN", StringComparison.Ordinal))
+                        {
+                            Log($"[AutoQueue] 结算点击中断：seed={ShortenSeedProbe(loopSeed)}，判定已进入对局流程。");
+                            break;
+                        }
+                    }
+
                     var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 2500) ?? "NO_RESPONSE";
                     clickCount++;
 
@@ -1954,6 +1985,15 @@ namespace BotMain
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
             Log($"[AutoQueue] 点击开始 {playResp}");
             Thread.Sleep(5000);
+        }
+
+        private static string ShortenSeedProbe(string probe)
+        {
+            if (string.IsNullOrWhiteSpace(probe))
+                return "null";
+            if (probe.StartsWith("SEED:", StringComparison.Ordinal))
+                return "SEED";
+            return probe.Length > 40 ? probe.Substring(0, 40) : probe;
         }
 
         private void RestartHearthstone()

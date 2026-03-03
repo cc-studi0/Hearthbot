@@ -28,11 +28,17 @@ namespace BotMain.AI
                     && !IsTired
                     && CountAttack < maxAttackCount;
 
-                // Board.CanAttack 在个别版本会出现“可攻击=true 但攻击值/状态不满足”的短暂错位，
-                // 这里改为“提示 + 本地状态”双重校验，避免产生无效攻击动作。
-                return UseBoardCanAttack
-                    ? BoardCanAttack && localReady
-                    : localReady;
+                if (!UseBoardCanAttack)
+                    return localReady;
+
+                // 英雄攻击：Board.CanAttack 在装备武器等场景下不总是及时更新为 true，
+                // 而 EXHAUSTED tag 也可能残留为 1 导致 localReady 为 false。
+                // 对英雄使用 OR 逻辑：任一来源认为能攻击即可，避免漏掉合法的英雄攻击。
+                if (Type == Card.CType.HERO)
+                    return BoardCanAttack || localReady;
+
+                // 随从仍使用严格的 AND 校验，避免产生无效攻击动作。
+                return BoardCanAttack && localReady;
             }
         }
 

@@ -96,19 +96,23 @@ namespace HearthstonePayload
                         {
                             beforeState = reader?.ReadGameState();
                             sourceIsFriendlyHero = beforeState?.HeroFriend != null && beforeState.HeroFriend.EntityId == attackerId;
+                            // 兜底：ReadGameState 返回的 HeroFriend 可能为 null，通过反射再检查一次
+                            if (!sourceIsFriendlyHero)
+                                sourceIsFriendlyHero = IsFriendlyHeroEntityId(attackerId);
                             targetIsEnemyHero = beforeState?.HeroEnemy != null && beforeState.HeroEnemy.EntityId == targetId;
                             if (!targetIsEnemyHero)
                                 targetIsEnemyHero = IsEnemyHeroEntityId(targetId);
                             if (beforeState != null
                                 && !CanEntityAttackNow(beforeState, attackerId, out var notReadyReason))
                             {
-                                // 英雄攻击在部分客户端帧上会出现 EXHAUSTED / NUM_ATTACKS_THIS_TURN 短暂错位，
-                                // 对英雄攻击放宽：先尝试执行，再由后置确认决定是否成功。
-                                if (!sourceIsFriendlyHero
-                                    || (notReadyReason != "exhausted" && notReadyReason != "attack_count_limit"))
+                                // 英雄攻击：EXHAUSTED / NUM_ATTACKS_THIS_TURN / ATK 等 tag 在客户端帧上频繁出现
+                                // 短暂错位，导致这里 false-reject。对英雄攻击完全跳过预检查，
+                                // 先执行操作，再由后置 DidAttackApply 确认是否生效。
+                                if (!sourceIsFriendlyHero)
                                 {
                                     return "FAIL:ATTACK:not_ready:" + attackerId + ":" + notReadyReason;
                                 }
+                                // 英雄攻击 — 跳过 not_ready 预检查，继续执行
                             }
 
                             hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
@@ -592,14 +596,15 @@ namespace HearthstonePayload
             var isFriendlyHeroAttacker = sourceIsFriendlyHero || IsFriendlyHeroEntityId(attackerEntityId);
             for (int retry = 0; retry < 5; retry++)
             {
-                if (GameObjectFinder.GetEntityScreenPos(attackerEntityId, out sx, out sy))
+                // 英雄攻击者：优先使用 GetHeroScreenPos（通过 Player→Hero→Card→Transform，
+                // 比 GetEntityScreenPos 对英雄实体更可靠）。
+                if (isFriendlyHeroAttacker
+                    && GameObjectFinder.GetHeroScreenPos(true, out sx, out sy))
                 {
                     gotAttacker = true;
                     break;
                 }
-                // 尝试英雄位置
-                if (isFriendlyHeroAttacker
-                    && GameObjectFinder.GetHeroScreenPos(true, out sx, out sy))
+                if (GameObjectFinder.GetEntityScreenPos(attackerEntityId, out sx, out sy))
                 {
                     gotAttacker = true;
                     break;
