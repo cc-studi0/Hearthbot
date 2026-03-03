@@ -16,6 +16,13 @@ namespace BotMain.AI
     /// </summary>
     public sealed class TradeEvaluator
     {
+        private readonly CardEffectDB _db;
+
+        public TradeEvaluator(CardEffectDB db = null)
+        {
+            _db = db;
+        }
+
         /// <summary>
         /// 评估一次攻击动作的交换质量，返回额外分数。
         /// 正分 = 鼓励这个交换，负分 = 不鼓励。
@@ -104,6 +111,12 @@ namespace BotMain.AI
                 bonus -= 1f;
             }
 
+            // 具有持续收益能力的随从（如回合结束触发/Aura）在非斩杀局面更应优先保留解场价值
+            if (IsPersistentValueMinion(attacker) && hasHighThreat && enemyEhp > 10)
+            {
+                bonus -= 2f;
+            }
+
             return bonus;
         }
 
@@ -121,13 +134,18 @@ namespace BotMain.AI
 
             float attackerValue = GetTradeValue(attacker);
             float targetValue = GetTradeValue(target);
+            bool attackerIsPersistent = IsPersistentValueMinion(attacker);
+            bool targetHighThreat = IsHighThreatTarget(target);
+            int followupDamage = EstimateFollowupDamage(board, attacker);
+            int remainingTargetHealth = EstimateRemainingHealthAfterAttack(target, attacker);
+            bool setsUpKill = !targetDies && followupDamage >= remainingTargetHealth;
 
             // ── 1. 交换效率核心计算 ──
             if (targetDies && !attackerDies)
             {
                 // 最佳交换：杀死对方、自己存活
                 float efficiency = targetValue / Math.Max(1f, attackerValue);
-                bonus += 4f + Math.Min(8f, efficiency * 2f);
+                bonus += 6f + Math.Min(10f, efficiency * 2.2f);
 
                 // 剧毒换大怪特别赚
                 if (attacker.HasPoison && targetValue >= 8f)
@@ -136,6 +154,10 @@ namespace BotMain.AI
                 // 圣盾保命交换
                 if (attacker.IsDivineShield)
                     bonus += 3f;
+
+                // 持续收益随从安全解怪，额外鼓励
+                if (attackerIsPersistent)
+                    bonus += 1.5f;
             }
             else if (targetDies && attackerDies)
             {
@@ -152,30 +174,50 @@ namespace BotMain.AI
                     bonus -= 2f;  // 亏了
                 else
                     bonus -= 4f;  // 大亏
+
+                // 持续收益随从不应轻易平换
+                if (attackerIsPersistent)
+                    bonus -= 3f;
             }
             else if (!targetDies && !attackerDies)
             {
-                // 都没死：一般不太好，除非…
-                // 有特殊情况（比如把嘲讽血磨低方便后续解）
-                float dmgRatio = (float)attacker.Atk / Math.Max(1, target.Health);
-                bonus -= 1f;
+                // 都没死：通常不优，只有在“为后续补刀铺路”时才可接受
+                bonus -= 2.5f;
 
                 // 但如果是在磨嘲讽，还行
                 if (target.IsTaunt)
-                    bonus += 2f;
+                    bonus += 1.5f;
 
                 // 撞掉圣盾 = 有价值（为后续攻击铺路）
                 if (target.IsDivineShield)
+                    bonus += 2f;
+
+                // 多小换大：这一下虽然没解掉，但能被后续攻击补刀
+                if (setsUpKill && targetHighThreat)
                     bonus += 2.5f;
+                else if (!setsUpKill)
+                    bonus -= 1.5f;
+
+                // 持续收益随从更不应该做无效磨血
+                if (attackerIsPersistent && !setsUpKill)
+                    bonus -= 4f;
             }
             else // !targetDies && attackerDies
             {
                 // 最差：我死了对方没死
-                bonus -= 5f;
+                bonus -= 8f;
 
                 // 但如果是 1/1 送掉圣盾，可以接受
                 if (target.IsDivineShield && attackerValue <= 3f)
-                    bonus += 3f;
+                    bonus += 2f;
+
+                // 多小换大中的“垫刀”：若后续可补刀且目标威胁高，适度放宽
+                if (setsUpKill && targetHighThreat && attackerValue <= targetValue)
+                    bonus += 4f;
+
+                // 持续收益随从不应被白白送掉
+                if (attackerIsPersistent)
+                    bonus -= 6f;
             }
 
             // ── 2. 目标优先级 ──
@@ -220,6 +262,9 @@ namespace BotMain.AI
             if (attacker.IsWindfury && attackerDies && targetValue < attacker.Atk * 2)
                 bonus -= 2f;
 
+            if (attackerIsPersistent && attackerDies)
+                bonus -= Math.Min(6f, attackerValue * 0.4f);
+
             return bonus;
         }
 
@@ -241,11 +286,55 @@ namespace BotMain.AI
             return incomingDmg >= self.Health;
         }
 
+        private static bool IsHighThreatTarget(SimEntity target)
+        {
+            if (target == null) return false;
+            if (target.HasPoison) return true;
+            if (target.IsWindfury) return true;
+            if (target.SpellPower > 0) return true;
+            if (target.Atk >= 5) return true;
+            return target.IsDivineShield && target.Atk >= 3;
+        }
+
+        private static int EstimateFollowupDamage(SimBoard board, SimEntity attacker)
+        {
+            if (board == null) return 0;
+
+            int dmg = 0;
+            foreach (var m in board.FriendMinions)
+            {
+                if (m == null || m.EntityId == attacker?.EntityId) continue;
+                if (!m.CanAttack || m.Type == Card.CType.LOCATION) continue;
+                dmg += m.Atk;
+            }
+
+            if (board.FriendHero != null
+                && board.FriendHero.EntityId != attacker?.EntityId
+                && board.FriendHero.CanAttack
+                && !board.FriendHero.IsFrozen)
+            {
+                dmg += board.FriendHero.Atk;
+            }
+
+            return Math.Max(0, dmg);
+        }
+
+        private static int EstimateRemainingHealthAfterAttack(SimEntity target, SimEntity attacker)
+        {
+            if (target == null) return int.MaxValue;
+            if (target.IsImmune) return int.MaxValue;
+            if (target.IsDivineShield) return Math.Max(1, target.Health);
+
+            int dmg = Math.Max(0, attacker?.Atk ?? 0);
+            int remain = target.Health - dmg;
+            return Math.Max(1, remain);
+        }
+
         /// <summary>
         /// 随从的"交换价值"——用于判断交换是否划算。
         /// 与 BoardEvaluator 的 MinionValue 不同，这里更关注"如果这个随从死了，损失多大"。
         /// </summary>
-        private static float GetTradeValue(SimEntity m)
+        private float GetTradeValue(SimEntity m)
         {
             float val = 0;
 
@@ -264,8 +353,19 @@ namespace BotMain.AI
             if (m.IsImmune)       val += 4f;
             if (m.HasDeathrattle) val += 1f;
             if (m.SpellPower > 0) val += m.SpellPower * 1.5f;
+            if (IsPersistentValueMinion(m)) val += 4f + m.Health * 0.4f;
 
             return val;
+        }
+
+        private bool IsPersistentValueMinion(SimEntity m)
+        {
+            if (m == null || m.Type != Card.CType.MINION) return false;
+            if (m.SpellPower > 0) return true;
+            if (_db == null) return false;
+
+            return _db.Has(m.CardId, EffectTrigger.EndOfTurn)
+                || _db.Has(m.CardId, EffectTrigger.Aura);
         }
     }
 }

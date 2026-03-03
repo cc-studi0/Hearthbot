@@ -124,7 +124,7 @@ namespace BotMain.AI.CardEffectsScripts
 
             if (b.Hand.Count >= 10) return false;
 
-            var e = CreateCardInHand(cardId, true);
+            var e = CreateCardInHand(cardId, true, b);
             if (e == null) return false;
             Buff(e, buffAtk, buffHp);
             b.Hand.Add(e);
@@ -137,23 +137,44 @@ namespace BotMain.AI.CardEffectsScripts
             var arr = (pool ?? Enumerable.Empty<C>()).Distinct().ToArray();
             if (arr.Length == 0) return false;
 
-            var picked = arr[PickIndex(arr.Length, b, source)];
-            var e = CreateCardInHand(picked, true);
+            var buildable = arr.Where(id => CanCreateCardInHand(id, b)).ToArray();
+            var pickedPool = buildable.Length > 0 ? buildable : arr;
+            var picked = pickedPool[PickIndex(pickedPool.Length, b, source)];
+            var e = CreateCardInHand(picked, true, b);
             if (e == null) return false;
             Buff(e, buffAtk, buffHp);
             b.Hand.Add(e);
             return true;
         }
 
-        public static SimEntity CreateCardInHand(C id, bool isFriend)
+        private static bool CanCreateCardInHand(C id, SimBoard context)
+        {
+            if (id == 0) return false;
+            if (GetTemplate(id) != null) return true;
+            return FindKnownEntityByCardId(context, id) != null;
+        }
+
+        public static SimEntity CreateCardInHand(C id, bool isFriend, SimBoard context = null)
         {
             var type = GetCardType(id, Card.CType.MINION);
-            var cost = Math.Max(0, GetBaseCost(id, 0));
-            var atk = Math.Max(0, GetBaseAtk(id, 0));
+            var template = GetTemplate(id);
+            var knownFromTemplate = template != null;
+
+            var inferred = FindKnownEntityByCardId(context, id);
+            if (!knownFromTemplate && inferred == null)
+                return null;
+
+            var fallbackCost = inferred != null ? Math.Max(0, inferred.Cost) : 0;
+            var fallbackAtk = inferred != null ? Math.Max(0, inferred.Atk) : 0;
+            var fallbackHp = inferred != null ? Math.Max(1, inferred.MaxHealth > 0 ? inferred.MaxHealth : inferred.Health) : 1;
+            var fallbackDurability = inferred != null ? Math.Max(1, inferred.MaxHealth > 0 ? inferred.MaxHealth : inferred.Health) : 2;
+
+            var cost = Math.Max(0, GetBaseCost(id, fallbackCost));
+            var atk = Math.Max(0, GetBaseAtk(id, fallbackAtk));
 
             int hp = type == Card.CType.WEAPON
-                ? Math.Max(1, GetBaseDurability(id, 2))
-                : Math.Max(1, GetBaseHealth(id, 1));
+                ? Math.Max(1, GetBaseDurability(id, fallbackDurability))
+                : Math.Max(1, GetBaseHealth(id, fallbackHp));
 
             return new SimEntity
             {
@@ -165,6 +186,25 @@ namespace BotMain.AI.CardEffectsScripts
                 Health = hp,
                 MaxHealth = hp
             };
+        }
+
+        private static SimEntity FindKnownEntityByCardId(SimBoard b, C id)
+        {
+            if (b == null) return null;
+
+            var fromHand = b.Hand?.FirstOrDefault(e => e != null && e.CardId == id);
+            if (fromHand != null) return fromHand;
+
+            var fromFriend = b.FriendMinions?.FirstOrDefault(e => e != null && e.CardId == id);
+            if (fromFriend != null) return fromFriend;
+
+            var fromEnemy = b.EnemyMinions?.FirstOrDefault(e => e != null && e.CardId == id);
+            if (fromEnemy != null) return fromEnemy;
+
+            if (b.FriendWeapon != null && b.FriendWeapon.CardId == id) return b.FriendWeapon;
+            if (b.EnemyWeapon != null && b.EnemyWeapon.CardId == id) return b.EnemyWeapon;
+
+            return null;
         }
 
         public static SimEntity EquipWeaponFromCard(SimBoard b, bool isFriend, C id, int fallbackAtk = 2, int fallbackDur = 2)

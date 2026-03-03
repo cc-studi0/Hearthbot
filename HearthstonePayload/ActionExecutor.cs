@@ -64,31 +64,106 @@ namespace HearthstonePayload
                 case "CANCEL":
                     return _coroutine.RunAndWait(MouseCancel());
                 case "PLAY":
-                    return _coroutine.RunAndWait(MousePlayCard(
-                        int.Parse(parts[1]),
-                        parts.Length > 2 ? int.Parse(parts[2]) : 0,
-                        parts.Length > 3 ? int.Parse(parts[3]) : 0));
+                    {
+                        int sourceId = int.Parse(parts[1]);
+                        int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        int targetHeroSide = -1; // -1: 不是英雄目标, 0: 我方英雄, 1: 敌方英雄
+
+                        if (targetId > 0)
+                        {
+                            try
+                            {
+                                var s = reader?.ReadGameState();
+                                if (s?.HeroFriend != null && s.HeroFriend.EntityId == targetId) targetHeroSide = 0;
+                                else if (s?.HeroEnemy != null && s.HeroEnemy.EntityId == targetId) targetHeroSide = 1;
+                            }
+                            catch { }
+                        }
+
+                        return _coroutine.RunAndWait(MousePlayCard(sourceId, targetId, position, targetHeroSide));
+                    }
                 case "ATTACK":
                     {
                         int attackerId = int.Parse(parts[1]);
                         int targetId = int.Parse(parts[2]);
                         bool sourceIsFriendlyHero = false;
+                        bool targetIsEnemyHero = false;
+                        GameStateData beforeState = null;
+                        AttackStateSnapshot beforeSnapshot = default;
+                        var hasBeforeSnapshot = false;
                         try
                         {
-                            var s = reader?.ReadGameState();
-                            sourceIsFriendlyHero = s?.HeroFriend != null && s.HeroFriend.EntityId == attackerId;
+                            beforeState = reader?.ReadGameState();
+                            sourceIsFriendlyHero = beforeState?.HeroFriend != null && beforeState.HeroFriend.EntityId == attackerId;
+                            targetIsEnemyHero = beforeState?.HeroEnemy != null && beforeState.HeroEnemy.EntityId == targetId;
+                            if (!targetIsEnemyHero)
+                                targetIsEnemyHero = IsEnemyHeroEntityId(targetId);
+                            if (beforeState != null
+                                && !CanEntityAttackNow(beforeState, attackerId, out var notReadyReason))
+                            {
+                                // 英雄攻击在部分客户端帧上会出现 EXHAUSTED / NUM_ATTACKS_THIS_TURN 短暂错位，
+                                // 对英雄攻击放宽：先尝试执行，再由后置确认决定是否成功。
+                                if (!sourceIsFriendlyHero
+                                    || (notReadyReason != "exhausted" && notReadyReason != "attack_count_limit"))
+                                {
+                                    return "FAIL:ATTACK:not_ready:" + attackerId + ":" + notReadyReason;
+                                }
+                            }
+
+                            hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
                         }
                         catch { }
 
-                        return _coroutine.RunAndWait(MouseAttack(attackerId, targetId, sourceIsFriendlyHero));
+                        var maxAttempts = 2;
+                        for (int attempt = 0; attempt < maxAttempts; attempt++)
+                        {
+                            if (attempt > 0)
+                            {
+                                Thread.Sleep(120);
+                                beforeState = reader?.ReadGameState();
+                                hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
+                            }
+
+                            var attackResult = _coroutine.RunAndWait(MouseAttack(attackerId, targetId, sourceIsFriendlyHero, targetIsEnemyHero));
+                            if (!attackResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase) || !hasBeforeSnapshot)
+                                return attackResult;
+
+                            for (int i = 0; i < 10; i++)
+                            {
+                                Thread.Sleep(80);
+                                var afterState = reader?.ReadGameState();
+                                if (!TryCaptureAttackState(afterState, attackerId, targetId, out var afterSnapshot))
+                                    continue;
+                                if (DidAttackApply(beforeSnapshot, afterSnapshot))
+                                    return attackResult;
+                            }
+                        }
+
+                        return "FAIL:ATTACK:not_confirmed:" + attackerId;
                     }
                 case "HERO_POWER":
                     return _coroutine.RunAndWait(MouseHeroPower(
                         parts.Length > 2 ? int.Parse(parts[2]) : 0));
                 case "USE_LOCATION":
-                    return _coroutine.RunAndWait(MouseUseLocation(
-                        int.Parse(parts[1]),
-                        parts.Length > 2 ? int.Parse(parts[2]) : 0));
+                    {
+                        int sourceId = int.Parse(parts[1]);
+                        int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        int targetHeroSide = -1; // -1: 非英雄目标, 0: 我方英雄, 1: 敌方英雄
+
+                        if (targetId > 0)
+                        {
+                            try
+                            {
+                                var s = reader?.ReadGameState();
+                                if (s?.HeroFriend != null && s.HeroFriend.EntityId == targetId) targetHeroSide = 0;
+                                else if (s?.HeroEnemy != null && s.HeroEnemy.EntityId == targetId) targetHeroSide = 1;
+                            }
+                            catch { }
+                        }
+
+                        return _coroutine.RunAndWait(MouseUseLocation(sourceId, targetId, targetHeroSide));
+                    }
                 case "TRADE":
                     return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
                 case "CONCEDE":
@@ -146,43 +221,73 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 点击场上地标激活效果，支持选择目标
+        /// 地标激活：
+        /// - 无目标地标：只单击一次地标
+        /// - 有目标地标：鼠标按住地标拖到目标后松开
         /// </summary>
-        private static IEnumerator<float> MouseUseLocation(int entityId, int targetEntityId)
+        private static IEnumerator<float> MouseUseLocation(int entityId, int targetEntityId, int targetHeroSide)
         {
             InputHook.Simulating = true;
-            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
+
+            int sx = 0, sy = 0;
+            bool gotSource = false;
+            for (int retry = 0; retry < 4; retry++)
+            {
+                if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
+                {
+                    gotSource = true;
+                    break;
+                }
+                yield return 0.12f;
+            }
+            if (!gotSource)
             {
                 _coroutine.SetResult("FAIL:USE_LOCATION:pos:" + entityId);
                 yield break;
             }
-            MouseSimulator.MoveTo(x, y);
-            yield return 0.05f;
-            MouseSimulator.LeftDown();
-            yield return 0.1f;
-            MouseSimulator.LeftUp();
-            yield return 0.5f;
 
-            // 如果有目标，点击目标随从
-            if (targetEntityId > 0)
+            // 无目标地标：单击一次，不做额外点击
+            if (targetEntityId <= 0)
             {
-                bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
-                if (!gotTarget)
-                    gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
-                if (!gotTarget)
-                {
-                    _coroutine.SetResult("FAIL:USE_LOCATION:target_pos:" + targetEntityId);
-                    yield break;
-                }
-                MouseSimulator.MoveTo(tx, ty);
-                yield return 0.05f;
+                foreach (var w in SmoothMove(sx, sy, 10, 0.01f)) yield return w;
                 MouseSimulator.LeftDown();
-                yield return 0.05f;
+                yield return 0.06f;
                 MouseSimulator.LeftUp();
-                yield return 0.5f;
+                yield return 0.25f;
+                _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":click");
+                yield break;
             }
 
-            _coroutine.SetResult("OK:USE_LOCATION:" + entityId);
+            // 有目标地标：必须拖动到目标后松手
+            bool gotTarget = false;
+            int tx = 0, ty = 0;
+            for (int retry = 0; retry < 6 && !gotTarget; retry++)
+            {
+                if (targetHeroSide == 0)
+                    gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
+                else if (targetHeroSide == 1)
+                    gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+
+                if (!gotTarget)
+                    gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
+
+                if (!gotTarget && retry < 5)
+                    yield return 0.10f;
+            }
+            if (!gotTarget)
+            {
+                _coroutine.SetResult("FAIL:USE_LOCATION:target_pos:" + targetEntityId);
+                yield break;
+            }
+
+            foreach (var w in SmoothMove(sx, sy, 10, 0.01f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+            foreach (var w in SmoothMove(tx, ty, 16, 0.012f)) yield return w;
+            MouseSimulator.LeftUp();
+            yield return 0.28f;
+
+            _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":drag");
         }
 
         /// <summary>
@@ -204,7 +309,7 @@ namespace HearthstonePayload
         /// 阶段3: 鼠标模拟释放（松手出牌）
         /// 阶段4: 如有战吼目标，鼠标模拟点击目标
         /// </summary>
-        private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position)
+        private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position, int targetHeroSide)
         {
             InputHook.Simulating = true;
 
@@ -261,9 +366,22 @@ namespace HearthstonePayload
                 yield return 0.5f;
 
                 // ========== 阶段4: 选择目标 ==========
-                bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
-                if (!gotTarget)
-                    gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+                bool gotTarget = false;
+                int tx = 0, ty = 0;
+                for (int retry = 0; retry < 4 && !gotTarget; retry++)
+                {
+                    if (targetHeroSide == 0)
+                        gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
+                    else if (targetHeroSide == 1)
+                        gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+
+                    if (!gotTarget)
+                        gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
+
+                    if (!gotTarget && retry < 3)
+                        yield return 0.12f;
+                }
+
                 if (!gotTarget)
                 {
                     _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
@@ -289,7 +407,20 @@ namespace HearthstonePayload
                 MouseSimulator.LeftUp();
             }
 
-            yield return 0.5f;
+            yield return 0.3f;
+
+            // 防止“目标没点上但仍返回 OK”导致后续点击被当作补选目标。
+            // 若牌还在手里，说明本次出牌并未真正提交。
+            var gsAfterPlay = GetGameState();
+            if (gsAfterPlay != null
+                && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out var stillInHand)
+                && stillInHand)
+            {
+                _coroutine.SetResult("FAIL:PLAY:not_left_hand:" + entityId);
+                yield break;
+            }
+
+            yield return 0.2f;
             var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
             _coroutine.SetResult("OK:PLAY:" + entityId + ":" + method);
         }
@@ -363,6 +494,8 @@ namespace HearthstonePayload
 
                 var gs = GetGameState();
                 if (gs == null) return false;
+                if (!TryIsEntityInFriendlyHand(gs, entityId, out var inHand) || !inHand)
+                    return false;
 
                 var entity = GetEntity(gs, entityId);
                 if (entity == null) return false;
@@ -381,8 +514,7 @@ namespace HearthstonePayload
                     "GrabCard",
                     "PickUpCard",
                     "HandleCardMouseDown",
-                    "OnCardGrabbed",
-                    "DoNetworkPlay"
+                    "OnCardGrabbed"
                 };
 
                 var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
@@ -411,18 +543,24 @@ namespace HearthstonePayload
 
                             if (heldCard != null)
                             {
+                                var heldEntity = Invoke(heldCard, "GetEntity")
+                                    ?? GetFieldOrProp(heldCard, "Entity")
+                                    ?? GetFieldOrProp(heldCard, "m_entity")
+                                    ?? heldCard;
+                                var heldEntityId = ResolveEntityId(heldEntity);
+                                if (heldEntityId > 0 && heldEntityId != entityId)
+                                {
+                                    System.IO.File.AppendAllText("payload_error.log",
+                                        DateTime.Now + ": [Action] API grab mismatch expected=" + entityId
+                                        + " actual=" + heldEntityId + " via " + methodName + Environment.NewLine);
+                                    continue;
+                                }
+
                                 System.IO.File.AppendAllText("payload_error.log",
                                     DateTime.Now + ": [Action] API grabbed card entityId=" + entityId
                                     + " via " + methodName + Environment.NewLine);
                                 return true;
                             }
-
-                            // 即使没检测到 heldCard，某些版本可能不暴露该字段
-                            // 如果调用没抛异常，也认为可能成功
-                            System.IO.File.AppendAllText("payload_error.log",
-                                DateTime.Now + ": [Action] API grab call no heldCard verify entityId="
-                                + entityId + " via " + methodName + Environment.NewLine);
-                            return true;
                         }
                         catch
                         {
@@ -431,6 +569,8 @@ namespace HearthstonePayload
                     }
                 }
 
+                System.IO.File.AppendAllText("payload_error.log",
+                    DateTime.Now + ": [Action] API grab not confirmed entityId=" + entityId + Environment.NewLine);
                 return false;
             }
             catch (Exception ex)
@@ -444,7 +584,7 @@ namespace HearthstonePayload
         /// <summary>
         /// 鼠标拖拽攻击
         /// </summary>
-        private static IEnumerator<float> MouseAttack(int attackerEntityId, int targetEntityId, bool sourceIsFriendlyHero)
+        private static IEnumerator<float> MouseAttack(int attackerEntityId, int targetEntityId, bool sourceIsFriendlyHero, bool targetIsEnemyHero)
         {
             InputHook.Simulating = true;
             int sx = 0, sy = 0;
@@ -472,26 +612,242 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
-            if (!gotTarget)
-                gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
-            if (!gotTarget)
-            {
-                _coroutine.SetResult("FAIL:ATTACK:target_pos:" + targetEntityId);
-                yield break;
-            }
-
             // 瞬移到攻击者并拾取
             MouseSimulator.MoveTo(sx, sy);
             yield return 0.05f;
             MouseSimulator.LeftDown();
             yield return 0.1f;
 
+            // 拾取攻击者后再定位目标，避免“前一击击杀后目标重排”导致坐标过期。
+            bool gotTarget = false;
+            int tx = 0, ty = 0;
+            bool hasPrev = false;
+            int prevX = 0, prevY = 0;
+            for (int retry = 0; retry < 10 && !gotTarget; retry++)
+            {
+                int cx = 0, cy = 0;
+                var found = targetIsEnemyHero
+                    ? GameObjectFinder.GetHeroScreenPos(false, out cx, out cy)
+                    : GameObjectFinder.GetEntityScreenPos(targetEntityId, out cx, out cy);
+                if (found)
+                {
+                    // 对随从目标要求至少连续两次位置基本稳定，降低动画位移导致的空挥。
+                    if (targetIsEnemyHero)
+                    {
+                        tx = cx;
+                        ty = cy;
+                        gotTarget = true;
+                        break;
+                    }
+
+                    if (!hasPrev)
+                    {
+                        hasPrev = true;
+                        prevX = cx;
+                        prevY = cy;
+                    }
+                    else
+                    {
+                        var dx = Math.Abs(cx - prevX);
+                        var dy = Math.Abs(cy - prevY);
+                        if (dx <= 12 && dy <= 12)
+                        {
+                            tx = cx;
+                            ty = cy;
+                            gotTarget = true;
+                            break;
+                        }
+
+                        prevX = cx;
+                        prevY = cy;
+                    }
+                }
+
+                yield return 0.06f;
+            }
+            if (!gotTarget)
+            {
+                MouseSimulator.LeftUp();
+                _coroutine.SetResult("FAIL:ATTACK:target_pos:" + targetEntityId);
+                yield break;
+            }
+
             // 平滑拖到目标并释放
+            if (!targetIsEnemyHero && GameObjectFinder.GetEntityScreenPos(targetEntityId, out var txLatest, out var tyLatest))
+            {
+                tx = txLatest;
+                ty = tyLatest;
+            }
             foreach (var w in SmoothMove(tx, ty, 15)) yield return w;
             MouseSimulator.LeftUp();
             yield return 0.15f;
             _coroutine.SetResult("OK:ATTACK:" + attackerEntityId);
+        }
+
+        private struct AttackStateSnapshot
+        {
+            public bool AttackerExists;
+            public int AttackerAttackCount;
+            public bool AttackerExhausted;
+            public bool HasWeaponDurability;
+            public int WeaponDurability;
+            public bool TargetExists;
+            public int TargetHealth;
+            public int TargetArmor;
+            public bool TargetDivineShield;
+        }
+
+        private static bool TryCaptureAttackState(GameStateData state, int attackerEntityId, int targetEntityId, out AttackStateSnapshot snapshot)
+        {
+            snapshot = default;
+            if (state == null || attackerEntityId <= 0)
+                return false;
+
+            var attacker = FindEntityById(state, attackerEntityId);
+            if (attacker == null)
+                return false;
+
+            snapshot.AttackerExists = true;
+            snapshot.AttackerAttackCount = Math.Max(0, attacker.AttackCount);
+            snapshot.AttackerExhausted = attacker.Exhausted;
+            if (state.HeroFriend != null && state.HeroFriend.EntityId == attackerEntityId && state.WeaponFriend != null)
+            {
+                snapshot.HasWeaponDurability = true;
+                snapshot.WeaponDurability = state.WeaponFriend.Durability;
+            }
+            else if (state.HeroEnemy != null && state.HeroEnemy.EntityId == attackerEntityId && state.WeaponEnemy != null)
+            {
+                snapshot.HasWeaponDurability = true;
+                snapshot.WeaponDurability = state.WeaponEnemy.Durability;
+            }
+
+            var target = FindEntityById(state, targetEntityId);
+            if (target != null)
+            {
+                snapshot.TargetExists = true;
+                snapshot.TargetHealth = target.Health;
+                snapshot.TargetArmor = target.Armor;
+                snapshot.TargetDivineShield = target.DivineShield;
+            }
+
+            return true;
+        }
+
+        private static bool DidAttackApply(AttackStateSnapshot before, AttackStateSnapshot after)
+        {
+            if (after.AttackerAttackCount > before.AttackerAttackCount)
+                return true;
+
+            if (!before.AttackerExhausted && after.AttackerExhausted)
+                return true;
+
+            if (before.HasWeaponDurability && after.HasWeaponDurability
+                && after.WeaponDurability != before.WeaponDurability)
+                return true;
+
+            if (before.TargetExists && !after.TargetExists)
+                return true;
+
+            if (before.TargetExists && after.TargetExists)
+            {
+                if (after.TargetHealth != before.TargetHealth)
+                    return true;
+                if (after.TargetArmor != before.TargetArmor)
+                    return true;
+                if (after.TargetDivineShield != before.TargetDivineShield)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool CanEntityAttackNow(GameStateData state, int attackerEntityId, out string reason)
+        {
+            reason = "unknown";
+            if (state == null)
+            {
+                reason = "no_state";
+                return false;
+            }
+
+            var attacker = FindEntityById(state, attackerEntityId);
+            if (attacker == null)
+            {
+                reason = "attacker_not_found";
+                return false;
+            }
+
+            if (attacker.Atk <= 0)
+            {
+                reason = "atk_le_0";
+                return false;
+            }
+
+            if (attacker.Frozen || attacker.Freeze)
+            {
+                reason = "frozen";
+                return false;
+            }
+
+            var maxAttack = GetMaxAttackCountThisTurn(state, attackerEntityId, attacker);
+            if (attacker.AttackCount >= maxAttack)
+            {
+                reason = "attack_count_limit";
+                return false;
+            }
+
+            if (attacker.Exhausted && attacker.AttackCount <= 0)
+            {
+                reason = "exhausted";
+                return false;
+            }
+
+            reason = "ok";
+            return true;
+        }
+
+        private static int GetMaxAttackCountThisTurn(GameStateData state, int attackerEntityId, EntityData attacker)
+        {
+            if (attacker == null)
+                return 1;
+
+            if (attacker.Windfury)
+                return 2;
+
+            if (state?.HeroFriend != null
+                && state.HeroFriend.EntityId == attackerEntityId
+                && state.WeaponFriend != null
+                && state.WeaponFriend.Windfury)
+                return 2;
+
+            if (state?.HeroEnemy != null
+                && state.HeroEnemy.EntityId == attackerEntityId
+                && state.WeaponEnemy != null
+                && state.WeaponEnemy.Windfury)
+                return 2;
+
+            return 1;
+        }
+
+        private static EntityData FindEntityById(GameStateData state, int entityId)
+        {
+            if (state == null || entityId <= 0)
+                return null;
+
+            if (state.HeroFriend != null && state.HeroFriend.EntityId == entityId) return state.HeroFriend;
+            if (state.HeroEnemy != null && state.HeroEnemy.EntityId == entityId) return state.HeroEnemy;
+            if (state.AbilityFriend != null && state.AbilityFriend.EntityId == entityId) return state.AbilityFriend;
+            if (state.AbilityEnemy != null && state.AbilityEnemy.EntityId == entityId) return state.AbilityEnemy;
+            if (state.WeaponFriend != null && state.WeaponFriend.EntityId == entityId) return state.WeaponFriend;
+            if (state.WeaponEnemy != null && state.WeaponEnemy.EntityId == entityId) return state.WeaponEnemy;
+
+            var inFriendMinions = state.MinionFriend?.FirstOrDefault(e => e != null && e.EntityId == entityId);
+            if (inFriendMinions != null) return inFriendMinions;
+
+            var inEnemyMinions = state.MinionEnemy?.FirstOrDefault(e => e != null && e.EntityId == entityId);
+            if (inEnemyMinions != null) return inEnemyMinions;
+
+            return state.Hand?.FirstOrDefault(e => e != null && e.EntityId == entityId);
         }
 
         /// <summary>
@@ -512,6 +868,39 @@ namespace HearthstonePayload
                 if (hero == null) return false;
 
                 // 兼容不同客户端版本：优先从 Hero->Entity 解析实体，再回退到 Hero 本体字段。
+                var heroEntity = Invoke(hero, "GetEntity")
+                    ?? GetFieldOrProp(hero, "Entity")
+                    ?? GetFieldOrProp(hero, "m_entity")
+                    ?? hero;
+
+                var id = ResolveEntityId(heroEntity);
+                if (id <= 0) id = ResolveEntityId(hero);
+                if (id <= 0) id = GetIntFieldOrProp(hero, "EntityID");
+                if (id <= 0) id = GetIntFieldOrProp(hero, "EntityId");
+                if (id <= 0) id = GetIntFieldOrProp(hero, "ID");
+                if (id <= 0) id = GetIntFieldOrProp(hero, "Id");
+                return id == entityId;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsEnemyHeroEntityId(int entityId)
+        {
+            if (entityId <= 0) return false;
+            try
+            {
+                var gs = GetGameState();
+                if (gs == null) return false;
+
+                var enemy = Invoke(gs, "GetOpposingSidePlayer") ?? Invoke(gs, "GetOpposingPlayer");
+                if (enemy == null) return false;
+
+                var hero = Invoke(enemy, "GetHero");
+                if (hero == null) return false;
+
                 var heroEntity = Invoke(hero, "GetEntity")
                     ?? GetFieldOrProp(hero, "Entity")
                     ?? GetFieldOrProp(hero, "m_entity")
@@ -675,18 +1064,221 @@ namespace HearthstonePayload
             if (_coroutine == null) return "ERROR:no_coroutine";
 
             var replaceEntityIds = ParseEntityIds(replaceEntityIdsCsv);
-            if (TryApplyMulliganViaManager(replaceEntityIds, out var detail, out var managerAvailable))
-                return "OK:mulligan_manager:" + detail;
+            return _coroutine.RunAndWait(ApplyMulliganByMouseWithVerification(replaceEntityIds), 20000);
+        }
 
-            if (managerAvailable)
+        /// <summary>
+        /// 留牌替换使用鼠标点击卡牌，并在每次点击后校验标记状态是否与预期一致。
+        /// 确认按钮逻辑保持现有管理器调用方式。
+        /// </summary>
+        private static IEnumerator<float> ApplyMulliganByMouseWithVerification(int[] replaceEntityIds)
+        {
+            InputHook.Simulating = true;
+            yield return 0.06f;
+
+            var mulliganMgr = TryGetMulliganManager();
+            if (mulliganMgr == null)
             {
-                if (IsMulliganManagerWaitingDetail(detail))
-                    return "WAIT:mulligan_manager:" + (detail ?? "unknown");
-                return "FAIL:mulligan_manager:" + (detail ?? "unknown");
+                _coroutine.SetResult("WAIT:mulligan_manager:not_available");
+                yield break;
             }
 
-            // 管理器尚未可用时，不回退鼠标硬点，避免在入场动画阶段误触发留牌。
-            return "WAIT:mulligan_manager:not_available";
+            if (TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var isMulliganActive) && !isMulliganActive)
+            {
+                _coroutine.SetResult("FAIL:mulligan_manager:mulligan_not_active");
+                yield break;
+            }
+
+            var waitingObj = GetFieldOrProp(mulliganMgr, "m_waitingForUserInput");
+            if (!(waitingObj is bool waitingForUserInput) || !waitingForUserInput)
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:waiting_for_user_input");
+                yield break;
+            }
+
+            var gameState = GetGameState();
+            if (gameState != null)
+            {
+                if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var responseBlocked) && responseBlocked)
+                {
+                    _coroutine.SetResult("WAIT:mulligan_manager:response_packet_blocked");
+                    yield break;
+                }
+
+                var responseMode = Invoke(gameState, "GetResponseMode");
+                if (!IsChoiceResponseMode(responseMode))
+                {
+                    _coroutine.SetResult("WAIT:mulligan_manager:response_mode_not_choice:" + (responseMode?.ToString() ?? "null"));
+                    yield break;
+                }
+
+                if (Invoke(gameState, "GetFriendlyEntityChoices") == null)
+                {
+                    _coroutine.SetResult("WAIT:mulligan_manager:friendly_choices_not_ready");
+                    yield break;
+                }
+            }
+
+            var inputMgr = GetSingleton(_inputMgrType);
+            if (inputMgr != null && (!TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permitInput) || !permitInput))
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:input_not_ready");
+                yield break;
+            }
+
+            var startingCardsRaw = GetFieldOrProp(mulliganMgr, "m_startingCards") as IEnumerable;
+            if (startingCardsRaw == null)
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_not_ready");
+                yield break;
+            }
+
+            var startingCards = startingCardsRaw.Cast<object>().Where(c => c != null).ToList();
+            if (startingCards.Count == 0)
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_empty");
+                yield break;
+            }
+
+            if (!TryGetCollectionCount(GetFieldOrProp(mulliganMgr, "m_handCardsMarkedForReplace"), out var markedCount)
+                || markedCount < startingCards.Count)
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:marked_state_not_ready");
+                yield break;
+            }
+
+            var cardIndexByEntityId = new Dictionary<int, int>();
+            for (int cardIndex = 0; cardIndex < startingCards.Count; cardIndex++)
+            {
+                var card = startingCards[cardIndex];
+                var entity = Invoke(card, "GetEntity")
+                    ?? GetFieldOrProp(card, "Entity")
+                    ?? GetFieldOrProp(card, "m_entity");
+                var entityId = ResolveEntityId(entity);
+                if (entityId <= 0) continue;
+                if (!cardIndexByEntityId.ContainsKey(entityId))
+                    cardIndexByEntityId.Add(entityId, cardIndex);
+            }
+
+            if (cardIndexByEntityId.Count == 0)
+            {
+                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_entity_not_ready");
+                yield break;
+            }
+
+            var requestIdSet = new HashSet<int>(replaceEntityIds.Where(id => id > 0).Distinct());
+            foreach (var entityId in requestIdSet)
+            {
+                if (!cardIndexByEntityId.ContainsKey(entityId))
+                {
+                    _coroutine.SetResult("FAIL:mulligan_manager:entity_not_found:" + entityId);
+                    yield break;
+                }
+            }
+
+            var toggledCount = 0;
+            foreach (var pair in cardIndexByEntityId.OrderBy(p => p.Value))
+            {
+                var entityId = pair.Key;
+                var cardIndex = pair.Value;
+                var shouldReplace = requestIdSet.Contains(entityId);
+
+                if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var currentMarked, out var markedDetail))
+                {
+                    _coroutine.SetResult("FAIL:mulligan_manager:marked_state_read_failed:" + markedDetail);
+                    yield break;
+                }
+
+                if (currentMarked == shouldReplace)
+                    continue;
+
+                var toggled = false;
+                string lastToggleDetail = null;
+                for (int attempt = 0; attempt < 3; attempt++)
+                {
+                    if (!TryGetMulliganCardClickPos(entityId, cardIndex, startingCards.Count, out var cx, out var cy, out var posDetail))
+                    {
+                        lastToggleDetail = "click_pos_failed:" + posDetail;
+                        yield return 0.1f;
+                        continue;
+                    }
+
+                    foreach (var w in SmoothMove(cx, cy, 8, 0.012f)) yield return w;
+                    MouseSimulator.LeftDown();
+                    yield return 0.05f;
+                    MouseSimulator.LeftUp();
+                    yield return 0.22f;
+
+                    if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var markedAfter, out markedDetail))
+                    {
+                        lastToggleDetail = "marked_state_verify_failed:" + markedDetail;
+                        continue;
+                    }
+
+                    if (markedAfter == shouldReplace)
+                    {
+                        toggled = true;
+                        break;
+                    }
+
+                    lastToggleDetail = "toggle_state_mismatch:expected="
+                        + (shouldReplace ? "1" : "0")
+                        + ":actual=" + (markedAfter ? "1" : "0");
+                }
+
+                if (!toggled)
+                {
+                    _coroutine.SetResult("FAIL:mulligan_manager:toggle_failed:" + entityId + ":" + (lastToggleDetail ?? "unknown"));
+                    yield break;
+                }
+
+                toggledCount++;
+            }
+
+            // 确认逻辑保持现有实现（管理器确认，不改确认按钮路径）
+            string continueMethodUsed = null;
+            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out var continueError))
+            {
+                continueMethodUsed = "OnMulliganButtonReleased";
+            }
+            else if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out continueError))
+            {
+                continueMethodUsed = "AutomaticContinueMulligan";
+            }
+            else if (gameState != null && TryInvokeMethod(gameState, "SendChoices", Array.Empty<object>(), out _, out continueError))
+            {
+                continueMethodUsed = "GameState.SendChoices";
+            }
+
+            if (continueMethodUsed == null)
+            {
+                _coroutine.SetResult("FAIL:mulligan_manager:continue_failed:" + (continueError ?? "unknown"));
+                yield break;
+            }
+
+            yield return 0.08f;
+            _coroutine.SetResult("OK:mulligan_manager:toggle=" + toggledCount + ";request=" + requestIdSet.Count + ";continue=" + continueMethodUsed);
+        }
+
+        private static bool TryGetMulliganCardClickPos(int entityId, int cardIndex, int totalCards, out int x, out int y, out string detail)
+        {
+            x = y = 0;
+            detail = null;
+
+            if (entityId > 0 && GameObjectFinder.GetEntityScreenPos(entityId, out x, out y))
+            {
+                detail = "entity_pos";
+                return true;
+            }
+
+            if (cardIndex >= 0 && GameObjectFinder.GetMulliganCardScreenPos(cardIndex, totalCards, out x, out y))
+            {
+                detail = "index_pos";
+                return true;
+            }
+
+            detail = "entity_and_index_pos_not_found";
+            return false;
         }
 
         /// <summary>
@@ -1834,14 +2426,20 @@ namespace HearthstonePayload
         public static string ApplyChoice(int entityId)
         {
             if (!EnsureTypes()) return "ERROR:not_initialized";
-
-            // 优先通过游戏内部 API 提交选择（不依赖屏幕坐标）
-            var netResult = TrySendChoiceViaNetwork(entityId);
-            if (netResult != null) return netResult;
-
-            // 网络方式失败，回退到鼠标点击
             if (_coroutine == null) return "ERROR:no_coroutine";
             return _coroutine.RunAndWait(MouseClickChoice(entityId));
+        }
+
+        /// <summary>
+        /// 通过网络 API 提交发现选择（用于 Rewind 等特殊选择按钮）
+        /// </summary>
+        public static string ApplyChoiceApi(int entityId)
+        {
+            if (!EnsureTypes()) return "ERROR:not_initialized";
+            var ret = TrySendChoiceViaNetwork(entityId);
+            return string.IsNullOrWhiteSpace(ret)
+                ? "FAIL:CHOICE:network:" + entityId
+                : ret;
         }
 
         private static string TrySendChoiceViaNetwork(int entityId)
@@ -1880,6 +2478,10 @@ namespace HearthstonePayload
         private static IEnumerator<float> MouseClickChoice(int entityId)
         {
             InputHook.Simulating = true;
+
+            // 记录点击前的选择快照，用于确认是否真的提交成功。
+            CaptureChoiceSnapshot(out var beforeChoiceId, out var beforeSignature);
+
             if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
             {
                 _coroutine.SetResult("FAIL:CHOICE:pos:" + entityId);
@@ -1889,8 +2491,75 @@ namespace HearthstonePayload
             MouseSimulator.LeftDown();
             yield return 0.05f;
             MouseSimulator.LeftUp();
-            yield return 0.5f;
-            _coroutine.SetResult("OK:CHOICE:mouse:" + entityId);
+
+            // 校验：选择界面应关闭，或切换到新的选择状态（连发现）。
+            bool confirmed = false;
+            string confirmDetail = "timeout";
+            for (int i = 0; i < 18; i++)
+            {
+                yield return 0.12f;
+                if (!CaptureChoiceSnapshot(out var afterChoiceId, out var afterSignature))
+                {
+                    confirmed = true;
+                    confirmDetail = "closed";
+                    break;
+                }
+
+                if (afterChoiceId != beforeChoiceId || !string.Equals(afterSignature, beforeSignature, StringComparison.Ordinal))
+                {
+                    confirmed = true;
+                    confirmDetail = "changed";
+                    break;
+                }
+
+                confirmDetail = "unchanged";
+            }
+
+            if (!confirmed)
+            {
+                _coroutine.SetResult("FAIL:CHOICE:not_confirmed:" + entityId + ":" + confirmDetail);
+                yield break;
+            }
+
+            _coroutine.SetResult("OK:CHOICE:mouse:" + entityId + ":" + confirmDetail);
+        }
+
+        private static bool CaptureChoiceSnapshot(out int choiceId, out string signature)
+        {
+            choiceId = 0;
+            signature = null;
+
+            var gs = GetGameState();
+            if (gs == null) return false;
+
+            var responseMode = Invoke(gs, "GetResponseMode");
+            if (!IsChoiceResponseMode(responseMode)) return false;
+
+            var choices = Invoke(gs, "GetFriendlyEntityChoices");
+            if (choices == null) return false;
+
+            choiceId = GetIntFieldOrProp(choices, "ID");
+            if (choiceId <= 0) choiceId = GetIntFieldOrProp(choices, "Id");
+
+            var entities = GetFieldOrProp(choices, "Entities") as IEnumerable;
+            if (entities == null) return false;
+
+            var ids = new List<int>();
+            foreach (var eid in entities)
+            {
+                try
+                {
+                    var id = Convert.ToInt32(eid);
+                    if (id > 0) ids.Add(id);
+                }
+                catch
+                {
+                }
+            }
+
+            ids.Sort();
+            signature = choiceId.ToString() + ":" + string.Join(",", ids);
+            return true;
         }
 
         #endregion

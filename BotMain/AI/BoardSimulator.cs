@@ -11,8 +11,22 @@ namespace BotMain.AI
 
         public BoardSimulator(CardEffectDB db) => _db = db;
 
+        private static void DisableBoardCanAttackHints(SimBoard board)
+        {
+            if (board == null) return;
+
+            if (board.FriendHero != null) board.FriendHero.UseBoardCanAttack = false;
+            if (board.EnemyHero != null) board.EnemyHero.UseBoardCanAttack = false;
+
+            foreach (var m in board.FriendMinions)
+                m.UseBoardCanAttack = false;
+            foreach (var m in board.EnemyMinions)
+                m.UseBoardCanAttack = false;
+        }
+
         public void Attack(SimBoard board, SimEntity attacker, SimEntity target)
         {
+            DisableBoardCanAttackHints(board);
             attacker.CountAttack++;
             if (attacker.Type == Card.CType.HERO)
             {
@@ -65,6 +79,7 @@ namespace BotMain.AI
 
         public void PlayCard(SimBoard board, SimEntity card, SimEntity target)
         {
+            DisableBoardCanAttackHints(board);
             ApplyAuras(board);
             board.Mana -= card.Cost;
             board.Hand.Remove(card);
@@ -74,6 +89,8 @@ namespace BotMain.AI
             {
                 card.IsTired = !(card.HasCharge || card.HasRush);
                 card.CountAttack = 0;
+                card.UseBoardCanAttack = false;
+                card.BoardCanAttack = false;
                 board.FriendMinions.Add(card);
 
                 // 只执行已注册的卡牌效果脚本
@@ -106,6 +123,8 @@ namespace BotMain.AI
                 // 地标牌：放置到场上，不可攻击
                 card.IsTired = true;
                 card.CountAttack = 0;
+                card.UseBoardCanAttack = false;
+                card.BoardCanAttack = false;
                 board.FriendMinions.Add(card);
                 if (_db.TryGet(card.CardId, EffectTrigger.Spell, out var locFn))
                     locFn(board, card, target);
@@ -117,6 +136,7 @@ namespace BotMain.AI
 
         public void TradeCard(SimBoard board, SimEntity card)
         {
+            DisableBoardCanAttackHints(board);
             if (board == null || card == null) return;
             if (!card.IsTradeable) return;
             if (board.Mana < 1) return;
@@ -151,6 +171,7 @@ namespace BotMain.AI
 
         public void UseHeroPower(SimBoard board, SimEntity target)
         {
+            DisableBoardCanAttackHints(board);
             board.Mana -= board.HeroPower.Cost;
             board.HeroPowerUsed = true;
             ApplyHeroPower(board, target);
@@ -160,6 +181,7 @@ namespace BotMain.AI
 
         public void UseLocation(SimBoard board, SimEntity location, SimEntity target)
         {
+            DisableBoardCanAttackHints(board);
             location.IsTired = true;
             // 触发地标激活效果（复用 LocationActivation 层，如果没有就尝试 Spell 层）
             if (_db.TryGet(location.CardId, EffectTrigger.LocationActivation, out var fn))
@@ -172,6 +194,7 @@ namespace BotMain.AI
 
         public void EndTurn(SimBoard board)
         {
+            DisableBoardCanAttackHints(board);
             // 触发回合结束效果
             foreach (var m in board.FriendMinions.ToArray())
                 if (_db.TryGet(m.CardId, EffectTrigger.EndOfTurn, out var fn))

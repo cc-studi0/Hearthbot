@@ -366,6 +366,178 @@ namespace HearthstonePayload
             return false;
         }
 
+        private bool TryReadBoolFromSource(object source, out bool value, params string[] memberNames)
+        {
+            value = false;
+            if (source == null || memberNames == null || memberNames.Length == 0)
+                return false;
+
+            foreach (var memberName in memberNames)
+            {
+                if (string.IsNullOrWhiteSpace(memberName)) continue;
+
+                var raw = _ctx.CallAny(source, memberName);
+                if (raw == null) continue;
+
+                if (raw is bool b)
+                {
+                    value = b;
+                    return true;
+                }
+
+                if (bool.TryParse(raw.ToString(), out var parsed))
+                {
+                    value = parsed;
+                    return true;
+                }
+
+                var i = _ctx.ToInt(raw);
+                if (i == 0 || i == 1)
+                {
+                    value = i == 1;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool DetectGameOver(object gameState, object friendly, object opposing, out string endScreenClass)
+        {
+            endScreenClass = string.Empty;
+
+            try
+            {
+                if (TryReadBoolFromSource(gameState, out var isGameOverByState, "IsGameOver", "get_IsGameOver")
+                    && isGameOverByState)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (TryGetEndGameScreenState(out var shown, out var className))
+                {
+                    endScreenClass = className ?? string.Empty;
+                    if (shown) return true;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var friendlyHero = _ctx.CallAny(friendly, "GetHero");
+                var opposingHero = _ctx.CallAny(opposing, "GetHero");
+                var friendlyPlaystate = _ctx.GetTagValue(friendlyHero, "PLAYSTATE");
+                var opposingPlaystate = _ctx.GetTagValue(opposingHero, "PLAYSTATE");
+                if (MapFriendlyPlaystateToResult(friendlyPlaystate) != GameResult.None
+                    || MapEnemyPlaystateToResult(opposingPlaystate) != GameResult.None)
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private bool TryGetEndGameScreenState(out bool shown, out string className)
+        {
+            shown = false;
+            className = string.Empty;
+
+            var type = _ctx.AsmCSharp?.GetType("EndGameScreen");
+            if (type == null) return false;
+
+            var screen = _ctx.CallStaticAny(type, "Get");
+            if (screen == null) return false;
+
+            var shownObj = _ctx.GetFieldOrPropertyAny(
+                screen,
+                "m_shown",
+                "shown",
+                "IsShown",
+                "m_isShown");
+
+            if (shownObj is bool b)
+                shown = b;
+            else
+                shown = _ctx.ToInt(shownObj) == 1;
+
+            className = _ctx.GetFieldOrPropertyAny(
+                screen,
+                "RealClassName",
+                "m_realClassName",
+                "ClassName",
+                "m_className")?.ToString() ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(className))
+            {
+                className = _ctx.CallAny(screen, "GetRealClassName", "GetClassName")?.ToString() ?? string.Empty;
+            }
+
+            return true;
+        }
+
+        private GameResult ResolveGameResult(object friendly, object opposing, string endScreenClass)
+        {
+            if (!string.IsNullOrWhiteSpace(endScreenClass))
+            {
+                var lower = endScreenClass.ToLowerInvariant();
+                if (lower.Contains("victory")) return GameResult.Win;
+                if (lower.Contains("defeat")) return GameResult.Loss;
+                if (lower.Contains("tie") || lower.Contains("draw")) return GameResult.Tie;
+            }
+
+            var friendlyHero = _ctx.CallAny(friendly, "GetHero");
+            var friendlyHeroResult = MapFriendlyPlaystateToResult(_ctx.GetTagValue(friendlyHero, "PLAYSTATE"));
+            if (friendlyHeroResult != GameResult.None) return friendlyHeroResult;
+
+            var friendlyEntity = GetPlayerEntity(friendly);
+            var friendlyEntityResult = MapFriendlyPlaystateToResult(_ctx.GetTagValue(friendlyEntity, "PLAYSTATE"));
+            if (friendlyEntityResult != GameResult.None) return friendlyEntityResult;
+
+            var opposingHero = _ctx.CallAny(opposing, "GetHero");
+            var opposingHeroResult = MapEnemyPlaystateToResult(_ctx.GetTagValue(opposingHero, "PLAYSTATE"));
+            if (opposingHeroResult != GameResult.None) return opposingHeroResult;
+
+            var opposingEntity = GetPlayerEntity(opposing);
+            var opposingEntityResult = MapEnemyPlaystateToResult(_ctx.GetTagValue(opposingEntity, "PLAYSTATE"));
+            if (opposingEntityResult != GameResult.None) return opposingEntityResult;
+
+            return GameResult.None;
+        }
+
+        private static GameResult MapFriendlyPlaystateToResult(int playstate)
+        {
+            switch (playstate)
+            {
+                case 4: return GameResult.Win;
+                case 5: return GameResult.Loss;
+                case 6: return GameResult.Tie;
+                default: return GameResult.None;
+            }
+        }
+
+        private static GameResult MapEnemyPlaystateToResult(int playstate)
+        {
+            switch (playstate)
+            {
+                case 4: return GameResult.Loss;
+                case 5: return GameResult.Win;
+                case 6: return GameResult.Tie;
+                default: return GameResult.None;
+            }
+        }
+
         private void ReadTurnInfo(object gameState, object friendlyPlayer, GameStateData data)
         {
             data.IsOurTurn = false;
@@ -415,7 +587,13 @@ namespace HearthstonePayload
         {
             try
             {
-                if (_ctx.GameTagType == null) return;
+                if (_ctx.GameTagType == null)
+                {
+                    data.IsGameOver = DetectGameOver(gameState, friendly, opposing, out var onlyEndScreenClass);
+                    data.EndGameScreenClass = onlyEndScreenClass ?? string.Empty;
+                    data.Result = ResolveGameResult(friendly, opposing, data.EndGameScreenClass);
+                    return;
+                }
 
                 var friendlyEntity = GetPlayerEntity(friendly);
                 var opposingEntity = GetPlayerEntity(opposing);
@@ -458,13 +636,10 @@ namespace HearthstonePayload
                 data.IsExtraTurn = _ctx.GetTagValue(friendlyEntity, "EXTRA_TURN") == 1;
                 data.ManaTemp = _ctx.GetTagValue(friendlyEntity, "TEMP_RESOURCES");
 
-                // 游戏结果
-                var friendlyHero = _ctx.CallAny(friendly, "GetHero");
-                var playstateVal = _ctx.GetTagValue(friendlyHero, "PLAYSTATE");
-                if (playstateVal == 4) data.Result = GameResult.Win;
-                else if (playstateVal == 5) data.Result = GameResult.Loss;
-                else if (playstateVal == 6) data.Result = GameResult.Tie;
-                else data.Result = GameResult.None;
+                // 直接对局结束检测（优先 IsGameOver / EndGameScreen，再回退 PLAYSTATE）
+                data.IsGameOver = DetectGameOver(gameState, friendly, opposing, out var endScreenClass);
+                data.EndGameScreenClass = endScreenClass ?? string.Empty;
+                data.Result = ResolveGameResult(friendly, opposing, data.EndGameScreenClass);
 
                 // 统计数据
                 ReadGameStats(friendlyEntity, opposingEntity, data);

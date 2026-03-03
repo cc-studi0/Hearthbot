@@ -16,6 +16,8 @@ namespace BotMain.AI
         public SimBoard Board;
         public List<GameAction> Actions;
         public float Score;
+        public float CumulativeAdjustment;
+        public ulong Fingerprint;
         public bool IsComplete; // 已到达 END_TURN
 
         public BeamCandidate Clone()
@@ -25,6 +27,8 @@ namespace BotMain.AI
                 Board = Board.Clone(),
                 Actions = new List<GameAction>(Actions),
                 Score = Score,
+                CumulativeAdjustment = CumulativeAdjustment,
+                Fingerprint = Fingerprint,
                 IsComplete = IsComplete,
             };
         }
@@ -36,10 +40,20 @@ namespace BotMain.AI
         private readonly BoardEvaluator _eval;
         private readonly ActionGenerator _gen;
         private readonly ProfileActionScorer _profileScorer = new ProfileActionScorer();
-        private readonly TradeEvaluator _tradeEval = new TradeEvaluator();
+        private readonly TradeEvaluator _tradeEval;
+        private readonly CardEffectDB _effectDb;
 
         /// <summary>Beam 宽度（同时追踪的候选序列数）</summary>
         public int BeamWidth { get; set; } = 6;
+
+        /// <summary>启用动态束宽（回合初更宽、资源见底时更窄）</summary>
+        public bool UseDynamicBeamWidth { get; set; } = true;
+
+        /// <summary>启用进入模拟前的启发式动作剪枝</summary>
+        public bool EnableHeuristicPruning { get; set; } = true;
+
+        /// <summary>启用同构状态哈希（忽略手牌/随从列表顺序）</summary>
+        public bool UseOrderInvariantFingerprint { get; set; } = true;
 
         /// <summary>最大搜索深度（动作步数）</summary>
         public int MaxDepth { get; set; } = 25;
@@ -47,13 +61,20 @@ namespace BotMain.AI
         /// <summary>搜索超时毫秒数</summary>
         public int TimeoutMs { get; set; } = 5000;
 
+        /// <summary>
+        /// 转置表剪枝阈值：若同一棋面历史最佳分数高于当前分数 + 阈值，则跳过该分支。
+        /// </summary>
+        public float TranspositionMinDelta { get; set; } = 0.05f;
+
         public event Action<string> OnLog;
 
-        public SearchEngine(BoardSimulator sim, BoardEvaluator eval, ActionGenerator gen)
+        public SearchEngine(BoardSimulator sim, BoardEvaluator eval, ActionGenerator gen, CardEffectDB effectDb = null)
         {
             _sim = sim;
             _eval = eval;
             _gen = gen;
+            _effectDb = effectDb;
+            _tradeEval = new TradeEvaluator(effectDb);
         }
 
         public List<GameAction> FindBestSequence(SimBoard board, ProfileParameters param)
@@ -63,19 +84,41 @@ namespace BotMain.AI
 
             // ── 初始化 Beam ──
             var initialScore = _eval.Evaluate(board, param);
+            var rootBoard = board.Clone();
+            var rootFingerprint = ComputeBoardFingerprint(rootBoard, UseOrderInvariantFingerprint);
             var beams = new List<BeamCandidate>
             {
                 new BeamCandidate
                 {
-                    Board = board.Clone(),
+                    Board = rootBoard,
                     Actions = new List<GameAction>(),
                     Score = initialScore,
+                    CumulativeAdjustment = 0f,
+                    Fingerprint = rootFingerprint,
                     IsComplete = false,
                 }
             };
 
             var completedBeams = new List<BeamCandidate>();
             int totalExpansions = 0;
+            int duplicateActionCount = 0;
+            int profileBlockedCount = 0;
+            int heuristicPrunedCount = 0;
+            int transpositionPrunedCount = 0;
+            int mergedStateCount = 0;
+            int transpositionCacheHitCount = 0;
+            int dynamicBeamMinUsed = int.MaxValue;
+            int dynamicBeamMaxUsed = 0;
+            int lastBeamWidthUsed = Math.Max(1, BeamWidth);
+
+            var bestScoreByFingerprint = new Dictionary<ulong, float>
+            {
+                [rootFingerprint] = initialScore
+            };
+            var boardScoreCacheByFingerprint = new Dictionary<ulong, float>
+            {
+                [rootFingerprint] = initialScore
+            };
 
             // ── 主搜索循环 ──
             for (int depth = 0; depth < MaxDepth; depth++)
@@ -85,7 +128,9 @@ namespace BotMain.AI
                 var activeBeams = beams.Where(b => !b.IsComplete).ToList();
                 if (activeBeams.Count == 0) break;
 
-                var nextCandidates = new List<BeamCandidate>();
+                var nextBestByFingerprint = new Dictionary<ulong, BeamCandidate>();
+                int depthCandidateCount = 0;
+                int depthExpandedBeamCount = 0;
 
                 foreach (var beam in activeBeams)
                 {
@@ -93,62 +138,107 @@ namespace BotMain.AI
 
                     // 生成所有可能的动作
                     var actions = _gen.Generate(beam.Board);
-                    var nonEndActions = new List<(GameAction Action, ProfileActionScore ProfileScore)>();
+                    var nonEndActions = new List<(GameAction Action, ProfileActionScore ProfileScore, float Priority)>();
                     int blockedCount = 0;
+                    int heuristicBlockedInBeam = 0;
+                    int duplicatedActionsInBeam = 0;
                     string blockedSample = null;
+                    string heuristicBlockedSample = null;
+                    var actionKeySet = new HashSet<string>(StringComparer.Ordinal);
 
                     foreach (var action in actions)
                     {
                         if (action.Type == ActionType.EndTurn) continue;
 
+                        var actionKey = action.ToActionString();
+                        if (!actionKeySet.Add(actionKey))
+                        {
+                            duplicatedActionsInBeam++;
+                            duplicateActionCount++;
+                            continue;
+                        }
+
+                        if (EnableHeuristicPruning && TryHeuristicPruneAction(beam.Board, action, out var heuristicReason))
+                        {
+                            heuristicBlockedInBeam++;
+                            heuristicPrunedCount++;
+                            heuristicBlockedSample ??= $"{action.ToActionString()} ({heuristicReason})";
+                            continue;
+                        }
+
                         var profileScore = _profileScorer.Evaluate(beam.Board, action, param);
                         if (profileScore.HardBlocked)
                         {
                             blockedCount++;
+                            profileBlockedCount++;
                             blockedSample ??= $"{action.ToActionString()} ({profileScore.Detail})";
                             continue;
                         }
-                        nonEndActions.Add((action, profileScore));
+
+                        var priority = EstimateActionPriority(beam.Board, action, profileScore);
+                        nonEndActions.Add((action, profileScore, priority));
                     }
+
+                    depthCandidateCount += nonEndActions.Count;
+                    depthExpandedBeamCount++;
 
                     // 首轮日志
                     if (depth == 0 && beam == activeBeams[0])
                     {
+                        var attackerCount = beam.Board.FriendMinions.Count(m => m != null && m.CanAttack);
+                        if (beam.Board.FriendHero != null && beam.Board.FriendHero.CanAttack)
+                            attackerCount++;
                         var totalNonEnd = actions.Count(a => a.Type != ActionType.EndTurn);
-                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, candidates={nonEndActions.Count}, blocked={blockedCount}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, beamWidth={BeamWidth}, hasProfile={hasProfileRules}");
+                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
                         if (hasProfileRules && blockedCount > 0)
                             OnLog?.Invoke($"[AI] profile blocked {blockedCount} action(s), sample={blockedSample}");
+                        if (heuristicBlockedInBeam > 0)
+                            OnLog?.Invoke($"[AI] heuristic pruned {heuristicBlockedInBeam} action(s), sample={heuristicBlockedSample}");
                     }
 
                     // 选项1：END_TURN（当前序列完成）
                     var endBeam = beam.Clone();
                     endBeam.Actions.Add(new GameAction { Type = ActionType.EndTurn });
                     endBeam.IsComplete = true;
-                    // 重新评估当前棋面分数，确保与其他分支一致
-                    endBeam.Score = _eval.Evaluate(endBeam.Board, param);
+                    // 重新评估当前棋面分数，并保留路径累计修正（Profile/换子奖励）
+                    endBeam.Score = GetOrEvaluateBoardScore(endBeam.Board, endBeam.Fingerprint, param, boardScoreCacheByFingerprint, ref transpositionCacheHitCount) + endBeam.CumulativeAdjustment;
+                    UpdateBestStateScore(bestScoreByFingerprint, endBeam.Fingerprint, endBeam.Score);
                     completedBeams.Add(endBeam);
 
-                    // 预排序候选动作：Profile 高奖励优先
-                    nonEndActions.Sort((a, b) => b.ProfileScore.Bonus.CompareTo(a.ProfileScore.Bonus));
+                    // 预排序候选动作：优先考虑策略相关高价值动作，超时时更容易拿到好解。
+                    nonEndActions.Sort((a, b) =>
+                    {
+                        var cmp = b.Priority.CompareTo(a.Priority);
+                        if (cmp != 0) return cmp;
+                        return b.ProfileScore.Bonus.CompareTo(a.ProfileScore.Bonus);
+                    });
 
                     // 选项2：执行每个非 END_TURN 动作
-                    foreach (var (action, profileScore) in nonEndActions)
+                    foreach (var (action, profileScore, _) in nonEndActions)
                     {
                         totalExpansions++;
                         var clone = beam.Board.Clone();
                         bool ok = TryApplyAction(clone, action);
                         if (!ok) continue;
 
-                        var boardScore = _eval.Evaluate(clone, param);
+                        var fingerprint = ComputeBoardFingerprint(clone, UseOrderInvariantFingerprint);
+                        var boardScore = GetOrEvaluateBoardScore(clone, fingerprint, param, boardScoreCacheByFingerprint, ref transpositionCacheHitCount);
 
                         // 如果模拟后敌方英雄已死，直接作为斩杀路径完成
                         if (boardScore >= 100000f)
                         {
+                            if (IsDominatedState(bestScoreByFingerprint, fingerprint, boardScore, TranspositionMinDelta))
+                            {
+                                transpositionPrunedCount++;
+                                continue;
+                            }
+                            UpdateBestStateScore(bestScoreByFingerprint, fingerprint, boardScore);
                             var lethalCandidate = new BeamCandidate
                             {
                                 Board = clone,
                                 Actions = new List<GameAction>(beam.Actions) { action, new GameAction { Type = ActionType.EndTurn } },
                                 Score = boardScore,
+                                Fingerprint = fingerprint,
                                 IsComplete = true,
                             };
                             completedBeams.Add(lethalCandidate);
@@ -156,32 +246,50 @@ namespace BotMain.AI
                         }
 
                         var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action);
-                        var finalScore = boardScore + profileScore.Bonus + tradeBonus;
+                        var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
+                        var finalScore = boardScore + cumulativeAdjustment;
 
-                        nextCandidates.Add(new BeamCandidate
+                        if (IsDominatedState(bestScoreByFingerprint, fingerprint, finalScore, TranspositionMinDelta))
+                        {
+                            transpositionPrunedCount++;
+                            continue;
+                        }
+                        UpdateBestStateScore(bestScoreByFingerprint, fingerprint, finalScore);
+
+                        var candidate = new BeamCandidate
                         {
                             Board = clone,
                             Actions = new List<GameAction>(beam.Actions) { action },
                             Score = finalScore,
+                            CumulativeAdjustment = cumulativeAdjustment,
+                            Fingerprint = fingerprint,
                             IsComplete = false,
-                        });
-                    }
+                        };
 
-                    // 如果没有任何可做的动作，这条 beam 只能 END_TURN
-                    if (nonEndActions.Count == 0 && !beam.IsComplete)
-                    {
-                        // 已经加了 endBeam，不需要额外处理
+                        AddOrReplaceCandidate(nextBestByFingerprint, candidate, ref mergedStateCount);
                     }
                 }
 
-                if (nextCandidates.Count == 0) break;
+                if (nextBestByFingerprint.Count == 0) break;
+
+                var avgCandidatesPerBeam = depthExpandedBeamCount > 0
+                    ? (float)depthCandidateCount / depthExpandedBeamCount
+                    : 0f;
+                var currentBeamWidth = UseDynamicBeamWidth
+                    ? ComputeDynamicBeamWidth(depth, activeBeams, avgCandidatesPerBeam)
+                    : Math.Max(1, BeamWidth);
+
+                lastBeamWidthUsed = currentBeamWidth;
+                dynamicBeamMinUsed = Math.Min(dynamicBeamMinUsed, currentBeamWidth);
+                dynamicBeamMaxUsed = Math.Max(dynamicBeamMaxUsed, currentBeamWidth);
+
+                OnLog?.Invoke($"[AI] beam depth={depth}: active={activeBeams.Count}, avgCandidates={avgCandidatesPerBeam:0.##}, kept={Math.Min(currentBeamWidth, nextBestByFingerprint.Count)}/{nextBestByFingerprint.Count}, beamWidth={currentBeamWidth}");
 
                 // ── Beam 剪枝：保留 top-N ──
-                nextCandidates.Sort((a, b) => b.Score.CompareTo(a.Score));
-                beams = nextCandidates.Take(BeamWidth).ToList();
-
-                // 将低分的已完成的也加入 completed（但不占 beam 位置）
-                // 已完成的在上面已经加入 completedBeams 了
+                beams = nextBestByFingerprint.Values
+                    .OrderByDescending(c => c.Score)
+                    .Take(currentBeamWidth)
+                    .ToList();
             }
 
             // ── 所有仍在活跃的 beam 也作为 END_TURN 完成 ──
@@ -196,8 +304,12 @@ namespace BotMain.AI
             BeamCandidate bestResult = null;
             foreach (var c in completedBeams)
             {
-                if (bestResult == null || c.Score > bestResult.Score)
+                if (bestResult == null
+                    || c.Score > bestResult.Score + 0.001f
+                    || (Math.Abs(c.Score - bestResult.Score) <= 0.001f && c.Actions.Count < bestResult.Actions.Count))
+                {
                     bestResult = c;
+                }
             }
 
             if (bestResult == null || bestResult.Actions.Count == 0)
@@ -211,11 +323,14 @@ namespace BotMain.AI
                 bestResult.Actions.Add(new GameAction { Type = ActionType.EndTurn });
 
             // ── 剥离无效幸运币 ──
-            // 如果幸运币是最后一个非 END_TURN 动作，说明打出后没有使用额外法力，浪費了幸运币。
-            StripTrailingCoin(bestResult.Actions);
+            // 若移除幸运币后其余动作仍可完整执行，说明幸运币没有产生实际节奏收益，应直接移除。
+            if (hasProfileRules)
+                StripTrailingCoin(bestResult.Actions, board);
+            else
+                StripWastefulCoin(bestResult.Actions, board);
 
             var actionCount = bestResult.Actions.Count(a => a.Type != ActionType.EndTurn);
-            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}");
+            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}, transpositionPruned={transpositionPrunedCount}, transpositionCacheHit={transpositionCacheHitCount}, mergedState={mergedStateCount}, duplicateActions={duplicateActionCount}, profileBlocked={profileBlockedCount}, heuristicPruned={heuristicPrunedCount}");
 
             // ── 详细回合决策日志 ──
             {
@@ -224,7 +339,14 @@ namespace BotMain.AI
                 sb.AppendLine("                    [当前回合决策]");
                 sb.AppendLine("============================================================");
                 sb.AppendLine($"评估了 {totalExpansions} 种打法（{completedBeams.Count} 条完整路径），最高得分：{bestResult.Score:0.#} 分");
-                sb.AppendLine($"搜索耗时：{sw.ElapsedMilliseconds}ms，搜索深度：{MaxDepth}，Beam 宽度：{BeamWidth}");
+
+                var dynamicMinForLog = dynamicBeamMinUsed == int.MaxValue ? lastBeamWidthUsed : dynamicBeamMinUsed;
+                var dynamicMaxForLog = dynamicBeamMaxUsed <= 0 ? lastBeamWidthUsed : dynamicBeamMaxUsed;
+                if (UseDynamicBeamWidth)
+                    sb.AppendLine($"搜索耗时：{sw.ElapsedMilliseconds}ms，搜索深度：{MaxDepth}，Beam 宽度：基础 {BeamWidth}，动态 {dynamicMinForLog}-{dynamicMaxForLog}");
+                else
+                    sb.AppendLine($"搜索耗时：{sw.ElapsedMilliseconds}ms，搜索深度：{MaxDepth}，Beam 宽度：{BeamWidth}");
+
                 sb.AppendLine($"初始场面得分：{initialScore:0.#} 分 → 最终得分：{bestResult.Score:0.#} 分（{(bestResult.Score - initialScore >= 0 ? "+" : "")}{(bestResult.Score - initialScore):0.#}）");
                 sb.AppendLine("------------------------------------------------------------");
 
@@ -403,6 +525,442 @@ namespace BotMain.AI
             catch { return true; }
         }
 
+        private static bool IsDominatedState(
+            Dictionary<ulong, float> bestScoreByFingerprint,
+            ulong fingerprint,
+            float score,
+            float minDelta)
+        {
+            if (!bestScoreByFingerprint.TryGetValue(fingerprint, out var bestScore))
+                return false;
+
+            var delta = Math.Max(0f, minDelta);
+            return bestScore >= score + delta;
+        }
+
+        private static void UpdateBestStateScore(
+            Dictionary<ulong, float> bestScoreByFingerprint,
+            ulong fingerprint,
+            float score)
+        {
+            if (!bestScoreByFingerprint.TryGetValue(fingerprint, out var existing) || score > existing)
+                bestScoreByFingerprint[fingerprint] = score;
+        }
+
+        private static void AddOrReplaceCandidate(
+            Dictionary<ulong, BeamCandidate> nextBestByFingerprint,
+            BeamCandidate candidate,
+            ref int mergedStateCount)
+        {
+            if (candidate == null) return;
+
+            if (!nextBestByFingerprint.TryGetValue(candidate.Fingerprint, out var existing))
+            {
+                nextBestByFingerprint[candidate.Fingerprint] = candidate;
+                return;
+            }
+
+            mergedStateCount++;
+            if (candidate.Score > existing.Score + 0.001f
+                || (Math.Abs(candidate.Score - existing.Score) <= 0.001f
+                    && candidate.Actions.Count < existing.Actions.Count))
+            {
+                nextBestByFingerprint[candidate.Fingerprint] = candidate;
+            }
+        }
+
+        private float GetOrEvaluateBoardScore(
+            SimBoard board,
+            ulong fingerprint,
+            ProfileParameters param,
+            Dictionary<ulong, float> boardScoreCacheByFingerprint,
+            ref int transpositionCacheHitCount)
+        {
+            if (boardScoreCacheByFingerprint.TryGetValue(fingerprint, out var cached))
+            {
+                transpositionCacheHitCount++;
+                return cached;
+            }
+
+            var score = _eval.Evaluate(board, param);
+            boardScoreCacheByFingerprint[fingerprint] = score;
+            return score;
+        }
+
+        private int ComputeDynamicBeamWidth(int depth, IReadOnlyList<BeamCandidate> activeBeams, float avgCandidatesPerBeam)
+        {
+            int baseWidth = Math.Max(1, BeamWidth);
+            if (activeBeams == null || activeBeams.Count == 0) return baseWidth;
+
+            float avgMana = activeBeams.Average(b => (float)Math.Max(0, b.Board?.Mana ?? 0));
+            float avgMaxMana = activeBeams.Average(b => (float)Math.Max(1, b.Board?.MaxMana ?? 1));
+            float avgHand = activeBeams.Average(b => (float)Math.Max(0, b.Board?.Hand?.Count ?? 0));
+
+            float manaRatio = Clamp01(avgMana / avgMaxMana);
+            float handRatio = Math.Min(1.5f, avgHand / 7f);
+            float depthRatio = MaxDepth <= 1 ? 1f : (float)depth / (MaxDepth - 1);
+            float branchRatio = avgCandidatesPerBeam <= 0f
+                ? 0.5f
+                : Math.Min(2.2f, avgCandidatesPerBeam / Math.Max(2f, baseWidth));
+
+            // 开局资源与分支数高时放宽，越往后越收敛。
+            float expansion = 0.7f + manaRatio * 0.9f + handRatio * 0.35f;
+            float contraction = 1f - depthRatio * 0.5f;
+            float width = baseWidth * expansion * contraction * (0.75f + branchRatio * 0.45f);
+
+            if (avgMana <= 1f || avgCandidatesPerBeam <= 2f) width *= 0.55f;
+            if (avgMana <= 0.1f) width *= 0.7f;
+
+            int minWidth = Math.Max(2, (int)Math.Ceiling(baseWidth * 0.45f));
+            int maxWidth = Math.Max(baseWidth + 1, (int)Math.Ceiling(baseWidth * 2.2f));
+            return ClampInt((int)Math.Round(width), minWidth, maxWidth);
+        }
+
+        private bool TryHeuristicPruneAction(SimBoard board, GameAction action, out string reason)
+        {
+            reason = null;
+            if (board == null || action == null) return false;
+
+            // 赤红深渊（含核心版）：对敌方随从使用时，若不能当场击杀通常是亏节奏（会给其 +2 攻）。
+            if (IsCrimsonAbyssAction(action) && action.Target != null && !action.Target.IsFriend)
+            {
+                var target = action.Target;
+                bool lethal = !target.IsImmune && !target.IsDivineShield && target.Health <= 1;
+                if (!lethal)
+                {
+                    reason = "REV_990 on enemy minion without lethal";
+                    return true;
+                }
+            }
+
+            // 牧师治疗英雄技能：对已满血英雄使用通常是纯浪费。
+            if (action.Type == ActionType.HeroPower
+                && board.FriendClass == Card.CClass.PRIEST
+                && !IsPriestDamageHeroPower(board)
+                && action.Target != null
+                && action.Target.IsFriend
+                && action.Target.Type == Card.CType.HERO
+                && IsAtFullHealth(action.Target))
+            {
+                reason = "heal full-health hero with hero power";
+                return true;
+            }
+
+            if (action.Type != ActionType.PlayCard) return false;
+
+            var source = action.Source;
+            if (source == null || source.Type != Card.CType.SPELL) return false;
+            if (_effectDb == null) return false;
+
+            var kinds = _effectDb.GetEffectKinds(source.CardId, EffectTrigger.Spell);
+            if (kinds == EffectKind.None) return false;
+
+            // 对满血英雄使用纯治疗法术。
+            if (action.Target != null
+                && action.Target.IsFriend
+                && action.Target.Type == Card.CType.HERO
+                && IsAtFullHealth(action.Target)
+                && IsPureHealEffect(kinds))
+            {
+                reason = "heal full-health hero";
+                return true;
+            }
+
+            // 无目标纯治疗且全体友方都不缺血。
+            if (action.Target == null
+                && IsPureHealEffect(kinds)
+                && !HasAnyInjuredFriendlyCharacter(board))
+            {
+                reason = "pure-heal while all friendly are full health";
+                return true;
+            }
+
+            // 对己方核心随从施放明确伤害/摧毁类法术（保留受伤联动例外）。
+            if (action.Target != null
+                && action.Target.IsFriend
+                && action.Target.Type == Card.CType.MINION
+                && (kinds & (EffectKind.Damage | EffectKind.Destroy)) != 0
+                && IsCoreFriendlyMinion(action.Target)
+                && !HasSelfDamageException(action.Target))
+            {
+                reason = "damage/destroy core friendly minion";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsCrimsonAbyssAction(GameAction action)
+        {
+            if (action == null || action.Source == null) return false;
+            if (action.Type != ActionType.UseLocation && action.Type != ActionType.PlayCard) return false;
+            return action.Source.CardId == Card.Cards.REV_990 || action.Source.CardId == Card.Cards.CORE_REV_990;
+        }
+
+        private bool HasSelfDamageException(SimEntity minion)
+        {
+            if (minion == null) return false;
+            if (minion.EnrageBonusActive) return true;
+            return _effectDb != null && _effectDb.Has(minion.CardId, EffectTrigger.AfterDamaged);
+        }
+
+        private static bool IsCoreFriendlyMinion(SimEntity minion)
+        {
+            if (minion == null || minion.Type != Card.CType.MINION) return false;
+
+            if (minion.SpellPower > 0
+                || minion.IsWindfury
+                || minion.HasPoison
+                || minion.IsLifeSteal
+                || minion.HasDeathrattle
+                || minion.HasReborn
+                || minion.IsTaunt
+                || minion.IsDivineShield)
+            {
+                return true;
+            }
+
+            var value = minion.Atk * 1.4f + minion.Health;
+            return value >= 7.5f;
+        }
+
+        private static bool HasAnyInjuredFriendlyCharacter(SimBoard board)
+        {
+            if (board == null) return false;
+            if (board.FriendHero != null && board.FriendHero.Health < board.FriendHero.MaxHealth) return true;
+            return board.FriendMinions.Any(m => m != null && m.Health < m.MaxHealth);
+        }
+
+        private static bool IsPureHealEffect(EffectKind kinds)
+        {
+            if ((kinds & EffectKind.Heal) == 0) return false;
+            var nonHeal = kinds & ~EffectKind.Heal;
+            return nonHeal == EffectKind.None;
+        }
+
+        private static bool IsAtFullHealth(SimEntity entity)
+            => entity != null && entity.Health >= entity.MaxHealth;
+
+        private static bool IsPriestDamageHeroPower(SimBoard board)
+        {
+            if (board?.HeroPower == null) return false;
+            var name = board.HeroPower.CardId.ToString();
+            return name == "EX1_625"
+                || name == "EX1_625t"
+                || name.Contains("MindSpike")
+                || name.Contains("SCH_270")
+                || name.Contains("YOP_028");
+        }
+
+        private static float Clamp01(float value)
+        {
+            if (value < 0f) return 0f;
+            if (value > 1f) return 1f;
+            return value;
+        }
+
+        private static int ClampInt(int value, int min, int max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
+        }
+
+        private static float EstimateActionPriority(SimBoard board, GameAction action, ProfileActionScore profileScore)
+        {
+            if (action == null) return 0f;
+
+            float p = profileScore?.Bonus ?? 0f;
+
+            switch (action.Type)
+            {
+                case ActionType.Attack:
+                    {
+                        var source = action.Source;
+                        var target = action.Target;
+                        if (target == null) return p;
+
+                        var isFace = board?.EnemyHero != null && target.EntityId == board.EnemyHero.EntityId;
+                        if (isFace)
+                        {
+                            p += Math.Max(0f, (source?.Atk ?? 0) * 0.35f);
+                            int enemyEhp = (board?.EnemyHero?.Health ?? 0) + (board?.EnemyHero?.Armor ?? 0);
+                            if (enemyEhp > 0 && enemyEhp <= 15) p += 2f;
+                        }
+                        else
+                        {
+                            p += target.Atk * 0.55f + target.Health * 0.15f;
+                            if (target.HasPoison) p += 2.5f;
+                            if (target.IsWindfury) p += 1.5f;
+                            if (target.SpellPower > 0) p += target.SpellPower * 1.2f;
+                            if (target.IsTaunt) p += 1.2f;
+                        }
+
+                        if (source != null)
+                        {
+                            if (source.HasPoison && !isFace) p += 1.5f;
+                            if (source.IsFrozen || source.Atk <= 0) p -= 2f;
+                        }
+                        break;
+                    }
+
+                case ActionType.PlayCard:
+                    {
+                        var card = action.Source;
+                        if (card == null) return p;
+
+                        p += Math.Min(6f, card.Cost * 0.6f);
+                        if (card.Type == Card.CType.MINION)
+                            p += card.Atk * 0.25f + card.Health * 0.2f + (card.HasBattlecry ? 0.8f : 0f);
+                        else if (card.Type == Card.CType.SPELL)
+                            p += 0.8f;
+                        else if (card.Type == Card.CType.WEAPON)
+                            p += Math.Max(0f, card.Atk * 0.6f);
+                        else if (card.Type == Card.CType.LOCATION)
+                            p += 1f;
+                        break;
+                    }
+
+                case ActionType.HeroPower:
+                    p += 0.6f;
+                    break;
+
+                case ActionType.TradeCard:
+                    p += board != null && board.Hand.Count >= 8 ? 1.5f : 0.25f;
+                    break;
+
+                case ActionType.UseLocation:
+                    p += 1.1f;
+                    if (action.Target != null)
+                        p += action.Target.Atk * 0.2f;
+                    break;
+            }
+
+            return p;
+        }
+
+        private const ulong FnvOffsetBasis = 14695981039346656037UL;
+        private const ulong FnvPrime = 1099511628211UL;
+
+        private static ulong ComputeBoardFingerprint(SimBoard board, bool ignoreEntityListOrder)
+        {
+            ulong h = FnvOffsetBasis;
+            if (board == null) return h;
+
+            HashInt(ref h, board.Mana);
+            HashInt(ref h, board.MaxMana);
+            HashBool(ref h, board.HeroPowerUsed);
+            HashInt(ref h, board.CardsPlayedThisTurn);
+            HashInt(ref h, board.FriendCardDraw);
+            HashInt(ref h, (int)board.FriendClass);
+            HashInt(ref h, (int)board.EnemyClass);
+
+            HashEntity(ref h, board.FriendHero);
+            HashEntity(ref h, board.EnemyHero);
+            HashEntity(ref h, board.FriendWeapon);
+            HashEntity(ref h, board.EnemyWeapon);
+            HashEntity(ref h, board.HeroPower);
+
+            HashEntityList(ref h, board.FriendMinions, ignoreEntityListOrder);
+            HashEntityList(ref h, board.EnemyMinions, ignoreEntityListOrder);
+            HashEntityList(ref h, board.Hand, ignoreEntityListOrder);
+
+            HashInt(ref h, board.FriendDeckCards?.Count ?? 0);
+            if (board.FriendDeckCards != null)
+            {
+                foreach (var cardId in board.FriendDeckCards)
+                    HashInt(ref h, (int)cardId);
+            }
+
+            return h;
+        }
+
+        private static void HashEntityList(ref ulong h, List<SimEntity> list, bool ignoreOrder)
+        {
+            HashInt(ref h, list?.Count ?? 0);
+            if (list == null) return;
+
+            if (!ignoreOrder)
+            {
+                foreach (var e in list)
+                    HashEntity(ref h, e);
+                return;
+            }
+
+            var entityHashes = new List<ulong>(list.Count);
+            foreach (var e in list)
+            {
+                ulong eh = FnvOffsetBasis;
+                HashEntity(ref eh, e);
+                entityHashes.Add(eh);
+            }
+
+            entityHashes.Sort();
+            foreach (var eh in entityHashes)
+                HashULong(ref h, eh);
+        }
+
+        private static void HashEntity(ref ulong h, SimEntity e)
+        {
+            if (e == null)
+            {
+                HashInt(ref h, -1);
+                return;
+            }
+
+            HashInt(ref h, (int)e.CardId);
+            HashInt(ref h, e.EntityId);
+            HashInt(ref h, e.Atk);
+            HashInt(ref h, e.Health);
+            HashInt(ref h, e.MaxHealth);
+            HashInt(ref h, e.Armor);
+            HashInt(ref h, e.Cost);
+            HashInt(ref h, e.SpellPower);
+            HashInt(ref h, e.CountAttack);
+            HashInt(ref h, (int)e.Type);
+
+            HashBool(ref h, e.IsFriend);
+            HashBool(ref h, e.IsTaunt);
+            HashBool(ref h, e.IsDivineShield);
+            HashBool(ref h, e.IsWindfury);
+            HashBool(ref h, e.HasPoison);
+            HashBool(ref h, e.IsLifeSteal);
+            HashBool(ref h, e.HasReborn);
+            HashBool(ref h, e.IsFrozen);
+            HashBool(ref h, e.IsImmune);
+            HashBool(ref h, e.IsSilenced);
+            HashBool(ref h, e.IsStealth);
+            HashBool(ref h, e.HasCharge);
+            HashBool(ref h, e.HasRush);
+            HashBool(ref h, e.IsTired);
+            HashBool(ref h, e.IsTradeable);
+            HashBool(ref h, e.HasBattlecry);
+            HashBool(ref h, e.HasDeathrattle);
+            HashBool(ref h, e.EnrageBonusActive);
+            HashBool(ref h, e.UseBoardCanAttack);
+            HashBool(ref h, e.BoardCanAttack);
+        }
+
+        private static void HashInt(ref ulong h, int value)
+        {
+            unchecked
+            {
+                h ^= (uint)value;
+                h *= FnvPrime;
+            }
+        }
+
+        private static void HashULong(ref ulong h, ulong value)
+        {
+            unchecked
+            {
+                HashInt(ref h, (int)(value & 0xFFFFFFFFUL));
+                HashInt(ref h, (int)(value >> 32));
+            }
+        }
+
+        private static void HashBool(ref ulong h, bool value) => HashInt(ref h, value ? 1 : 0);
+
         private bool TryApplyAction(SimBoard board, GameAction action)
         {
             try
@@ -506,24 +1064,88 @@ namespace BotMain.AI
         }
 
         /// <summary>
-        /// 如果幸运币（GAME_005）是最后一个非 END_TURN 动作，则移除它。
-        /// 因为打出幸运币后没有使用额外法力就结束回合是浪费。
+        /// 在 profile 生效时仅做最保守的幸运币剥离：
+        /// 只移除“最后一个非 END_TURN 动作”为幸运币且移除后仍可执行的情况。
         /// </summary>
-        private static void StripTrailingCoin(List<GameAction> actions)
+        private void StripTrailingCoin(List<GameAction> actions, SimBoard initialBoard)
         {
-            // 从末尾向前找到最后一个非 END_TURN 动作
+            if (actions == null || actions.Count == 0 || initialBoard == null) return;
+
+            int lastNonEnd = -1;
             for (int i = actions.Count - 1; i >= 0; i--)
             {
-                if (actions[i].Type == ActionType.EndTurn) continue;
+                var a = actions[i];
+                if (a == null || a.Type == ActionType.EndTurn) continue;
+                lastNonEnd = i;
+                break;
+            }
+            if (lastNonEnd < 0) return;
 
-                // 检查是否是幸运币
-                if (actions[i].Type == ActionType.PlayCard
-                    && actions[i].Source?.CardId == SmartBot.Plugins.API.Card.Cards.GAME_005)
+            var lastAction = actions[lastNonEnd];
+            if (lastAction.Type != ActionType.PlayCard) return;
+            if (lastAction.Source?.CardId != SmartBot.Plugins.API.Card.Cards.GAME_005) return;
+
+            var planWithoutTrailingCoin = new List<GameAction>();
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (i == lastNonEnd) continue;
+                var a = actions[i];
+                if (a == null || a.Type == ActionType.EndTurn) continue;
+                planWithoutTrailingCoin.Add(a);
+            }
+
+            if (CanExecutePlan(initialBoard, planWithoutTrailingCoin))
+            {
+                actions.RemoveAt(lastNonEnd);
+                OnLog?.Invoke("[AI] strip trailing coin: removed GAME_005 (trailing/no extra tempo)");
+            }
+        }
+
+        /// <summary>
+        /// 移除浪费的幸运币：如果删掉某个幸运币动作后，其余动作序列仍可完整执行，则该幸运币无效。
+        /// </summary>
+        private void StripWastefulCoin(List<GameAction> actions, SimBoard initialBoard)
+        {
+            if (actions == null || actions.Count == 0 || initialBoard == null) return;
+
+            for (int i = actions.Count - 1; i >= 0; i--)
+            {
+                var action = actions[i];
+                if (action == null) continue;
+                if (action.Type != ActionType.PlayCard) continue;
+                if (action.Source?.CardId != SmartBot.Plugins.API.Card.Cards.GAME_005) continue;
+
+                var planWithoutCoin = new List<GameAction>();
+                for (int j = 0; j < actions.Count; j++)
+                {
+                    if (j == i) continue;
+                    var a = actions[j];
+                    if (a == null || a.Type == ActionType.EndTurn) continue;
+                    planWithoutCoin.Add(a);
+                }
+
+                if (CanExecutePlan(initialBoard, planWithoutCoin))
                 {
                     actions.RemoveAt(i);
+                    OnLog?.Invoke("[AI] strip wasteful coin: removed GAME_005 (plan executable without coin)");
                 }
-                break; // 只检查最后一个非 END_TURN 动作
             }
+        }
+
+        private bool CanExecutePlan(SimBoard initialBoard, List<GameAction> plan)
+        {
+            if (initialBoard == null) return false;
+            if (plan == null || plan.Count == 0) return true;
+
+            var clone = initialBoard.Clone();
+            foreach (var action in plan)
+            {
+                if (action == null) continue;
+                if (!TryApplyAction(clone, action))
+                    return false;
+            }
+
+            return true;
         }
     }
 }

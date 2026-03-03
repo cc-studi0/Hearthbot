@@ -840,10 +840,20 @@ namespace HearthstonePayload
 
         public string ClickDismiss()
         {
-            var w = MouseSimulator.GetScreenWidth();
-            var h = MouseSimulator.GetScreenHeight();
+            // Screen.width/height 必须在主线程读取，后台线程返回 0
+            // 但 ClickAt → RunAndWait 需要 Update() 驱动协程，
+            // 不能放在 OnMain 里（否则死锁），所以只在主线程查屏幕尺寸
+            var dims = OnMain(() =>
+            {
+                var sw = MouseSimulator.GetScreenWidth();
+                var sh = MouseSimulator.GetScreenHeight();
+                return new int[] { sw, sh };
+            });
+            var w = dims[0];
+            var h = dims[1];
             if (w <= 0 || h <= 0) return "ERROR:no_screen";
-            return ClickAt(w / 2, (int)(h * 0.6f), 0.5f);
+            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h));
+            return result ?? "ERROR:click_failed";
         }
 
         private string ClickAt(int x, int y, float delayAfter)
@@ -871,6 +881,34 @@ namespace HearthstonePayload
             MouseSimulator.LeftUp();
             yield return delayAfter;
             _coroutine.SetResult("OK");
+        }
+
+        /// <summary>
+        /// 对局结束页通常“任意位置可点击继续”，
+        /// 这里固定以屏幕中心为主，辅以轻微偏移点做容错。
+        /// </summary>
+        private IEnumerator<float> MouseDismissClickSequence(int w, int h)
+        {
+            InputHook.Simulating = true;
+            var cx = w / 2;
+            var cy = h / 2;
+            var points = new[]
+            {
+                (x: cx, y: cy),
+                (x: cx + Math.Max(10, w / 40), y: cy),
+                (x: cx - Math.Max(10, w / 40), y: cy),
+            };
+
+            foreach (var p in points)
+            {
+                foreach (var wait in SmoothMove(p.x, p.y)) yield return wait;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                yield return 0.18f;
+            }
+
+            _coroutine.SetResult("OK:center_multi");
         }
 
         private static string WrapClickResult(string clickResult, string detail)

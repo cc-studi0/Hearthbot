@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using BepInEx;
@@ -109,8 +110,15 @@ namespace HearthstonePayload
                             _pipe.Write("NO_GAME");
                         else
                         {
-                            if (state.Result != GameResult.None)
-                                _lastGameResult = state.Result.ToString().ToUpper();
+                            if (state.IsGameOver || state.Result != GameResult.None)
+                            {
+                                _lastGameResult = state.Result != GameResult.None
+                                    ? state.Result.ToString().ToUpper()
+                                    : "NONE";
+                                // 对局已结算：主动返回 NO_GAME，让上层立即走结算/跳过动画/自动开始下一局流程
+                                _pipe.Write("NO_GAME");
+                                continue;
+                            }
                             if (state.IsMulliganPhase)
                                 _pipe.Write("MULLIGAN");
                             else if (!state.IsOurTurn)
@@ -121,6 +129,23 @@ namespace HearthstonePayload
                     }
                     else if (cmd == "GET_RESULT")
                     {
+                        if (_lastGameResult == "NONE")
+                        {
+                            for (var i = 0; i < 15; i++)
+                            {
+                                var state = reader.ReadGameState();
+                                if (state != null && state.Result != GameResult.None)
+                                {
+                                    _lastGameResult = state.Result.ToString().ToUpper();
+                                    break;
+                                }
+
+                                if (state == null || !state.IsGameOver)
+                                    break;
+
+                                Thread.Sleep(100);
+                            }
+                        }
                         _pipe.Write("RESULT:" + _lastGameResult);
                         _lastGameResult = "NONE";
                     }
@@ -159,10 +184,8 @@ namespace HearthstonePayload
                         var payload = cmd.Length > "APPLY_MULLIGAN:".Length
                             ? cmd.Substring("APPLY_MULLIGAN:".Length)
                             : string.Empty;
-                        // 必须在主线程执行，ApplyMulligan 会反射调用 MulliganManager 的 ToggleHoldState / OnMulliganButtonReleased
-                        var applyResult = RunOnMainThread(() =>
-                            (object)ActionExecutor.ApplyMulligan(payload));
-                        _pipe.Write(applyResult as string ?? "ERROR:main_thread_timeout");
+                        // 交由协程在主线程逐帧执行鼠标点击与确认逻辑
+                        _pipe.Write(ActionExecutor.ApplyMulligan(payload));
                     }
                     else if (cmd == "GET_SCENE")
                     {
@@ -214,10 +237,16 @@ namespace HearthstonePayload
                     {
                         _pipe.Write(ActionExecutor.ApplyChoice(int.Parse(cmd.Substring("APPLY_CHOICE:".Length))));
                     }
+                    else if (cmd.StartsWith("APPLY_CHOICE_API:", StringComparison.Ordinal))
+                    {
+                        _pipe.Write(ActionExecutor.ApplyChoiceApi(int.Parse(cmd.Substring("APPLY_CHOICE_API:".Length))));
+                    }
                     else if (cmd.StartsWith("CLICK_SCREEN:", StringComparison.Ordinal))
                     {
                         var xy = cmd.Substring("CLICK_SCREEN:".Length).Split(',');
-                        if (xy.Length == 2 && float.TryParse(xy[0], out var rx) && float.TryParse(xy[1], out var ry))
+                        if (xy.Length == 2
+                            && float.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var rx)
+                            && float.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ry))
                             _pipe.Write(ActionExecutor.ClickScreen(rx, ry));
                         else
                             _pipe.Write("ERROR:CLICK_SCREEN:bad_args");

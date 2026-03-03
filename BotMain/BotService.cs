@@ -54,6 +54,7 @@ namespace BotMain
         private string[] _assemblyResolveSearchDirs = Array.Empty<string>();
 
         private int _modeIndex;
+        private const int TestModeIndex = 99;
         private string _selectedDeck = "(auto)";
         private string _mulliganProfile = "None";
         private string _discoverProfile = "None";
@@ -581,6 +582,7 @@ namespace BotMain
             int lastTurnNumber = -1;
             int resimulationCount = 0;
             int actionFailStreak = 0;
+            DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
 
             while (_running && pipe != null && pipe.IsConnected)
@@ -634,7 +636,16 @@ namespace BotMain
                 }
 
                 var seedSw = Stopwatch.StartNew();
-                var resp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
+                var gotSeedResp = TrySendAndReceiveExpected(
+                    pipe,
+                    "GET_SEED",
+                    MainLoopGetSeedTimeoutMs,
+                    r => r.StartsWith("SEED:", StringComparison.Ordinal)
+                        || string.Equals(r, "NO_GAME", StringComparison.Ordinal)
+                        || string.Equals(r, "MULLIGAN", StringComparison.Ordinal)
+                        || string.Equals(r, "NOT_OUR_TURN", StringComparison.Ordinal),
+                    out var resp,
+                    "MainLoop");
                 seedSw.Stop();
                 UpdateLatency((int)seedSw.ElapsedMilliseconds);
                 if (seedSw.ElapsedMilliseconds >= MainLoopSlowGetSeedLogThresholdMs)
@@ -646,7 +657,7 @@ namespace BotMain
                         respType = respType.Substring(0, 40);
                     Log($"[Timing] GET_SEED took {seedSw.ElapsedMilliseconds}ms, resp={respType}");
                 }
-                if (resp == null)
+                if (!gotSeedResp || resp == null)
                 {
                     Log("[MainLoop] GET_SEED -> null");
                     Thread.Sleep(300);
@@ -680,6 +691,7 @@ namespace BotMain
                         }
                         _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
                         notOurTurnStreak = 0;
+                        nextPostGameDismissUtc = DateTime.MinValue;
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
@@ -693,6 +705,7 @@ namespace BotMain
                             _pluginSystem?.FireOnGameBegin();
                         }
                         notOurTurnStreak = 0;
+                        nextPostGameDismissUtc = DateTime.MinValue;
                         mulliganStreak++;
 
                         // 首次检测到留牌阶段，等待2秒再处理
@@ -736,6 +749,52 @@ namespace BotMain
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         notOurTurnStreak++;
+                        if (notOurTurnStreak >= 25
+                            && DateTime.UtcNow >= nextPostGameDismissUtc)
+                        {
+                            // 先看场景，若已不在对局场景则直接走 NO_GAME 处理，避免卡在假 NOT_OUR_TURN 状态
+                            var sceneResp = pipe.SendAndReceive("GET_SCENE", 2500) ?? "NO_RESPONSE";
+                            var scene = sceneResp.StartsWith("SCENE:", StringComparison.Ordinal)
+                                ? sceneResp.Substring("SCENE:".Length)
+                                : sceneResp;
+                            if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Log($"[MainLoop] NOT_OUR_TURN 持续 {notOurTurnStreak} 次，scene={scene}，按对局结束处理。");
+                                if (wasInGame)
+                                {
+                                    wasInGame = false;
+                                    lastTurnNumber = -1;
+                                    var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
+                                    HandleGameResult(resultResp);
+                                    _pluginSystem?.FireOnGameEnd();
+                                    CheckRunLimits();
+                                }
+                                _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
+                                notOurTurnStreak = 0;
+                                nextPostGameDismissUtc = DateTime.MinValue;
+                                mulliganStreak = 0;
+                                mulliganHandled = false;
+                                nextMulliganAttemptUtc = DateTime.MinValue;
+                                AutoQueue(pipe);
+                                continue;
+                            }
+
+                            var readyResp = pipe.SendAndReceive("WAIT_READY", 1200) ?? "NO_RESPONSE";
+                            var shouldForceDismiss = wasInGame && notOurTurnStreak >= 60;
+                            if (string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase) || shouldForceDismiss)
+                            {
+                                var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 3000) ?? "NO_RESPONSE";
+                                var reason = string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase)
+                                    ? "WAIT_READY=READY"
+                                    : $"force(streak={notOurTurnStreak},ready={readyResp})";
+                                Log($"[MainLoop] NOT_OUR_TURN 持续 {notOurTurnStreak} 次，{reason}，尝试点击跳过结算 -> {dismissResp}");
+                            }
+
+                            // 卡住越久，尝试频率越高
+                            nextPostGameDismissUtc = notOurTurnStreak >= 120
+                                ? DateTime.UtcNow.AddSeconds(1)
+                                : DateTime.UtcNow.AddSeconds(2);
+                        }
                         if (notOurTurnStreak % 15 == 0)
                             Log("[MainLoop] waiting for our turn...");
                         Thread.Sleep(300);
@@ -743,6 +802,7 @@ namespace BotMain
                     else
                     {
                         notOurTurnStreak = 0;
+                        nextPostGameDismissUtc = DateTime.MinValue;
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
@@ -753,6 +813,7 @@ namespace BotMain
                 }
 
                 notOurTurnStreak = 0;
+                nextPostGameDismissUtc = DateTime.MinValue;
                 mulliganStreak = 0;
                 mulliganHandled = false;
                 nextMulliganAttemptUtc = DateTime.MinValue;
@@ -1293,7 +1354,8 @@ namespace BotMain
                 // 始终选择"维持"，避免回溯导致无限循环
                 int pickedIndex = -1;
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
-                if (maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb"))
+                var isRewindChoice = maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb");
+                if (isRewindChoice)
                 {
                     pickedIndex = maintainIdx;
                     Log($"[Discover] Rewind detected (origin={originCardId}), auto-picking Maintain (index={pickedIndex})");
@@ -1307,9 +1369,18 @@ namespace BotMain
                         pickedIndex = 0;
                 }
 
-                var pickResult = pipe.SendAndReceive(
-                    "APPLY_CHOICE:" + choiceEntityIds[pickedIndex], 5000) ?? "NO_RESPONSE";
                 var pickedCardId = choiceCardIds[pickedIndex];
+                var pickedEntityId = choiceEntityIds[pickedIndex];
+                var confirmed = TryApplyDiscoverChoice(
+                    pipe, payload, pickedEntityId, isRewindChoice,
+                    out var pickResult, out var confirmDetail);
+
+                if (!confirmed)
+                {
+                    Log($"[Discover] 选择未确认 origin={originCardId} picked={pickedCardId} apply={pickResult} confirm={confirmDetail}");
+                    continue;
+                }
+
                 string pickedCardName = pickedCardId;
                 try
                 {
@@ -1325,11 +1396,79 @@ namespace BotMain
                 catch { }
                 Log($"[Discover] 选择了  {pickedCardName} ({pickedCardId})");
                 Log($"[Discover] origin={originCardId} choices=[{string.Join(",", choiceCardIds)}] " +
-                    $"picked={pickedCardId} -> {pickResult}");
+                    $"picked={pickedCardId} -> {pickResult}, confirm={confirmDetail}");
 
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
             }
+        }
+
+        private bool TryApplyDiscoverChoice(
+            PipeServer pipe,
+            string previousPayload,
+            int pickedEntityId,
+            bool isRewindChoice,
+            out string pickResult,
+            out string confirmDetail)
+        {
+            pickResult = "NO_RESPONSE";
+            confirmDetail = "apply_not_ok";
+
+            if (isRewindChoice)
+            {
+                pickResult = pipe.SendAndReceive("APPLY_CHOICE_API:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+                if (!pickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                return TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out confirmDetail);
+            }
+
+            pickResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            if (!pickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out confirmDetail);
+        }
+
+        private bool TryConfirmDiscoverChoiceApplied(PipeServer pipe, string previousPayload, out string detail)
+        {
+            detail = "timeout";
+            if (pipe == null || !pipe.IsConnected)
+            {
+                detail = "pipe_disconnected";
+                return false;
+            }
+
+            for (int i = 0; i < 14; i++)
+            {
+                Thread.Sleep(80);
+                var resp = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
+                if (string.IsNullOrWhiteSpace(resp))
+                    continue;
+
+                if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                {
+                    detail = "closed";
+                    return true;
+                }
+
+                if (resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
+                {
+                    var currentPayload = resp.Substring("CHOICE_STATE:".Length);
+                    if (!string.Equals(currentPayload, previousPayload, StringComparison.Ordinal))
+                    {
+                        detail = "changed";
+                        return true;
+                    }
+
+                    detail = "unchanged";
+                    continue;
+                }
+
+                detail = "unexpected:" + (resp.Length > 40 ? resp.Substring(0, 40) : resp);
+            }
+
+            return false;
         }
 
         private int RunDiscoverStrategy(string originCardId, List<string> choiceCardIds, string seed)
@@ -1397,43 +1536,117 @@ namespace BotMain
                 || normalized.Contains("wait:mulligan_manager");
         }
 
+        private bool TrySendAndReceiveExpected(
+            PipeServer pipe,
+            string command,
+            int timeoutMs,
+            Func<string, bool> isExpected,
+            out string response,
+            string scope)
+        {
+            response = null;
+            if (pipe == null || !pipe.IsConnected || string.IsNullOrWhiteSpace(command))
+                return false;
+
+            if (!pipe.Send(command))
+                return false;
+
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                var remaining = (int)Math.Max(50, timeoutMs - sw.ElapsedMilliseconds);
+                var resp = pipe.Receive(remaining);
+                if (string.IsNullOrWhiteSpace(resp))
+                    continue;
+
+                if (isExpected != null && isExpected(resp))
+                {
+                    response = resp;
+                    return true;
+                }
+
+                if (IsCrossCommandResponse(resp))
+                {
+                    var shortResp = resp.Length > 80 ? resp.Substring(0, 80) : resp;
+                    Log($"[{scope}] {command} 收到错位响应，丢弃  {shortResp}");
+                    continue;
+                }
+
+                // 未识别为串包的未知响应，仍返回给调用方处理。
+                response = resp;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsCrossCommandResponse(string resp)
+        {
+            if (string.IsNullOrWhiteSpace(resp))
+                return false;
+
+            if (resp == "READY" || resp == "BUSY" || resp == "PONG")
+                return true;
+            if (resp == "MULLIGAN" || resp == "NOT_OUR_TURN" || resp == "NO_GAME" || resp == "NO_MULLIGAN")
+                return true;
+            if (resp.StartsWith("SEED:", StringComparison.Ordinal)
+                || resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
+                || resp.StartsWith("SCENE:", StringComparison.Ordinal)
+                || resp.StartsWith("DECKS:", StringComparison.Ordinal)
+                || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
+                || resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal)
+                || resp.StartsWith("RESULT:", StringComparison.Ordinal)
+                || resp.StartsWith("OK:", StringComparison.Ordinal)
+                || resp.StartsWith("FAIL:", StringComparison.Ordinal)
+                || resp.StartsWith("ERROR:", StringComparison.Ordinal))
+                return true;
+
+            return false;
+        }
+
         private bool TryApplyMulligan(PipeServer pipe, out string result)
         {
             result = "unknown";
 
             try
             {
-                var readyResp = pipe.SendAndReceive("WAIT_READY", 1200);
+                var gotReadyResp = TrySendAndReceiveExpected(
+                    pipe,
+                    "WAIT_READY",
+                    1200,
+                    r => string.Equals(r, "READY", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(r, "BUSY", StringComparison.OrdinalIgnoreCase),
+                    out var readyResp,
+                    "Mulligan");
+                if (!gotReadyResp)
+                {
+                    result = "waiting_for_ready:timeout";
+                    return false;
+                }
+
                 if (!string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase))
                 {
                     result = "waiting_for_ready:" + (readyResp ?? "null");
                     return false;
                 }
 
-                string stateResp = null;
-
-                // 重试机制：如果收到错位的响应（如 MULLIGAN、NO_GAME 等），丢弃并重试
-                for (int attempt = 0; attempt < 3; attempt++)
+                var gotStateResp = TrySendAndReceiveExpected(
+                    pipe,
+                    "GET_MULLIGAN_STATE",
+                    5000,
+                    r => r.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
+                        || string.Equals(r, "NO_MULLIGAN", StringComparison.Ordinal),
+                    out var stateResp,
+                    "Mulligan");
+                if (!gotStateResp)
                 {
-                    stateResp = pipe.SendAndReceive("GET_MULLIGAN_STATE", 5000);
-                    if (string.IsNullOrWhiteSpace(stateResp))
-                    {
-                        result = "GET_MULLIGAN_STATE -> null";
-                        return false;
-                    }
-
-                    if (stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
-                        || stateResp == "NO_MULLIGAN")
-                        break;  // 正确的响应
-                    // 错位响应，丢弃并重试
-                    Log($"[Mulligan] GET_MULLIGAN_STATE 收到错位响应，丢弃  {stateResp}");
-                    stateResp = null;
-                    Thread.Sleep(500);
+                    result = "GET_MULLIGAN_STATE -> timeout";
+                    return false;
                 }
 
                 if (stateResp == null || !stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal))
                 {
-                    result = stateResp ?? "retries_exhausted";
+                    result = stateResp ?? "NO_MULLIGAN";
                     return false;
                 }
 
@@ -1451,7 +1664,17 @@ namespace BotMain
 
                 var replaceEntityIds = GetMulliganReplaceEntityIds(snapshot, out var decisionInfo);
                 var applyPayload = string.Join(",", replaceEntityIds);
-                var applyResp = pipe.SendAndReceive("APPLY_MULLIGAN:" + applyPayload, 5000) ?? "NO_RESPONSE";
+                var gotApplyResp = TrySendAndReceiveExpected(
+                    pipe,
+                    "APPLY_MULLIGAN:" + applyPayload,
+                    5000,
+                    r => r.StartsWith("OK", StringComparison.OrdinalIgnoreCase)
+                        || r.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase)
+                        || r.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(r, "NO_RESPONSE", StringComparison.OrdinalIgnoreCase),
+                    out var applyRespRaw,
+                    "Mulligan");
+                var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
                 result = $"{decisionInfo}; replace={replaceEntityIds.Count}; apply={applyResp}";
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
@@ -1609,13 +1832,48 @@ namespace BotMain
             if (scene == null) { Thread.Sleep(1000); return; }
             scene = scene.StartsWith("SCENE:") ? scene.Substring(6) : scene;
 
-            if (scene == "GAMEPLAY")
+            if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
-                Log("[AutoQueue] 游戏结束动画中，点击跳过...");
-                pipe.SendAndReceive("CLICK_DISMISS", 5000);
+                Log("[AutoQueue] 游戏结束动画中，开始连续点击跳过...");
                 _findingGameSince = null;
-                Thread.Sleep(2000);
-                return;
+
+                var currentScene = scene;
+                var clickCount = 0;
+                var deadline = DateTime.UtcNow.AddSeconds(20);
+                while (_running
+                    && DateTime.UtcNow < deadline
+                    && string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 2500) ?? "NO_RESPONSE";
+                    clickCount++;
+
+                    var sceneResp = pipe.SendAndReceive("GET_SCENE", 2500) ?? "NO_RESPONSE";
+                    currentScene = sceneResp.StartsWith("SCENE:", StringComparison.Ordinal)
+                        ? sceneResp.Substring("SCENE:".Length)
+                        : sceneResp;
+
+                    if (clickCount <= 3
+                        || clickCount % 5 == 0
+                        || !string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[AutoQueue] CLICK_DISMISS[{clickCount}] -> {dismissResp}, scene={currentScene}");
+                    }
+
+                    if (!string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                        break;
+
+                    Thread.Sleep(250);
+                }
+
+                scene = currentScene;
+                if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"[AutoQueue] 仍在结算界面，连续点击 {clickCount} 次后等待下一轮重试。");
+                    Thread.Sleep(800);
+                    return;
+                }
+
+                Log($"[AutoQueue] 已离开结算界面 -> scene={scene}, clicks={clickCount}");
             }
 
             // 检查是否已在匹配中
@@ -1660,6 +1918,15 @@ namespace BotMain
             {
                 var navResp = pipe.SendAndReceive("NAV_TO:TOURNAMENT", 5000);
                 Log($"[AutoQueue] 导航到传统对战 {navResp}");
+                Thread.Sleep(5000);
+                return;
+            }
+
+            // 测试模式：不切换标准/狂野、不切卡组，只在卡组界面直接点击开始。
+            if (_modeIndex == TestModeIndex)
+            {
+                var playOnlyResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
+                Log($"[AutoQueue] 测试模式：直接点击开始 -> {playOnlyResp}");
                 Thread.Sleep(5000);
                 return;
             }

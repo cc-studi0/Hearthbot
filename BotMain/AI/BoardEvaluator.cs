@@ -14,6 +14,13 @@ namespace BotMain.AI
     /// </summary>
     public class BoardEvaluator
     {
+        private readonly CardEffectDB _db;
+
+        public BoardEvaluator(CardEffectDB db = null)
+        {
+            _db = db;
+        }
+
         // ── 权重常量（基线，会被 Profile 修饰符调整） ──
 
         // 英雄生命
@@ -204,6 +211,10 @@ namespace BotMain.AI
                     score -= incomingDmg * 0.3f;
             }
 
+            // ── 8.5 敌方反打换子风险（近似 enemyTurnPen） ──
+            // 评估我方高价值随从在下回合是否会被高效率吃掉，避免“当前回合看起来赚，实则送场面”。
+            score -= EstimateEnemyTradePenalty(board, GetModifierCoef(param?.GlobalDefenseModifier));
+
             // ── 9. 嘲讽墙价值 ──
             if (friendTauntCount > 0 && board.FriendHero != null)
             {
@@ -259,6 +270,7 @@ namespace BotMain.AI
             if (m.IsStealth)     val += 2f;                            // 潜行 = 安全
             if (m.IsImmune)      val += 5f;
             if (m.HasDeathrattle) val += 1.5f;                         // 亡语有额外价值
+            if (IsPersistentValueMinion(m)) val += 4f + m.Health * 0.5f; // 持续收益随从应尽量保命
 
             // 法术强度额外加分
             if (m.SpellPower > 0) val += m.SpellPower * 2f;
@@ -293,6 +305,7 @@ namespace BotMain.AI
             if (m.IsStealth)      val += 3f;                            // 潜行打不到
             if (m.IsImmune)       val += 8f;
             if (m.HasDeathrattle) val += 2f;                            // 亡语通常有负面后果
+            if (IsPersistentValueMinion(m)) val += 3f + m.Health * 0.3f; // 对方持续收益随从优先处理
 
             if (m.SpellPower > 0) val += m.SpellPower * 2f;
 
@@ -301,6 +314,16 @@ namespace BotMain.AI
                 val += 2f;
 
             return val;
+        }
+
+        private bool IsPersistentValueMinion(SimEntity m)
+        {
+            if (m == null || m.Type != Card.CType.MINION) return false;
+            if (m.SpellPower > 0) return true;
+            if (_db == null) return false;
+
+            return _db.Has(m.CardId, EffectTrigger.EndOfTurn)
+                || _db.Has(m.CardId, EffectTrigger.Aura);
         }
 
         // ────────────────────────────────────────────────
@@ -335,6 +358,81 @@ namespace BotMain.AI
                 dmg += board.EnemyWeapon.Atk;
 
             return dmg;
+        }
+
+        /// <summary>
+        /// 估算敌方下回合对我方随从的“高效交换”风险。
+        /// 返回值越高，代表我方当前站场越容易被反手拆掉，主评估应扣分。
+        /// </summary>
+        private float EstimateEnemyTradePenalty(SimBoard board, float defenseCoef)
+        {
+            if (board == null) return 0f;
+
+            var enemyAttackers = board.EnemyMinions
+                .Where(m => m != null && m.Type != Card.CType.LOCATION && !m.IsFrozen && m.Atk > 0 && m.Health > 0)
+                .ToList();
+            var friendMinions = board.FriendMinions
+                .Where(m => m != null && m.Type != Card.CType.LOCATION && m.Health > 0)
+                .ToList();
+
+            if (enemyAttackers.Count == 0 || friendMinions.Count == 0)
+                return 0f;
+
+            bool hasTauntWall = friendMinions.Any(m => m.IsTaunt);
+            float penalty = 0f;
+
+            foreach (var friend in friendMinions)
+            {
+                // 潜行/免疫单位在常规攻击线中不易被处理
+                if (friend.IsStealth || friend.IsImmune) continue;
+
+                float friendValue = MinionValueFriend(friend);
+                if (friendValue <= 0f) continue;
+
+                float bestNetGain = 0f;
+                foreach (var enemy in enemyAttackers)
+                {
+                    if (!CanThreatenKill(enemy, friend)) continue;
+
+                    float enemyValue = MinionValueEnemy(enemy);
+                    bool enemyDies = CanThreatenKill(friend, enemy);
+                    float enemyLoss = enemyDies ? enemyValue * (enemy.IsDivineShield ? 0.45f : 0.75f) : 0f;
+                    float netGain = friendValue - enemyLoss;
+                    if (netGain > bestNetGain)
+                        bestNetGain = netGain;
+                }
+
+                if (bestNetGain <= 0f) continue;
+
+                // 有嘲讽时，非嘲讽通常没那么容易被直接交易
+                float laneCoef = !hasTauntWall ? 0.9f : (friend.IsTaunt ? 1f : 0.35f);
+                float persistentCoef = IsPersistentValueMinion(friend) ? 1.35f : 1f;
+                float rebornCoef = friend.HasReborn ? 0.72f : 1f;
+
+                penalty += bestNetGain * laneCoef * persistentCoef * rebornCoef * 0.32f;
+            }
+
+            return penalty * Math.Max(0.5f, defenseCoef);
+        }
+
+        /// <summary>
+        /// 近似判断 attacker 是否能在一次攻击序列中击杀 defender。
+        /// 用于风险估算，不追求逐帧精准。
+        /// </summary>
+        private static bool CanThreatenKill(SimEntity attacker, SimEntity defender)
+        {
+            if (attacker == null || defender == null) return false;
+            if (attacker.Atk <= 0 || defender.Health <= 0) return false;
+            if (defender.IsImmune) return false;
+
+            if (defender.IsDivineShield)
+            {
+                // 风怒可视作有机会先破盾再击杀（粗略近似）
+                return attacker.IsWindfury && attacker.Atk >= defender.Health;
+            }
+
+            if (attacker.HasPoison) return true;
+            return attacker.Atk >= defender.Health;
         }
 
         // ────────────────────────────────────────────────

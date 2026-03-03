@@ -72,6 +72,8 @@ namespace HearthstonePayload
         public int NumCardsPlayedThisGame;
         public int NumSecretsPlayedThisGame;
 
+        public bool IsGameOver;
+        public string EndGameScreenClass = "";
         public GameResult Result;
 
         public EntityData HeroFriend;

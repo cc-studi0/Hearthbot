@@ -113,9 +113,14 @@ namespace BotMain.AI
 
         private void GeneratePlayCards(SimBoard board, List<GameAction> actions)
         {
+            var shouldAllowCoin = ShouldAllowCoinPlay(board);
             foreach (var card in board.Hand)
             {
                 if (card.Cost > board.Mana) continue;
+
+                // 幸运币仅在“可补足当前某张手牌费用”时才允许打出。
+                if (card.CardId == Card.Cards.GAME_005 && !shouldAllowCoin)
+                    continue;
 
                 if (card.Type == Card.CType.MINION)
                 {
@@ -147,6 +152,21 @@ namespace BotMain.AI
                         actions.Add(MakePlayAction(card, board.EnemyHero));
                 }
             }
+        }
+
+        private static bool ShouldAllowCoinPlay(SimBoard board)
+        {
+            if (board?.Hand == null || board.Hand.Count == 0) return false;
+
+            int coinCount = board.Hand.Count(c => c != null && c.CardId == Card.Cards.GAME_005);
+            if (coinCount <= 0) return false;
+
+            // 只要手牌中存在“当前打不出，但在连打 coin 后可打出”的非 coin 牌，就允许 coin。
+            return board.Hand.Any(c =>
+                c != null
+                && c.CardId != Card.Cards.GAME_005
+                && c.Cost > board.Mana
+                && c.Cost <= board.Mana + coinCount);
         }
 
         private void GenerateTrades(SimBoard board, List<GameAction> actions)

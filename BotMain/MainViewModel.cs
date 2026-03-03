@@ -16,6 +16,9 @@ namespace BotMain
 {
     public class MainViewModel : INotifyPropertyChanged
     {
+        private const int UiModeTest = 2;
+        private const int ServiceModeTest = 99;
+
         private readonly BotService _bot = new();
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
@@ -249,7 +252,8 @@ namespace BotMain
                 var deckName = SelectedDeckName;
                 var mulliganName = SelectedMulliganName;
                 var discoverName = SelectedDiscoverName;
-                _bot.SetRunConfiguration(ModeIndex, deckName, mulliganName, discoverName);
+                var serviceMode = ModeIndex == UiModeTest ? ServiceModeTest : ModeIndex;
+                _bot.SetRunConfiguration(serviceMode, deckName, mulliganName, discoverName);
                 AppendLocalLog($"Start requested: mode={ModeIndex}, deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}");
 
                 _startTime = DateTime.Now;

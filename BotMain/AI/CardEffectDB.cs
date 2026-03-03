@@ -3,6 +3,21 @@ using SmartBot.Plugins.API;
 
 namespace BotMain.AI
 {
+    [System.Flags]
+    public enum EffectKind
+    {
+        None = 0,
+        Damage = 1 << 0,
+        Heal = 1 << 1,
+        Buff = 1 << 2,
+        Destroy = 1 << 3,
+        Draw = 1 << 4,
+        Summon = 1 << 5,
+        Armor = 1 << 6,
+        Mana = 1 << 7,
+        Utility = 1 << 8,
+    }
+
     public enum EffectTrigger
     {
         Battlecry,
@@ -19,6 +34,7 @@ namespace BotMain.AI
     {
         private readonly Dictionary<(Card.Cards, EffectTrigger), Action<SimBoard, SimEntity, SimEntity>> _db = new();
         private readonly Dictionary<(Card.Cards, EffectTrigger), BattlecryTargetType> _targetTypes = new();
+        private readonly Dictionary<(Card.Cards, EffectTrigger), EffectKind> _effectKinds = new();
 
         public void Register(Card.Cards id, EffectTrigger t, Action<SimBoard, SimEntity, SimEntity> fn)
             => _db[(id, t)] = fn;
@@ -38,6 +54,25 @@ namespace BotMain.AI
 
         public bool TryGetTargetType(Card.Cards id, EffectTrigger t, out BattlecryTargetType targetType)
             => _targetTypes.TryGetValue((id, t), out targetType);
+
+        public void RegisterEffectKind(Card.Cards id, EffectTrigger t, EffectKind kinds)
+        {
+            if (kinds == EffectKind.None) return;
+            if (_effectKinds.TryGetValue((id, t), out var existing))
+                _effectKinds[(id, t)] = existing | kinds;
+            else
+                _effectKinds[(id, t)] = kinds;
+        }
+
+        public EffectKind GetEffectKinds(Card.Cards id, EffectTrigger t)
+            => _effectKinds.TryGetValue((id, t), out var kinds) ? kinds : EffectKind.None;
+
+        public bool HasEffectKind(Card.Cards id, EffectTrigger t, EffectKind kind)
+        {
+            if (kind == EffectKind.None) return false;
+            var kinds = GetEffectKinds(id, t);
+            return (kinds & kind) != 0;
+        }
 
         public bool Has(Card.Cards id, EffectTrigger t) => _db.ContainsKey((id, t));
 

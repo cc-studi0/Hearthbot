@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Plugins.API;
@@ -61,6 +62,12 @@ namespace BotMain.AI
             sb.FriendWeapon = board.WeaponFriend != null ? ConvertCard(board.WeaponFriend, true) : null;
             sb.EnemyWeapon = board.WeaponEnemy != null ? ConvertCard(board.WeaponEnemy, false) : null;
 
+            // 某些客户端版本里武器的风怒不一定同步到英雄实体，补一层继承以避免漏掉第 2 次攻击。
+            if (sb.FriendHero != null && sb.FriendWeapon?.IsWindfury == true)
+                sb.FriendHero.IsWindfury = true;
+            if (sb.EnemyHero != null && sb.EnemyWeapon?.IsWindfury == true)
+                sb.EnemyHero.IsWindfury = true;
+
             // 兼容部分版本里 Hero.CurrentAtk 未正确反映武器攻击力的情况
             if (sb.FriendHero != null && sb.FriendHero.Atk <= 0 && sb.FriendWeapon != null && sb.FriendWeapon.Health > 0)
                 sb.FriendHero.Atk = sb.FriendWeapon.Atk;
@@ -92,6 +99,17 @@ namespace BotMain.AI
             var isTired = c.Type == Card.CType.HERO
                 ? c.GetTag(Card.GAME_TAG.EXHAUSTED) == 1
                 : c.IsTired && !c.CanAttack;
+            var countAttack = ReadCountAttackThisTurn(c);
+
+            // 以游戏实时可攻击状态为准做校正，避免“明明能打却在模拟里被禁攻”
+            if (c.CanAttack)
+            {
+                isTired = false;
+                if (!c.IsWindfury)
+                    countAttack = 0;
+                else if (countAttack > 1)
+                    countAttack = 1;
+            }
 
             return new SimEntity
             {
@@ -120,9 +138,30 @@ namespace BotMain.AI
                 IsTradeable = c.GetTag(Card.GAME_TAG.TRADEABLE) > 0,
                 HasBattlecry = c.Template?.HasBattlecry ?? false,
                 HasDeathrattle = c.Template?.HasDeathrattle ?? false,
-                CountAttack = c.CountAttack,
+                CountAttack = countAttack,
+                UseBoardCanAttack = true,
+                BoardCanAttack = c.CanAttack,
                 Type = c.Type,
             };
+        }
+
+        private static int ReadCountAttackThisTurn(Card c)
+        {
+            if (c == null) return 0;
+
+            try
+            {
+                if (Enum.TryParse("NUM_ATTACKS_THIS_TURN", out Card.GAME_TAG tag))
+                {
+                    var n = c.GetTag(tag);
+                    if (n >= 0) return n;
+                }
+            }
+            catch
+            {
+            }
+
+            return Math.Max(0, c.CountAttack);
         }
     }
 }

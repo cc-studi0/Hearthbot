@@ -25,10 +25,12 @@ namespace BotMain.AI
                     Enum.TryParse(triggerDef.TargetType, true, out targetType);
 
                 var fns = new List<Action<SimBoard, SimEntity, SimEntity>>();
+                var kinds = EffectKind.None;
                 foreach (var e in triggerDef.Effects ?? Array.Empty<EffectDef>())
                 {
                     var fn = ParseEffect(e);
                     if (fn != null) fns.Add(fn);
+                    kinds |= MapEffectKind(e?.Type);
                 }
 
                 if (fns.Count == 0) continue;
@@ -38,6 +40,71 @@ namespace BotMain.AI
                     foreach (var f in fns) f(b, s, t);
                 };
                 db.Register(cardId, trigger, combined, targetType);
+                db.RegisterEffectKind(cardId, trigger, kinds);
+            }
+        }
+
+        private static EffectKind MapEffectKind(string type)
+        {
+            if (string.IsNullOrWhiteSpace(type)) return EffectKind.None;
+
+            switch (type)
+            {
+                case "dmg":
+                case "dmg_all":
+                case "dmg_enemy":
+                case "dmg_face":
+                case "dmg_random":
+                    return EffectKind.Damage;
+
+                case "heal":
+                case "heal_hero":
+                case "heal_all":
+                    return EffectKind.Heal;
+
+                case "buff":
+                case "buff_all":
+                case "buff_self":
+                case "give_taunt":
+                case "give_ds":
+                case "give_windfury":
+                case "give_rush":
+                case "give_lifesteal":
+                case "give_poison":
+                case "give_reborn":
+                case "give_immune":
+                case "hero_atk":
+                case "equip":
+                    return EffectKind.Buff;
+
+                case "draw":
+                    return EffectKind.Draw;
+
+                case "summon":
+                    return EffectKind.Summon;
+
+                case "armor":
+                    return EffectKind.Armor;
+
+                case "add_mana":
+                    return EffectKind.Mana;
+
+                case "destroy":
+                case "destroy_all":
+                case "destroy_weapon":
+                case "clear_board":
+                    return EffectKind.Destroy;
+
+                case "freeze":
+                case "freeze_all":
+                case "silence":
+                case "bounce":
+                case "set_hp":
+                case "noop":
+                    return EffectKind.Utility;
+
+                default:
+                    return EffectKind.None;
             }
         }
 

@@ -14,13 +14,27 @@ namespace BotMain.AI
         public bool EnrageBonusActive;
         public int CountAttack;
         public Card.CType Type;
+        public bool UseBoardCanAttack;
+        public bool BoardCanAttack;
 
-        public bool CanAttack =>
-            Type == Card.CType.HERO
-                ? Atk > 0 && !IsFrozen && !IsTired
-                : Atk > 0 && !IsFrozen &&
-                  CountAttack < (IsWindfury ? 2 : 1) &&
-                  !IsTired;
+        public bool CanAttack
+        {
+            get
+            {
+                var maxAttackCount = IsWindfury ? 2 : 1;
+                var localReady =
+                    Atk > 0
+                    && !IsFrozen
+                    && !IsTired
+                    && CountAttack < maxAttackCount;
+
+                // Board.CanAttack 在个别版本会出现“可攻击=true 但攻击值/状态不满足”的短暂错位，
+                // 这里改为“提示 + 本地状态”双重校验，避免产生无效攻击动作。
+                return UseBoardCanAttack
+                    ? BoardCanAttack && localReady
+                    : localReady;
+            }
+        }
 
         public bool IsAlive => Health > 0;
 
