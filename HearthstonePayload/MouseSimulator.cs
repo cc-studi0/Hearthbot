@@ -54,8 +54,22 @@ namespace HearthstonePayload
             try
             {
                 EnsureReflection();
-                if (_mainCamera == null) RefreshCamera();
-                if (_mainCamera == null || _worldToScreenPoint == null) return false;
+                if (_worldToScreenPoint == null) return false;
+
+                // 每次都刷新 Camera.main 引用。
+                // Unity 销毁对象后 C# 引用不为 null，但通过反射调用会抛异常。
+                // 频繁调 Camera.main 代价极低（Unity 内部有缓存），远比因陈旧引用导致
+                // 连锁定位失败要好。
+                RefreshCamera();
+                if (_mainCamera == null) return false;
+
+                // 用 Unity 的隐式 bool 转换检测已销毁的对象
+                if (IsUnityObjectDestroyed(_mainCamera))
+                {
+                    _mainCamera = null;
+                    RefreshCamera();
+                    if (_mainCamera == null) return false;
+                }
 
                 var vector3Type = _asm.GetType("UnityEngine.Vector3")
                     ?? Type.GetType("UnityEngine.Vector3, UnityEngine.CoreModule")
@@ -63,7 +77,20 @@ namespace HearthstonePayload
                 if (vector3Type == null) return false;
 
                 var worldPos = Activator.CreateInstance(vector3Type, worldX, worldY, worldZ);
-                var screenPos = _worldToScreenPoint.Invoke(_mainCamera, new[] { worldPos });
+
+                object screenPos;
+                try
+                {
+                    screenPos = _worldToScreenPoint.Invoke(_mainCamera, new[] { worldPos });
+                }
+                catch
+                {
+                    // 可能是陈旧的相机引用，刷新后重试一次
+                    RefreshCamera();
+                    if (_mainCamera == null) return false;
+                    screenPos = _worldToScreenPoint.Invoke(_mainCamera, new[] { worldPos });
+                }
+
                 if (screenPos == null) return false;
 
                 float sx = (float)vector3Type.GetField("x").GetValue(screenPos);
@@ -115,6 +142,45 @@ namespace HearthstonePayload
                 _screenWidth = screenType.GetProperty("width", BindingFlags.Public | BindingFlags.Static);
                 _screenHeight = screenType.GetProperty("height", BindingFlags.Public | BindingFlags.Static);
             }
+        }
+
+        /// <summary>
+        /// 检查 Unity 对象是否已被销毁（利用 UnityEngine.Object 的隐式 bool 转换）
+        /// </summary>
+        private static bool IsUnityObjectDestroyed(object obj)
+        {
+            if (obj == null) return true;
+            try
+            {
+                // Unity 重载了 Object 的 == 操作符和 implicit bool，
+                // 对已销毁对象返回 false。通过反射调用 op_Implicit
+                var type = obj.GetType();
+                // 向上找到 UnityEngine.Object 基类
+                var unityObjType = type;
+                while (unityObjType != null && unityObjType.FullName != "UnityEngine.Object")
+                    unityObjType = unityObjType.BaseType;
+                if (unityObjType == null) return false; // 不是 Unity 对象
+
+                // 方式1: 尝试 op_Implicit(Object) -> bool
+                var opImplicit = unityObjType.GetMethod("op_Implicit",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { unityObjType }, null);
+                if (opImplicit != null && opImplicit.ReturnType == typeof(bool))
+                {
+                    return !(bool)opImplicit.Invoke(null, new[] { obj });
+                }
+
+                // 方式2: 尝试 op_Equality(Object, Object) 与 null 比较
+                var opEquality = unityObjType.GetMethod("op_Equality",
+                    BindingFlags.Public | BindingFlags.Static,
+                    null, new[] { unityObjType, unityObjType }, null);
+                if (opEquality != null)
+                {
+                    return (bool)opEquality.Invoke(null, new object[] { obj, null });
+                }
+            }
+            catch { }
+            return false;
         }
 
         public static void RefreshCamera()

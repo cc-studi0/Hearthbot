@@ -326,6 +326,49 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 诊断留牌卡牌位置查找失败原因
+        /// </summary>
+        public static string DiagMulliganCardPos(int index, int totalCards)
+        {
+            try
+            {
+                if (!EnsureTypes()) return "ensureTypes=false";
+                var mmType = _asm.GetType("MulliganManager");
+                if (mmType == null) return "mmType=null";
+                var mm = InvokeStatic(mmType, "Get");
+                if (mm == null) return "mm=null";
+                var cards = GetProp(mm, "m_startingCards") as IList;
+                if (cards == null) return "cards=null";
+                if (index >= cards.Count) return $"idx={index}>=cnt={cards.Count}";
+                var card = cards[index];
+                if (card == null) return $"card[{index}]=null";
+                var cardType = card.GetType().FullName;
+                var go = GetProp(card, "gameObject");
+                if (go == null)
+                {
+                    // 尝试直接获取 transform
+                    var tf2 = GetProp(card, "transform");
+                    if (tf2 == null) return $"card.gameObject=null,card.transform=null(type={cardType})";
+                    var pos2 = GetProp(tf2, "position");
+                    return $"card.gameObject=null,transform={tf2!=null},pos={pos2}(type={cardType})";
+                }
+                var tf = GetProp(go, "transform");
+                if (tf == null) return "transform=null";
+                var pos = GetProp(tf, "position");
+                if (pos == null) return "position=null";
+                var xf = GetFloat(pos, "x");
+                var yf = GetFloat(pos, "y");
+                var zf = GetFloat(pos, "z");
+                var w2s = MouseSimulator.WorldToScreen(xf, yf, zf, out var sx, out var sy);
+                return $"pos=({xf},{yf},{zf}),w2s={w2s},scr=({sx},{sy})";
+            }
+            catch (Exception ex)
+            {
+                return "diagEx=" + ex.Message;
+            }
+        }
+
+        /// <summary>
         /// 留牌确认按钮位置
         /// </summary>
         public static bool GetMulliganConfirmScreenPos(out int x, out int y)

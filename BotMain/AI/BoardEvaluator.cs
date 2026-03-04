@@ -45,7 +45,11 @@ namespace BotMain.AI
         private const float W_EmptyHandPenalty   = -4f;    // 0 手牌惩罚
 
         // 法力效率
-        private const float W_WastedMana         = -0.8f;  // 每点未花费的法力
+        private const float W_WastedMana         = -2.0f;  // 每点未花费的法力（高惩罚鼓励花费法力）
+
+        // 节奏奖励（鼓励出牌，弥补未注册效果的估值缺失）
+        private const float W_TempoCardPlayed    = 1.5f;   // 每张本回合打出的牌的基础奖励
+        private const float W_TempoCostRatio      = 0.6f;   // 出牌费用越高额外奖励越大
 
         // 武器
         private const float W_FriendWeapon       = 3f;     // 友方武器基础价值
@@ -174,6 +178,16 @@ namespace BotMain.AI
 
             // ── 5. 法力效率 ──
             score += board.Mana * W_WastedMana;
+
+            // ── 5.5 节奏奖励（鼓励出牌，即使效果未注册也给予正向反馈） ──
+            if (board.CardsPlayedThisTurn > 0)
+            {
+                // 基础奖励：每出一张牌 +W_TempoCardPlayed
+                score += board.CardsPlayedThisTurn * W_TempoCardPlayed;
+                // 费用加成：花费的法力越多（MaxMana - Mana），额外奖励越大
+                int manaSpent = Math.Max(0, board.MaxMana - board.Mana);
+                score += manaSpent * W_TempoCostRatio;
+            }
 
             // ── 6. 武器评估 ──
             if (board.FriendWeapon != null)

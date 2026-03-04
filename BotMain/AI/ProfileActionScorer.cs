@@ -215,7 +215,14 @@ namespace BotMain.AI
             if (modifier == null)
                 return;
 
-            ApplyPropensityValue(score, details, label, modifier.Value);
+            // SmartBot API 的 ProfileParameters 会用默认值 100 初始化
+            // GlobalCastMinionsModifier / GlobalCastSpellsModifier 等全局修饰符，
+            // 即使 Profile 脚本没有显式设置。100 代表中性基线，不应产生惩罚。
+            var value = modifier.Value;
+            if (value == 100)
+                return;
+
+            ApplyPropensityValue(score, details, label, value);
         }
 
         private static void ApplyPropensityRules(

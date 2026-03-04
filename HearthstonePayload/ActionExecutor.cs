@@ -412,16 +412,11 @@ namespace HearthstonePayload
                 }
                 else
                 {
-                    // 指向性法术：保持原流程，先释放出牌再点目标。
-                    int midX = MouseSimulator.GetScreenWidth() / 2;
-                    int midY = MouseSimulator.GetScreenHeight() / 2;
-                    foreach (var w in SmoothMove(midX, midY, 15)) yield return w;
-                    MouseSimulator.LeftUp();
-                    yield return 0.5f;
-
+                    // 指向性法术：直接从手牌拖到目标身上松手释放。
+                    // 炉石中法术是拖到目标后松手，不需要先放到场上再点目标。
                     bool gotTarget = false;
                     int tx = 0, ty = 0;
-                    for (int retry = 0; retry < 4 && !gotTarget; retry++)
+                    for (int retry = 0; retry < 6 && !gotTarget; retry++)
                     {
                         if (targetHeroSide == 0)
                             gotTarget = GameObjectFinder.GetHeroScreenPos(true, out tx, out ty);
@@ -431,20 +426,19 @@ namespace HearthstonePayload
                         if (!gotTarget)
                             gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out tx, out ty);
 
-                        if (!gotTarget && retry < 3)
-                            yield return 0.12f;
+                        if (!gotTarget && retry < 5)
+                            yield return 0.1f;
                     }
 
                     if (!gotTarget)
                     {
+                        MouseSimulator.LeftUp();
                         _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
                         yield break;
                     }
 
-                    MouseSimulator.MoveTo(tx, ty);
-                    yield return 0.05f;
-                    MouseSimulator.LeftDown();
-                    yield return 0.05f;
+                    // 保持按住，直接拖到目标位置后松手
+                    foreach (var w in SmoothMove(tx, ty, 15)) yield return w;
                     MouseSimulator.LeftUp();
                 }
             }
@@ -1377,7 +1371,22 @@ namespace HearthstonePayload
                 return true;
             }
 
-            detail = "entity_and_index_pos_not_found";
+            // 诊断日志：定位到底哪一步失败
+            var diag = new System.Text.StringBuilder();
+            diag.Append("DIAG:eid=").Append(entityId).Append(",idx=").Append(cardIndex).Append(",total=").Append(totalCards);
+            try
+            {
+                diag.Append("|entityWorldPos=").Append(GameObjectFinder.GetEntityWorldPos(entityId) != null ? "ok" : "null");
+                diag.Append("|scrW=").Append(MouseSimulator.GetScreenWidth());
+                diag.Append("|scrH=").Append(MouseSimulator.GetScreenHeight());
+                diag.Append("|mulliganDiag=").Append(GameObjectFinder.DiagMulliganCardPos(cardIndex, totalCards));
+            }
+            catch (Exception ex)
+            {
+                diag.Append("|diagErr=").Append(ex.Message);
+            }
+
+            detail = "entity_and_index_pos_not_found:" + diag;
             return false;
         }
 

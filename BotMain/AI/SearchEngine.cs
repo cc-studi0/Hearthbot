@@ -204,13 +204,22 @@ namespace BotMain.AI
                         comboRequiredIdInBeam = GetNextRequiredComboId(comboSequence, beam.Actions);
                         if (comboRequiredIdInBeam.HasValue)
                         {
-                            var forcedActions = nonEndActions
-                                .Where(x => ActionMatchesComboStep(x.Action, comboRequiredIdInBeam.Value))
-                                .ToList();
-
-                            if (forcedActions.Count > 0)
+                            // combo 匹配的动作给予高优先级 bonus，但不排除其他动作。
+                            // 这样 combo 动作会被优先尝试，但如果模拟后没有收益，
+                            // AI 仍然可以回退到其他合法动作而不是直接 END_TURN。
+                            bool anyComboMatch = false;
+                            for (int i = 0; i < nonEndActions.Count; i++)
                             {
-                                nonEndActions = forcedActions;
+                                var item = nonEndActions[i];
+                                if (ActionMatchesComboStep(item.Action, comboRequiredIdInBeam.Value))
+                                {
+                                    nonEndActions[i] = (item.Action, item.ProfileScore, item.Priority + 500f);
+                                    anyComboMatch = true;
+                                }
+                            }
+
+                            if (anyComboMatch)
+                            {
                                 comboForcedInBeam = true;
                                 comboForcedBeamCount++;
                             }
@@ -290,6 +299,13 @@ namespace BotMain.AI
                         var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action, param);
                         var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
                         var finalScore = boardScore + cumulativeAdjustment;
+
+                        // ── 深度 0 详细诊断日志：每个候选动作的分数分解 ──
+                        if (depth == 0 && beam == activeBeams[0])
+                        {
+                            var delta = finalScore - initialScore;
+                            OnLog?.Invoke($"[AI] depth0 candidate: {action.ToActionString()} | boardScore={boardScore:0.#} | profileBonus={profileScore.Bonus:0.#} ({profileScore.Detail}) | tradeBonus={tradeBonus:0.#} | final={finalScore:0.#} | delta={delta:+0.#;-0.#;0}");
+                        }
 
                         if (IsDominatedState(bestScoreByFingerprint, fingerprint, finalScore, TranspositionMinDelta))
                         {
