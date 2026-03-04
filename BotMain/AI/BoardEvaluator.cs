@@ -16,6 +16,8 @@ namespace BotMain.AI
     {
         private readonly CardEffectDB _db;
         private readonly IAggroInteractionModel _aggroModel;
+        public bool EnableTradePenaltyDebug { get; set; }
+        public Action<string> OnDebugLog { get; set; }
 
         public BoardEvaluator(CardEffectDB db = null, IAggroInteractionModel aggroModel = null)
         {
@@ -232,7 +234,10 @@ namespace BotMain.AI
 
             // ── 8.5 敌方反打换子风险（近似 enemyTurnPen） ──
             // 评估我方高价值随从在下回合是否会被高效率吃掉，避免“当前回合看起来赚，实则送场面”。
-            score -= EstimateEnemyTradePenalty(board, GetModifierCoef(param?.GlobalDefenseModifier), aggroCtx);
+            var enemyTradePenalty = EstimateEnemyTradePenalty(board, GetModifierCoef(param?.GlobalDefenseModifier), aggroCtx, out var enemyTradeDebug);
+            score -= enemyTradePenalty;
+            if (EnableTradePenaltyDebug && !string.IsNullOrWhiteSpace(enemyTradeDebug))
+                OnDebugLog?.Invoke(enemyTradeDebug);
 
             // ── 9. 嘲讽墙价值 ──
             if (friendTauntCount > 0 && board.FriendHero != null)
@@ -377,62 +382,257 @@ namespace BotMain.AI
             return dmg;
         }
 
+        private sealed class EnemyAttackSlot
+        {
+            public SimEntity Attacker;
+            public int RemainingStrikes;
+            public bool IsHeroAttacker;
+        }
+
+        private readonly struct TradeAttempt
+        {
+            public TradeAttempt(int slotIndex, SimEntity target, SimEntity attackerAfter, float netGain)
+            {
+                SlotIndex = slotIndex;
+                Target = target;
+                AttackerAfter = attackerAfter;
+                NetGain = netGain;
+            }
+
+            public int SlotIndex { get; }
+            public SimEntity Target { get; }
+            public SimEntity AttackerAfter { get; }
+            public float NetGain { get; }
+        }
+
         /// <summary>
         /// 估算敌方下回合对我方随从的“高效交换”风险。
         /// 返回值越高，代表我方当前站场越容易被反手拆掉，主评估应扣分。
         /// </summary>
-        private float EstimateEnemyTradePenalty(SimBoard board, float defenseCoef, AggroInteractionContext aggroCtx)
+        private float EstimateEnemyTradePenalty(SimBoard board, float defenseCoef, AggroInteractionContext aggroCtx, out string debugInfo)
         {
+            debugInfo = null;
             if (board == null) return 0f;
 
-            var enemyAttackers = board.EnemyMinions
-                .Where(m => m != null && m.Type != Card.CType.LOCATION && !m.IsFrozen && m.Atk > 0 && m.Health > 0)
-                .ToList();
-            var friendMinions = board.FriendMinions
+            var friendPool = board.FriendMinions
                 .Where(m => m != null && m.Type != Card.CType.LOCATION && m.Health > 0)
+                .Select(m => m.Clone())
                 .ToList();
+            var attackSlots = BuildEnemyAttackSlots(board);
 
-            if (enemyAttackers.Count == 0 || friendMinions.Count == 0)
+            if (friendPool.Count == 0 || attackSlots.Count == 0)
                 return 0f;
 
-            bool hasTauntWall = friendMinions.Any(m => m.IsTaunt);
+            var debugEvents = EnableTradePenaltyDebug ? new List<string>() : null;
             float penalty = 0f;
 
-            foreach (var friend in friendMinions)
-            {
-                // 潜行/免疫单位在常规攻击线中不易被处理
-                if (friend.IsStealth || friend.IsImmune) continue;
-
-                float friendValue = MinionValueFriend(friend);
-                if (friendValue <= 0f) continue;
-
-                float bestNetGain = 0f;
-                foreach (var enemy in enemyAttackers)
-                {
-                    if (!CanThreatenKill(enemy, friend)) continue;
-
-                    float enemyValue = MinionValueEnemy(enemy);
-                    bool enemyDies = CanThreatenKill(friend, enemy);
-                    float enemyLoss = enemyDies ? enemyValue * (enemy.IsDivineShield ? 0.45f : 0.75f) : 0f;
-                    float netGain = friendValue - enemyLoss;
-                    if (netGain > bestNetGain)
-                        bestNetGain = netGain;
-                }
-
-                if (bestNetGain <= 0f) continue;
-
-                // 有嘲讽时，非嘲讽通常没那么容易被直接交易
-                float laneCoef = !hasTauntWall ? 0.9f : (friend.IsTaunt ? 1f : 0.35f);
-                float persistentCoef = IsPersistentValueMinion(friend) ? 1.35f : 1f;
-                float rebornCoef = friend.HasReborn ? 0.72f : 1f;
-
-                penalty += bestNetGain * laneCoef * persistentCoef * rebornCoef * 0.32f;
-            }
+            // 阶段A：先处理嘲讽线（有嘲讽时只能打嘲讽）
+            penalty += SimulateEnemyTradeLane(friendPool, attackSlots, tauntPhase: true, debugEvents);
+            // 阶段B：嘲讽清空后再处理其他目标
+            penalty += SimulateEnemyTradeLane(friendPool, attackSlots, tauntPhase: false, debugEvents);
 
             var survivalScale = aggroCtx != null
                 ? Clamp(0.7f + 0.4f * aggroCtx.SurvivalBias, 0.65f, 1.7f)
                 : 1f;
-            return penalty * Math.Max(0.5f, defenseCoef) * survivalScale;
+            var finalPenalty = penalty * Math.Max(0.5f, defenseCoef) * survivalScale;
+
+            if (debugEvents != null && debugEvents.Count > 0)
+            {
+                debugInfo = $"[AI][trade-risk] raw={penalty:0.##}, final={finalPenalty:0.##}, defenseCoef={Math.Max(0.5f, defenseCoef):0.##}, survivalScale={survivalScale:0.##}, picks={string.Join(" | ", debugEvents.Take(4))}";
+            }
+
+            return finalPenalty;
+        }
+
+        private static List<EnemyAttackSlot> BuildEnemyAttackSlots(SimBoard board)
+        {
+            var slots = new List<EnemyAttackSlot>();
+            if (board == null) return slots;
+
+            foreach (var enemy in board.EnemyMinions)
+            {
+                if (enemy == null || enemy.Type == Card.CType.LOCATION) continue;
+                if (enemy.IsFrozen || enemy.Atk <= 0 || enemy.Health <= 0) continue;
+
+                slots.Add(new EnemyAttackSlot
+                {
+                    Attacker = enemy.Clone(),
+                    RemainingStrikes = enemy.IsWindfury ? 2 : 1,
+                    IsHeroAttacker = false
+                });
+            }
+
+            if (board.EnemyHero != null
+                && board.EnemyWeapon != null
+                && board.EnemyWeapon.Health > 0
+                && !board.EnemyHero.IsFrozen)
+            {
+                var hero = board.EnemyHero.Clone();
+                hero.Atk = Math.Max(0, board.EnemyWeapon.Atk);
+                if (hero.Atk > 0)
+                {
+                    slots.Add(new EnemyAttackSlot
+                    {
+                        Attacker = hero,
+                        RemainingStrikes = (hero.IsWindfury || board.EnemyWeapon.IsWindfury) ? 2 : 1,
+                        IsHeroAttacker = true
+                    });
+                }
+            }
+
+            return slots;
+        }
+
+        private float SimulateEnemyTradeLane(List<SimEntity> friendPool, List<EnemyAttackSlot> slots, bool tauntPhase, List<string> debugEvents)
+        {
+            float lanePenalty = 0f;
+
+            while (true)
+            {
+                List<SimEntity> candidateTargets;
+                if (tauntPhase)
+                {
+                    candidateTargets = friendPool.Where(m => IsTradableTarget(m) && m.IsTaunt).ToList();
+                }
+                else
+                {
+                    if (friendPool.Any(m => IsTradableTarget(m) && m.IsTaunt))
+                        break;
+                    candidateTargets = friendPool.Where(IsTradableTarget).ToList();
+                }
+
+                if (candidateTargets.Count == 0)
+                    break;
+
+                TradeAttempt? bestAttempt = null;
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    if (!IsSlotReady(slots[i])) continue;
+
+                    foreach (var target in candidateTargets)
+                    {
+                        if (!TryBuildTradeAttempt(slots[i], i, target, out var attempt))
+                            continue;
+
+                        if (!bestAttempt.HasValue || attempt.NetGain > bestAttempt.Value.NetGain + 0.001f)
+                            bestAttempt = attempt;
+                    }
+                }
+
+                if (!bestAttempt.HasValue)
+                    break;
+
+                var chosen = bestAttempt.Value;
+                var chosenTarget = chosen.Target;
+
+                float laneCoef = chosenTarget.IsTaunt ? 1f : 0.88f;
+                float persistentCoef = IsPersistentValueMinion(chosenTarget) ? 1.35f : 1f;
+                float rebornCoef = chosenTarget.HasReborn ? 0.72f : 1f;
+                float applied = chosen.NetGain * laneCoef * persistentCoef * rebornCoef * 0.34f;
+                lanePenalty += applied;
+
+                var slot = slots[chosen.SlotIndex];
+                slot.Attacker = chosen.AttackerAfter;
+                slot.RemainingStrikes--;
+                if (slot.Attacker == null || slot.Attacker.Health <= 0)
+                    slot.RemainingStrikes = 0;
+
+                friendPool.Remove(chosenTarget);
+
+                if (debugEvents != null)
+                    debugEvents.Add($"{slot.Attacker?.CardId}->{chosenTarget.CardId}, net={chosen.NetGain:0.##}, applied={applied:0.##}, tauntPhase={(tauntPhase ? "Y" : "N")}");
+            }
+
+            return lanePenalty;
+        }
+
+        private bool TryBuildTradeAttempt(EnemyAttackSlot slot, int slotIndex, SimEntity target, out TradeAttempt attempt)
+        {
+            attempt = default;
+            if (!IsSlotReady(slot) || !IsTradableTarget(target))
+                return false;
+
+            var attackerAfter = slot.Attacker.Clone();
+            var targetAfter = target.Clone();
+            ResolveSingleAttack(attackerAfter, targetAfter);
+
+            if (targetAfter.Health > 0)
+                return false;
+
+            float friendBeforeValue = MinionValueFriend(target);
+            float enemyBeforeValue = GetEnemyAttackerTradeValue(slot.Attacker, slot.IsHeroAttacker);
+            float enemyAfterValue = attackerAfter.Health > 0
+                ? GetEnemyAttackerTradeValue(attackerAfter, slot.IsHeroAttacker)
+                : 0f;
+            float enemyLoss = Math.Max(0f, enemyBeforeValue - enemyAfterValue);
+            float netGain = friendBeforeValue - enemyLoss;
+            if (netGain <= 0f)
+                return false;
+
+            attempt = new TradeAttempt(slotIndex, target, attackerAfter, netGain);
+            return true;
+        }
+
+        private static bool IsSlotReady(EnemyAttackSlot slot)
+        {
+            return slot != null
+                && slot.RemainingStrikes > 0
+                && slot.Attacker != null
+                && slot.Attacker.Health > 0
+                && !slot.Attacker.IsFrozen
+                && slot.Attacker.Atk > 0;
+        }
+
+        private static bool IsTradableTarget(SimEntity m)
+        {
+            return m != null
+                && m.Type != Card.CType.LOCATION
+                && m.Health > 0
+                && !m.IsStealth
+                && !m.IsImmune;
+        }
+
+        private static void ResolveSingleAttack(SimEntity attacker, SimEntity defender)
+        {
+            if (attacker == null || defender == null) return;
+            if (attacker.Health <= 0 || defender.Health <= 0) return;
+
+            int attackerAtk = Math.Max(0, attacker.Atk);
+            int defenderAtk = Math.Max(0, defender.Atk);
+            bool attackerPoison = attacker.HasPoison;
+            bool defenderPoison = defender.HasPoison;
+
+            DealCombatDamage(defender, attackerAtk, attackerPoison);
+            if (defenderAtk > 0)
+                DealCombatDamage(attacker, defenderAtk, defenderPoison);
+        }
+
+        private static void DealCombatDamage(SimEntity target, int damage, bool poisonous)
+        {
+            if (target == null || target.Health <= 0 || damage <= 0) return;
+
+            if (target.IsDivineShield)
+            {
+                target.IsDivineShield = false;
+                return;
+            }
+
+            target.Health -= damage;
+            if (poisonous && target.Type != Card.CType.HERO && target.Health > 0)
+                target.Health = 0;
+        }
+
+        private float GetEnemyAttackerTradeValue(SimEntity attacker, bool isHeroAttacker)
+        {
+            if (attacker == null) return 0f;
+            if (!isHeroAttacker) return MinionValueEnemy(attacker);
+
+            // 英雄交换价值只弱关联生命值，避免把英雄血量当作“随从损失”过度放大。
+            float hpComponent = Math.Max(0, Math.Min(30, attacker.Health + attacker.Armor)) * 0.08f;
+            float value = attacker.Atk * 1.8f + hpComponent;
+            if (attacker.IsWindfury) value += attacker.Atk * 0.4f;
+            if (attacker.IsImmune) value += 4f;
+            return value;
         }
 
         /// <summary>
@@ -445,14 +645,26 @@ namespace BotMain.AI
             if (attacker.Atk <= 0 || defender.Health <= 0) return false;
             if (defender.IsImmune) return false;
 
-            if (defender.IsDivineShield)
+            int remainingHealth = defender.Health;
+            bool hasDivineShield = defender.IsDivineShield;
+            int hits = attacker.IsWindfury ? 2 : 1;
+
+            for (int i = 0; i < hits; i++)
             {
-                // 风怒可视作有机会先破盾再击杀（粗略近似）
-                return attacker.IsWindfury && attacker.Atk >= defender.Health;
+                if (remainingHealth <= 0) return true;
+                if (hasDivineShield)
+                {
+                    hasDivineShield = false;
+                    continue;
+                }
+
+                if (attacker.HasPoison && defender.Type != Card.CType.HERO)
+                    return true;
+
+                remainingHealth -= attacker.Atk;
             }
 
-            if (attacker.HasPoison) return true;
-            return attacker.Atk >= defender.Health;
+            return remainingHealth <= 0;
         }
 
         // ────────────────────────────────────────────────

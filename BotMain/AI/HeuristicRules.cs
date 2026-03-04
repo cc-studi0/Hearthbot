@@ -23,8 +23,10 @@ namespace BotMain.AI
                 new AvoidLowValueSilenceBattlecryTargetRule(db),
             };
 
-            if (includeLegacyRules)
-                rules.Add(new LegacyCrimsonAbyssRule());
+            // 赤红深渊（REV_990 / CORE_REV_990）：对敌方随从使用时，
+            // 除非能击杀（1血），否则给敌人 +2 攻击力的代价远大于 1 点伤害的收益，
+            // 始终应该剪枝。这不是"遗留"行为，而是普遍正确的规则。
+            rules.Add(new LegacyCrimsonAbyssRule());
 
             return rules;
         }

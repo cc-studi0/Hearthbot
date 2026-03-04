@@ -62,6 +62,13 @@ namespace BotMain.AI
         /// <summary>搜索超时毫秒数</summary>
         public int TimeoutMs { get; set; } = 5000;
 
+        /// <summary>输出敌方反打换子评估明细（默认 false）</summary>
+        public bool EnableTradeRiskDebug
+        {
+            get => _eval.EnableTradePenaltyDebug;
+            set => _eval.EnableTradePenaltyDebug = value;
+        }
+
         /// <summary>
         /// 转置表剪枝阈值：若同一棋面历史最佳分数高于当前分数 + 阈值，则跳过该分支。
         /// </summary>
@@ -89,6 +96,7 @@ namespace BotMain.AI
             LegacyBehaviorCompat = legacyBehaviorCompat;
             _heuristicRules = heuristicRules?.Where(r => r != null).ToList()
                 ?? HeuristicRuleFactory.CreateDefault(effectDb, legacyBehaviorCompat);
+            _eval.OnDebugLog = msg => OnLog?.Invoke(msg);
         }
 
         public List<GameAction> FindBestSequence(SimBoard board, ProfileParameters param)

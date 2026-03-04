@@ -222,8 +222,7 @@ namespace BotMain.AI
             if (target.SpellPower > 0)
                 bonus += target.SpellPower * 1.5f * context.ThreatBias;
 
-            if (target.HasDeathrattle)
-                bonus -= 1f;
+            bonus += EvaluateDeathrattleTradeBias(target, context);
 
             if (targetDies && !attacker.HasPoison)
             {
@@ -342,6 +341,39 @@ namespace BotMain.AI
 
             return _db.Has(m.CardId, EffectTrigger.EndOfTurn)
                 || _db.Has(m.CardId, EffectTrigger.Aura);
+        }
+
+        /// <summary>
+        /// 亡语目标的分层偏置：
+        /// - 低威胁亡语：维持轻微惩罚，避免无收益硬解；
+        /// - 高威胁亡语（剧毒/高攻/风怒/法强/持续收益）：提升交换意愿。
+        /// </summary>
+        private float EvaluateDeathrattleTradeBias(SimEntity target, AggroInteractionContext context)
+        {
+            if (target == null || !target.HasDeathrattle)
+                return 0f;
+
+            float baseBias = -0.7f;
+            float dangerScore = 0f;
+
+            if (target.Atk >= context.HighThreatAttackThreshold)
+                dangerScore += 1.6f;
+            if (target.HasPoison)
+                dangerScore += 2.5f;
+            if (target.IsWindfury)
+                dangerScore += 1.4f;
+            if (target.SpellPower > 0)
+                dangerScore += 1.2f + target.SpellPower * 0.8f;
+            if (target.IsLifeSteal)
+                dangerScore += 0.8f + target.Atk * 0.15f;
+            if (target.IsTaunt)
+                dangerScore += 0.9f;
+            if (target.IsDivineShield)
+                dangerScore += 0.6f;
+            if (IsPersistentValueMinion(target))
+                dangerScore += 1.4f;
+
+            return baseBias + dangerScore * context.ThreatBias * 0.55f;
         }
     }
 }
