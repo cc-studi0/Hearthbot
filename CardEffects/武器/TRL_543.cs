@@ -1,4 +1,5 @@
 using BotMain.AI;
+using C = SmartBot.Plugins.API.Card.Cards;
 
 namespace BotMain.AI.CardEffectsScripts
 {
@@ -6,15 +7,12 @@ namespace BotMain.AI.CardEffectsScripts
     {
         public void Register(CardEffectDB db)
         {
-            CardEffectScriptRuntime.RegisterById(
-                db,
-                "TRL_543",
-            new TriggerDef(
-                "Battlecry",
-                "AnyCharacter",
-                new EffectDef("dmg", v: 5, atk: 0, hp: 0, n: 1, dur: 0, useSP: false)
-            )
-            );
+            db.Register(C.TRL_543, EffectTrigger.Battlecry, (b, s, t) =>
+            {
+                if (b == null) return;
+                var hero = (s != null && !s.IsFriend) ? b.EnemyHero : b.FriendHero;
+                if (hero != null) CardEffectDB.Dmg(b, hero, 5);
+            });
         }
     }
 }

@@ -13,13 +13,25 @@ namespace BotMain.AI
         public SimEntity FriendWeapon, EnemyWeapon;
         public SimEntity HeroPower;
         public List<SimEntity> Hand = new();
+        public List<SimEntity> EnemyHand = new();
         public int Mana, MaxMana;
         public bool HeroPowerUsed;
         public int CardsPlayedThisTurn;
         public int FriendCardDraw;
+        public int FriendExcavateCount;
+        public int EnemyDeckPlagueCount;
         public Card.CClass FriendClass, EnemyClass;
         /// <summary>我方牌库中剩余的 CardId 列表（来自 DeckZone）</summary>
         public List<Card.Cards> FriendDeckCards = new();
+        /// <summary>敌方牌库模拟数据（仅用于“洗入对手牌库”类效果的计数/近似）</summary>
+        public List<Card.Cards> EnemyDeckCards = new();
+        /// <summary>战场上已触发的秘密（仅做脚本兼容与粗略状态）</summary>
+        public List<Card.Cards> FriendSecrets = new();
+        public List<Card.Cards> EnemySecrets = new();
+
+        // 兼容旧脚本字段命名
+        public List<Card.Cards> FriendDeck => FriendDeckCards;
+        public List<Card.Cards> EnemyDeck => EnemyDeckCards;
 
         public SimBoard Clone()
         {
@@ -33,14 +45,20 @@ namespace BotMain.AI
                 EnemyWeapon = EnemyWeapon?.Clone(),
                 HeroPower = HeroPower?.Clone(),
                 Hand = Hand.Select(c => c.Clone()).ToList(),
+                EnemyHand = EnemyHand.Select(c => c.Clone()).ToList(),
                 Mana = Mana,
                 MaxMana = MaxMana,
                 HeroPowerUsed = HeroPowerUsed,
                 CardsPlayedThisTurn = CardsPlayedThisTurn,
                 FriendCardDraw = FriendCardDraw,
+                FriendExcavateCount = FriendExcavateCount,
+                EnemyDeckPlagueCount = EnemyDeckPlagueCount,
                 FriendClass = FriendClass,
                 EnemyClass = EnemyClass,
                 FriendDeckCards = new List<Card.Cards>(FriendDeckCards),
+                EnemyDeckCards = new List<Card.Cards>(EnemyDeckCards),
+                FriendSecrets = new List<Card.Cards>(FriendSecrets),
+                EnemySecrets = new List<Card.Cards>(EnemySecrets),
             };
         }
 
@@ -147,6 +165,7 @@ namespace BotMain.AI
                 HasBattlecry = c.Template?.HasBattlecry ?? false,
                 HasDeathrattle = c.Template?.HasDeathrattle ?? false,
                 CountAttack = countAttack,
+                OverloadedCrystals = ReadOverloadedCrystals(c),
                 UseBoardCanAttack = true,
                 BoardCanAttack = c.CanAttack,
                 Type = c.Type,
@@ -170,6 +189,31 @@ namespace BotMain.AI
             }
 
             return Math.Max(0, c.CountAttack);
+        }
+
+        private static int ReadOverloadedCrystals(Card c)
+        {
+            if (c == null) return 0;
+
+            try
+            {
+                if (Enum.TryParse("OVERLOAD_OWED", out Card.GAME_TAG owedTag))
+                {
+                    var owed = c.GetTag(owedTag);
+                    if (owed > 0) return owed;
+                }
+
+                if (Enum.TryParse("OVERLOAD_LOCKED", out Card.GAME_TAG lockedTag))
+                {
+                    var locked = c.GetTag(lockedTag);
+                    if (locked > 0) return locked;
+                }
+            }
+            catch
+            {
+            }
+
+            return 0;
         }
     }
 }

@@ -13,6 +13,9 @@ namespace BotMain.AI
         public bool HasBattlecry, HasDeathrattle;
         public bool EnrageBonusActive;
         public int CountAttack;
+        public int EffectCounter1;
+        public int EffectCounter2;
+        public int OverloadedCrystals;
         public Card.CType Type;
         public bool UseBoardCanAttack;
         public bool BoardCanAttack;
@@ -43,6 +46,17 @@ namespace BotMain.AI
         }
 
         public bool IsAlive => Health > 0;
+
+        // 兼容旧脚本里将武器耐久当成独立字段的写法
+        public int Durability
+        {
+            get => Health;
+            set
+            {
+                Health = value;
+                if (value > MaxHealth) MaxHealth = value;
+            }
+        }
 
         public SimEntity Clone() => (SimEntity)MemberwiseClone();
     }

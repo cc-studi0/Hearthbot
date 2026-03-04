@@ -1,4 +1,5 @@
 using BotMain.AI;
+using C = SmartBot.Plugins.API.Card.Cards;
 
 namespace BotMain.AI.CardEffectsScripts
 {
@@ -6,15 +7,16 @@ namespace BotMain.AI.CardEffectsScripts
     {
         public void Register(CardEffectDB db)
         {
-            CardEffectScriptRuntime.RegisterById(
-                db,
-                "GVG_043",
-            new TriggerDef(
-                "Battlecry",
-                "FriendlyMinion",
-                new EffectDef("buff", v: 0, atk: 1, hp: 0, n: 1, dur: 0, useSP: false)
-            )
-            );
+            db.Register(C.GVG_043, EffectTrigger.Battlecry, (b, s, t) =>
+            {
+                if (b == null) return;
+                var allies = (s != null && !s.IsFriend) ? b.EnemyMinions : b.FriendMinions;
+                if (allies.Count > 0)
+                {
+                    var target = allies[CardEffectDB.Rnd.Next(allies.Count)];
+                    target.Atk += 1;
+                }
+            });
         }
     }
 }

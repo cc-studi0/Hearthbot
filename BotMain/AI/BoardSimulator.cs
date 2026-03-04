@@ -27,6 +27,19 @@ namespace BotMain.AI
         public void Attack(SimBoard board, SimEntity attacker, SimEntity target)
         {
             DisableBoardCanAttackHints(board);
+            var targetHealthBefore = target?.Health ?? 0;
+            var targetArmorBefore = target?.Armor ?? 0;
+            var targetHadDivineShield = target?.IsDivineShield ?? false;
+
+            var attackerIsFriendHero = attacker == board.FriendHero;
+            var attackerIsEnemyHero = attacker == board.EnemyHero;
+            var attackerWeapon = attackerIsFriendHero ? board.FriendWeapon : attackerIsEnemyHero ? board.EnemyWeapon : null;
+            var applyImmuneWhileAttacking = attackerWeapon != null
+                && _db.HasHeroImmuneWhileAttackingWeapon(attackerWeapon.CardId);
+            var originalImmune = attacker.IsImmune;
+            if (applyImmuneWhileAttacking)
+                attacker.IsImmune = true;
+
             attacker.CountAttack++;
             if (attacker.Type == Card.CType.HERO)
             {
@@ -35,15 +48,18 @@ namespace BotMain.AI
             }
 
             var attackerAtk = attacker.Atk;
-            if (attacker == board.FriendHero && attackerAtk <= 0 && board.FriendWeapon != null && board.FriendWeapon.Health > 0)
-                attackerAtk = board.FriendWeapon.Atk;
-            else if (attacker == board.EnemyHero && attackerAtk <= 0 && board.EnemyWeapon != null && board.EnemyWeapon.Health > 0)
-                attackerAtk = board.EnemyWeapon.Atk;
+            if (attacker == board.FriendHero && board.FriendWeapon != null && board.FriendWeapon.Health > 0)
+                attackerAtk = Math.Max(attackerAtk, board.FriendWeapon.Atk);
+            else if (attacker == board.EnemyHero && board.EnemyWeapon != null && board.EnemyWeapon.Health > 0)
+                attackerAtk = Math.Max(attackerAtk, board.EnemyWeapon.Atk);
 
             // 双方互相造成伤害
             DealDamage(board, target, attackerAtk, attacker.HasPoison);
             if (target.Atk > 0)
                 DealDamage(board, attacker, target.Atk, target.HasPoison);
+
+            if (applyImmuneWhileAttacking)
+                attacker.IsImmune = originalImmune;
 
             // 攻击敌方随从后触发（如“攻击一个随从后...”）
             if (attacker != null
@@ -54,6 +70,28 @@ namespace BotMain.AI
                 afterAttackFn(board, attacker, target);
             }
 
+            if (attackerIsFriendHero || attackerIsEnemyHero)
+            {
+                var heroCtx = new CardEffectDB.HeroAttackContext
+                {
+                    AttackDamage = Math.Max(0, attackerAtk),
+                    TargetWasMinion = target != null && target.Type == Card.CType.MINION,
+                    HonorableKill = target != null
+                        && target.Type == Card.CType.MINION
+                        && !targetHadDivineShield
+                        && targetArmorBefore <= 0
+                        && targetHealthBefore > 0
+                        && target.Health <= 0
+                        && attackerAtk == targetHealthBefore
+                };
+
+                _db.TriggerAfterHeroAttackWeapon(board, attacker, target, heroCtx);
+                if (attackerIsFriendHero)
+                    BreakHeroWeaponIfBroken(board, isFriendHero: true);
+                else if (attackerIsEnemyHero)
+                    BreakHeroWeaponIfBroken(board, isFriendHero: false);
+            }
+
             // 吸血
             if (attacker.IsLifeSteal && board.FriendHero != null)
                 board.FriendHero.Health = Math.Min(board.FriendHero.MaxHealth, board.FriendHero.Health + attackerAtk);
@@ -62,15 +100,12 @@ namespace BotMain.AI
             if (attacker == board.FriendHero && board.FriendWeapon != null)
             {
                 board.FriendWeapon.Health--;
-                if (board.FriendWeapon.Health <= 0)
-                {
-                    var deadWeapon = board.FriendWeapon;
-                    board.FriendWeapon = null;
-                    // 武器被打掉后清除英雄的武器攻击力
-                    if (board.FriendHero != null) board.FriendHero.Atk = 0;
-                    if (_db.TryGet(deadWeapon.CardId, EffectTrigger.Deathrattle, out var drFn))
-                        drFn(board, deadWeapon, null);
-                }
+                BreakHeroWeaponIfBroken(board, isFriendHero: true);
+            }
+            else if (attacker == board.EnemyHero && board.EnemyWeapon != null)
+            {
+                board.EnemyWeapon.Health--;
+                BreakHeroWeaponIfBroken(board, isFriendHero: false);
             }
 
             ProcessDeaths(board);
@@ -101,6 +136,8 @@ namespace BotMain.AI
             {
                 if (_db.TryGet(card.CardId, EffectTrigger.Spell, out var fn))
                     fn(board, card, target);
+                _db.TriggerAfterFriendlySpellCastWeapon(board, card);
+                BreakHeroWeaponIfBroken(board, isFriendHero: true);
             }
             else if (card.Type == Card.CType.WEAPON)
             {
@@ -166,6 +203,8 @@ namespace BotMain.AI
                 }
             }
 
+            _db.TriggerAfterTradeCard(board, card);
+
             ApplyAuras(board);
         }
 
@@ -175,6 +214,8 @@ namespace BotMain.AI
             board.Mana -= board.HeroPower.Cost;
             board.HeroPowerUsed = true;
             ApplyHeroPower(board, target);
+            _db.TriggerAfterFriendlyHeroPowerUsedWeapon(board);
+            BreakHeroWeaponIfBroken(board, isFriendHero: true);
             ProcessDeaths(board);
             ApplyAuras(board);
         }
@@ -283,7 +324,31 @@ namespace BotMain.AI
         private void DealDamage(SimBoard board, SimEntity target, int dmg, bool hasPoison)
         {
             if (target == null || target.IsImmune || dmg <= 0) return;
-            if (target.IsDivineShield) { target.IsDivineShield = false; return; }
+
+            // 英雄受伤替代（如：埃辛诺斯壁垒）
+            if (target == board.FriendHero && board.FriendWeapon != null && board.FriendWeapon.Health > 0)
+            {
+                dmg = _db.ApplyHeroDamageReplacement(board.FriendWeapon.CardId, board, target, dmg);
+                BreakHeroWeaponIfBroken(board, isFriendHero: true);
+                if (dmg <= 0) return;
+            }
+            else if (target == board.EnemyHero && board.EnemyWeapon != null && board.EnemyWeapon.Health > 0)
+            {
+                dmg = _db.ApplyHeroDamageReplacement(board.EnemyWeapon.CardId, board, target, dmg);
+                BreakHeroWeaponIfBroken(board, isFriendHero: false);
+                if (dmg <= 0) return;
+            }
+
+            if (target.IsDivineShield)
+            {
+                target.IsDivineShield = false;
+                if (target.IsFriend && target.Type == Card.CType.MINION)
+                {
+                    _db.TriggerAfterFriendlyDivineShieldLostWeapon(board, target);
+                    BreakHeroWeaponIfBroken(board, isFriendHero: true);
+                }
+                return;
+            }
             if (target.Armor > 0)
             {
                 int absorbed = Math.Min(target.Armor, dmg);
@@ -299,12 +364,32 @@ namespace BotMain.AI
                 damagedFn(board, target, null);
         }
 
+        private void BreakHeroWeaponIfBroken(SimBoard board, bool isFriendHero)
+        {
+            var weapon = isFriendHero ? board.FriendWeapon : board.EnemyWeapon;
+            if (weapon == null || weapon.Health > 0)
+                return;
+
+            if (isFriendHero)
+                board.FriendWeapon = null;
+            else
+                board.EnemyWeapon = null;
+
+            var hero = isFriendHero ? board.FriendHero : board.EnemyHero;
+            if (hero != null) hero.Atk = 0;
+
+            if (_db.TryGet(weapon.CardId, EffectTrigger.Deathrattle, out var drFn))
+                drFn(board, weapon, null);
+        }
+
         private void ProcessDeaths(SimBoard board)
         {
             // 友方死亡
             var deadFriend = board.FriendMinions.Where(m => !m.IsAlive).ToList();
             foreach (var d in deadFriend)
             {
+                _db.TriggerAfterFriendlyMinionDiedWeapon(board, d);
+                BreakHeroWeaponIfBroken(board, isFriendHero: true);
                 board.FriendMinions.Remove(d);
                 if (_db.TryGet(d.CardId, EffectTrigger.Deathrattle, out var fn))
                     fn(board, d, null);
@@ -352,6 +437,8 @@ namespace BotMain.AI
             foreach (var m in board.EnemyMinions.ToArray())
                 if (_db.TryGet(m.CardId, EffectTrigger.Aura, out var fn))
                     fn(board, m, null);
+
+            _db.ApplyWeaponAuras(board);
         }
 
     }

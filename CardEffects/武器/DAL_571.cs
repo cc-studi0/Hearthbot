@@ -1,4 +1,5 @@
 using BotMain.AI;
+using C = SmartBot.Plugins.API.Card.Cards;
 
 namespace BotMain.AI.CardEffectsScripts
 {
@@ -6,15 +7,16 @@ namespace BotMain.AI.CardEffectsScripts
     {
         public void Register(CardEffectDB db)
         {
-            CardEffectScriptRuntime.RegisterById(
-                db,
-                "DAL_571",
-            new TriggerDef(
-                "Battlecry",
-                "FriendlyMinion",
-                new EffectDef("buff", v: 0, atk: 1, hp: 0, n: 1, dur: 0, useSP: false)
-            )
-            );
+            db.Register(C.DAL_571, EffectTrigger.Battlecry, (b, s, t) =>
+            {
+                if (b == null) return;
+                var secrets = (s != null && !s.IsFriend) ? b.EnemySecrets : b.FriendSecrets;
+                if (secrets.Count > 0)
+                {
+                    var weapon = (s != null && !s.IsFriend) ? b.EnemyWeapon : b.FriendWeapon;
+                    if (weapon != null) weapon.Atk += 1;
+                }
+            });
         }
     }
 }

@@ -1,4 +1,6 @@
+using System.Linq;
 using BotMain.AI;
+using C = SmartBot.Plugins.API.Card.Cards;
 
 namespace BotMain.AI.CardEffectsScripts
 {
@@ -6,15 +8,15 @@ namespace BotMain.AI.CardEffectsScripts
     {
         public void Register(CardEffectDB db)
         {
-            CardEffectScriptRuntime.RegisterById(
-                db,
-                "FIR_922",
-            new TriggerDef(
-                "Battlecry",
-                "FriendlyMinion",
-                new EffectDef("buff", v: 0, atk: 3, hp: 0, n: 1, dur: 0, useSP: false)
-            )
-            );
+            db.Register(C.FIR_922, EffectTrigger.Battlecry, (b, s, t) =>
+            {
+                if (b == null || s == null) return;
+                var hasDarkGiftMinion = b.Hand.Any(c =>
+                    CardEffectScriptHelpers.IsMinionCard(c.CardId)
+                    && CardEffectScriptHelpers.HasDarkGiftKeyword(c.CardId));
+                if (hasDarkGiftMinion)
+                    s.Atk += 3;
+            });
         }
     }
 }

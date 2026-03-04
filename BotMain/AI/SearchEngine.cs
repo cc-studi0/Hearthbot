@@ -245,7 +245,8 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action);
+                        var aggroCoef = param?.GlobalAggroModifier != null ? param.GlobalAggroModifier.GetValueCoef() : 1f;
+                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action, aggroCoef);
                         var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
                         var finalScore = boardScore + cumulativeAdjustment;
 

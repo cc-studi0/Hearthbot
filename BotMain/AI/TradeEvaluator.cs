@@ -26,8 +26,10 @@ namespace BotMain.AI
         /// <summary>
         /// 评估一次攻击动作的交换质量，返回额外分数。
         /// 正分 = 鼓励这个交换，负分 = 不鼓励。
+        /// aggroCoef: 来自 profile 的激进度系数（1=中性，>1=激进，<1=保守）。
+        /// 激进时打脸奖励放大、交换奖励缩小；保守时反之。
         /// </summary>
-        public float EvaluateAttack(SimBoard board, GameAction action)
+        public float EvaluateAttack(SimBoard board, GameAction action, float aggroCoef = 1f)
         {
             if (action.Type != ActionType.Attack) return 0f;
 
@@ -38,18 +40,21 @@ namespace BotMain.AI
             bool isGoingFace = (board.EnemyHero != null && target.EntityId == board.EnemyHero.EntityId);
 
             if (isGoingFace)
-                return EvaluateFaceAttack(board, attacker);
+                return EvaluateFaceAttack(board, attacker, aggroCoef);
             else
-                return EvaluateMinionTrade(board, attacker, target);
+                return EvaluateMinionTrade(board, attacker, target, aggroCoef);
         }
 
         // ────────────────────────────────────────────────
         //  打脸评估
         // ────────────────────────────────────────────────
 
-        private float EvaluateFaceAttack(SimBoard board, SimEntity attacker)
+        private float EvaluateFaceAttack(SimBoard board, SimEntity attacker, float aggroCoef)
         {
             float bonus = 0f;
+
+            // aggroCoef > 1 → 打脸奖励放大；defCoef = 2 - aggroCoef → 解场惩罚缩小
+            float defCoef = Math.Max(0.2f, 2f - aggroCoef);
 
             int enemyEhp = 0;
             if (board.EnemyHero != null)
@@ -65,9 +70,9 @@ namespace BotMain.AI
             // ── 如果打脸可以接近斩杀，奖励 ──
             if (enemyEhp > 0 && enemyEhp <= totalFaceAtk * 1.5f)
             {
-                bonus += 3f; // 接近斩杀，打脸很好
+                bonus += 3f * aggroCoef; // 激进 profile 放大接近斩杀的打脸奖励
                 if (enemyEhp <= attacker.Atk)
-                    bonus += 5f; // 这一刀就能杀
+                    bonus += 5f * aggroCoef; // 这一刀就能杀
             }
 
             // ── 如果对面有高威胁随从没解，打脸可能不明智 ──
@@ -89,20 +94,20 @@ namespace BotMain.AI
 
             if (hasHighThreat && enemyEhp > 15)
             {
-                // 对方血多 + 场上有大威胁 = 打脸不太好
-                bonus -= 2f;
+                // 对方血多 + 场上有大威胁 = 打脸不太好（保守 profile 惩罚更重）
+                bonus -= 2f * defCoef;
             }
 
             // 如果对方场攻 >= 我方有效血量的 60%，打脸太危险
             if (totalEnemyAtk >= friendEhp * 0.6f && enemyEhp > 10)
             {
-                bonus -= 3f;
+                bonus -= 3f * defCoef;
             }
 
             // ── 用剧毒随从打脸是浪费 ──
             if (attacker.HasPoison && board.EnemyMinions.Count > 0)
             {
-                bonus -= 4f; // 剧毒随从应该用来解场
+                bonus -= 4f * defCoef; // 剧毒随从应该用来解场
             }
 
             // ── 低攻随从打脸价值低（除非接近斩杀） ──
@@ -111,10 +116,10 @@ namespace BotMain.AI
                 bonus -= 1f;
             }
 
-            // 具有持续收益能力的随从（如回合结束触发/Aura）在非斩杀局面更应优先保留解场价值
+            // 具有持续收益能力的随从在非斩杀局面更应优先保留解场价值
             if (IsPersistentValueMinion(attacker) && hasHighThreat && enemyEhp > 10)
             {
-                bonus -= 2f;
+                bonus -= 2f * defCoef;
             }
 
             return bonus;
@@ -124,9 +129,12 @@ namespace BotMain.AI
         //  随从交换评估
         // ────────────────────────────────────────────────
 
-        private float EvaluateMinionTrade(SimBoard board, SimEntity attacker, SimEntity target)
+        private float EvaluateMinionTrade(SimBoard board, SimEntity attacker, SimEntity target, float aggroCoef)
         {
             float bonus = 0f;
+
+            // tradeCoef: 保守时(aggroCoef<1)交换奖励放大，激进时(aggroCoef>1)交换奖励缩小
+            float tradeCoef = Math.Max(0.2f, 2f - aggroCoef);
 
             // 预判交换结果
             bool attackerDies = WillDie(attacker, target);
@@ -145,19 +153,19 @@ namespace BotMain.AI
             {
                 // 最佳交换：杀死对方、自己存活
                 float efficiency = targetValue / Math.Max(1f, attackerValue);
-                bonus += 6f + Math.Min(10f, efficiency * 2.2f);
+                bonus += (6f + Math.Min(10f, efficiency * 2.2f)) * tradeCoef;
 
                 // 剧毒换大怪特别赚
                 if (attacker.HasPoison && targetValue >= 8f)
-                    bonus += 5f;
+                    bonus += 5f * tradeCoef;
 
                 // 圣盾保命交换
                 if (attacker.IsDivineShield)
-                    bonus += 3f;
+                    bonus += 3f * tradeCoef;
 
                 // 持续收益随从安全解怪，额外鼓励
                 if (attackerIsPersistent)
-                    bonus += 1.5f;
+                    bonus += 1.5f * tradeCoef;
             }
             else if (targetDies && attackerDies)
             {
@@ -165,79 +173,79 @@ namespace BotMain.AI
                 float tradeRatio = targetValue / Math.Max(1f, attackerValue);
 
                 if (tradeRatio >= 2f)
-                    bonus += 5f;  // 用低值换高值 = 好交换
+                    bonus += 5f * tradeCoef;
                 else if (tradeRatio >= 1.2f)
-                    bonus += 2f;  // 略赚
+                    bonus += 2f * tradeCoef;
                 else if (tradeRatio >= 0.8f)
-                    bonus += 0f;  // 平换
+                    bonus += 0f;
                 else if (tradeRatio >= 0.5f)
-                    bonus -= 2f;  // 亏了
+                    bonus -= 2f * tradeCoef;
                 else
-                    bonus -= 4f;  // 大亏
+                    bonus -= 4f * tradeCoef;
 
                 // 持续收益随从不应轻易平换
                 if (attackerIsPersistent)
-                    bonus -= 3f;
+                    bonus -= 3f * tradeCoef;
             }
             else if (!targetDies && !attackerDies)
             {
-                // 都没死：通常不优，只有在“为后续补刀铺路”时才可接受
-                bonus -= 2.5f;
+                // 都没死：通常不优，只有在"为后续补刀铺路"时才可接受
+                bonus -= 2.5f * tradeCoef;
 
                 // 但如果是在磨嘲讽，还行
                 if (target.IsTaunt)
-                    bonus += 1.5f;
+                    bonus += 1.5f * tradeCoef;
 
                 // 撞掉圣盾 = 有价值（为后续攻击铺路）
                 if (target.IsDivineShield)
-                    bonus += 2f;
+                    bonus += 2f * tradeCoef;
 
                 // 多小换大：这一下虽然没解掉，但能被后续攻击补刀
                 if (setsUpKill && targetHighThreat)
-                    bonus += 2.5f;
+                    bonus += 2.5f * tradeCoef;
                 else if (!setsUpKill)
-                    bonus -= 1.5f;
+                    bonus -= 1.5f * tradeCoef;
 
                 // 持续收益随从更不应该做无效磨血
                 if (attackerIsPersistent && !setsUpKill)
-                    bonus -= 4f;
+                    bonus -= 4f * tradeCoef;
             }
             else // !targetDies && attackerDies
             {
                 // 最差：我死了对方没死
-                bonus -= 8f;
+                bonus -= 8f * tradeCoef;
 
                 // 但如果是 1/1 送掉圣盾，可以接受
                 if (target.IsDivineShield && attackerValue <= 3f)
                     bonus += 2f;
 
-                // 多小换大中的“垫刀”：若后续可补刀且目标威胁高，适度放宽
+                // 多小换大中的"垫刀"：若后续可补刀且目标威胁高，适度放宽
                 if (setsUpKill && targetHighThreat && attackerValue <= targetValue)
                     bonus += 4f;
 
                 // 持续收益随从不应被白白送掉
                 if (attackerIsPersistent)
-                    bonus -= 6f;
+                    bonus -= 6f * tradeCoef;
             }
 
-            // ── 2. 目标优先级 ──
+            // ── 2. 目标优先级（保守时更重视解场） ──
             // 高攻随从应该优先解
             if (target.Atk >= 5)
-                bonus += 2f;
+                bonus += 2f * tradeCoef;
             if (target.Atk >= 8)
-                bonus += 2f;
+                bonus += 2f * tradeCoef;
 
             // 剧毒随从必须优先解
             if (target.HasPoison)
-                bonus += 3f;
+                bonus += 3f * tradeCoef;
 
             // 风怒随从威胁翻倍
             if (target.IsWindfury)
-                bonus += target.Atk * 0.5f;
+                bonus += target.Atk * 0.5f * tradeCoef;
 
             // 法术强度随从值得解
             if (target.SpellPower > 0)
-                bonus += target.SpellPower * 1.5f;
+                bonus += target.SpellPower * 1.5f * tradeCoef;
 
             // 有亡语的目标要谨慎
             if (target.HasDeathrattle)
@@ -305,7 +313,7 @@ namespace BotMain.AI
             {
                 if (m == null || m.EntityId == attacker?.EntityId) continue;
                 if (!m.CanAttack || m.Type == Card.CType.LOCATION) continue;
-                dmg += m.Atk;
+                dmg += m.IsWindfury ? m.Atk * 2 : m.Atk;
             }
 
             if (board.FriendHero != null

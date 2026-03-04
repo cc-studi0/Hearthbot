@@ -1,4 +1,5 @@
 using BotMain.AI;
+using C = SmartBot.Plugins.API.Card.Cards;
 
 namespace BotMain.AI.CardEffectsScripts
 {
@@ -6,15 +7,17 @@ namespace BotMain.AI.CardEffectsScripts
     {
         public void Register(CardEffectDB db)
         {
-            CardEffectScriptRuntime.RegisterById(
-                db,
-                "GIL_653",
-            new TriggerDef(
-                "Deathrattle",
-                "None",
-                new EffectDef("buff", v: 0, atk: 2, hp: 1, n: 1, dur: 0, useSP: false)
-            )
-            );
+            db.Register(C.GIL_653, EffectTrigger.Deathrattle, (b, s, t) =>
+            {
+                if (b == null) return;
+                var allies = (s != null && !s.IsFriend) ? b.EnemyMinions : b.FriendMinions;
+                if (allies.Count > 0)
+                {
+                    var target = allies[CardEffectDB.Rnd.Next(allies.Count)];
+                    target.Atk += 2;
+                    target.Health += 1;
+                }
+            });
         }
     }
 }

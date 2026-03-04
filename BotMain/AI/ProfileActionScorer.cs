@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Plugins.API;
@@ -14,6 +15,11 @@ namespace BotMain.AI
 
     public class ProfileActionScorer
     {
+        private static readonly Card.Cards[] HeroPrefixCardIds = Enum.GetValues(typeof(Card.Cards))
+            .Cast<Card.Cards>()
+            .Where(IsHeroPrefixCardId)
+            .ToArray();
+
         public ProfileActionScore Evaluate(SimBoard board, GameAction action, ProfileParameters param)
         {
             var score = new ProfileActionScore();
@@ -122,8 +128,8 @@ namespace BotMain.AI
             if (heroPower == null)
                 return;
 
-            ApplyPropensityRules(score, details, param.CastHeroPowerModifier, "CastHeroPower", heroPower, target);
-            ApplyOrderRules(score, details, param.PlayOrderModifiers, "PlayOrder", heroPower, target);
+            ApplyHeroPowerPropensityRules(score, details, param.CastHeroPowerModifier, "CastHeroPower", heroPower, target);
+            ApplyHeroPowerOrderRules(score, details, param.PlayOrderModifiers, "PlayOrder", heroPower, target);
         }
 
         private void EvaluateAttack(
@@ -219,6 +225,24 @@ namespace BotMain.AI
                 ApplyPropensityValue(score, details, $"{label}[{targetHit}]", targetModifier.Value);
         }
 
+        private static void ApplyHeroPowerPropensityRules(
+            ProfileActionScore score,
+            List<string> details,
+            RulesSet rules,
+            string label,
+            SimEntity source,
+            SimEntity target)
+        {
+            if (rules == null || source == null)
+                return;
+
+            if (TryGetNoTargetModifierWithHeroPrefixFallback(rules, source.CardId, source.EntityId, out var baseModifier, out var baseHit))
+                ApplyPropensityValue(score, details, $"{label}[{baseHit}]", baseModifier.Value);
+
+            if (target != null && TryGetTargetModifierWithHeroPrefixFallback(rules, source, target, out var targetModifier, out var targetHit))
+                ApplyPropensityValue(score, details, $"{label}[{targetHit}]", targetModifier.Value);
+        }
+
         private static void ApplyPropensityNoTargetRules(
             ProfileActionScore score,
             List<string> details,
@@ -248,6 +272,24 @@ namespace BotMain.AI
                 ApplyOrderValue(score, details, $"{label}[{baseHit}]", baseModifier.Value);
 
             if (target != null && TryGetTargetModifier(rules, source, target, out var targetModifier, out var targetHit))
+                ApplyOrderValue(score, details, $"{label}[{targetHit}]", targetModifier.Value);
+        }
+
+        private static void ApplyHeroPowerOrderRules(
+            ProfileActionScore score,
+            List<string> details,
+            RulesSet rules,
+            string label,
+            SimEntity source,
+            SimEntity target)
+        {
+            if (rules == null || source == null)
+                return;
+
+            if (TryGetNoTargetModifierWithHeroPrefixFallback(rules, source.CardId, source.EntityId, out var baseModifier, out var baseHit))
+                ApplyOrderValue(score, details, $"{label}[{baseHit}]", baseModifier.Value);
+
+            if (target != null && TryGetTargetModifierWithHeroPrefixFallback(rules, source, target, out var targetModifier, out var targetHit))
                 ApplyOrderValue(score, details, $"{label}[{targetHit}]", targetModifier.Value);
         }
 
@@ -305,6 +347,28 @@ namespace BotMain.AI
             return false;
         }
 
+        private static bool TryGetNoTargetModifierWithHeroPrefixFallback(
+            RulesSet rules,
+            Card.Cards sourceCardId,
+            int sourceEntityId,
+            out Modifier modifier,
+            out string hit)
+        {
+            if (TryGetNoTargetModifier(rules, sourceCardId, sourceEntityId, out modifier, out hit))
+                return true;
+
+            foreach (var heroCardId in HeroPrefixCardIds)
+            {
+                if (TryGetNoTargetModifier(rules, heroCardId, 0, out modifier, out hit))
+                {
+                    hit = $"{hit}(heroPrefix:{heroCardId})";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool TryGetTargetModifier(
             RulesSet rules,
             SimEntity source,
@@ -312,17 +376,36 @@ namespace BotMain.AI
             out Modifier modifier,
             out string hit)
         {
+            if (source == null || target == null)
+            {
+                modifier = null;
+                hit = null;
+                return false;
+            }
+
+            return TryGetTargetModifier(
+                rules,
+                source.CardId,
+                source.EntityId,
+                target.CardId,
+                target.EntityId,
+                out modifier,
+                out hit);
+        }
+
+        private static bool TryGetTargetModifier(
+            RulesSet rules,
+            Card.Cards sourceCardId,
+            int sourceEntityId,
+            Card.Cards targetCardId,
+            int targetEntityId,
+            out Modifier modifier,
+            out string hit)
+        {
             modifier = null;
             hit = null;
 
-            if (target == null)
-                return false;
-
             Rule rule;
-            var sourceCardId = source.CardId;
-            var targetCardId = target.CardId;
-            var sourceEntityId = source.EntityId;
-            var targetEntityId = target.EntityId;
 
             if (sourceEntityId > 0 && targetEntityId > 0)
             {
@@ -386,6 +469,50 @@ namespace BotMain.AI
             }
 
             return false;
+        }
+
+        private static bool TryGetTargetModifierWithHeroPrefixFallback(
+            RulesSet rules,
+            SimEntity source,
+            SimEntity target,
+            out Modifier modifier,
+            out string hit)
+        {
+            if (TryGetTargetModifier(rules, source, target, out modifier, out hit))
+                return true;
+
+            if (source == null || target == null)
+            {
+                modifier = null;
+                hit = null;
+                return false;
+            }
+
+            foreach (var heroCardId in HeroPrefixCardIds)
+            {
+                if (TryGetTargetModifier(
+                    rules,
+                    heroCardId,
+                    source.EntityId,
+                    target.CardId,
+                    target.EntityId,
+                    out modifier,
+                    out hit))
+                {
+                    hit = $"{hit}(heroPrefix:{heroCardId})";
+                    return true;
+                }
+            }
+
+            modifier = null;
+            hit = null;
+            return false;
+        }
+
+        private static bool IsHeroPrefixCardId(Card.Cards cardId)
+        {
+            var name = cardId.ToString();
+            return name.StartsWith("HERO_", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

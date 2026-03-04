@@ -15,7 +15,7 @@ namespace BotMain
     {
         private readonly Action<string> _log;
         private readonly BotService _service;
-        private const bool ForwardProfileBotLogs = false;
+        private static readonly bool ForwardProfileBotLogs = false;
         private readonly Dictionary<string, FieldInfo> _botFields = new();
 
         public BotApiHandler(BotService service, Action<string> log)
