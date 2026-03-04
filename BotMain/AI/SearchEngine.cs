@@ -41,7 +41,8 @@ namespace BotMain.AI
         private readonly ActionGenerator _gen;
         private readonly ProfileActionScorer _profileScorer = new ProfileActionScorer();
         private readonly TradeEvaluator _tradeEval;
-        private readonly CardEffectDB _effectDb;
+        private readonly IAggroInteractionModel _aggroModel;
+        private readonly List<IHeuristicRule> _heuristicRules;
 
         /// <summary>Beam 宽度（同时追踪的候选序列数）</summary>
         public int BeamWidth { get; set; } = 6;
@@ -66,15 +67,28 @@ namespace BotMain.AI
         /// </summary>
         public float TranspositionMinDelta { get; set; } = 0.05f;
 
+        /// <summary>启用旧版卡牌特例启发式（默认 false）</summary>
+        public bool LegacyBehaviorCompat { get; }
+
         public event Action<string> OnLog;
 
-        public SearchEngine(BoardSimulator sim, BoardEvaluator eval, ActionGenerator gen, CardEffectDB effectDb = null)
+        public SearchEngine(
+            BoardSimulator sim,
+            BoardEvaluator eval,
+            ActionGenerator gen,
+            CardEffectDB effectDb = null,
+            IAggroInteractionModel aggroModel = null,
+            IEnumerable<IHeuristicRule> heuristicRules = null,
+            bool legacyBehaviorCompat = false)
         {
             _sim = sim;
             _eval = eval;
             _gen = gen;
-            _effectDb = effectDb;
-            _tradeEval = new TradeEvaluator(effectDb);
+            _aggroModel = aggroModel ?? new DefaultAggroInteractionModel();
+            _tradeEval = new TradeEvaluator(effectDb, _aggroModel);
+            LegacyBehaviorCompat = legacyBehaviorCompat;
+            _heuristicRules = heuristicRules?.Where(r => r != null).ToList()
+                ?? HeuristicRuleFactory.CreateDefault(effectDb, legacyBehaviorCompat);
         }
 
         public List<GameAction> FindBestSequence(SimBoard board, ProfileParameters param)
@@ -135,6 +149,7 @@ namespace BotMain.AI
                 foreach (var beam in activeBeams)
                 {
                     if (sw.ElapsedMilliseconds > TimeoutMs) break;
+                    var aggroContext = _aggroModel.Build(beam.Board, param);
 
                     // 生成所有可能的动作
                     var actions = _gen.Generate(beam.Board);
@@ -175,7 +190,7 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var priority = EstimateActionPriority(beam.Board, action, profileScore);
+                        var priority = EstimateActionPriority(beam.Board, action, profileScore, aggroContext);
                         nonEndActions.Add((action, profileScore, priority));
                     }
 
@@ -245,8 +260,7 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var aggroCoef = param?.GlobalAggroModifier != null ? param.GlobalAggroModifier.GetValueCoef() : 1f;
-                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action, aggroCoef);
+                        var tradeBonus = _tradeEval.EvaluateAttack(beam.Board, action, param);
                         var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
                         var finalScore = boardScore + cumulativeAdjustment;
 
@@ -620,137 +634,18 @@ namespace BotMain.AI
         private bool TryHeuristicPruneAction(SimBoard board, GameAction action, out string reason)
         {
             reason = null;
-            if (board == null || action == null) return false;
+            if (board == null || action == null || _heuristicRules == null || _heuristicRules.Count == 0)
+                return false;
 
-            // 赤红深渊（含核心版）：对敌方随从使用时，若不能当场击杀通常是亏节奏（会给其 +2 攻）。
-            if (IsCrimsonAbyssAction(action) && action.Target != null && !action.Target.IsFriend)
+            foreach (var rule in _heuristicRules)
             {
-                var target = action.Target;
-                bool lethal = !target.IsImmune && !target.IsDivineShield && target.Health <= 1;
-                if (!lethal)
-                {
-                    reason = "REV_990 on enemy minion without lethal";
+                if (rule == null) continue;
+                if (rule.TryPrune(board, action, out reason))
                     return true;
-                }
             }
 
-            // 牧师治疗英雄技能：对已满血英雄使用通常是纯浪费。
-            if (action.Type == ActionType.HeroPower
-                && board.FriendClass == Card.CClass.PRIEST
-                && !IsPriestDamageHeroPower(board)
-                && action.Target != null
-                && action.Target.IsFriend
-                && action.Target.Type == Card.CType.HERO
-                && IsAtFullHealth(action.Target))
-            {
-                reason = "heal full-health hero with hero power";
-                return true;
-            }
-
-            if (action.Type != ActionType.PlayCard) return false;
-
-            var source = action.Source;
-            if (source == null || source.Type != Card.CType.SPELL) return false;
-            if (_effectDb == null) return false;
-
-            var kinds = _effectDb.GetEffectKinds(source.CardId, EffectTrigger.Spell);
-            if (kinds == EffectKind.None) return false;
-
-            // 对满血英雄使用纯治疗法术。
-            if (action.Target != null
-                && action.Target.IsFriend
-                && action.Target.Type == Card.CType.HERO
-                && IsAtFullHealth(action.Target)
-                && IsPureHealEffect(kinds))
-            {
-                reason = "heal full-health hero";
-                return true;
-            }
-
-            // 无目标纯治疗且全体友方都不缺血。
-            if (action.Target == null
-                && IsPureHealEffect(kinds)
-                && !HasAnyInjuredFriendlyCharacter(board))
-            {
-                reason = "pure-heal while all friendly are full health";
-                return true;
-            }
-
-            // 对己方核心随从施放明确伤害/摧毁类法术（保留受伤联动例外）。
-            if (action.Target != null
-                && action.Target.IsFriend
-                && action.Target.Type == Card.CType.MINION
-                && (kinds & (EffectKind.Damage | EffectKind.Destroy)) != 0
-                && IsCoreFriendlyMinion(action.Target)
-                && !HasSelfDamageException(action.Target))
-            {
-                reason = "damage/destroy core friendly minion";
-                return true;
-            }
-
+            reason = null;
             return false;
-        }
-
-        private static bool IsCrimsonAbyssAction(GameAction action)
-        {
-            if (action == null || action.Source == null) return false;
-            if (action.Type != ActionType.UseLocation && action.Type != ActionType.PlayCard) return false;
-            return action.Source.CardId == Card.Cards.REV_990 || action.Source.CardId == Card.Cards.CORE_REV_990;
-        }
-
-        private bool HasSelfDamageException(SimEntity minion)
-        {
-            if (minion == null) return false;
-            if (minion.EnrageBonusActive) return true;
-            return _effectDb != null && _effectDb.Has(minion.CardId, EffectTrigger.AfterDamaged);
-        }
-
-        private static bool IsCoreFriendlyMinion(SimEntity minion)
-        {
-            if (minion == null || minion.Type != Card.CType.MINION) return false;
-
-            if (minion.SpellPower > 0
-                || minion.IsWindfury
-                || minion.HasPoison
-                || minion.IsLifeSteal
-                || minion.HasDeathrattle
-                || minion.HasReborn
-                || minion.IsTaunt
-                || minion.IsDivineShield)
-            {
-                return true;
-            }
-
-            var value = minion.Atk * 1.4f + minion.Health;
-            return value >= 7.5f;
-        }
-
-        private static bool HasAnyInjuredFriendlyCharacter(SimBoard board)
-        {
-            if (board == null) return false;
-            if (board.FriendHero != null && board.FriendHero.Health < board.FriendHero.MaxHealth) return true;
-            return board.FriendMinions.Any(m => m != null && m.Health < m.MaxHealth);
-        }
-
-        private static bool IsPureHealEffect(EffectKind kinds)
-        {
-            if ((kinds & EffectKind.Heal) == 0) return false;
-            var nonHeal = kinds & ~EffectKind.Heal;
-            return nonHeal == EffectKind.None;
-        }
-
-        private static bool IsAtFullHealth(SimEntity entity)
-            => entity != null && entity.Health >= entity.MaxHealth;
-
-        private static bool IsPriestDamageHeroPower(SimBoard board)
-        {
-            if (board?.HeroPower == null) return false;
-            var name = board.HeroPower.CardId.ToString();
-            return name == "EX1_625"
-                || name == "EX1_625t"
-                || name.Contains("MindSpike")
-                || name.Contains("SCH_270")
-                || name.Contains("YOP_028");
         }
 
         private static float Clamp01(float value)
@@ -767,9 +662,14 @@ namespace BotMain.AI
             return value;
         }
 
-        private static float EstimateActionPriority(SimBoard board, GameAction action, ProfileActionScore profileScore)
+        private static float EstimateActionPriority(
+            SimBoard board,
+            GameAction action,
+            ProfileActionScore profileScore,
+            AggroInteractionContext aggroContext)
         {
             if (action == null) return 0f;
+            if (aggroContext == null) aggroContext = AggroInteractionContext.FromAggroCoef(1f);
 
             float p = profileScore?.Bonus ?? 0f;
 
@@ -784,22 +684,23 @@ namespace BotMain.AI
                         var isFace = board?.EnemyHero != null && target.EntityId == board.EnemyHero.EntityId;
                         if (isFace)
                         {
-                            p += Math.Max(0f, (source?.Atk ?? 0) * 0.35f);
+                            p += Math.Max(0f, (source?.Atk ?? 0) * 0.35f) * aggroContext.FaceBias;
                             int enemyEhp = (board?.EnemyHero?.Health ?? 0) + (board?.EnemyHero?.Armor ?? 0);
-                            if (enemyEhp > 0 && enemyEhp <= 15) p += 2f;
+                            if (enemyEhp > 0 && enemyEhp <= aggroContext.SafeFaceEnemyEhpThreshold)
+                                p += 2f * aggroContext.FaceBias;
                         }
                         else
                         {
-                            p += target.Atk * 0.55f + target.Health * 0.15f;
-                            if (target.HasPoison) p += 2.5f;
-                            if (target.IsWindfury) p += 1.5f;
-                            if (target.SpellPower > 0) p += target.SpellPower * 1.2f;
-                            if (target.IsTaunt) p += 1.2f;
+                            p += (target.Atk * 0.55f + target.Health * 0.15f) * aggroContext.ThreatBias;
+                            if (target.HasPoison) p += 2.5f * aggroContext.ThreatBias;
+                            if (target.IsWindfury) p += 1.5f * aggroContext.ThreatBias;
+                            if (target.SpellPower > 0) p += target.SpellPower * 1.2f * aggroContext.ThreatBias;
+                            if (target.IsTaunt) p += 1.2f * aggroContext.TradeBias;
                         }
 
                         if (source != null)
                         {
-                            if (source.HasPoison && !isFace) p += 1.5f;
+                            if (source.HasPoison && !isFace) p += 1.5f * aggroContext.TradeBias;
                             if (source.IsFrozen || source.Atk <= 0) p -= 2f;
                         }
                         break;

@@ -15,10 +15,12 @@ namespace BotMain.AI
     public class BoardEvaluator
     {
         private readonly CardEffectDB _db;
+        private readonly IAggroInteractionModel _aggroModel;
 
-        public BoardEvaluator(CardEffectDB db = null)
+        public BoardEvaluator(CardEffectDB db = null, IAggroInteractionModel aggroModel = null)
         {
             _db = db;
+            _aggroModel = aggroModel ?? new DefaultAggroInteractionModel();
         }
 
         // ── 权重常量（基线，会被 Profile 修饰符调整） ──
@@ -62,6 +64,10 @@ namespace BotMain.AI
                 return -100000f;
 
             float score = 0;
+            var aggroCtx = _aggroModel.Build(board, param);
+            var aggroCoef = aggroCtx.AggroCoef;
+            var friendBoardScale = Clamp(0.85f + 0.22f * aggroCtx.SurvivalBias, 0.7f, 1.4f);
+            var enemyBoardScale = Clamp(0.8f + 0.35f * aggroCtx.ThreatBias, 0.65f, 1.6f);
 
             // ── 1. 场上随从评估 ──
             float friendBoardValue = 0;
@@ -78,7 +84,7 @@ namespace BotMain.AI
                 if (m.Type == Card.CType.LOCATION) continue; // 地标不算随从
                 float val = MinionValueFriend(m);
                 float coef = GetRulesCoef(param?.OnBoardFriendlyMinionsValuesModifiers, m.CardId);
-                friendBoardValue += val * coef;
+                friendBoardValue += val * coef * friendBoardScale;
                 friendMinionCount++;
                 friendTotalAtk += m.Atk;
                 if (m.IsTaunt) friendTauntCount++;
@@ -90,7 +96,7 @@ namespace BotMain.AI
                 if (m.Type == Card.CType.LOCATION) continue;
                 float val = MinionValueEnemy(m);
                 float coef = GetRulesCoef(param?.OnBoardBoardEnemyMinionsModifiers, m.CardId);
-                enemyBoardValue += val * coef;
+                enemyBoardValue += val * coef * enemyBoardScale;
                 enemyMinionCount++;
                 if (m.IsTaunt) enemyTauntCount++;
             }
@@ -131,26 +137,25 @@ namespace BotMain.AI
 
             if (board.EnemyHero != null)
             {
-                float aggCoef = GetModifierCoef(param?.GlobalAggroModifier);
                 int enemyHp = board.EnemyHero.Health;
                 int enemyArmor = board.EnemyHero.Armor;
                 int enemyEhp = enemyHp + enemyArmor;
 
-                score -= enemyHp * W_EnemyHeroHp * aggCoef;
-                score -= enemyArmor * W_EnemyHeroArmor * aggCoef;
+                score -= enemyHp * W_EnemyHeroHp * aggroCoef * aggroCtx.FaceBias;
+                score -= enemyArmor * W_EnemyHeroArmor * aggroCoef * aggroCtx.FaceBias;
 
                 // 接近斩杀连续奖励
                 if (enemyEhp < 30)
                 {
                     float killRatio = Math.Max(0f, 1f - enemyEhp / 30f);
-                    score += W_EnemyLowHpBonus * killRatio * killRatio * 15f * aggCoef;
+                    score += W_EnemyLowHpBonus * killRatio * killRatio * 15f * aggroCoef * aggroCtx.FaceBias;
                 }
 
                 // 场攻可以威胁对手
                 if (friendTotalAtk > 0 && enemyEhp > 0 && enemyTauntCount == 0)
                 {
                     float lethalPressure = Math.Min(1f, (float)friendTotalAtk / enemyEhp);
-                    score += lethalPressure * 5f * aggCoef;
+                    score += lethalPressure * 5f * aggroCoef * aggroCtx.FaceBias;
                 }
             }
 
@@ -204,16 +209,16 @@ namespace BotMain.AI
 
                 // 如果下回合可能致命，大幅惩罚
                 if (incomingDmg >= friendEhp2 && enemyMinionCount > 0)
-                    score -= 30f;
+                    score -= 30f * aggroCtx.SurvivalBias;
                 else if (incomingDmg >= friendEhp2 * 0.6f)
-                    score -= incomingDmg * 0.8f;
+                    score -= incomingDmg * 0.8f * aggroCtx.SurvivalBias;
                 else
-                    score -= incomingDmg * 0.3f;
+                    score -= incomingDmg * 0.3f * Math.Max(0.7f, aggroCtx.SurvivalBias * 0.7f);
             }
 
             // ── 8.5 敌方反打换子风险（近似 enemyTurnPen） ──
             // 评估我方高价值随从在下回合是否会被高效率吃掉，避免“当前回合看起来赚，实则送场面”。
-            score -= EstimateEnemyTradePenalty(board, GetModifierCoef(param?.GlobalDefenseModifier));
+            score -= EstimateEnemyTradePenalty(board, GetModifierCoef(param?.GlobalDefenseModifier), aggroCtx);
 
             // ── 9. 嘲讽墙价值 ──
             if (friendTauntCount > 0 && board.FriendHero != null)
@@ -230,7 +235,7 @@ namespace BotMain.AI
                     float urgency = Math.Max(0f, 1f - friendEhp3 / 30f);
                     tauntBonus *= 1f + urgency * 2f;
                 }
-                score += tauntBonus * defCoef;
+                score += tauntBonus * defCoef * aggroCtx.SurvivalBias;
             }
 
             // ── 10. 冰冻惩罚 ──
@@ -362,7 +367,7 @@ namespace BotMain.AI
         /// 估算敌方下回合对我方随从的“高效交换”风险。
         /// 返回值越高，代表我方当前站场越容易被反手拆掉，主评估应扣分。
         /// </summary>
-        private float EstimateEnemyTradePenalty(SimBoard board, float defenseCoef)
+        private float EstimateEnemyTradePenalty(SimBoard board, float defenseCoef, AggroInteractionContext aggroCtx)
         {
             if (board == null) return 0f;
 
@@ -410,7 +415,10 @@ namespace BotMain.AI
                 penalty += bestNetGain * laneCoef * persistentCoef * rebornCoef * 0.32f;
             }
 
-            return penalty * Math.Max(0.5f, defenseCoef);
+            var survivalScale = aggroCtx != null
+                ? Clamp(0.7f + 0.4f * aggroCtx.SurvivalBias, 0.65f, 1.7f)
+                : 1f;
+            return penalty * Math.Max(0.5f, defenseCoef) * survivalScale;
         }
 
         /// <summary>
@@ -449,6 +457,13 @@ namespace BotMain.AI
             var rule = rules.RulesCardIds[cardId];
             if (rule?.CardModifier == null) return 1f;
             return rule.CardModifier.GetValueCoef();
+        }
+
+        private static float Clamp(float value, float min, float max)
+        {
+            if (value < min) return min;
+            if (value > max) return max;
+            return value;
         }
     }
 }

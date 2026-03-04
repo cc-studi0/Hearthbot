@@ -17,6 +17,7 @@ namespace BotMain.AI
         Armor = 1 << 6,
         Mana = 1 << 7,
         Utility = 1 << 8,
+        Silence = 1 << 9,
     }
 
     public enum EffectTrigger

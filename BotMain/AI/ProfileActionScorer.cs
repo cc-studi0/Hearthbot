@@ -42,7 +42,7 @@ namespace BotMain.AI
                     EvaluateAttack(board, param, source, target, score, details);
                     break;
                 case ActionType.UseLocation:
-                    EvaluateUseLocation(param, source, score, details);
+                    EvaluateUseLocation(param, source, target, score, details);
                     break;
             }
 
@@ -82,6 +82,8 @@ namespace BotMain.AI
                     castLabel = "CastMinions";
                     break;
                 case Card.CType.SPELL:
+                case Card.CType.LOCATION:
+                case Card.CType.HERO:
                     castRules = param.CastSpellsModifiers;
                     globalCast = param.GlobalCastSpellsModifier;
                     castLabel = "CastSpells";
@@ -89,15 +91,6 @@ namespace BotMain.AI
                 case Card.CType.WEAPON:
                     castRules = param.CastWeaponsModifiers;
                     castLabel = "CastWeapons";
-                    break;
-                case Card.CType.LOCATION:
-                    castRules = param.LocationsModifiers;
-                    castLabel = "CastLocations";
-                    break;
-                case Card.CType.HERO:
-                    castRules = param.CastSpellsModifiers;
-                    globalCast = param.GlobalCastSpellsModifier;
-                    castLabel = "CastHeroCard";
                     break;
             }
 
@@ -109,11 +102,13 @@ namespace BotMain.AI
         private void EvaluateUseLocation(
             ProfileParameters param,
             SimEntity source,
+            SimEntity target,
             ProfileActionScore score,
             List<string> details)
         {
             if (source == null) return;
-            ApplyPropensityRules(score, details, param.LocationsModifiers, "UseLocation", source, null);
+            ApplyPropensityRules(score, details, param.LocationsModifiers, "UseLocation", source, target);
+            ApplyOrderRules(score, details, param.PlayOrderModifiers, "PlayOrder", source, target);
         }
 
         private void EvaluateHeroPower(
@@ -152,6 +147,13 @@ namespace BotMain.AI
 
                 // SmartBot 的武器攻击规则用 AddOrUpdate(targetId, modifier) 写入，目标也需要单独匹配一次
                 ApplyPropensityNoTargetRules(score, details, param.WeaponsAttackModifiers, "WeaponsAttack(target)", target);
+            }
+
+            if (!isHeroAttack
+                && source.Type == Card.CType.MINION
+                && target.Type == Card.CType.MINION)
+            {
+                ApplyPropensityRules(score, details, param.TradeModifiers, "Trade", source, target);
             }
 
             ApplyOrderRules(score, details, param.AttackOrderModifiers, "AttackOrder", source, target);
@@ -295,7 +297,8 @@ namespace BotMain.AI
 
         private static void ApplyPropensityValue(ProfileActionScore score, List<string> details, string label, int value)
         {
-            score.Bonus += 100 - value;
+            // 与 SmartBot 示例语义对齐：0=中性，负数更爱用，正数更不爱用。
+            score.Bonus -= value;
             details.Add($"{label}={value}");
         }
 

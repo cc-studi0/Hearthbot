@@ -97,11 +97,13 @@ namespace BotMain.AI
 
                 case "freeze":
                 case "freeze_all":
-                case "silence":
                 case "bounce":
                 case "set_hp":
                 case "noop":
                     return EffectKind.Utility;
+
+                case "silence":
+                    return EffectKind.Utility | EffectKind.Silence;
 
                 default:
                     return EffectKind.None;

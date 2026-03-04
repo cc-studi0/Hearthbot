@@ -33,10 +33,11 @@ namespace BotMain
             CardTemplate.INIT();
             var db = CardEffectDB.BuildDefault();
             var sim = new BoardSimulator(db);
-            var eval = new BoardEvaluator(db);
+            var aggroModel = new DefaultAggroInteractionModel();
+            var eval = new BoardEvaluator(db, aggroModel);
             var gen = new ActionGenerator();
             gen.SetEffectDB(db);
-            _engine = new SearchEngine(sim, eval, gen, db);
+            _engine = new SearchEngine(sim, eval, gen, db, aggroModel, legacyBehaviorCompat: false);
             _engine.OnLog += msg => OnLog?.Invoke(msg);
 
             _lethalFinder = new LethalFinder(sim, db);

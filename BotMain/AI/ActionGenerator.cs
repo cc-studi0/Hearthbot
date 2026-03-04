@@ -379,48 +379,56 @@ namespace BotMain.AI
             var hpId = board.HeroPower.EntityId;
             var hpSource = board.HeroPower;
 
+            var targetType = GetHeroPowerTargetType(board);
+            if (targetType == BattlecryTargetType.None)
+            {
+                actions.Add(new GameAction
+                {
+                    Type = ActionType.HeroPower,
+                    Source = hpSource,
+                    SourceEntityId = hpId,
+                    TargetEntityId = 0
+                });
+                return;
+            }
+
+            var targets = GetFilteredSpellTargets(board, targetType);
+            foreach (var tgt in targets)
+            {
+                actions.Add(new GameAction
+                {
+                    Type = ActionType.HeroPower,
+                    Source = hpSource,
+                    SourceEntityId = hpId,
+                    Target = tgt,
+                    TargetEntityId = tgt.EntityId
+                });
+            }
+        }
+
+        private BattlecryTargetType GetHeroPowerTargetType(SimBoard board)
+        {
+            if (board?.HeroPower == null) return BattlecryTargetType.None;
+
+            if (_effectDb != null)
+            {
+                if (_effectDb.TryGetTargetType(board.HeroPower.CardId, EffectTrigger.Spell, out var tt))
+                    return tt;
+                if (_effectDb.TryGetTargetType(board.HeroPower.CardId, EffectTrigger.Battlecry, out tt))
+                    return tt;
+            }
+
+            // 元数据缺失时的兜底兼容：仅保留最小职业分支，避免大范围硬编码。
             switch (board.FriendClass)
             {
                 case Card.CClass.MAGE:
-                    // 火焰冲击：只打敌方
-                    foreach (var tgt in GetEnemyTargets(board))
-                    {
-                        actions.Add(new GameAction
-                        {
-                            Type = ActionType.HeroPower,
-                            Source = hpSource,
-                            SourceEntityId = hpId,
-                            Target = tgt,
-                            TargetEntityId = tgt.EntityId
-                        });
-                    }
-                    break;
+                    return BattlecryTargetType.EnemyOnly;
                 case Card.CClass.PRIEST:
-                    // 根据英雄技能类型决定目标
-                    var priestTargets = IsPriestDamageHeroPower(board)
-                        ? GetEnemyTargets(board)      // 心灵尖刺：只打敌方
-                        : GetAllTargets(board);        // 次级治疗术：可以治任意目标
-                    foreach (var tgt in priestTargets)
-                    {
-                        actions.Add(new GameAction
-                        {
-                            Type = ActionType.HeroPower,
-                            Source = hpSource,
-                            SourceEntityId = hpId,
-                            Target = tgt,
-                            TargetEntityId = tgt.EntityId
-                        });
-                    }
-                    break;
+                    return IsPriestDamageHeroPower(board)
+                        ? BattlecryTargetType.EnemyOnly
+                        : BattlecryTargetType.AnyCharacter;
                 default:
-                    actions.Add(new GameAction
-                    {
-                        Type = ActionType.HeroPower,
-                        Source = hpSource,
-                        SourceEntityId = hpId,
-                        TargetEntityId = 0
-                    });
-                    break;
+                    return BattlecryTargetType.None;
             }
         }
 
@@ -453,20 +461,6 @@ namespace BotMain.AI
             targets.AddRange(board.EnemyMinions);
             if (board.FriendHero != null) targets.Add(board.FriendHero);
             if (board.EnemyHero != null) targets.Add(board.EnemyHero);
-            return targets;
-        }
-
-        private List<SimEntity> GetAllTargets(SimBoard board)
-        {
-            return GetSpellTargets(board);
-        }
-
-        private List<SimEntity> GetEnemyTargets(SimBoard board)
-        {
-            var targets = new List<SimEntity>();
-            targets.AddRange(board.EnemyMinions.Where(m => !m.IsStealth));
-            if (board.EnemyHero != null && !board.EnemyHero.IsImmune)
-                targets.Add(board.EnemyHero);
             return targets;
         }
 

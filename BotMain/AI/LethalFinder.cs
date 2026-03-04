@@ -298,42 +298,46 @@ namespace BotMain.AI
             // ─── 3. 英雄技能 ───
             if (!board.HeroPowerUsed && board.HeroPower != null && board.HeroPower.Cost <= board.Mana)
             {
-                int hpPriority = GetHeroPowerLethalPriority(board);
-                if (hpPriority > 0)
+                var hpTargetType = ResolveHeroPowerTargetType(board);
+
+                if (hpTargetType == BattlecryTargetType.None)
                 {
-                    // 有指向的英雄技能（法师、牧师伤害型）
-                    bool isDirectedDamageHP = board.FriendClass == Card.CClass.MAGE
-                        || (board.FriendClass == Card.CClass.PRIEST && IsPriestDamageHeroPower(board));
-                    if (isDirectedDamageHP && !enemyHero.IsImmune)
+                    var priority = EstimateHeroPowerActionPriority(board, null);
+                    if (priority > 0)
                     {
-                        actions.Add((new GameAction
-                        {
-                            Type = ActionType.HeroPower,
-                            Source = board.HeroPower,
-                            SourceEntityId = board.HeroPower.EntityId,
-                            Target = enemyHero,
-                            TargetEntityId = enemyHero.EntityId
-                        }, hpPriority));
-                    }
-                    else if (!isDirectedDamageHP)
-                    {
-                        // 无指向英雄技能（猎人稳固射击、盗贼匹首等）
                         actions.Add((new GameAction
                         {
                             Type = ActionType.HeroPower,
                             Source = board.HeroPower,
                             SourceEntityId = board.HeroPower.EntityId,
                             TargetEntityId = 0
-                        }, hpPriority));
+                        }, priority));
+                    }
+                }
+                else
+                {
+                    if (CanTargetEnemyHero(hpTargetType) && !enemyHero.IsImmune)
+                    {
+                        var priority = EstimateHeroPowerActionPriority(board, enemyHero);
+                        if (priority > 0)
+                        {
+                            actions.Add((new GameAction
+                            {
+                                Type = ActionType.HeroPower,
+                                Source = board.HeroPower,
+                                SourceEntityId = board.HeroPower.EntityId,
+                                Target = enemyHero,
+                                TargetEntityId = enemyHero.EntityId
+                            }, priority));
+                        }
                     }
 
-                    // 指向性技能打嘲讽（法师 + 牧师伤害型）
-                    if ((board.FriendClass == Card.CClass.MAGE
-                        || (board.FriendClass == Card.CClass.PRIEST && IsPriestDamageHeroPower(board)))
-                        && hasTaunt)
+                    if (hasTaunt && CanTargetEnemyMinion(hpTargetType))
                     {
                         foreach (var taunt in tauntMinions)
                         {
+                            var priority = EstimateHeroPowerActionPriority(board, taunt);
+                            if (priority <= 0) continue;
                             actions.Add((new GameAction
                             {
                                 Type = ActionType.HeroPower,
@@ -341,7 +345,7 @@ namespace BotMain.AI
                                 SourceEntityId = board.HeroPower.EntityId,
                                 Target = taunt,
                                 TargetEntityId = taunt.EntityId
-                            }, 300));
+                            }, priority));
                         }
                     }
                 }
@@ -498,7 +502,7 @@ namespace BotMain.AI
             // 英雄技能
             if (!board.HeroPowerUsed && board.HeroPower != null && board.HeroPower.Cost <= remainingMana)
             {
-                dmg += GetHeroPowerDamage(board);
+                dmg += EstimateHeroPowerMaxDamage(board);
             }
 
             return dmg;
@@ -551,39 +555,143 @@ namespace BotMain.AI
             return ehp;
         }
 
-        /// <summary>英雄技能的斩杀参与度（接受 SimBoard 以判断牧师技能类型）</summary>
-        private int GetHeroPowerLethalPriority(SimBoard board)
+        private int EstimateHeroPowerActionPriority(SimBoard board, SimEntity target)
         {
+            if (board?.HeroPower == null) return 0;
+            if (board.HeroPowerUsed || board.HeroPower.Cost > board.Mana) return 0;
+
+            var test = board.Clone();
+            var beforeEnemyEhp = GetHeroEhp(test.EnemyHero);
+            var beforeHeroAtk = test.FriendHero?.Atk ?? 0;
+
+            var targetBefore = target != null ? FindEntity(test, target.EntityId, null) : null;
+            var targetBeforeHealth = targetBefore?.Health ?? 0;
+            var targetBeforeShield = targetBefore?.IsDivineShield ?? false;
+
+            try
+            {
+                _sim.UseHeroPower(test, targetBefore);
+            }
+            catch
+            {
+                return 0;
+            }
+
+            int priority = 0;
+            var enemyDamage = Math.Max(0, beforeEnemyEhp - GetHeroEhp(test.EnemyHero));
+            if (enemyDamage > 0)
+                priority += 420 + enemyDamage * 120;
+
+            var heroAtkGain = Math.Max(0, (test.FriendHero?.Atk ?? beforeHeroAtk) - beforeHeroAtk);
+            if (heroAtkGain > 0)
+                priority += 280 + heroAtkGain * 100;
+
+            if (target != null && !target.IsFriend && target.Type == Card.CType.MINION)
+            {
+                var targetAfter = FindEntity(test, target.EntityId, false);
+                var killed = targetAfter == null || targetAfter.Health <= 0;
+                var brokeShield = targetBeforeShield && targetAfter != null && !targetAfter.IsDivineShield;
+                var dealtSome = targetAfter != null && targetAfter.Health < targetBeforeHealth;
+
+                if (killed) priority += 360;
+                else if (brokeShield) priority += 180;
+                else if (dealtSome) priority += 120;
+            }
+
+            if (target != null && target.IsFriend && target.Type == Card.CType.HERO && target.Health >= target.MaxHealth)
+                priority -= 250;
+
+            return priority;
+        }
+
+        private int EstimateHeroPowerMaxDamage(SimBoard board)
+        {
+            if (board?.HeroPower == null) return 0;
+            if (board.HeroPowerUsed || board.HeroPower.Cost > board.Mana) return 0;
+
+            var targetType = ResolveHeroPowerTargetType(board);
+            if (targetType == BattlecryTargetType.None)
+            {
+                var test = board.Clone();
+                var beforeEnemyEhp = GetHeroEhp(test.EnemyHero);
+                var beforeHeroAtk = test.FriendHero?.Atk ?? 0;
+                try
+                {
+                    _sim.UseHeroPower(test, null);
+                }
+                catch
+                {
+                    return 0;
+                }
+
+                var enemyDamage = Math.Max(0, beforeEnemyEhp - GetHeroEhp(test.EnemyHero));
+                var heroAtkGain = Math.Max(0, (test.FriendHero?.Atk ?? beforeHeroAtk) - beforeHeroAtk);
+                return enemyDamage + heroAtkGain;
+            }
+
+            if (!CanTargetEnemyHero(targetType) || board.EnemyHero == null || board.EnemyHero.IsImmune)
+                return 0;
+
+            var testBoard = board.Clone();
+            var enemyHeroClone = FindEntity(testBoard, board.EnemyHero.EntityId, false);
+            if (enemyHeroClone == null) return 0;
+
+            var hpBefore = GetHeroEhp(testBoard.EnemyHero);
+            try
+            {
+                _sim.UseHeroPower(testBoard, enemyHeroClone);
+            }
+            catch
+            {
+                return 0;
+            }
+
+            return Math.Max(0, hpBefore - GetHeroEhp(testBoard.EnemyHero));
+        }
+
+        private BattlecryTargetType ResolveHeroPowerTargetType(SimBoard board)
+        {
+            if (board?.HeroPower == null) return BattlecryTargetType.None;
+
+            if (_db != null)
+            {
+                if (_db.TryGetTargetType(board.HeroPower.CardId, EffectTrigger.Spell, out var tt))
+                    return tt;
+                if (_db.TryGetTargetType(board.HeroPower.CardId, EffectTrigger.Battlecry, out tt))
+                    return tt;
+            }
+
+            // 元数据未覆盖时的最小兜底分支。
             switch (board.FriendClass)
             {
-                case Card.CClass.HUNTER: return 600;  // 稳固射击 2 点打脸
-                case Card.CClass.MAGE:   return 550;  // 火焰冲击 1 点指向
+                case Card.CClass.MAGE:
+                    return BattlecryTargetType.EnemyOnly;
                 case Card.CClass.PRIEST:
-                    // 伤害型英雄技能（心灵尖刺）：2点指向伤害
-                    if (IsPriestDamageHeroPower(board)) return 570;
-                    return 0;
-                case Card.CClass.DRUID:  return 500;  // +1攻+1甲，英雄可以打
-                case Card.CClass.ROGUE:  return 450;  // 装1/2匹首
-                case Card.CClass.DEMONHUNTER: return 500; // +1攻
-                default: return 0;
+                    return IsPriestDamageHeroPower(board)
+                        ? BattlecryTargetType.EnemyOnly
+                        : BattlecryTargetType.AnyCharacter;
+                default:
+                    return BattlecryTargetType.None;
             }
         }
 
-        /// <summary>英雄技能的直接伤害</summary>
-        private int GetHeroPowerDamage(SimBoard board)
+        private static bool CanTargetEnemyHero(BattlecryTargetType type)
         {
-            switch (board.FriendClass)
-            {
-                case Card.CClass.HUNTER: return 2;
-                case Card.CClass.MAGE:   return 1;
-                case Card.CClass.PRIEST:
-                    if (IsPriestDamageHeroPower(board)) return 2;
-                    return 0;
-                case Card.CClass.DRUID:  return 1;
-                case Card.CClass.ROGUE:  return 1;
-                case Card.CClass.DEMONHUNTER: return 1;
-                default: return 0;
-            }
+            return type == BattlecryTargetType.AnyCharacter || type == BattlecryTargetType.EnemyOnly;
+        }
+
+        private static bool CanTargetEnemyMinion(BattlecryTargetType type)
+        {
+            return type == BattlecryTargetType.AnyCharacter
+                || type == BattlecryTargetType.AnyMinion
+                || type == BattlecryTargetType.EnemyOnly
+                || type == BattlecryTargetType.EnemyMinion;
+        }
+
+        private static int GetHeroEhp(SimEntity hero)
+        {
+            if (hero == null) return 0;
+            return hero.Health + hero.Armor;
         }
 
         /// <summary>判断牧师当前英雄技能是否为伤害型（心灵尖刺系列）</summary>
