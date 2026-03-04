@@ -35,6 +35,9 @@ namespace BotMain.AI
                 case ActionType.PlayCard:
                     EvaluatePlayCard(param, source, target, score, details);
                     break;
+                case ActionType.TradeCard:
+                    EvaluateTradeCard(param, source, score, details);
+                    break;
                 case ActionType.HeroPower:
                     EvaluateHeroPower(board, param, source, target, score, details);
                     break;
@@ -99,6 +102,16 @@ namespace BotMain.AI
             ApplyOrderRules(score, details, param.PlayOrderModifiers, "PlayOrder", source, target);
         }
 
+        private static void EvaluateTradeCard(
+            ProfileParameters param,
+            SimEntity source,
+            ProfileActionScore score,
+            List<string> details)
+        {
+            if (source == null) return;
+            ApplyPropensityRules(score, details, param.TradeModifiers, "Trade", source, null);
+        }
+
         private void EvaluateUseLocation(
             ProfileParameters param,
             SimEntity source,
@@ -149,13 +162,6 @@ namespace BotMain.AI
                 ApplyPropensityNoTargetRules(score, details, param.WeaponsAttackModifiers, "WeaponsAttack(target)", target);
             }
 
-            if (!isHeroAttack
-                && source.Type == Card.CType.MINION
-                && target.Type == Card.CType.MINION)
-            {
-                ApplyPropensityRules(score, details, param.TradeModifiers, "Trade", source, target);
-            }
-
             ApplyOrderRules(score, details, param.AttackOrderModifiers, "AttackOrder", source, target);
         }
 
@@ -171,6 +177,9 @@ namespace BotMain.AI
                 return null;
 
             if (action.Type == ActionType.PlayCard)
+                return board.Hand.FirstOrDefault(c => c.EntityId == action.SourceEntityId);
+
+            if (action.Type == ActionType.TradeCard)
                 return board.Hand.FirstOrDefault(c => c.EntityId == action.SourceEntityId);
 
             if (action.Type == ActionType.Attack)

@@ -1377,7 +1377,15 @@ namespace BotMain
                 if (pickedIndex < 0)
                 {
                     var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                    pickedIndex = RunDiscoverStrategy(originCardId, choiceCardIds, strategySeed);
+                    if (TryPickDiscoverByChoicesModifiers(originCardId, choiceCardIds, strategySeed, out var profilePickIndex, out var profilePickDetail))
+                    {
+                        pickedIndex = profilePickIndex;
+                        Log($"[Discover] ChoicesModifiers命中: {profilePickDetail}");
+                    }
+                    else
+                    {
+                        pickedIndex = RunDiscoverStrategy(originCardId, choiceCardIds, strategySeed);
+                    }
                     if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
                         pickedIndex = 0;
                 }
@@ -1414,6 +1422,149 @@ namespace BotMain
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
             }
+        }
+
+        private bool TryPickDiscoverByChoicesModifiers(
+            string originCardId,
+            List<string> choiceCardIds,
+            string seed,
+            out int pickedIndex,
+            out string detail)
+        {
+            pickedIndex = -1;
+            detail = "no_match";
+
+            if (_selectedProfile == null || choiceCardIds == null || choiceCardIds.Count == 0)
+                return false;
+
+            if (!TryParseCardId(originCardId, out var originCard))
+            {
+                detail = $"origin_parse_failed:{originCardId}";
+                return false;
+            }
+
+            Board board = null;
+            if (!string.IsNullOrWhiteSpace(seed))
+            {
+                try { board = Board.FromSeed(seed); } catch { }
+            }
+
+            ProfileParameters param;
+            try
+            {
+                param = _selectedProfile.GetParameters(board);
+            }
+            catch (Exception ex)
+            {
+                detail = $"profile_error:{ex.Message}";
+                return false;
+            }
+
+            var rules = param?.ChoicesModifiers;
+            if (rules == null)
+                return false;
+
+            var bestScore = float.NegativeInfinity;
+            var bestDetail = string.Empty;
+            for (int i = 0; i < choiceCardIds.Count; i++)
+            {
+                var choiceIndex = i + 1; // 示例策略使用 1-based 选项编号
+                float score = 0f;
+                var hits = new List<string>();
+
+                if (TryGetDiscoverChoiceIndexModifier(rules, originCard, choiceIndex, out var indexModifier, out var indexHit))
+                {
+                    score -= indexModifier.Value;
+                    hits.Add($"{indexHit}={indexModifier.Value}");
+                }
+
+                if (TryParseCardId(choiceCardIds[i], out var choiceCard)
+                    && TryGetDiscoverChoiceCardModifier(rules, originCard, choiceCard, out var cardModifier, out var cardHit))
+                {
+                    score -= cardModifier.Value;
+                    hits.Add($"{cardHit}={cardModifier.Value}");
+                }
+
+                if (hits.Count == 0)
+                    continue;
+
+                if (pickedIndex < 0 || score > bestScore + 0.0001f)
+                {
+                    pickedIndex = i;
+                    bestScore = score;
+                    bestDetail = $"origin={originCardId}, choiceIndex={choiceIndex}, choiceCard={choiceCardIds[i]}, score={score:0.##}, hits={string.Join(",", hits)}";
+                }
+            }
+
+            if (pickedIndex < 0)
+                return false;
+
+            detail = bestDetail;
+            return true;
+        }
+
+        private static bool TryGetDiscoverChoiceIndexModifier(
+            RulesSet rules,
+            ApiCard.Cards originCardId,
+            int choiceIndex,
+            out Modifier modifier,
+            out string hit)
+        {
+            modifier = null;
+            hit = null;
+            if (rules == null || choiceIndex <= 0)
+                return false;
+
+            Rule rule = rules.RulesCardIdsTargetIntInds?[originCardId]?[choiceIndex];
+            if (rule?.CardModifier != null)
+            {
+                modifier = rule.CardModifier;
+                hit = $"srcCard:{originCardId}->choiceIndex:{choiceIndex}";
+                return true;
+            }
+
+            var originCardInt = (int)originCardId;
+            rule = rules.RulesIntIdsTargetIntInds?[originCardInt]?[choiceIndex];
+            if (rule?.CardModifier != null)
+            {
+                modifier = rule.CardModifier;
+                hit = $"srcIntCard:{originCardInt}->choiceIndex:{choiceIndex}";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetDiscoverChoiceCardModifier(
+            RulesSet rules,
+            ApiCard.Cards originCardId,
+            ApiCard.Cards choiceCardId,
+            out Modifier modifier,
+            out string hit)
+        {
+            modifier = null;
+            hit = null;
+            if (rules == null)
+                return false;
+
+            Rule rule = rules.RulesCardIdsTargetCardIds?[originCardId]?[choiceCardId];
+            if (rule?.CardModifier != null)
+            {
+                modifier = rule.CardModifier;
+                hit = $"srcCard:{originCardId}->choiceCard:{choiceCardId}";
+                return true;
+            }
+
+            var originCardInt = (int)originCardId;
+            rule = rules.RulesIntIdsTargetCardIds?[originCardInt]?[choiceCardId];
+            if (rule?.CardModifier != null)
+            {
+                modifier = rule.CardModifier;
+                hit = $"srcIntCard:{originCardInt}->choiceCard:{choiceCardId}";
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryApplyDiscoverChoice(

@@ -95,6 +95,7 @@ namespace BotMain.AI
         {
             var sw = Stopwatch.StartNew();
             var hasProfileRules = HasProfileRules(param);
+            var comboSequence = GetComboSequence(param);
 
             // ── 初始化 Beam ──
             var initialScore = _eval.Evaluate(board, param);
@@ -121,6 +122,8 @@ namespace BotMain.AI
             int transpositionPrunedCount = 0;
             int mergedStateCount = 0;
             int transpositionCacheHitCount = 0;
+            int comboForcedBeamCount = 0;
+            int comboFallbackMissingCount = 0;
             int dynamicBeamMinUsed = int.MaxValue;
             int dynamicBeamMaxUsed = 0;
             int lastBeamWidthUsed = Math.Max(1, BeamWidth);
@@ -157,6 +160,8 @@ namespace BotMain.AI
                     int blockedCount = 0;
                     int heuristicBlockedInBeam = 0;
                     int duplicatedActionsInBeam = 0;
+                    bool comboForcedInBeam = false;
+                    int? comboRequiredIdInBeam = null;
                     string blockedSample = null;
                     string heuristicBlockedSample = null;
                     var actionKeySet = new HashSet<string>(StringComparer.Ordinal);
@@ -194,6 +199,28 @@ namespace BotMain.AI
                         nonEndActions.Add((action, profileScore, priority));
                     }
 
+                    if (comboSequence.Count > 0)
+                    {
+                        comboRequiredIdInBeam = GetNextRequiredComboId(comboSequence, beam.Actions);
+                        if (comboRequiredIdInBeam.HasValue)
+                        {
+                            var forcedActions = nonEndActions
+                                .Where(x => ActionMatchesComboStep(x.Action, comboRequiredIdInBeam.Value))
+                                .ToList();
+
+                            if (forcedActions.Count > 0)
+                            {
+                                nonEndActions = forcedActions;
+                                comboForcedInBeam = true;
+                                comboForcedBeamCount++;
+                            }
+                            else
+                            {
+                                comboFallbackMissingCount++;
+                            }
+                        }
+                    }
+
                     depthCandidateCount += nonEndActions.Count;
                     depthExpandedBeamCount++;
 
@@ -204,7 +231,7 @@ namespace BotMain.AI
                         if (beam.Board.FriendHero != null && beam.Board.FriendHero.CanAttack)
                             attackerCount++;
                         var totalNonEnd = actions.Count(a => a.Type != ActionType.EndTurn);
-                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
+                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, comboActive={comboSequence.Count > 0}, comboRequired={(comboRequiredIdInBeam.HasValue ? comboRequiredIdInBeam.Value.ToString() : "none")}, comboForced={comboForcedInBeam}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
                         if (hasProfileRules && blockedCount > 0)
                             OnLog?.Invoke($"[AI] profile blocked {blockedCount} action(s), sample={blockedSample}");
                         if (heuristicBlockedInBeam > 0)
@@ -345,7 +372,7 @@ namespace BotMain.AI
                 StripWastefulCoin(bestResult.Actions, board);
 
             var actionCount = bestResult.Actions.Count(a => a.Type != ActionType.EndTurn);
-            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}, transpositionPruned={transpositionPrunedCount}, transpositionCacheHit={transpositionCacheHitCount}, mergedState={mergedStateCount}, duplicateActions={duplicateActionCount}, profileBlocked={profileBlockedCount}, heuristicPruned={heuristicPrunedCount}");
+            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}, transpositionPruned={transpositionPrunedCount}, transpositionCacheHit={transpositionCacheHitCount}, mergedState={mergedStateCount}, duplicateActions={duplicateActionCount}, profileBlocked={profileBlockedCount}, heuristicPruned={heuristicPrunedCount}, comboActive={comboSequence.Count > 0}, comboForcedBeam={comboForcedBeamCount}, comboFallback={comboFallbackMissingCount}");
 
             // ── 详细回合决策日志 ──
             {
@@ -538,6 +565,94 @@ namespace BotMain.AI
             if (param == null) return false;
             try { return param.HasAnyRulesSet(); }
             catch { return true; }
+        }
+
+        private static List<int> GetComboSequence(ProfileParameters param)
+        {
+            if (param == null || param.ComboModifier == null)
+                return new List<int>();
+
+            try
+            {
+                var comboList = param.ComboModifier.GetComboList();
+                if (comboList == null || comboList.Count == 0)
+                    return new List<int>();
+
+                return comboList.Where(id => id != 0).ToList();
+            }
+            catch
+            {
+                return new List<int>();
+            }
+        }
+
+        private static int? GetNextRequiredComboId(IReadOnlyList<int> comboSequence, IReadOnlyList<GameAction> actions)
+        {
+            if (comboSequence == null || comboSequence.Count == 0)
+                return null;
+
+            var matched = 0;
+            if (actions != null)
+            {
+                foreach (var action in actions)
+                {
+                    if (matched >= comboSequence.Count)
+                        break;
+                    if (!ActionMatchesComboStep(action, comboSequence[matched]))
+                        continue;
+                    matched++;
+                }
+            }
+
+            return matched >= comboSequence.Count ? (int?)null : comboSequence[matched];
+        }
+
+        private static bool ActionMatchesComboStep(GameAction action, int comboId)
+        {
+            if (action == null || comboId == 0)
+                return false;
+
+            switch (action.Type)
+            {
+                case ActionType.PlayCard:
+                case ActionType.TradeCard:
+                case ActionType.HeroPower:
+                case ActionType.UseLocation:
+                    break;
+                default:
+                    return false;
+            }
+
+            foreach (var key in GetActionComboKeys(action))
+            {
+                if (key == comboId)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static IEnumerable<int> GetActionComboKeys(GameAction action)
+        {
+            if (action == null)
+                yield break;
+
+            if (action.SourceEntityId > 0)
+                yield return action.SourceEntityId;
+
+            if (action.Source != null)
+            {
+                if (action.Source.EntityId > 0 && action.Source.EntityId != action.SourceEntityId)
+                    yield return action.Source.EntityId;
+
+                var sourceCardInt = (int)action.Source.CardId;
+                if (sourceCardInt != 0
+                    && sourceCardInt != action.SourceEntityId
+                    && sourceCardInt != action.Source.EntityId)
+                {
+                    yield return sourceCardInt;
+                }
+            }
         }
 
         private static bool IsDominatedState(
