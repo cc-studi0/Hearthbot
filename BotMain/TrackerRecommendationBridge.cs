@@ -17,6 +17,8 @@ namespace BotMain
         private readonly Action<string> _diagLog;
         private readonly object _diagLock = new();
         private readonly Dictionary<string, DateTime> _diagLastUtc = new(StringComparer.OrdinalIgnoreCase);
+        private readonly object _actionContextLock = new();
+        private DateTime _actionContextStartUtc = DateTime.MinValue;
 
         public TrackerRecommendationBridge(
             string jsonlPath,
@@ -76,6 +78,15 @@ namespace BotMain
                 return false;
             }
 
+            if (actions.Count == 1
+                && string.Equals(actions[0], "END_TURN", StringComparison.OrdinalIgnoreCase)
+                && HasLikelyPlayableAction(board))
+            {
+                reason = "end_turn_only_while_actions_available";
+                actions.Clear();
+                return false;
+            }
+
             if (appendEndTurn && !actions.Any(a => a.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)))
                 actions.Add("END_TURN");
 
@@ -88,8 +99,74 @@ namespace BotMain
 
         public void BeginTurnContext(DateTime turnStartUtc)
         {
-            _ = turnStartUtc;
-            // 最新推荐模式下不维护“回合消费游标”，保持空实现以兼容调用方。
+            lock (_actionContextLock)
+            {
+                if (turnStartUtc == DateTime.MinValue)
+                {
+                    _actionContextStartUtc = DateTime.MinValue;
+                }
+                else
+                {
+                    _actionContextStartUtc = turnStartUtc.Kind == DateTimeKind.Utc
+                        ? turnStartUtc
+                        : turnStartUtc.ToUniversalTime();
+                }
+            }
+        }
+
+        private static bool HasLikelyPlayableAction(Board board)
+        {
+            if (board == null)
+                return false;
+
+            if (board.MinionFriend != null)
+            {
+                foreach (var minion in board.MinionFriend)
+                {
+                    if (minion == null)
+                        continue;
+
+                    if (minion.Type == Card.CType.LOCATION)
+                    {
+                        if (minion.GetTag(Card.GAME_TAG.EXHAUSTED) == 0)
+                            return true;
+                        continue;
+                    }
+
+                    if (minion.CanAttack && !minion.IsFrozen && minion.CurrentHealth > 0 && minion.CurrentAtk > 0)
+                        return true;
+                }
+            }
+
+            if (board.HeroFriend != null
+                && board.HeroFriend.CanAttack
+                && !board.HeroFriend.IsFrozen
+                && board.HeroFriend.CurrentAtk > 0)
+            {
+                return true;
+            }
+
+            var mana = Math.Max(0, board.ManaAvailable);
+            if (board.Hand != null)
+            {
+                foreach (var card in board.Hand)
+                {
+                    if (card == null)
+                        continue;
+
+                    if (card.CurrentCost <= mana)
+                        return true;
+                }
+            }
+
+            if (board.Ability != null
+                && board.Ability.GetTag(Card.GAME_TAG.EXHAUSTED) == 0
+                && board.Ability.CurrentCost <= mana)
+            {
+                return true;
+            }
+
+            return false;
         }
 
         public bool TryClearBuffer(out string reason)
@@ -196,16 +273,16 @@ namespace BotMain
                 var sourceHasMulliganSignal = ContainsMulliganReplaceSignal(source)
                     || string.Equals(source, "highLightAction", StringComparison.OrdinalIgnoreCase)
                     || source.IndexOf("waster", StringComparison.OrdinalIgnoreCase) >= 0;
-                if (!sourceHasMulliganSignal)
+                if (sourceHasMulliganSignal)
+                {
+                    signalCount++;
+                }
+                else
                 {
                     var payloadText = payload.GetRawText();
-                    if (!ContainsMulliganReplaceSignal(payloadText))
-                    {
-                        lastDropReason = "no_mulligan_signal";
-                        continue;
-                    }
+                    if (ContainsMulliganReplaceSignal(payloadText))
+                        signalCount++;
                 }
-                signalCount++;
 
                 if (string.Equals(source, "highLightAction", StringComparison.OrdinalIgnoreCase))
                 {
@@ -736,6 +813,7 @@ namespace BotMain
             int parseOk = 0;
             int parseFail = 0;
             int staleCount = 0;
+            int contextDropCount = 0;
             int fallbackFreshCount = 0;
             string parseFailSample = string.Empty;
 
@@ -760,13 +838,19 @@ namespace BotMain
                     continue;
                 }
 
+                if (!IsInCurrentActionContext(parsed.TimestampUtc))
+                {
+                    contextDropCount++;
+                    continue;
+                }
+
                 // 不考虑“已消费”状态，始终跟随最新推荐。
                 if (IsPreferredActionSource(parsed.Source))
                 {
                     recommendation = parsed;
                     reason = $"source={parsed.Source}";
                     EmitDiag("action_pick",
-                        $"action.pick result=preferred, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(parsed.Source)}, tsUtc={FormatDiagUtc(parsed.TimestampUtc)}, ageMs={FormatAgeMs(parsed.TimestampUtc)}");
+                        $"action.pick result=preferred, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(parsed.Source)}, tsUtc={FormatDiagUtc(parsed.TimestampUtc)}, ageMs={FormatAgeMs(parsed.TimestampUtc)}");
                     return true;
                 }
 
@@ -779,7 +863,7 @@ namespace BotMain
             {
                 reason = $"source={recommendation.Source}";
                 EmitDiag("action_pick",
-                    $"action.pick result=fallback, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(recommendation.Source)}, tsUtc={FormatDiagUtc(recommendation.TimestampUtc)}, ageMs={FormatAgeMs(recommendation.TimestampUtc)}");
+                    $"action.pick result=fallback, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(recommendation.Source)}, tsUtc={FormatDiagUtc(recommendation.TimestampUtc)}, ageMs={FormatAgeMs(recommendation.TimestampUtc)}");
                 return true;
             }
 
@@ -787,7 +871,7 @@ namespace BotMain
             {
                 reason = $"no fresh/valid recommendation (maxAgeMs={_maxActionRecommendationAge.TotalMilliseconds:0})";
                 EmitDiag("action_drop",
-                    $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
+                    $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
                 return false;
             }
 
@@ -801,8 +885,23 @@ namespace BotMain
                 reason = "no valid recommendation";
             }
             EmitDiag("action_drop",
-                $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
+                $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
             return false;
+        }
+
+        private bool IsInCurrentActionContext(DateTime timestampUtc)
+        {
+            if (timestampUtc == DateTime.MinValue)
+                return true;
+
+            DateTime contextStartUtc;
+            lock (_actionContextLock)
+                contextStartUtc = _actionContextStartUtc;
+
+            if (contextStartUtc == DateTime.MinValue)
+                return true;
+
+            return timestampUtc >= contextStartUtc.AddMilliseconds(-120);
         }
 
         private void EmitDiag(string key, string message, int minIntervalMs = 500)
