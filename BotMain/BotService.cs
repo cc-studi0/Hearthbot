@@ -35,7 +35,8 @@ namespace BotMain
         private const int TrackerRestartCooldownSeconds = 8;
         private const int TrackerHsBoxEnsureCooldownSeconds = 15;
         private const int TrackerNoDataRestartStreakThreshold = 4;
-        private const int TrackerEmptyJsonlRestartStreakThreshold = 2;
+        private const int TrackerEmptyJsonlRestartStreakThreshold = 12;
+        private const int TrackerCaptureWarmupSeconds = 10;
         private const int TrackerRecommendRetryWindowMs = 360;
         private const int TrackerRecommendRetrySleepMs = 25;
         private const int TrackerWaitReadyCommandTimeoutMs = 180;
@@ -54,6 +55,19 @@ namespace BotMain
         private const int TrackerRepeatFailSoftBlockMs = 500;
         private const int TrackerRepeatFailHardBlockMs = 1400;
         private const int TrackerRepeatFailLogCooldownMs = 1500;
+        private const int TrackerMulliganRecommendWaitMs = 6000;
+        private const int ChoiceStateWatchWindowMs = 8000;
+        private static readonly string[] ChoiceStateTextMembers =
+        {
+            "TextCN",
+            "Text",
+            "DescriptionCN",
+            "Description",
+            "CardTextCN",
+            "CardText",
+            "CardTextInHandCN",
+            "CardTextInHand"
+        };
 
         private readonly object _sync = new object();
 
@@ -157,6 +171,7 @@ namespace BotMain
         private string _trackerTapScriptPath;
         private readonly object _trackerCaptureLock = new object();
         private Process _trackerCaptureProcess;
+        private DateTime _trackerCaptureStartedUtc = DateTime.MinValue;
         private DateTime _nextTrackerCaptureStartUtc = DateTime.MinValue;
         private readonly object _hsBoxEnsureLock = new object();
         private DateTime _nextHsBoxEnsureUtc = DateTime.MinValue;
@@ -164,6 +179,8 @@ namespace BotMain
         private string _trackerBlockedDecisionKey = string.Empty;
         private DateTime _trackerBlockedUntilUtc = DateTime.MinValue;
         private DateTime _trackerBlockedLastLogUtc = DateTime.MinValue;
+        private DateTime _choiceStateWatchUntilUtc = DateTime.MinValue;
+        private string _choiceStateWatchSource = string.Empty;
 
         private sealed class MulliganChoiceState
         {
@@ -781,6 +798,7 @@ namespace BotMain
                 {
                     if (resp == "NO_GAME")
                     {
+                        ClearChoiceStateWatch("no_game");
                         if (wasInGame)
                         {
                             wasInGame = false;
@@ -818,7 +836,7 @@ namespace BotMain
                         if (mulliganStreak == 1)
                         {
                             Log("[MainLoop] mulligan phase detected; waiting mulligan ui ready...");
-                            nextMulliganAttemptUtc = DateTime.UtcNow;
+                            nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
                         }
 
                         if (mulliganHandled && mulliganStreak > 15)
@@ -890,6 +908,7 @@ namespace BotMain
                                     _pluginSystem?.FireOnGameEnd();
                                     CheckRunLimits();
                                 }
+                                ClearChoiceStateWatch("leave_gameplay_scene");
                                 _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
                                 notOurTurnStreak = 0;
                                 nextPostGameDismissUtc = DateTime.MinValue;
@@ -969,6 +988,7 @@ namespace BotMain
                         if (lastTurnNumber >= 0)
                             _pluginSystem?.FireOnTurnEnd();
                         lastTurnNumber = turnNumber;
+                        ClearChoiceStateWatch("turn_changed");
                         resimulationCount = 0;
                         actionFailStreak = 0;
                         if (_followTrackerRecommendA)
@@ -1008,7 +1028,8 @@ namespace BotMain
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
 
-                if (TryHandlePendingChoiceBeforePlanning(pipe, seed))
+                if (IsChoiceStateWatchActive()
+                    && TryHandlePendingChoiceBeforePlanning(pipe, seed))
                 {
                     Thread.Sleep(_followTrackerRecommendA ? 60 : 120);
                     continue;
@@ -1287,7 +1308,8 @@ namespace BotMain
                         || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                         || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
                     {
-                        TryHandleDiscover(pipe, seed);
+                        if (TryArmChoiceStateWatchForAction(action, planningBoard))
+                            TryHandleDiscover(pipe, seed);
                     }
 
                     if (!_followTrackerRecommendA
@@ -1586,6 +1608,197 @@ namespace BotMain
             return true;
         }
 
+        private bool IsChoiceStateWatchActive()
+        {
+            if (_choiceStateWatchUntilUtc <= DateTime.UtcNow)
+            {
+                _choiceStateWatchUntilUtc = DateTime.MinValue;
+                _choiceStateWatchSource = string.Empty;
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ClearChoiceStateWatch(string reason)
+        {
+            if (_choiceStateWatchUntilUtc == DateTime.MinValue
+                && string.IsNullOrWhiteSpace(_choiceStateWatchSource))
+                return;
+
+            _choiceStateWatchUntilUtc = DateTime.MinValue;
+            _choiceStateWatchSource = string.Empty;
+            if (!string.IsNullOrWhiteSpace(reason))
+                Log($"[Discover] watch cleared ({reason})");
+        }
+
+        private bool TryArmChoiceStateWatchForAction(string action, Board planningBoard)
+        {
+            if (!TryResolveChoiceSourceTemplate(action, planningBoard, out var template, out var sourceDetail))
+                return false;
+
+            if (!TemplateHasChoiceKeywords(template))
+                return false;
+
+            _choiceStateWatchUntilUtc = DateTime.UtcNow.AddMilliseconds(ChoiceStateWatchWindowMs);
+            _choiceStateWatchSource = sourceDetail;
+            Log($"[Discover] watch armed ({ChoiceStateWatchWindowMs}ms) source={sourceDetail}");
+            return true;
+        }
+
+        private static bool TryResolveChoiceSourceTemplate(
+            string action,
+            Board planningBoard,
+            out object template,
+            out string sourceDetail)
+        {
+            template = null;
+            sourceDetail = string.Empty;
+            if (planningBoard == null || string.IsNullOrWhiteSpace(action))
+                return false;
+
+            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase))
+            {
+                if (TryGetActionSourceEntityId(action, out var sourceEntityId))
+                {
+                    var sourceCard = planningBoard.Hand?.FirstOrDefault(c => c != null && c.Id == sourceEntityId);
+                    if (sourceCard?.Template != null)
+                    {
+                        template = sourceCard.Template;
+                        sourceDetail = $"PLAY:{GetTemplateDebugCardId(sourceCard.Template)}";
+                        return true;
+                    }
+                }
+
+                if (TryGetPlaySourceCardId(action, planningBoard, out var sourceCardId))
+                {
+                    var loadedTemplate = CardTemplate.LoadFromId(sourceCardId);
+                    if (loadedTemplate != null)
+                    {
+                        template = loadedTemplate;
+                        sourceDetail = $"PLAY:{sourceCardId}";
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            if (action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase))
+            {
+                var heroPowerTemplate = planningBoard.Ability?.Template;
+                if (heroPowerTemplate == null)
+                    return false;
+
+                template = heroPowerTemplate;
+                sourceDetail = $"HERO_POWER:{GetTemplateDebugCardId(heroPowerTemplate)}";
+                return true;
+            }
+
+            if (action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!TryGetActionSourceEntityId(action, out var sourceEntityId))
+                    return false;
+
+                var location = planningBoard.MinionFriend?.FirstOrDefault(c => c != null && c.Id == sourceEntityId);
+                if (location?.Template == null)
+                    return false;
+
+                template = location.Template;
+                sourceDetail = $"USE_LOCATION:{GetTemplateDebugCardId(location.Template)}";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetActionSourceEntityId(string action, out int sourceEntityId)
+        {
+            sourceEntityId = 0;
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var parts = action.Split('|');
+            if (parts.Length < 2
+                || !int.TryParse(parts[1], out sourceEntityId)
+                || sourceEntityId <= 0)
+            {
+                sourceEntityId = 0;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static bool TemplateHasChoiceKeywords(object template)
+        {
+            if (template == null)
+                return false;
+
+            foreach (var member in ChoiceStateTextMembers)
+            {
+                var text = ReadTemplateMemberAsString(template, member);
+                if (string.IsNullOrWhiteSpace(text))
+                    continue;
+
+                if (text.IndexOf("发现", StringComparison.Ordinal) >= 0
+                    || text.IndexOf("抉择", StringComparison.Ordinal) >= 0
+                    || text.IndexOf("discover", StringComparison.OrdinalIgnoreCase) >= 0
+                    || text.IndexOf("choose one", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static string GetTemplateDebugCardId(object template)
+        {
+            return ReadTemplateMemberAsString(template, "Id", "CardId") ?? "?";
+        }
+
+        private static string ReadTemplateMemberAsString(object template, params string[] memberNames)
+        {
+            if (template == null || memberNames == null || memberNames.Length == 0)
+                return null;
+
+            var type = template.GetType();
+            foreach (var memberName in memberNames)
+            {
+                if (string.IsNullOrWhiteSpace(memberName))
+                    continue;
+
+                try
+                {
+                    var prop = type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+                    if (prop != null)
+                    {
+                        var value = prop.GetValue(template);
+                        if (value != null)
+                            return value.ToString();
+                    }
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.IgnoreCase);
+                    if (field != null)
+                    {
+                        var value = field.GetValue(template);
+                        if (value != null)
+                            return value.ToString();
+                    }
+                }
+                catch
+                {
+                }
+            }
+
+            return null;
+        }
+
         private static bool TryGetChoiceState(
             PipeServer pipe,
             int maxRetries,
@@ -1638,7 +1851,7 @@ namespace BotMain
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            var choiceStateTimeoutMs = _followTrackerRecommendA ? 220 : 5000;
+            var choiceStateTimeoutMs = 5000;
             if (!TryGetChoiceState(
                 pipe,
                 maxRetries: 1,
@@ -1658,14 +1871,13 @@ namespace BotMain
 
         private void TryHandleDiscover(PipeServer pipe, string seed)
         {
-            // 跟随盒子模式下使用快速探测，避免每次出牌后固定等待数秒；
-            // 若抉择界面稍后出现，会在下一轮主循环的 pending-choice 检测中处理。
-            var rounds = _followTrackerRecommendA ? 1 : 3;
+            // 与普通 profile 模式保持一致：统一使用稳态探测与轮询节奏。
+            var rounds = 3;
             for (int retry = 0; retry < rounds; retry++)
             {
-                var maxRetries = _followTrackerRecommendA ? 1 : (retry == 0 ? 4 : 12);
-                var retryDelayMs = _followTrackerRecommendA ? 0 : (retry == 0 ? 80 : 120);
-                var commandTimeoutMs = _followTrackerRecommendA ? 220 : 5000;
+                var maxRetries = retry == 0 ? 4 : 12;
+                var retryDelayMs = retry == 0 ? 80 : 120;
+                var commandTimeoutMs = 5000;
                 if (!TryGetChoiceState(
                     pipe,
                     maxRetries: maxRetries,
@@ -1870,20 +2082,18 @@ namespace BotMain
                 return false;
             }
 
-            var applyResp = pipe.SendAndReceive("APPLY_CHOICE:" + picked.entityId, 5000) ?? "NO_RESPONSE";
-            if (!applyResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+            if (!TryApplyChoiceWithFallback(
+                pipe,
+                payload,
+                picked.entityId,
+                out var applyDetail,
+                out var confirmDetail))
             {
-                detail = $"apply_failed:{applyResp}";
+                detail = $"apply={applyDetail},confirm={confirmDetail}";
                 return false;
             }
 
-            if (!TryConfirmDiscoverChoiceApplied(pipe, payload, out var confirmDetail))
-            {
-                detail = $"apply={applyResp},confirm={confirmDetail}";
-                return false;
-            }
-
-            detail = $"picked={picked.cardId}({picked.entityId}),confirm={confirmDetail}";
+            detail = $"picked={picked.cardId}({picked.entityId}),apply={applyDetail},confirm={confirmDetail}";
             return true;
         }
 
@@ -2042,6 +2252,45 @@ namespace BotMain
             return false;
         }
 
+        private bool TryApplyChoiceWithFallback(
+            PipeServer pipe,
+            string previousPayload,
+            int pickedEntityId,
+            out string pickResult,
+            out string confirmDetail)
+        {
+            pickResult = "NO_RESPONSE";
+            confirmDetail = "apply_not_ok";
+
+            pickResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            if (!pickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out var mouseConfirmDetail))
+            {
+                confirmDetail = "mouse:" + mouseConfirmDetail;
+                return true;
+            }
+
+            // 鼠标点击未确认时，回退到网络 API 提交一次，兼容部分抉择界面“只高亮未提交”问题。
+            var apiResult = pipe.SendAndReceive("APPLY_CHOICE_API:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            pickResult = $"mouse={pickResult},api={apiResult}";
+            if (!apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+            {
+                confirmDetail = $"mouse={mouseConfirmDetail},api_not_ok";
+                return false;
+            }
+
+            if (TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out var apiConfirmDetail))
+            {
+                confirmDetail = $"mouse={mouseConfirmDetail},api:{apiConfirmDetail}";
+                return true;
+            }
+
+            confirmDetail = $"mouse={mouseConfirmDetail},api:{apiConfirmDetail}";
+            return false;
+        }
+
         private bool TryApplyDiscoverChoice(
             PipeServer pipe,
             string previousPayload,
@@ -2050,15 +2299,13 @@ namespace BotMain
             out string pickResult,
             out string confirmDetail)
         {
-            pickResult = "NO_RESPONSE";
-            confirmDetail = "apply_not_ok";
             _ = isRewindChoice;
-
-            pickResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
-            if (!pickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
-                return false;
-
-            return TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out confirmDetail);
+            return TryApplyChoiceWithFallback(
+                pipe,
+                previousPayload,
+                pickedEntityId,
+                out pickResult,
+                out confirmDetail);
         }
 
         private bool TryConfirmDiscoverChoiceApplied(PipeServer pipe, string previousPayload, out string detail)
@@ -2540,7 +2787,7 @@ namespace BotMain
             var choiceCardIds = snapshot.Choices.Select(c => c.CardId).ToList();
             var choiceEntityIds = snapshot.Choices.Select(c => c.EntityId).ToList();
 
-            var deadline = DateTime.UtcNow.AddMilliseconds(1800);
+            var deadline = DateTime.UtcNow.AddMilliseconds(TrackerMulliganRecommendWaitMs);
             string lastReason = "no_data";
             int attempts = 0;
 
@@ -2984,23 +3231,71 @@ namespace BotMain
             var deadline = DateTime.UtcNow.AddMilliseconds(TrackerRecommendRetryWindowMs);
             string lastReason = "no_data";
             int attempts = 0;
+            var pendingEndTurnActions = (List<string>)null;
+            string pendingEndTurnReason = string.Empty;
+            bool endTurnRecheckDone = false;
 
             while (DateTime.UtcNow <= deadline)
             {
                 attempts++;
                 if (_trackerRecommendationBridge.TryBuildActions(planningBoard, out actions, out reason, appendEndTurn: false))
+                {
+                    if (_followTrackerRecommendA && IsEndTurnOnlyActions(actions))
+                    {
+                        pendingEndTurnActions = new List<string>(actions);
+                        pendingEndTurnReason = reason;
+
+                        // 命中 END_TURN 时额外重新识别一次，避免吃到上一拍的回合末建议。
+                        if (!endTurnRecheckDone && DateTime.UtcNow < deadline)
+                        {
+                            endTurnRecheckDone = true;
+                            lastReason = "end_turn_recheck_once";
+                            Thread.Sleep(TrackerRecommendRetrySleepMs);
+                            continue;
+                        }
+                    }
+
                     return true;
+                }
 
                 lastReason = reason;
+                if (_followTrackerRecommendA && endTurnRecheckDone && pendingEndTurnActions != null)
+                {
+                    actions = pendingEndTurnActions;
+                    reason = $"{pendingEndTurnReason}, end_turn_recheck=miss:{lastReason}";
+                    return true;
+                }
+
                 if (!_followTrackerRecommendA)
                     break;
 
                 Thread.Sleep(TrackerRecommendRetrySleepMs);
             }
 
+            if (_followTrackerRecommendA && pendingEndTurnActions != null)
+            {
+                actions = pendingEndTurnActions;
+                reason = $"{pendingEndTurnReason}, end_turn_recheck=timeout";
+                return true;
+            }
+
             reason = $"attempts={attempts}, last={lastReason}";
             actions = null;
             return false;
+        }
+
+        private static bool IsEndTurnOnlyActions(IList<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return false;
+
+            for (int i = 0; i < actions.Count; i++)
+            {
+                if (!string.Equals(actions[i], "END_TURN", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return true;
         }
 
         private void LogTrackerActionsReadable(Board board, IList<string> actions)
@@ -3279,6 +3574,17 @@ namespace BotMain
 
             if (_trackerNoDataStreak < threshold)
                 return;
+
+            var captureStartedUtc = _trackerCaptureStartedUtc;
+            if (captureStartedUtc != DateTime.MinValue)
+            {
+                var age = DateTime.UtcNow - captureStartedUtc;
+                if (age < TimeSpan.FromSeconds(TrackerCaptureWarmupSeconds))
+                {
+                    Log($"[TrackerMode] no-data streak reached but capture warmup ({age.TotalSeconds:0.0}s<{TrackerCaptureWarmupSeconds}s), skip restart, reason={trackerReason}.");
+                    return;
+                }
+            }
 
             Log($"[TrackerMode] no recommendation streak={_trackerNoDataStreak}, restarting tap only (no HSBox restart), reason={trackerReason}.");
             _trackerNoDataStreak = 0;
@@ -3560,7 +3866,7 @@ namespace BotMain
                 if (string.IsNullOrWhiteSpace(workingDir))
                     workingDir = AppDomain.CurrentDomain.BaseDirectory;
 
-                var args = $"\"{_trackerTapScriptPath}\" --port {TrackerCdpPort} --out \"{_trackerRecommendJsonlPath}\"";
+                var args = $"\"{_trackerTapScriptPath}\" --port {TrackerCdpPort} --hint ladder-opp --out \"{_trackerRecommendJsonlPath}\"";
                 var psi = new ProcessStartInfo
                 {
                     FileName = "node",
@@ -3611,7 +3917,10 @@ namespace BotMain
                         lock (_trackerCaptureLock)
                         {
                             if (ReferenceEquals(_trackerCaptureProcess, proc))
+                            {
                                 _trackerCaptureProcess = null;
+                                _trackerCaptureStartedUtc = DateTime.MinValue;
+                            }
                         }
 
                         try { proc.Dispose(); } catch { }
@@ -3632,6 +3941,7 @@ namespace BotMain
                     }
 
                     _trackerCaptureProcess = proc;
+                    _trackerCaptureStartedUtc = DateTime.UtcNow;
                     _nextTrackerCaptureStartUtc = DateTime.MinValue;
 
                     proc.BeginOutputReadLine();
@@ -3656,6 +3966,7 @@ namespace BotMain
                     return;
                 proc = _trackerCaptureProcess;
                 _trackerCaptureProcess = null;
+                _trackerCaptureStartedUtc = DateTime.MinValue;
             }
 
             try

@@ -23,7 +23,7 @@ const DIAG_PREFIX = "__HS_REC_DIAG__:";
 const SCRIPT_VERSION = "ladder-primary-v3-20260305";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 9222;
-const DEFAULT_HINT = "jipaiqi";
+const DEFAULT_HINT = "ladder-opp";
 
 function resolveWebSocketCtor() {
   if (typeof globalThis.WebSocket === "function") {
@@ -101,7 +101,7 @@ function printHelp() {
       "Options:",
       "  --host <host>   DevTools host (default: 127.0.0.1)",
       "  --port <port>   DevTools port (default: 9222)",
-      "  --hint <text>   Target URL match hint (default: jipaiqi)",
+      "  --hint <text>   Target URL match hint (default: ladder-opp)",
       "  --out <file>    Optional JSONL output file",
       "",
       "Example:",
@@ -170,6 +170,7 @@ function rankTargets(list, hint) {
       if (title.includes(normalizedHint)) s += 220;
     }
 
+    if (url.includes("/ladder-opp")) s += 500;
     if (url.includes("/ladder")) s += 300;
     if (url.includes("/analysis")) s += 160;
     if (url.includes("client-battle")) s += 280;
@@ -955,7 +956,14 @@ function buildInjectCode() {
 
   const pokeRecommendRefresh = () => {
     const names = [
-      "onUpdateLadderActionRecommend"
+      "onUpdateLadderActionRecommend",
+      "onUpdateMulliganRecommend",
+      "onUpdateLadderMulliganRecommend",
+      "onUpdateActionMulliganRecommend",
+      "onUpdateMulliganActionRecommend",
+      "onMulliganRecommendChanged",
+      "fReplaceCard",
+      "fWasterCard"
     ];
 
     for (const name of names) {
@@ -1194,6 +1202,12 @@ function shouldKeepRecommendationEvent(source, payload) {
     return hasMulliganSignal(payload) || hasCardIdSignal(payload);
   }
 
+  if (stringEqualsIgnoreCase(src, "pollRecommend")
+    || stringEqualsIgnoreCase(src, "fetch_recommend")
+    || stringEqualsIgnoreCase(src, "xhr_recommend")) {
+    return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
+  }
+
   return false;
 }
 
@@ -1228,6 +1242,12 @@ function shouldLogDiagEvent(diag) {
     || stringEqualsIgnoreCase(source, "fReplaceCard")
     || stringEqualsIgnoreCase(source, "fWasterCard")) {
     return !!diag.hasMulliganSignal;
+  }
+
+  if (stringEqualsIgnoreCase(source, "pollRecommend")
+    || stringEqualsIgnoreCase(source, "fetch_recommend")
+    || stringEqualsIgnoreCase(source, "xhr_recommend")) {
+    return !!diag.hasActionPayload || !!diag.hasMulliganSignal;
   }
 
   return false;
@@ -1573,10 +1593,12 @@ async function runOnce(cfg) {
   };
 
   const sessions = [];
+  // 只保留单会话，避免多个页面推荐流混在一起导致误执行。
   for (const target of targets) {
     try {
       const cdp = await attachOneTarget(target);
       sessions.push({ cdp, target });
+      break;
     } catch (err) {
       process.stderr.write(`[hsbox-cdp] attach failed: ${String(err.message || err)} | ${target.url || "<no-url>"}\n`);
     }

@@ -2710,37 +2710,90 @@ namespace HearthstonePayload
             // 记录点击前的选择快照，用于确认是否真的提交成功。
             CaptureChoiceSnapshot(out var beforeChoiceId, out var beforeSignature);
 
-            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
-            {
-                _coroutine.SetResult("FAIL:CHOICE:pos:" + entityId);
-                yield break;
-            }
-            foreach (var w in SmoothMove(x, y)) yield return w;
-            MouseSimulator.LeftDown();
-            yield return 0.05f;
-            MouseSimulator.LeftUp();
-
-            // 校验：选择界面应关闭，或切换到新的选择状态（连发现）。
             bool confirmed = false;
             string confirmDetail = "timeout";
-            for (int i = 0; i < 18; i++)
+
+            // 鼠标点击做两次尝试：第一次常规点击，第二次作为“界面刚亮起时序抖动”补偿。
+            for (int attempt = 1; attempt <= 2 && !confirmed; attempt++)
             {
-                yield return 0.12f;
-                if (!CaptureChoiceSnapshot(out var afterChoiceId, out var afterSignature))
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
                 {
-                    confirmed = true;
-                    confirmDetail = "closed";
+                    confirmDetail = "pos_not_found";
+                    if (attempt < 2)
+                    {
+                        yield return 0.08f;
+                        continue;
+                    }
                     break;
                 }
 
-                if (afterChoiceId != beforeChoiceId || !string.Equals(afterSignature, beforeSignature, StringComparison.Ordinal))
+                foreach (var w in SmoothMove(x, y, 10, 0.012f)) yield return w;
+                yield return 0.04f; // 悬停一帧，避免刚出现时第一击丢失
+                MouseSimulator.LeftDown();
+                yield return 0.08f;
+                MouseSimulator.LeftUp();
+
+                // 校验：选择界面应关闭，或切换到新的选择状态（连发现）。
+                for (int i = 0; i < 14; i++)
                 {
-                    confirmed = true;
-                    confirmDetail = "changed";
-                    break;
+                    yield return 0.12f;
+                    if (!CaptureChoiceSnapshot(out var afterChoiceId, out var afterSignature))
+                    {
+                        confirmed = true;
+                        confirmDetail = "closed@mouse" + attempt;
+                        break;
+                    }
+
+                    if (afterChoiceId != beforeChoiceId || !string.Equals(afterSignature, beforeSignature, StringComparison.Ordinal))
+                    {
+                        confirmed = true;
+                        confirmDetail = "changed@mouse" + attempt;
+                        break;
+                    }
+
+                    confirmDetail = "unchanged";
                 }
 
-                confirmDetail = "unchanged";
+                if (!confirmed && attempt < 2)
+                    yield return 0.08f;
+            }
+
+            // 鼠标点击仍未确认时，回退网络 API 提交一次，提升抉择提交成功率。
+            if (!confirmed)
+            {
+                var apiResult = TrySendChoiceViaNetwork(entityId);
+                if (!string.IsNullOrWhiteSpace(apiResult)
+                    && apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                {
+                    for (int i = 0; i < 12; i++)
+                    {
+                        yield return 0.12f;
+                        if (!CaptureChoiceSnapshot(out var afterChoiceId, out var afterSignature))
+                        {
+                            confirmed = true;
+                            confirmDetail = "closed@api";
+                            break;
+                        }
+
+                        if (afterChoiceId != beforeChoiceId || !string.Equals(afterSignature, beforeSignature, StringComparison.Ordinal))
+                        {
+                            confirmed = true;
+                            confirmDetail = "changed@api";
+                            break;
+                        }
+
+                        confirmDetail = "unchanged";
+                    }
+
+                    if (confirmed)
+                    {
+                        _coroutine.SetResult("OK:CHOICE:api:" + entityId + ":" + confirmDetail);
+                        yield break;
+                    }
+
+                    _coroutine.SetResult("FAIL:CHOICE:not_confirmed:" + entityId + ":" + confirmDetail + ":api_sent");
+                    yield break;
+                }
             }
 
             if (!confirmed)
