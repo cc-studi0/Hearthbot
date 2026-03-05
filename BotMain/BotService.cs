@@ -35,6 +35,7 @@ namespace BotMain
         private const int TrackerRestartCooldownSeconds = 8;
         private const int TrackerHsBoxEnsureCooldownSeconds = 15;
         private const int TrackerNoDataRestartStreakThreshold = 4;
+        private const int TrackerStaleRecommendRestartStreakThreshold = 8;
         private const int TrackerEmptyJsonlRestartStreakThreshold = 12;
         private const int TrackerCaptureWarmupSeconds = 10;
         private const int TrackerRecommendRetryWindowMs = 360;
@@ -3462,7 +3463,8 @@ namespace BotMain
             // 仅在明确“采集链路异常”时重启 tap，避免无推荐场景反复重启导致首帧永远拿不到。
             return reason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0
                 || reason.IndexOf("jsonl not found", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("bridge unavailable", StringComparison.OrdinalIgnoreCase) >= 0;
+                || reason.IndexOf("bridge unavailable", StringComparison.OrdinalIgnoreCase) >= 0
+                || reason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private bool ShouldSkipBlockedTrackerDecision(IList<string> actions, string trackerReason, out string detail)
@@ -3567,10 +3569,18 @@ namespace BotMain
             if (!ShouldRestartTrackerCaptureForNoData(trackerReason))
                 return;
 
-            var threshold = !string.IsNullOrWhiteSpace(trackerReason)
-                && trackerReason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0
-                ? TrackerEmptyJsonlRestartStreakThreshold
-                : TrackerNoDataRestartStreakThreshold;
+            var threshold = TrackerNoDataRestartStreakThreshold;
+            if (!string.IsNullOrWhiteSpace(trackerReason))
+            {
+                if (trackerReason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    threshold = TrackerEmptyJsonlRestartStreakThreshold;
+                }
+                else if (trackerReason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    threshold = TrackerStaleRecommendRestartStreakThreshold;
+                }
+            }
 
             if (_trackerNoDataStreak < threshold)
                 return;
