@@ -129,12 +129,18 @@ namespace HearthstonePayload
                         {
                             if (attempt > 0)
                             {
+                                try { _coroutine.RunAndWait(MouseCancel(), 1200); } catch { }
                                 Thread.Sleep(120);
                                 beforeState = reader?.ReadGameState();
                                 hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
                             }
 
-                            var attackResult = _coroutine.RunAndWait(MouseAttack(attackerId, targetId, sourceIsFriendlyHero, targetIsEnemyHero));
+                            var attackResult = _coroutine.RunAndWait(
+                                MouseAttack(
+                                    attackerId,
+                                    targetId,
+                                    sourceIsFriendlyHero,
+                                    targetIsEnemyHero));
                             if (!attackResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase) || !hasBeforeSnapshot)
                                 return attackResult;
 
@@ -777,9 +783,16 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 鼠标拖拽攻击
+        /// 攻击流程（点击-拖动-点击）：
+        /// 1) 点击攻击者（随从/英雄）进入选中态
+        /// 2) 鼠标移动到目标
+        /// 3) 再次点击目标确认攻击
         /// </summary>
-        private static IEnumerator<float> MouseAttack(int attackerEntityId, int targetEntityId, bool sourceIsFriendlyHero, bool targetIsEnemyHero)
+        private static IEnumerator<float> MouseAttack(
+            int attackerEntityId,
+            int targetEntityId,
+            bool sourceIsFriendlyHero,
+            bool targetIsEnemyHero)
         {
             InputHook.Simulating = true;
             int sx = 0, sy = 0;
@@ -808,11 +821,14 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            // 瞬移到攻击者并拾取
+            // 第一次点击：选中攻击者
             MouseSimulator.MoveTo(sx, sy);
             yield return 0.05f;
             MouseSimulator.LeftDown();
-            yield return 0.1f;
+            yield return 0.05f;
+            MouseSimulator.LeftUp();
+            // 给客户端一点时间进入攻击选中态
+            yield return 0.08f;
 
             // 拾取攻击者后再定位目标，避免“前一击击杀后目标重排”导致坐标过期。
             bool gotTarget = false;
@@ -863,21 +879,22 @@ namespace HearthstonePayload
             }
             if (!gotTarget)
             {
-                MouseSimulator.LeftUp();
                 _coroutine.SetResult("FAIL:ATTACK:target_pos:" + targetEntityId);
                 yield break;
             }
 
-            // 平滑拖到目标并释放
+            // 拖动到目标后第二次点击确认
             if (!targetIsEnemyHero && GameObjectFinder.GetEntityScreenPos(targetEntityId, out var txLatest, out var tyLatest))
             {
                 tx = txLatest;
                 ty = tyLatest;
             }
-            foreach (var w in SmoothMove(tx, ty, 15)) yield return w;
+            foreach (var w in SmoothMove(tx, ty, 12)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.05f;
             MouseSimulator.LeftUp();
-            yield return 0.15f;
-            _coroutine.SetResult("OK:ATTACK:" + attackerEntityId);
+            yield return 0.18f;
+            _coroutine.SetResult("OK:ATTACK:" + attackerEntityId + ":click_drag_click");
         }
 
         private struct AttackStateSnapshot

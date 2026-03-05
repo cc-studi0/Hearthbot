@@ -14,7 +14,15 @@ namespace BotMain
         private readonly string _jsonlPath;
         private readonly int _maxTailBytes;
         private readonly TimeSpan _maxActionRecommendationAge;
-        public TrackerRecommendationBridge(string jsonlPath, int maxTailBytes = 2 * 1024 * 1024, TimeSpan? maxAge = null)
+        private readonly Action<string> _diagLog;
+        private readonly object _diagLock = new();
+        private readonly Dictionary<string, DateTime> _diagLastUtc = new(StringComparer.OrdinalIgnoreCase);
+
+        public TrackerRecommendationBridge(
+            string jsonlPath,
+            int maxTailBytes = 2 * 1024 * 1024,
+            TimeSpan? maxAge = null,
+            Action<string> diagLog = null)
         {
             _jsonlPath = jsonlPath ?? string.Empty;
             _maxTailBytes = maxTailBytes > 0 ? maxTailBytes : 2 * 1024 * 1024;
@@ -22,6 +30,7 @@ namespace BotMain
             _maxActionRecommendationAge = configuredAge > TimeSpan.Zero
                 ? configuredAge
                 : TimeSpan.FromSeconds(25);
+            _diagLog = diagLog;
         }
 
         public bool TryBuildActions(Board board, out List<string> actions, out string reason, bool appendEndTurn = true)
@@ -143,11 +152,19 @@ namespace BotMain
             if (lines.Count == 0)
             {
                 reason = "jsonl empty";
+                EmitDiag("mulligan_drop", $"mulligan.drop reason={reason}, choices={choiceCardIds.Count}, lines=0");
                 return false;
             }
 
             var replaceCardIds = new List<string>();
             var scanned = 0;
+            int parsedRootCount = 0;
+            int parsedRootFail = 0;
+            int freshCount = 0;
+            int signalCount = 0;
+            int parsedRecommendationCount = 0;
+            int matchedLineCount = 0;
+            string lastDropReason = "none";
             var firstMatchSource = string.Empty;
             var firstMatchTs = DateTime.MinValue;
             string lastMatchDetail = string.Empty;
@@ -157,12 +174,20 @@ namespace BotMain
                     break;
 
                 if (!TryParseLineRoot(lines[i], out var root))
+                {
+                    parsedRootFail++;
                     continue;
+                }
+                parsedRootCount++;
 
                 var source = ReadString(root, "source");
                 var ts = ReadTimestampUtc(root);
                 if (!IsFreshForMulligan(ts))
+                {
+                    lastDropReason = "stale_mulligan";
                     continue;
+                }
+                freshCount++;
 
                 var payload = root;
                 if (TryGetPropertyInsensitive(root, "payload", out var payloadValue))
@@ -175,8 +200,12 @@ namespace BotMain
                 {
                     var payloadText = payload.GetRawText();
                     if (!ContainsMulliganReplaceSignal(payloadText))
+                    {
+                        lastDropReason = "no_mulligan_signal";
                         continue;
+                    }
                 }
+                signalCount++;
 
                 if (string.Equals(source, "highLightAction", StringComparison.OrdinalIgnoreCase))
                 {
@@ -193,6 +222,7 @@ namespace BotMain
                         continue;
                     }
 
+                    lastDropReason = "highlight_not_in_choices";
                     continue;
                 }
 
@@ -201,6 +231,7 @@ namespace BotMain
                     && recommendation != null
                     && recommendation.Actions != null)
                 {
+                    parsedRecommendationCount++;
                     foreach (var act in recommendation.Actions)
                     {
                         TryAddCardId(candidateCardIds, act.Card.CardId);
@@ -228,6 +259,7 @@ namespace BotMain
 
                 if (lineMatched > 0)
                 {
+                    matchedLineCount++;
                     lastMatchDetail = $"source={source}, matched={lineMatched}";
                     if (string.IsNullOrWhiteSpace(firstMatchSource))
                     {
@@ -247,11 +279,17 @@ namespace BotMain
                         break;
                     }
                 }
+                else
+                {
+                    lastDropReason = "line_matched_zero";
+                }
             }
 
             if (replaceCardIds.Count == 0)
             {
                 reason = "no mulligan replace recommendation";
+                EmitDiag("mulligan_drop",
+                    $"mulligan.drop reason={reason}, choices={choiceCardIds.Count}, lines={lines.Count}, scanned={scanned}, parsedRoot={parsedRootCount}, parseRootFail={parsedRootFail}, fresh={freshCount}, signal={signalCount}, parsedRecommendation={parsedRecommendationCount}, matchedLines={matchedLineCount}, lastDrop={SanitizeDiag(lastDropReason)}");
                 return false;
             }
 
@@ -279,6 +317,8 @@ namespace BotMain
             if (replaceEntityIds.Count == 0)
             {
                 reason = "replace card ids not present in mulligan choices";
+                EmitDiag("mulligan_drop",
+                    $"mulligan.drop reason={reason}, choices={choiceCardIds.Count}, lines={lines.Count}, scanned={scanned}, parsedRoot={parsedRootCount}, parseRootFail={parsedRootFail}, fresh={freshCount}, signal={signalCount}, parsedRecommendation={parsedRecommendationCount}, matchedLines={matchedLineCount}, lastDrop={SanitizeDiag(lastDropReason)}");
                 return false;
             }
 
@@ -289,6 +329,8 @@ namespace BotMain
                 pickedPreview += ",...";
 
             reason = $"mulligan tracker replace={replaceEntityIds.Count}, cards={pickedPreview}, detail={lastMatchDetail}";
+            EmitDiag("mulligan_pick",
+                $"mulligan.pick result=ok, choices={choiceCardIds.Count}, lines={lines.Count}, scanned={scanned}, parsedRoot={parsedRootCount}, parseRootFail={parsedRootFail}, fresh={freshCount}, signal={signalCount}, parsedRecommendation={parsedRecommendationCount}, matchedLines={matchedLineCount}, replaceCards={replaceCardIds.Count}, replaceEntity={replaceEntityIds.Count}, detail={SanitizeDiag(lastMatchDetail)}");
             return true;
         }
 
@@ -327,10 +369,15 @@ namespace BotMain
             if (lines.Count == 0)
             {
                 reason = "jsonl empty";
+                EmitDiag("choice_drop", $"choice.drop reason={reason}, choices={choiceCardIds.Count}, lines=0");
                 return false;
             }
 
             var scanned = 0;
+            int parseOk = 0;
+            int parseFail = 0;
+            int freshCount = 0;
+            int actionCarrierCount = 0;
             string lastDetail = string.Empty;
             for (int i = lines.Count - 1; i >= 0; i--)
             {
@@ -340,14 +387,18 @@ namespace BotMain
                 if (!TryParseLine(lines[i], out var recommendation, out _)
                     || recommendation == null)
                 {
+                    parseFail++;
                     continue;
                 }
+                parseOk++;
 
                 if (!IsFreshForChoice(recommendation.TimestampUtc))
                     continue;
+                freshCount++;
 
                 if (recommendation.Actions == null || recommendation.Actions.Count == 0)
                     continue;
+                actionCarrierCount++;
 
                 for (int ai = 0; ai < recommendation.Actions.Count; ai++)
                 {
@@ -364,6 +415,8 @@ namespace BotMain
                     if (TryMapChoiceRefToEntityId(choiceRef, choiceCardIds, choiceEntityIds, out pickedEntityId, out var mapDetail))
                     {
                         reason = $"choice source={recommendation.Source}, action={act.ActionName}, {refDetail}, {mapDetail}";
+                        EmitDiag("choice_pick",
+                            $"choice.pick result=ok, choices={choiceCardIds.Count}, lines={lines.Count}, scanned={scanned}, parseOk={parseOk}, parseFail={parseFail}, fresh={freshCount}, actionCarrier={actionCarrierCount}, source={SanitizeDiag(recommendation.Source)}, detail={SanitizeDiag(refDetail + "," + mapDetail)}");
                         return true;
                     }
 
@@ -374,6 +427,8 @@ namespace BotMain
             reason = string.IsNullOrWhiteSpace(lastDetail)
                 ? "no tracker choice recommendation"
                 : $"no tracker choice recommendation ({lastDetail})";
+            EmitDiag("choice_drop",
+                $"choice.drop reason={SanitizeDiag(reason)}, choices={choiceCardIds.Count}, lines={lines.Count}, scanned={scanned}, parseOk={parseOk}, parseFail={parseFail}, fresh={freshCount}, actionCarrier={actionCarrierCount}");
             return false;
         }
 
@@ -650,21 +705,27 @@ namespace BotMain
             if (string.IsNullOrWhiteSpace(_jsonlPath))
             {
                 reason = "jsonl path empty";
+                EmitDiag("action_drop", $"action.drop reason={reason}");
                 return false;
             }
 
             if (!File.Exists(_jsonlPath))
             {
                 reason = $"jsonl not found: {_jsonlPath}";
+                EmitDiag("action_drop", $"action.drop reason={SanitizeDiag(reason)}");
                 return false;
             }
 
             if (!TryReadTailLines(_jsonlPath, _maxTailBytes, out var lines, out reason))
+            {
+                EmitDiag("action_drop", $"action.drop reason=read_tail_failed, detail={SanitizeDiag(reason)}");
                 return false;
+            }
 
             if (lines.Count == 0)
             {
                 reason = "jsonl empty";
+                EmitDiag("action_drop", $"action.drop reason={reason}, lines=0");
                 return false;
             }
 
@@ -672,11 +733,22 @@ namespace BotMain
             DateTime lastParsedTs = DateTime.MinValue;
             string lastParsedSource = string.Empty;
             bool hasStaleRecommendation = false;
+            int parseOk = 0;
+            int parseFail = 0;
+            int staleCount = 0;
+            int fallbackFreshCount = 0;
+            string parseFailSample = string.Empty;
 
             for (int i = lines.Count - 1; i >= 0; i--)
             {
                 if (!TryParseLine(lines[i], out var parsed, out var parseReason))
+                {
+                    parseFail++;
+                    if (string.IsNullOrWhiteSpace(parseFailSample))
+                        parseFailSample = parseReason;
                     continue;
+                }
+                parseOk++;
 
                 lastParsedTs = parsed.TimestampUtc;
                 lastParsedSource = parsed.Source;
@@ -684,6 +756,7 @@ namespace BotMain
                 if (!IsFreshForAction(parsed.TimestampUtc, _maxActionRecommendationAge))
                 {
                     hasStaleRecommendation = true;
+                    staleCount++;
                     continue;
                 }
 
@@ -692,22 +765,29 @@ namespace BotMain
                 {
                     recommendation = parsed;
                     reason = $"source={parsed.Source}";
+                    EmitDiag("action_pick",
+                        $"action.pick result=preferred, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(parsed.Source)}, tsUtc={FormatDiagUtc(parsed.TimestampUtc)}, ageMs={FormatAgeMs(parsed.TimestampUtc)}");
                     return true;
                 }
 
                 latestFallback ??= parsed;
+                fallbackFreshCount++;
             }
 
             recommendation = latestFallback;
             if (recommendation != null)
             {
                 reason = $"source={recommendation.Source}";
+                EmitDiag("action_pick",
+                    $"action.pick result=fallback, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(recommendation.Source)}, tsUtc={FormatDiagUtc(recommendation.TimestampUtc)}, ageMs={FormatAgeMs(recommendation.TimestampUtc)}");
                 return true;
             }
 
             if (hasStaleRecommendation)
             {
                 reason = $"no fresh/valid recommendation (maxAgeMs={_maxActionRecommendationAge.TotalMilliseconds:0})";
+                EmitDiag("action_drop",
+                    $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
                 return false;
             }
 
@@ -720,7 +800,58 @@ namespace BotMain
             {
                 reason = "no valid recommendation";
             }
+            EmitDiag("action_drop",
+                $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
             return false;
+        }
+
+        private void EmitDiag(string key, string message, int minIntervalMs = 500)
+        {
+            if (_diagLog == null || string.IsNullOrWhiteSpace(message))
+                return;
+
+            var now = DateTime.UtcNow;
+            lock (_diagLock)
+            {
+                if (_diagLastUtc.TryGetValue(key ?? string.Empty, out var last)
+                    && (now - last).TotalMilliseconds < Math.Max(0, minIntervalMs))
+                {
+                    return;
+                }
+
+                _diagLastUtc[key ?? string.Empty] = now;
+            }
+
+            try { _diagLog(message); } catch { }
+        }
+
+        private static string SanitizeDiag(string text, int maxLen = 180)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return "-";
+
+            var cleaned = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (cleaned.Length <= maxLen)
+                return cleaned;
+            return cleaned.Substring(0, maxLen) + "...";
+        }
+
+        private static string FormatDiagUtc(DateTime timestampUtc)
+        {
+            if (timestampUtc == DateTime.MinValue)
+                return "unknown";
+            return timestampUtc.ToString("O", CultureInfo.InvariantCulture);
+        }
+
+        private static string FormatAgeMs(DateTime timestampUtc)
+        {
+            if (timestampUtc == DateTime.MinValue)
+                return "unknown";
+
+            var ageMs = (DateTime.UtcNow - timestampUtc).TotalMilliseconds;
+            if (ageMs < 0)
+                ageMs = 0;
+            return ageMs.ToString("0", CultureInfo.InvariantCulture);
         }
 
         private static bool IsPreferredActionSource(string source)

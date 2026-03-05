@@ -134,7 +134,7 @@ namespace BotMain
         public string RuntimeText => IsRunning ? (DateTime.Now - _startTime).ToString(@"hh\:mm\:ss") : "00:00:00";
 
         // 设置
-        private bool _coachMode, _overlayMode, _autoConcede, _concedeWhenLethal, _followTrackerRecommendA, _fpsLock;
+        private bool _coachMode, _overlayMode, _autoConcede, _concedeWhenLethal, _followTrackerRecommendA, _trackerDiagVerbose = true, _fpsLock;
         private int _fpsValue = 30, _modeIndex;
         public bool CoachMode { get => _coachMode; set { _coachMode = value; AutoSave(); } }
         public bool OverlayMode { get => _overlayMode; set { _overlayMode = value; AutoSave(); } }
@@ -157,6 +157,17 @@ namespace BotMain
             {
                 _followTrackerRecommendA = value;
                 _bot.SetFollowTrackerRecommendA(value);
+                Notify();
+                AutoSave();
+            }
+        }
+        public bool TrackerDiagVerbose
+        {
+            get => _trackerDiagVerbose;
+            set
+            {
+                _trackerDiagVerbose = value;
+                _bot.SetTrackerDiagVerbose(value);
                 Notify();
                 AutoSave();
             }
@@ -361,6 +372,7 @@ namespace BotMain
                 dict["AutoConcede"] = JsonSerializer.SerializeToElement(AutoConcede);
                 dict["ConcedeWhenLethal"] = JsonSerializer.SerializeToElement(ConcedeWhenLethal);
                 dict["FollowTrackerRecommendA"] = JsonSerializer.SerializeToElement(FollowTrackerRecommendA);
+                dict["TrackerDiagVerbose"] = JsonSerializer.SerializeToElement(TrackerDiagVerbose);
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
@@ -399,6 +411,7 @@ namespace BotMain
                         if (dict.TryGetValue("AutoConcede", out v)) AutoConcede = v.GetBoolean();
                         if (dict.TryGetValue("ConcedeWhenLethal", out v)) ConcedeWhenLethal = v.GetBoolean();
                         if (dict.TryGetValue("FollowTrackerRecommendA", out v)) FollowTrackerRecommendA = v.GetBoolean();
+                        if (dict.TryGetValue("TrackerDiagVerbose", out v)) TrackerDiagVerbose = v.GetBoolean();
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();

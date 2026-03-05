@@ -19,6 +19,8 @@ const { setTimeout: sleep } = require("node:timers/promises");
 const WebSocketCtor = resolveWebSocketCtor();
 
 const PREFIX = "__HS_REC_JSON__:";
+const DIAG_PREFIX = "__HS_REC_DIAG__:";
+const SCRIPT_VERSION = "ladder-primary-v3-20260305";
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 9222;
 const DEFAULT_HINT = "jipaiqi";
@@ -318,6 +320,96 @@ function buildInjectCode() {
   return `
 (() => {
   const PREFIX = "${PREFIX}";
+  const DIAG_PREFIX = "${DIAG_PREFIX}";
+  const ENABLE_FALLBACK_CAPTURE = false;
+
+  const isActionArrayLike = (arr) => {
+    if (!Array.isArray(arr)) return false;
+    let checked = 0;
+    for (const item of arr) {
+      if (item && typeof item === "object") {
+        if ("actionName" in item || "action" in item || "name" in item)
+          return true;
+      }
+      if (++checked >= 8) break;
+    }
+    return false;
+  };
+
+  const hasActionSignal = (payload) => {
+    if (!payload || typeof payload !== "object")
+      return false;
+    if (isActionArrayLike(payload))
+      return true;
+
+    const preferred = ["data", "A", "a", "planA", "plan_a", "recommendA", "recommend_a", "actions", "steps", "args"];
+    for (const key of preferred) {
+      if (!(key in payload)) continue;
+      const v = payload[key];
+      if (isActionArrayLike(v))
+        return true;
+      if (v && typeof v === "object") {
+        for (const nested of Object.values(v)) {
+          if (isActionArrayLike(nested))
+            return true;
+        }
+      }
+    }
+    return false;
+  };
+
+  const topKeys = (payload, limit = 10) => {
+    if (!payload || typeof payload !== "object")
+      return [];
+    try {
+      const keys = Object.keys(payload).filter((k) => k !== "args");
+      if (keys.length <= limit)
+        return keys;
+      return keys.slice(0, limit);
+    } catch (_) {
+      return [];
+    }
+  };
+
+  const shortHash = (text) => {
+    const raw = String(text || "");
+    let hash = 2166136261;
+    for (let i = 0; i < raw.length; i++) {
+      hash ^= raw.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    const u = hash >>> 0;
+    return u.toString(16).padStart(8, "0");
+  };
+
+  const buildDiagSummary = (source, payload, error) => {
+    let serialized = "";
+    try {
+      serialized = JSON.stringify(payload ?? null);
+    } catch (_) {
+      serialized = String(payload ?? "");
+    }
+    if (serialized.length > 4096)
+      serialized = serialized.slice(0, 4096);
+
+    const lower = serialized.toLowerCase();
+    const hasMulliganSignal = lower.includes("mulligan")
+      || lower.includes("replace")
+      || lower.includes("reroll")
+      || lower.includes("swap")
+      || lower.includes("waster")
+      || lower.includes("highlight");
+
+    return {
+      source,
+      ts: Date.now(),
+      hasActionPayload: hasActionSignal(payload),
+      hasMulliganSignal,
+      payloadKeysTopN: topKeys(payload, 10),
+      fingerprintShort: shortHash(source + "|" + serialized),
+      hasError: !!error
+    };
+  };
 
   const emit = (source, payload, error) => {
     try {
@@ -327,6 +419,22 @@ function buildInjectCode() {
       if (payload !== undefined) data.payload = payload;
       if (error) data.error = String(error);
       console.log(PREFIX + JSON.stringify(data));
+
+      const diag = buildDiagSummary(source, payload, error);
+      const isArgsOnly = payload
+        && typeof payload === "object"
+        && !Array.isArray(payload)
+        && Object.keys(payload).length === 1
+        && Array.isArray(payload.args);
+      if (!isArgsOnly) {
+        const diagKey = diag.source + "|" + diag.fingerprintShort;
+        const diagMap = window.__hsDiagEmitMap || (window.__hsDiagEmitMap = Object.create(null));
+        const lastDiagTs = Number(diagMap[diagKey] || 0);
+        if (!lastDiagTs || now - lastDiagTs >= 500) {
+          diagMap[diagKey] = now;
+          console.log(DIAG_PREFIX + JSON.stringify(diag));
+        }
+      }
     } catch (err) {
       try {
         console.log(PREFIX + JSON.stringify({
@@ -636,6 +744,98 @@ function buildInjectCode() {
     return null;
   };
 
+  const extractRecommendLikeObject = (value, depth = 0) => {
+    if (depth > 6 || value === null || value === undefined) return null;
+
+    if (Array.isArray(value)) {
+      if (looksLikeActionArray(value)) return value;
+
+      let checked = 0;
+      for (const item of value) {
+        const nested = extractRecommendLikeObject(item, depth + 1);
+        if (nested) return nested;
+        if (++checked >= 32) break;
+      }
+      return null;
+    }
+
+    if (!isObj(value)) return null;
+
+    const keys = Object.keys(value);
+    const isArgsOnly = keys.length === 1
+      && keys[0] === "args"
+      && Array.isArray(value.args);
+
+    if (isArgsOnly) {
+      let checked = 0;
+      for (const item of value.args) {
+        const nested = extractRecommendLikeObject(item, depth + 1);
+        if (nested) return nested;
+        if (++checked >= 32) break;
+      }
+      return null;
+    }
+
+    if (!isArgsOnly) {
+      const joined = keys.join("|").toLowerCase();
+      if (/(recommend|plan|action|mulligan|replace|reroll|swap|highlight|decision)/.test(joined))
+        return value;
+    }
+
+    let checked = 0;
+    for (const [, child] of Object.entries(value)) {
+      const nested = extractRecommendLikeObject(child, depth + 1);
+      if (nested) return nested;
+      if (++checked >= 48) break;
+    }
+
+    return null;
+  };
+
+  const collectRecommendRoots = () => {
+    const roots = [];
+    const directKeys = [
+      "__INITIAL_STATE__",
+      "__NUXT__",
+      "__NEXT_DATA__",
+      "store",
+      "vm",
+      "app",
+      "__VUE__",
+      "__PINIA__"
+    ];
+
+    for (const key of directKeys) {
+      if (Object.prototype.hasOwnProperty.call(window, key))
+        roots.push(window[key]);
+    }
+
+    const dynamicKeys = Object.getOwnPropertyNames(window);
+    let scanned = 0;
+    for (const key of dynamicKeys) {
+      if (++scanned > 220) break;
+      if (!/(recommend|ladder|analysis|action|plan|jipaiqi|mulligan|replace|decision)/i.test(key)) continue;
+      const value = window[key];
+      if (!value || typeof value !== "object") continue;
+      roots.push(value);
+    }
+
+    return roots;
+  };
+
+  const findPolledRecommendCandidate = () => {
+    const roots = collectRecommendRoots();
+    for (const root of roots) {
+      const actionCandidate = extractActionCandidate(root);
+      if (actionCandidate) return actionCandidate;
+
+      const recommendObj = extractRecommendLikeObject(root, 0);
+      if (recommendObj) return recommendObj;
+    }
+
+    return null;
+  };
+
   const hook = (name) => {
     const storeKey = "__hs_hook_original_" + name;
     const trapKey = "__hs_hook_trapped_" + name;
@@ -657,13 +857,19 @@ function buildInjectCode() {
               payload = candidate;
               break;
             }
+
+            const recommendObj = extractRecommendLikeObject(arg, 0);
+            if (recommendObj) {
+              payload = recommendObj;
+              break;
+            }
           }
 
-          if (!payload) {
-            payload = { args: parsedArgs };
-          }
+          if (!payload)
+            payload = findPolledRecommendCandidate();
 
-          emit(name, payload, null);
+          if (payload)
+            emit(name, payload, null);
         } catch (err) {
           emit(name, null, err);
         }
@@ -707,34 +913,34 @@ function buildInjectCode() {
   };
 
   const HOOK_NAMES = window.__hsHookNames || new Set([
+    // 主动作仅保留天梯推荐主入口，减少空事件风暴。
     "onUpdateLadderActionRecommend",
-    "onUpdateArenaRecommend",
+    // 留牌相关保留最小集合。
     "onUpdateMulliganRecommend",
     "onUpdateLadderMulliganRecommend",
     "onUpdateActionMulliganRecommend",
     "onUpdateMulliganActionRecommend",
     "onMulliganRecommendChanged",
-    "fRecommend",
-    "foldRecommend",
-    "highLightAction",
-    "onUpdateActionRecommend",
-    "onRecommendChanged",
-    "updateRecommend",
     "fReplaceCard",
     "fWasterCard",
-    "cancelFixedRelativeCard",
-    "initHighLightSwitch"
+    "highLightAction"
   ]);
   window.__hsHookNames = HOOK_NAMES;
 
   const collectDynamicHookNames = () => {
     try {
       const keys = Object.getOwnPropertyNames(window);
+      const aliases = [
+        /^onUpdateLadderActionRecommend$/i,
+        /^onUpdateLadderMulliganRecommend$/i,
+        /^onUpdateMulliganRecommend$/i,
+        /^onUpdateActionMulliganRecommend$/i,
+        /^onUpdateMulliganActionRecommend$/i
+      ];
       for (const key of keys) {
         if (HOOK_NAMES.has(key)) continue;
-        if (!/(recommend|highlight|ladder|arena|action|mulligan)/i.test(key)) continue;
         const value = window[key];
-        if (typeof value === "function")
+        if (typeof value === "function" && aliases.some((re) => re.test(key)))
           HOOK_NAMES.add(key);
       }
     } catch (_) {}
@@ -749,10 +955,6 @@ function buildInjectCode() {
 
   const pokeRecommendRefresh = () => {
     const names = [
-      "updateRecommend",
-      "onRecommendChanged",
-      "initHighLightSwitch",
-      "onUpdateActionRecommend",
       "onUpdateLadderActionRecommend"
     ];
 
@@ -774,48 +976,19 @@ function buildInjectCode() {
 
   const maybeEmitPolledRecommend = () => {
     try {
-      const roots = [];
-      const directKeys = [
-        "__INITIAL_STATE__",
-        "__NUXT__",
-        "__NEXT_DATA__",
-        "store",
-        "vm",
-        "app",
-        "__VUE__",
-        "__PINIA__"
-      ];
+      const candidate = findPolledRecommendCandidate();
+      if (!candidate) return;
 
-      for (const key of directKeys) {
-        if (Object.prototype.hasOwnProperty.call(window, key))
-          roots.push(window[key]);
-      }
-
-      const dynamicKeys = Object.getOwnPropertyNames(window);
-      let scanned = 0;
-      for (const key of dynamicKeys) {
-        if (++scanned > 180) break;
-        if (!/(recommend|ladder|analysis|action|plan|jipaiqi)/i.test(key)) continue;
-        const value = window[key];
-        if (!value || typeof value !== "object") continue;
-        roots.push(value);
-      }
-
-      for (const root of roots) {
-        const candidate = extractActionCandidate(root);
-        if (!candidate) continue;
-        const fp = JSON.stringify(candidate);
-        if (!fp) continue;
-        if (window.__hsLastPolledRecommendFp === fp)
-          return;
-        window.__hsLastPolledRecommendFp = fp;
-        emit("pollRecommend", candidate, null);
+      const fp = JSON.stringify(candidate);
+      if (!fp) return;
+      if (window.__hsLastPolledRecommendFp === fp)
         return;
-      }
+      window.__hsLastPolledRecommendFp = fp;
+      emit("pollRecommend", candidate, null);
     } catch (_) {}
   };
 
-  if (!window.__hsHookFetch && typeof window.fetch === "function") {
+  if (ENABLE_FALLBACK_CAPTURE && !window.__hsHookFetch && typeof window.fetch === "function") {
     const rawFetch = window.fetch;
     const wrappedFetch = async function(...args) {
       const resp = await rawFetch.apply(this, args);
@@ -839,7 +1012,7 @@ function buildInjectCode() {
     window.__hsHookFetch = true;
   }
 
-  if (!window.__hsHookXhr && window.XMLHttpRequest && window.XMLHttpRequest.prototype) {
+  if (ENABLE_FALLBACK_CAPTURE && !window.__hsHookXhr && window.XMLHttpRequest && window.XMLHttpRequest.prototype) {
     try {
       const proto = window.XMLHttpRequest.prototype;
       const rawOpen = proto.open;
@@ -874,7 +1047,9 @@ function buildInjectCode() {
   if (!window.__hsHookLoop) {
     window.__hsHookLoop = setInterval(() => {
       hookAll();
-      maybeEmitPolledRecommend();
+      if (ENABLE_FALLBACK_CAPTURE) {
+        maybeEmitPolledRecommend();
+      }
       const lastEmitTs = Number(window.__hsLastEmitTs || 0);
       if (!lastEmitTs || Date.now() - lastEmitTs > 1200)
         pokeRecommendRefresh();
@@ -882,7 +1057,9 @@ function buildInjectCode() {
   }
 
   // attach 后先主动尝试一次，减少首轮等待
-  maybeEmitPolledRecommend();
+  if (ENABLE_FALLBACK_CAPTURE) {
+    maybeEmitPolledRecommend();
+  }
   pokeRecommendRefresh();
 })();
 `;
@@ -927,6 +1104,132 @@ function hasActionPayload(payload) {
       }
     }
   }
+  return false;
+}
+
+function hasMulliganSignal(payload) {
+  if (payload === null || payload === undefined) return false;
+  let text = "";
+  try {
+    text = typeof payload === "string" ? payload : JSON.stringify(payload);
+  } catch {
+    text = String(payload);
+  }
+  const lower = text.toLowerCase();
+  return lower.includes("mulligan")
+    || lower.includes("replace")
+    || lower.includes("reroll")
+    || lower.includes("swap")
+    || lower.includes("waster")
+    || lower.includes("highlight");
+}
+
+function isArgsOnlyPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload))
+    return false;
+  const keys = Object.keys(payload);
+  return keys.length === 1 && keys[0] === "args" && Array.isArray(payload.args);
+}
+
+function hasCardIdSignal(payload) {
+  if (!payload) return false;
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    if (typeof payload.cardId === "string" && payload.cardId.trim()) {
+      return true;
+    }
+  }
+  return !!extractCardIdLike(payload);
+}
+
+function normalizePayloadForSource(source, payload) {
+  if (!stringEqualsIgnoreCase(source, "highLightAction"))
+    return payload;
+
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    if (typeof payload.cardId === "string" && payload.cardId.trim()) {
+      return { cardId: payload.cardId.trim() };
+    }
+    if (Array.isArray(payload.args)) {
+      const cardIdFromArgs = extractCardIdLike(payload.args.join("|"));
+      if (cardIdFromArgs) {
+        return { cardId: cardIdFromArgs };
+      }
+    }
+  }
+
+  const cardId = extractCardIdLike(payload);
+  if (cardId) {
+    return { cardId };
+  }
+  return payload;
+}
+
+function stringEqualsIgnoreCase(a, b) {
+  return String(a || "").toLowerCase() === String(b || "").toLowerCase();
+}
+
+function shouldKeepRecommendationEvent(source, payload) {
+  const src = String(source || "");
+  if (!src)
+    return false;
+
+  if (isArgsOnlyPayload(payload))
+    return false;
+
+  if (stringEqualsIgnoreCase(src, "onUpdateLadderActionRecommend")) {
+    return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
+  }
+
+  if (stringEqualsIgnoreCase(src, "highLightAction")) {
+    return hasCardIdSignal(payload) || hasMulliganSignal(payload);
+  }
+
+  if (stringEqualsIgnoreCase(src, "onUpdateMulliganRecommend")
+    || stringEqualsIgnoreCase(src, "onUpdateLadderMulliganRecommend")
+    || stringEqualsIgnoreCase(src, "onUpdateActionMulliganRecommend")
+    || stringEqualsIgnoreCase(src, "onUpdateMulliganActionRecommend")
+    || stringEqualsIgnoreCase(src, "onMulliganRecommendChanged")
+    || stringEqualsIgnoreCase(src, "fReplaceCard")
+    || stringEqualsIgnoreCase(src, "fWasterCard")) {
+    return hasMulliganSignal(payload) || hasCardIdSignal(payload);
+  }
+
+  return false;
+}
+
+function shouldLogDiagEvent(diag) {
+  if (!diag || typeof diag !== "object")
+    return false;
+
+  const source = String(diag.source || "");
+  if (!source)
+    return false;
+
+  const keys = Array.isArray(diag.payloadKeysTopN)
+    ? diag.payloadKeysTopN.filter((k) => !stringEqualsIgnoreCase(k, "args"))
+    : [];
+  if (keys.length === 0 && !diag.hasActionPayload && !diag.hasMulliganSignal) {
+    return false;
+  }
+
+  if (stringEqualsIgnoreCase(source, "onUpdateLadderActionRecommend")) {
+    return !!diag.hasActionPayload || !!diag.hasMulliganSignal;
+  }
+
+  if (stringEqualsIgnoreCase(source, "highLightAction")) {
+    return !!diag.hasMulliganSignal;
+  }
+
+  if (stringEqualsIgnoreCase(source, "onUpdateMulliganRecommend")
+    || stringEqualsIgnoreCase(source, "onUpdateLadderMulliganRecommend")
+    || stringEqualsIgnoreCase(source, "onUpdateActionMulliganRecommend")
+    || stringEqualsIgnoreCase(source, "onUpdateMulliganActionRecommend")
+    || stringEqualsIgnoreCase(source, "onMulliganRecommendChanged")
+    || stringEqualsIgnoreCase(source, "fReplaceCard")
+    || stringEqualsIgnoreCase(source, "fWasterCard")) {
+    return !!diag.hasMulliganSignal;
+  }
+
   return false;
 }
 
@@ -1018,10 +1321,14 @@ async function runOnce(cfg) {
   };
 
   const emitRecommendation = (source, payload, extra = null) => {
+    const normalizedPayload = normalizePayloadForSource(source, payload);
+    if (!shouldKeepRecommendationEvent(source, normalizedPayload))
+      return;
+
     const event = {
       source,
       ts: Date.now(),
-      payload
+      payload: normalizedPayload
     };
     if (extra && typeof extra === "object") {
       for (const [k, v] of Object.entries(extra))
@@ -1038,7 +1345,7 @@ async function runOnce(cfg) {
     lastEmitFingerprint = fingerprint;
 
     emitLine(event);
-    if (hasActionPayload(payload)) {
+    if (hasActionPayload(normalizedPayload)) {
       process.stderr.write(
         `[hsbox-cdp] captured action array: source=${source}\n`
       );
@@ -1068,7 +1375,7 @@ async function runOnce(cfg) {
       }
       const cardId = hasRecommendSignal ? extractCardIdLike(serialized) : "";
       if (cardId) {
-        emitRecommendation("highLightAction", { args: [cardId] }, meta);
+        emitRecommendation("highLightAction", { cardId }, meta);
       }
       return;
     }
@@ -1086,7 +1393,7 @@ async function runOnce(cfg) {
 
     const cardId = extractCardIdLike(body);
     if (cardId) {
-      emitRecommendation("highLightAction", { args: [cardId] }, meta);
+      emitRecommendation("highLightAction", { cardId }, meta);
     }
   };
 
@@ -1106,23 +1413,32 @@ async function runOnce(cfg) {
         const args = params?.args || [];
         for (const a of args) {
           const txt = parseConsoleText(a);
+          if (txt.startsWith(DIAG_PREFIX)) {
+            const body = txt.slice(DIAG_PREFIX.length);
+            try {
+              const diag = JSON.parse(body);
+              if (!shouldLogDiagEvent(diag))
+                continue;
+            } catch {
+              if (body.includes("\"payloadKeysTopN\":[\"args\"]")) {
+                continue;
+              }
+            }
+            process.stderr.write(`[hsbox-cdp][diag] ${body}\n`);
+            continue;
+          }
           if (!txt.startsWith(PREFIX)) continue;
           const body = txt.slice(PREFIX.length);
           try {
             const parsed = JSON.parse(body);
-            if (parsed?.source === "highLightAction") {
-              const maybeCardId = extractCardIdLike(JSON.stringify(parsed.payload || ""));
-              if (!maybeCardId)
-                continue;
-            }
-            emitLine(parsed);
-            if (parsed && hasActionPayload(parsed.payload)) {
-              process.stderr.write(
-                `[hsbox-cdp] captured action array: source=${parsed.source || "unknown"}\n`
-              );
-            }
+            const parsedSource = String(parsed?.source || "");
+            if (!parsedSource)
+              continue;
+
+            const parsedPayload = normalizePayloadForSource(parsedSource, parsed?.payload);
+            emitRecommendation(parsedSource, parsedPayload, null);
           } catch {
-            emitLine({ source: "unknown", ts: Date.now(), payload: { __raw: body } });
+            // ignore unstructured noise
           }
         }
         return;
@@ -1315,7 +1631,7 @@ async function runOnce(cfg) {
 async function main() {
   const cfg = parseArgs(process.argv);
   process.stderr.write(
-    `[hsbox-cdp] host=${cfg.host} port=${cfg.port} hint=${cfg.hint}\n`
+    `[hsbox-cdp] host=${cfg.host} port=${cfg.port} hint=${cfg.hint} version=${SCRIPT_VERSION}\n`
   );
 
   // Retry loop: user often starts HS box after this script.

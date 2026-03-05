@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using SmartBot.Arena;
 using SmartBot.Database;
 using SmartBot.Discover;
@@ -35,20 +36,20 @@ namespace BotMain
         private const int TrackerHsBoxEnsureCooldownSeconds = 15;
         private const int TrackerNoDataRestartStreakThreshold = 4;
         private const int TrackerEmptyJsonlRestartStreakThreshold = 2;
-        private const int TrackerRecommendRetryWindowMs = 1200;
-        private const int TrackerRecommendRetrySleepMs = 100;
-        private const int TrackerWaitReadyCommandTimeoutMs = 500;
-        private const int TrackerMainReadyRetries = 8;
-        private const int TrackerMainReadyIntervalMs = 25;
-        private const int TrackerPreActionReadyRetries = 8;
-        private const int TrackerPreActionReadyIntervalMs = 20;
-        private const int TrackerPostActionReadyRetries = 5;
-        private const int TrackerPostActionReadyIntervalMs = 12;
-        private const int TrackerComboAttackReadyRetries = 10;
-        private const int TrackerComboAttackReadyIntervalMs = 12;
+        private const int TrackerRecommendRetryWindowMs = 360;
+        private const int TrackerRecommendRetrySleepMs = 25;
+        private const int TrackerWaitReadyCommandTimeoutMs = 180;
+        private const int TrackerMainReadyRetries = 4;
+        private const int TrackerMainReadyIntervalMs = 12;
+        private const int TrackerPreActionReadyRetries = 4;
+        private const int TrackerPreActionReadyIntervalMs = 10;
+        private const int TrackerPostActionReadyRetries = 2;
+        private const int TrackerPostActionReadyIntervalMs = 6;
+        private const int TrackerComboAttackReadyRetries = 6;
+        private const int TrackerComboAttackReadyIntervalMs = 8;
         private const int TrackerActionDelayMs = 8;
-        private const int TrackerLoopIdleDelayMs = 30;
-        private const int TrackerActionFailDelayMs = 300;
+        private const int TrackerLoopIdleDelayMs = 10;
+        private const int TrackerActionFailDelayMs = 80;
         private const int TrackerForcedEndTurnDelayMs = 1200;
         private const int TrackerRepeatFailSoftBlockMs = 500;
         private const int TrackerRepeatFailHardBlockMs = 1400;
@@ -108,6 +109,7 @@ namespace BotMain
         private int _autoConcedeMaxRank;
         private bool _concedeWhenLethal;
         private bool _followTrackerRecommendA;
+        private bool _trackerDiagVerbose = true;
         private bool _thinkingRoutineEnabled;
         private bool _hoverRoutineEnabled;
         private int _latencySamplingRate = 20000;
@@ -418,6 +420,7 @@ namespace BotMain
         public void SetAutoConcedeAlternativeMode(bool v) { _autoConcedeAlternativeMode = v; Log($"[Settings] AutoConcedeAlt={v}"); }
         public void SetAutoConcedeMaxRank(int v) { _autoConcedeMaxRank = v; Log($"[Settings] AutoConcedeMaxRank={v}"); }
         public void SetConcedeWhenLethal(bool v) { _concedeWhenLethal = v; Log($"[Settings] ConcedeWhenLethal={v}"); }
+        public void SetTrackerDiagVerbose(bool v) { _trackerDiagVerbose = v; Log($"[Settings] TrackerDiagVerbose={v}"); }
         public void SetFollowTrackerRecommendA(bool v)
         {
             _followTrackerRecommendA = v;
@@ -500,8 +503,14 @@ namespace BotMain
         private void LoadPluginSystem()
         {
             if (_pluginDir == null || _sbapiPath == null) return;
+            LoadPluginSystem(BuildScriptCompilerReferences(_sbapiPath));
+        }
+
+        private void LoadPluginSystem(string[] scriptCompilerReferences)
+        {
+            if (_pluginDir == null) return;
             _pluginSystem = new PluginSystem(Log);
-            _pluginSystem.LoadPlugins(_pluginDir, BuildScriptCompilerReferences(_sbapiPath));
+            _pluginSystem.LoadPlugins(_pluginDir, scriptCompilerReferences ?? Array.Empty<string>());
             _pluginSystem.FireOnPluginCreated();
         }
 
@@ -555,7 +564,9 @@ namespace BotMain
             if (!string.Equals(_trackerRecommendJsonlPath, trackerPath, StringComparison.OrdinalIgnoreCase))
             {
                 _trackerRecommendJsonlPath = trackerPath;
-                _trackerRecommendationBridge = new TrackerRecommendationBridge(_trackerRecommendJsonlPath);
+                _trackerRecommendationBridge = new TrackerRecommendationBridge(
+                    _trackerRecommendJsonlPath,
+                    diagLog: LogTrackerBridgeDiag);
             }
 
             if (_followTrackerRecommendA)
@@ -595,12 +606,21 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(_hbRootOverride))
                     Log($"HBRoot configured: {_hbRootOverride}");
 
-                LoadProfiles(_profileDir, _sbapiPath);
-                LoadMulliganProfiles(_mulliganDir, _sbapiPath);
-                LoadDiscoverProfiles(_discoverDir, _sbapiPath);
-                LoadArenaProfiles(_arenaDir, _sbapiPath);
-                LoadArchetypes(_archetypeDir, _sbapiPath);
-                LoadPluginSystem();
+                // 首次初始化时并行加载，显著减少“准备中”耗时。
+                var loadSw = Stopwatch.StartNew();
+                var scriptRefs = BuildScriptCompilerReferences(_sbapiPath);
+                var loadTasks = new[]
+                {
+                    Task.Run(() => LoadProfiles(_profileDir, scriptRefs)),
+                    Task.Run(() => LoadMulliganProfiles(_mulliganDir, scriptRefs)),
+                    Task.Run(() => LoadDiscoverProfiles(_discoverDir, scriptRefs)),
+                    Task.Run(() => LoadArenaProfiles(_arenaDir, scriptRefs)),
+                    Task.Run(() => LoadArchetypes(_archetypeDir, scriptRefs)),
+                    Task.Run(() => LoadPluginSystem(scriptRefs))
+                };
+                Task.WaitAll(loadTasks);
+                loadSw.Stop();
+                Log($"Initial resources loaded in {loadSw.ElapsedMilliseconds}ms (parallel).");
             }
 
             if (_botApiHandler == null)
@@ -661,6 +681,7 @@ namespace BotMain
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
+            DateTime trackerTurnContextStartUtc = DateTime.MinValue;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -957,6 +978,7 @@ namespace BotMain
                                 var contextStartUtc = firstObservedTurn
                                     ? DateTime.UtcNow.AddSeconds(-20)
                                     : DateTime.UtcNow.AddSeconds(-2);
+                                trackerTurnContextStartUtc = contextStartUtc;
                                 _trackerRecommendationBridge.BeginTurnContext(contextStartUtc);
                             }
                             Log($"[TrackerMode] turn context reset: turn={turnNumber}");
@@ -1023,17 +1045,24 @@ namespace BotMain
 
                 if (_followTrackerRecommendA)
                 {
+                    LogTrackerDiag(
+                        $"action.request turn={lastTurnNumber}, contextStartUtc={FormatTrackerDiagUtc(trackerTurnContextStartUtc)}");
+
                     if (TryBuildTrackerActionsWithRetry(planningBoard, out var trackerActions, out var bridgeReason))
                     {
                         trackerReason = bridgeReason;
                         _trackerNoDataStreak = 0;
                         actions = trackerActions;
+                        LogTrackerDiag(
+                            $"action.result status=ok, turn={lastTurnNumber}, attempts={ExtractAttemptsFromReason(trackerReason)}, actions={actions.Count}, reason={SanitizeTrackerDiag(trackerReason)}");
                         Log($"[TrackerMode] {trackerReason}");
                         LogTrackerActionsReadable(planningBoard, actions);
                     }
                     else
                     {
                         trackerReason = bridgeReason;
+                        LogTrackerDiag(
+                            $"action.result status=miss, turn={lastTurnNumber}, attempts={ExtractAttemptsFromReason(trackerReason)}, reason={SanitizeTrackerDiag(trackerReason)}, noDataStreak={_trackerNoDataStreak + 1}");
                         if (IsTrackerNoDataReason(trackerReason))
                         {
                             _trackerNoDataStreak++;
@@ -1042,11 +1071,13 @@ namespace BotMain
                                 Log($"[TrackerMode] recommendation not ready, keep waiting ({trackerReason}). Check HSBox recommend module/tab if this keeps repeating.");
 
                             TryRecoverTrackerCaptureForNoData(trackerReason);
-                            Thread.Sleep(180);
+                            Thread.Sleep(40);
                             continue;
                         }
 
                         _trackerNoDataStreak = 0;
+                        LogTrackerDiag(
+                            $"action.result status=skip_wait_next, turn={lastTurnNumber}, reason={SanitizeTrackerDiag(trackerReason)}");
                         Log($"[TrackerMode] recommendation unavailable, skip local fallback and wait next tracker update ({trackerReason})");
                         Thread.Sleep(TrackerActionFailDelayMs);
                         continue;
@@ -1152,7 +1183,10 @@ namespace BotMain
 
                         Log($"[Action] {action} -> OK:{trackerChoiceDetail}");
                         Thread.Sleep(actionDelayMs);
-                        WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
+                        if (_followTrackerRecommendA)
+                            WaitForGameReady(pipe, maxRetries: 1, intervalMs: 0, commandTimeoutMs: 80);
+                        else
+                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
                         continue;
                     }
 
@@ -1242,7 +1276,10 @@ namespace BotMain
                     else
                     {
                         Thread.Sleep(actionDelayMs);
-                        WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
+                        if (_followTrackerRecommendA)
+                            WaitForGameReady(pipe, maxRetries: 1, intervalMs: 0, commandTimeoutMs: 80);
+                        else
+                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
                     }
 
                     // 出牌/英雄技能/地标激活后检测发现选择
@@ -1549,14 +1586,19 @@ namespace BotMain
             return true;
         }
 
-        private static bool TryGetChoiceState(PipeServer pipe, int maxRetries, int retryDelayMs, out string response)
+        private static bool TryGetChoiceState(
+            PipeServer pipe,
+            int maxRetries,
+            int retryDelayMs,
+            out string response,
+            int commandTimeoutMs = 5000)
         {
             response = null;
             for (var i = 0; i < maxRetries; i++)
             {
                 try
                 {
-                    response = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
+                    response = pipe.SendAndReceive("GET_CHOICE_STATE", Math.Max(120, commandTimeoutMs));
                 }
                 catch
                 {
@@ -1596,7 +1638,13 @@ namespace BotMain
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            if (!TryGetChoiceState(pipe, maxRetries: 1, retryDelayMs: 0, out var resp))
+            var choiceStateTimeoutMs = _followTrackerRecommendA ? 220 : 5000;
+            if (!TryGetChoiceState(
+                pipe,
+                maxRetries: 1,
+                retryDelayMs: 0,
+                out var resp,
+                commandTimeoutMs: choiceStateTimeoutMs))
                 return false;
 
             if (string.IsNullOrWhiteSpace(resp)
@@ -1610,13 +1658,20 @@ namespace BotMain
 
         private void TryHandleDiscover(PipeServer pipe, string seed)
         {
-            // 等待发现/抉择界面出现。跟随记牌器模式下多等几轮，避免出牌后抉择界面稍晚弹出导致漏选。
-            var rounds = _followTrackerRecommendA ? 4 : 3;
+            // 跟随盒子模式下使用快速探测，避免每次出牌后固定等待数秒；
+            // 若抉择界面稍后出现，会在下一轮主循环的 pending-choice 检测中处理。
+            var rounds = _followTrackerRecommendA ? 1 : 3;
             for (int retry = 0; retry < rounds; retry++)
             {
-                var maxRetries = _followTrackerRecommendA ? (retry == 0 ? 8 : 10) : (retry == 0 ? 4 : 12);
-                var retryDelayMs = _followTrackerRecommendA ? 100 : (retry == 0 ? 80 : 120);
-                if (!TryGetChoiceState(pipe, maxRetries: maxRetries, retryDelayMs: retryDelayMs, out var resp))
+                var maxRetries = _followTrackerRecommendA ? 1 : (retry == 0 ? 4 : 12);
+                var retryDelayMs = _followTrackerRecommendA ? 0 : (retry == 0 ? 80 : 120);
+                var commandTimeoutMs = _followTrackerRecommendA ? 220 : 5000;
+                if (!TryGetChoiceState(
+                    pipe,
+                    maxRetries: maxRetries,
+                    retryDelayMs: retryDelayMs,
+                    out var resp,
+                    commandTimeoutMs: commandTimeoutMs))
                 {
                     if (retry < rounds - 1)
                         continue;
@@ -2324,6 +2379,9 @@ namespace BotMain
                     return false;
                 }
 
+                LogTrackerDiag(
+                    $"mulligan.snapshot ready={readyState}, own={snapshot.OwnClass}, enemy={snapshot.EnemyClass}, choices={snapshot.Choices.Count}");
+
                 if (snapshot.Choices.Count == 0)
                 {
                     result = "waiting_for_cards";
@@ -2336,11 +2394,15 @@ namespace BotMain
                 {
                     if (!TryGetTrackerMulliganReplaceEntityIds(snapshot, out replaceEntityIds, out var trackerDecision))
                     {
+                        LogTrackerDiag(
+                            $"mulligan.decision status=wait_tracker, attempts={ExtractAttemptsFromReason(trackerDecision)}, detail={SanitizeTrackerDiag(trackerDecision)}");
                         result = $"waiting_for_tracker:{trackerDecision}; ready={readyState}";
                         return false;
                     }
 
                     decisionInfo = trackerDecision;
+                    LogTrackerDiag(
+                        $"mulligan.decision status=tracker_ok, attempts={ExtractAttemptsFromReason(trackerDecision)}, detail={SanitizeTrackerDiag(trackerDecision)}");
                 }
                 else
                 {
@@ -2359,6 +2421,8 @@ namespace BotMain
                     out var applyRespRaw,
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
+                LogTrackerDiag(
+                    $"mulligan.apply ready={readyState}, replace={replaceEntityIds.Count}, apply={SanitizeTrackerDiag(applyResp)}, decision={SanitizeTrackerDiag(decisionInfo)}");
                 result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
@@ -3024,6 +3088,63 @@ namespace BotMain
             return $"#{id}";
         }
 
+        private void LogTrackerDiag(string message)
+        {
+            if (!_trackerDiagVerbose || string.IsNullOrWhiteSpace(message))
+                return;
+
+            Log($"[TrackerDiag] {message}");
+        }
+
+        private void LogTrackerBridgeDiag(string message)
+        {
+            if (!_trackerDiagVerbose || string.IsNullOrWhiteSpace(message))
+                return;
+
+            Log($"[TrackerDiag][Bridge] {message}");
+        }
+
+        private static string SanitizeTrackerDiag(string text, int maxLen = 220)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return "-";
+
+            var cleaned = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (cleaned.Length <= maxLen)
+                return cleaned;
+            return cleaned.Substring(0, maxLen) + "...";
+        }
+
+        private static int ExtractAttemptsFromReason(string reason)
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+                return 0;
+
+            const string marker = "attempts=";
+            var idx = reason.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (idx < 0)
+                return 0;
+
+            idx += marker.Length;
+            var end = idx;
+            while (end < reason.Length && char.IsDigit(reason[end]))
+                end++;
+
+            if (end <= idx)
+                return 0;
+
+            return int.TryParse(reason.Substring(idx, end - idx), out var attempts)
+                ? attempts
+                : 0;
+        }
+
+        private static string FormatTrackerDiagUtc(DateTime timestampUtc)
+        {
+            if (timestampUtc == DateTime.MinValue)
+                return "unknown";
+            return timestampUtc.ToString("O");
+        }
+
         private static bool IsTrackerNoDataReason(string reason)
         {
             if (string.IsNullOrWhiteSpace(reason))
@@ -3136,10 +3257,12 @@ namespace BotMain
 
             if (_trackerRecommendationBridge.TryClearBuffer(out var clearReason))
             {
+                LogTrackerDiag($"buffer_clear stage={stage}, status=ok");
                 Log($"[TrackerMode] recommendation buffer cleared ({stage}).");
             }
             else
             {
+                LogTrackerDiag($"buffer_clear stage={stage}, status=fail, reason={SanitizeTrackerDiag(clearReason)}");
                 Log($"[TrackerMode] recommendation buffer clear failed ({stage}): {clearReason}");
             }
         }
@@ -3176,7 +3299,9 @@ namespace BotMain
                 _trackerTapScriptPath = Path.Combine(root, "Scripts", "hsbox_cdp_tap.js");
 
             if (_trackerRecommendationBridge == null)
-                _trackerRecommendationBridge = new TrackerRecommendationBridge(_trackerRecommendJsonlPath);
+                _trackerRecommendationBridge = new TrackerRecommendationBridge(
+                    _trackerRecommendJsonlPath,
+                    diagLog: LogTrackerBridgeDiag);
         }
 
         private bool EnsureHsBoxRemoteDebuggingReady()
@@ -3461,6 +3586,13 @@ namespace BotMain
                         if (string.IsNullOrWhiteSpace(e.Data))
                             return;
 
+                        if (e.Data.IndexOf("[hsbox-cdp][diag]", StringComparison.OrdinalIgnoreCase) >= 0
+                            && e.Data.IndexOf("\"payloadKeysTopN\":[\"args\"]", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            // 忽略 args-only 诊断噪声，避免刷屏影响问题定位。
+                            return;
+                        }
+
                         if (e.Data.IndexOf("[hsbox-cdp]", StringComparison.OrdinalIgnoreCase) >= 0
                             || e.Data.IndexOf("fatal", StringComparison.OrdinalIgnoreCase) >= 0
                             || e.Data.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
@@ -3628,9 +3760,14 @@ namespace BotMain
 
         private void LoadProfiles(string profileDir, string sbapiPath)
         {
+            LoadProfiles(profileDir, BuildScriptCompilerReferences(sbapiPath));
+        }
+
+        private void LoadProfiles(string profileDir, string[] compilerRefs)
+        {
             try
             {
-                var loader = new ProfileLoader(profileDir, BuildScriptCompilerReferences(sbapiPath));
+                var loader = new ProfileLoader(profileDir, compilerRefs ?? Array.Empty<string>());
                 var assemblies = loader.CompileAll();
 
                 if (loader.Errors.Count > 0)
@@ -3667,9 +3804,14 @@ namespace BotMain
 
         private void LoadMulliganProfiles(string mulliganDir, string sbapiPath)
         {
+            LoadMulliganProfiles(mulliganDir, BuildScriptCompilerReferences(sbapiPath));
+        }
+
+        private void LoadMulliganProfiles(string mulliganDir, string[] compilerRefs)
+        {
             try
             {
-                var loader = new ProfileLoader(mulliganDir, BuildScriptCompilerReferences(sbapiPath));
+                var loader = new ProfileLoader(mulliganDir, compilerRefs ?? Array.Empty<string>());
                 var assemblies = loader.CompileAll();
 
                 if (loader.Errors.Count > 0)
@@ -3712,6 +3854,11 @@ namespace BotMain
 
         private void LoadDiscoverProfiles(string discoverDir, string sbapiPath)
         {
+            LoadDiscoverProfiles(discoverDir, BuildScriptCompilerReferences(sbapiPath));
+        }
+
+        private void LoadDiscoverProfiles(string discoverDir, string[] compilerRefs)
+        {
             try
             {
                 if (!Directory.Exists(discoverDir))
@@ -3720,7 +3867,7 @@ namespace BotMain
                     return;
                 }
 
-                var loader = new ProfileLoader(discoverDir, BuildScriptCompilerReferences(sbapiPath));
+                var loader = new ProfileLoader(discoverDir, compilerRefs ?? Array.Empty<string>());
                 var assemblies = loader.CompileAll();
 
                 if (loader.Errors.Count > 0)
@@ -3749,6 +3896,11 @@ namespace BotMain
 
         private void LoadArenaProfiles(string arenaDir, string sbapiPath)
         {
+            LoadArenaProfiles(arenaDir, BuildScriptCompilerReferences(sbapiPath));
+        }
+
+        private void LoadArenaProfiles(string arenaDir, string[] compilerRefs)
+        {
             try
             {
                 if (!Directory.Exists(arenaDir))
@@ -3757,7 +3909,7 @@ namespace BotMain
                     return;
                 }
 
-                var loader = new ProfileLoader(arenaDir, BuildScriptCompilerReferences(sbapiPath));
+                var loader = new ProfileLoader(arenaDir, compilerRefs ?? Array.Empty<string>());
                 var assemblies = loader.CompileAll();
 
                 if (loader.Errors.Count > 0)
@@ -3785,6 +3937,11 @@ namespace BotMain
 
         private void LoadArchetypes(string archetypeDir, string sbapiPath)
         {
+            LoadArchetypes(archetypeDir, BuildScriptCompilerReferences(sbapiPath));
+        }
+
+        private void LoadArchetypes(string archetypeDir, string[] compilerRefs)
+        {
             try
             {
                 if (!Directory.Exists(archetypeDir))
@@ -3793,7 +3950,7 @@ namespace BotMain
                     return;
                 }
 
-                var loader = new ProfileLoader(archetypeDir, BuildScriptCompilerReferences(sbapiPath));
+                var loader = new ProfileLoader(archetypeDir, compilerRefs ?? Array.Empty<string>());
                 var assemblies = loader.CompileAll();
 
                 if (loader.Errors.Count > 0)
@@ -3814,6 +3971,9 @@ namespace BotMain
 
         private string[] BuildScriptCompilerReferences(string sbapiPath)
         {
+            if (string.IsNullOrWhiteSpace(sbapiPath))
+                return Array.Empty<string>();
+
             var refs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             AddCompilerReference(refs, sbapiPath);
 
