@@ -91,6 +91,33 @@ namespace SmartBotProfiles
 				{
 						return GetTag(c, Card.GAME_TAG.TAG_SCRIPT_DATA_NUM_1);
 				}
+
+        private bool CanPairFlowerVendorWithAnotherDragon(Board board, int manaBudget)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            var flowerVendor = board.Hand.FirstOrDefault(c =>
+                c != null &&
+                c.Template != null &&
+                c.Template.Id == Card.Cards.EDR_889 &&
+                c.Type == Card.CType.MINION);
+
+            if (flowerVendor == null)
+                return false;
+
+            int remainMana = manaBudget - Math.Max(0, flowerVendor.CurrentCost);
+            if (remainMana < 0)
+                return false;
+
+            return board.Hand.Any(c =>
+                c != null &&
+                c.Template != null &&
+                c.Id != flowerVendor.Id &&
+                c.Type == Card.CType.MINION &&
+                c.IsRace(Card.CRace.DRAGON) &&
+                c.CurrentCost <= remainMana);
+        }
 #endregion
 
 #region 直伤卡牌 标准模式
@@ -439,17 +466,31 @@ switch (board.EnemyClass)
 #endregion
 
 
-// 鲜花商贩 EDR_889 场上龙数量大于等于1,开始使用,数量越多优先级越高,反之则不用
+// 鲜花商贩 EDR_889 仅在场上有龙，或本回合可与其他龙同回合打出时使用；否则后置避免裸拍
 #region 鲜花商贩 EDR_889
-			if (board.HasCardInHand(Card.Cards.EDR_889)
-			&& dragonMinionCount >= 1
-			)
-			{
-					p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(-150 - dragonMinionCount * 20));
-					AddLog($"鲜花商贩 EDR_889 优先级提升: {-150 - dragonMinionCount * 20}");
-			}else{
-				p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(350));
-			}
+            int flowerVendorManaBudget = board.ManaAvailable;
+            if (board.HasCardInHand(TheCoin))
+            {
+                flowerVendorManaBudget = Math.Min(10, flowerVendorManaBudget + 1);
+            }
+            bool canPairFlowerVendorWithDragon = CanPairFlowerVendorWithAnotherDragon(board, flowerVendorManaBudget);
+
+            if (board.HasCardInHand(Card.Cards.EDR_889)
+                && (dragonMinionCount >= 1 || canPairFlowerVendorWithDragon))
+            {
+                int flowerVendorModifier = dragonMinionCount >= 1 ? (-150 - dragonMinionCount * 20) : -120;
+                p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(flowerVendorModifier));
+                p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(dragonMinionCount >= 1 ? 5400 : 2600));
+                AddLog(dragonMinionCount >= 1
+                    ? $"鲜花商贩 EDR_889 场上有龙，优先级提升: {flowerVendorModifier}"
+                    : $"鲜花商贩 EDR_889 可同回合配合其他龙，优先级提升: {flowerVendorModifier}");
+            }
+            else
+            {
+                p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(450));
+                p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(-6800));
+                AddLog("鲜花商贩 EDR_889 无可配合龙，后置避免裸拍");
+            }
 #endregion
 
 #region Card.Cards.HERO_05bp 英雄技能
@@ -844,6 +885,8 @@ Bot.Log(_log);
                 c.CurrentCost <= manaNow &&
                 c.Template.Id != TheCoin &&
                 (c.Type != Card.CType.MINION || freeSlots > 0));
+            bool hasDragonOnBoard = board.MinionFriend != null && board.MinionFriend.Any(m => m != null && m.IsRace(Card.CRace.DRAGON));
+            bool canPairFlowerVendorWithDragon = CanPairFlowerVendorWithAnotherDragon(board, manaNow);
 
             if (hasPlayableTempo && board.Ability != null && board.Ability.Template != null)
             {
@@ -908,8 +951,22 @@ Bot.Log(_log);
             p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_456, new Modifier(9100));
             p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_457, new Modifier(-260)); // 龙巢守护者
             p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_457, new Modifier(8600));
-            p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(-250)); // 鲜花商贩
-            p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(8200));
+            if (hasDragonOnBoard || canPairFlowerVendorWithDragon)
+            {
+                int flowerVendorModifier = hasDragonOnBoard ? -250 : -130;
+                int flowerVendorOrder = hasDragonOnBoard ? 8200 : 4200;
+                p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(flowerVendorModifier)); // 鲜花商贩
+                p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(flowerVendorOrder));
+                AddLog(hasDragonOnBoard
+                    ? $"龙战：鲜花商贩场上有龙，允许出牌（{flowerVendorModifier}）"
+                    : $"龙战：鲜花商贩可同回合配龙，允许出牌（{flowerVendorModifier}）");
+            }
+            else
+            {
+                p.CastMinionsModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(450)); // 鲜花商贩
+                p.PlayOrderModifiers.AddOrUpdate(Card.Cards.EDR_889, new Modifier(-6800));
+                AddLog("龙战：鲜花商贩无龙可配合，后置避免裸拍");
+            }
             p.CastMinionsModifiers.AddOrUpdate(Card.Cards.TLC_623, new Modifier(-240)); // 石雕工匠
             p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TLC_623, new Modifier(7600));
             p.CastMinionsModifiers.AddOrUpdate(Card.Cards.TIME_003, new Modifier(-220)); // 传送门卫士

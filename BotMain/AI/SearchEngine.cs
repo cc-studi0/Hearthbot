@@ -34,6 +34,14 @@ namespace BotMain.AI
         }
     }
 
+    internal sealed class RankedBeamCandidate
+    {
+        public BeamCandidate Candidate;
+        public float Priority;
+        public bool IsTactical;
+        public string FirstActionKey;
+    }
+
     public class SearchEngine
     {
         private readonly BoardSimulator _sim;
@@ -62,12 +70,30 @@ namespace BotMain.AI
         /// <summary>搜索超时毫秒数</summary>
         public int TimeoutMs { get; set; } = 5000;
 
+        /// <summary>是否启用搜索树 V2（默认 true，关闭可回退旧行为）</summary>
+        public bool UseSearchTreeV2 { get; set; } = true;
+
+        /// <summary>启用分层 Beam（战术候选 + 常规候选）</summary>
+        public bool UseTieredBeam { get; set; } = true;
+
+        /// <summary>启用 PV 保留（上一层主变体首步保留）</summary>
+        public bool UsePvKeep { get; set; } = true;
+
+        /// <summary>启用末层 futility 剪枝</summary>
+        public bool UseFutilityPruning { get; set; } = true;
+
+        /// <summary>分层 Beam 中战术候选占比</summary>
+        public float TacticalTierQuota { get; set; } = 0.25f;
+
         /// <summary>输出敌方反打换子评估明细（默认 false）</summary>
         public bool EnableTradeRiskDebug
         {
             get => _eval.EnableTradePenaltyDebug;
             set => _eval.EnableTradePenaltyDebug = value;
         }
+
+        /// <summary>最近一次搜索诊断信息</summary>
+        public SearchDiagnostics LastDiagnostics { get; private set; } = new SearchDiagnostics();
 
         /// <summary>
         /// 转置表剪枝阈值：若同一棋面历史最佳分数高于当前分数 + 阈值，则跳过该分支。
@@ -145,15 +171,30 @@ namespace BotMain.AI
                 [rootFingerprint] = initialScore
             };
 
+            float bestCompletedScore = float.MinValue;
+            string pvFirstActionKey = null;
+            var diagnostics = new SearchDiagnostics();
+            diagnostics.BeamWidthMin = int.MaxValue;
+            diagnostics.BeamWidthMax = 0;
+
             // ── 主搜索循环 ──
             for (int depth = 0; depth < MaxDepth; depth++)
             {
                 if (sw.ElapsedMilliseconds > TimeoutMs) break;
+                diagnostics.DepthReached = depth + 1;
 
                 var activeBeams = beams.Where(b => !b.IsComplete).ToList();
                 if (activeBeams.Count == 0) break;
 
+                var elapsedRatio = TimeoutMs <= 0 ? 1f : Clamp01((float)sw.ElapsedMilliseconds / TimeoutMs);
+                var phase = DetermineSearchPhase(elapsedRatio);
                 var nextBestByFingerprint = new Dictionary<ulong, BeamCandidate>();
+                var tacticalByFingerprint = (UseSearchTreeV2 && UseTieredBeam)
+                    ? new Dictionary<ulong, RankedBeamCandidate>()
+                    : null;
+                var regularByFingerprint = (UseSearchTreeV2 && UseTieredBeam)
+                    ? new Dictionary<ulong, RankedBeamCandidate>()
+                    : null;
                 int depthCandidateCount = 0;
                 int depthExpandedBeamCount = 0;
 
@@ -164,7 +205,7 @@ namespace BotMain.AI
 
                     // 生成所有可能的动作
                     var actions = _gen.Generate(beam.Board);
-                    var nonEndActions = new List<(GameAction Action, ProfileActionScore ProfileScore, float Priority)>();
+                    var nonEndActions = new List<(GameAction Action, ProfileActionScore ProfileScore, float Priority, bool IsTactical)>();
                     int blockedCount = 0;
                     int heuristicBlockedInBeam = 0;
                     int duplicatedActionsInBeam = 0;
@@ -203,8 +244,11 @@ namespace BotMain.AI
                             continue;
                         }
 
-                        var priority = EstimateActionPriority(beam.Board, action, profileScore, aggroContext);
-                        nonEndActions.Add((action, profileScore, priority));
+                        var priority = UseSearchTreeV2
+                            ? ActionPriorityModel.Estimate(beam.Board, action, profileScore, aggroContext, ActionPriorityOptions.DefaultSearch)
+                            : EstimateActionPriorityLegacy(beam.Board, action, profileScore, aggroContext);
+                        var tactical = ActionPriorityModel.IsTacticalAction(beam.Board, action, aggroContext, lethalMode: false);
+                        nonEndActions.Add((action, profileScore, priority, tactical));
                     }
 
                     if (comboSequence.Count > 0)
@@ -212,16 +256,13 @@ namespace BotMain.AI
                         comboRequiredIdInBeam = GetNextRequiredComboId(comboSequence, beam.Actions);
                         if (comboRequiredIdInBeam.HasValue)
                         {
-                            // combo 匹配的动作给予高优先级 bonus，但不排除其他动作。
-                            // 这样 combo 动作会被优先尝试，但如果模拟后没有收益，
-                            // AI 仍然可以回退到其他合法动作而不是直接 END_TURN。
                             bool anyComboMatch = false;
                             for (int i = 0; i < nonEndActions.Count; i++)
                             {
                                 var item = nonEndActions[i];
                                 if (ActionMatchesComboStep(item.Action, comboRequiredIdInBeam.Value))
                                 {
-                                    nonEndActions[i] = (item.Action, item.ProfileScore, item.Priority + 500f);
+                                    nonEndActions[i] = (item.Action, item.ProfileScore, item.Priority + 500f, true);
                                     anyComboMatch = true;
                                 }
                             }
@@ -241,14 +282,13 @@ namespace BotMain.AI
                     depthCandidateCount += nonEndActions.Count;
                     depthExpandedBeamCount++;
 
-                    // 首轮日志
                     if (depth == 0 && beam == activeBeams[0])
                     {
                         var attackerCount = beam.Board.FriendMinions.Count(m => m != null && m.CanAttack);
                         if (beam.Board.FriendHero != null && beam.Board.FriendHero.CanAttack)
                             attackerCount++;
                         var totalNonEnd = actions.Count(a => a.Type != ActionType.EndTurn);
-                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, comboActive={comboSequence.Count > 0}, comboRequired={(comboRequiredIdInBeam.HasValue ? comboRequiredIdInBeam.Value.ToString() : "none")}, comboForced={comboForcedInBeam}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
+                        OnLog?.Invoke($"[AI] beam search depth0: generated={totalNonEnd}, deduped={actionKeySet.Count}, candidates={nonEndActions.Count}, profileBlocked={blockedCount}, heuristicPruned={heuristicBlockedInBeam}, duplicated={duplicatedActionsInBeam}, comboActive={comboSequence.Count > 0}, comboRequired={(comboRequiredIdInBeam.HasValue ? comboRequiredIdInBeam.Value.ToString() : "none")}, comboForced={comboForcedInBeam}, phase={phase}, mana={beam.Board.Mana}, hand={beam.Board.Hand.Count}, friendMinions={beam.Board.FriendMinions.Count}, attackers={attackerCount}, baseBeamWidth={BeamWidth}, dynamicBeam={UseDynamicBeamWidth}, hasProfile={hasProfileRules}");
                         if (hasProfileRules && blockedCount > 0)
                             OnLog?.Invoke($"[AI] profile blocked {blockedCount} action(s), sample={blockedSample}");
                         if (heuristicBlockedInBeam > 0)
@@ -259,12 +299,11 @@ namespace BotMain.AI
                     var endBeam = beam.Clone();
                     endBeam.Actions.Add(new GameAction { Type = ActionType.EndTurn });
                     endBeam.IsComplete = true;
-                    // 重新评估当前棋面分数，并保留路径累计修正（Profile/换子奖励）
                     endBeam.Score = GetOrEvaluateBoardScore(endBeam.Board, endBeam.Fingerprint, param, boardScoreCacheByFingerprint, ref transpositionCacheHitCount) + endBeam.CumulativeAdjustment;
                     UpdateBestStateScore(bestScoreByFingerprint, endBeam.Fingerprint, endBeam.Score);
                     completedBeams.Add(endBeam);
+                    if (endBeam.Score > bestCompletedScore) bestCompletedScore = endBeam.Score;
 
-                    // 预排序候选动作：优先考虑策略相关高价值动作，超时时更容易拿到好解。
                     nonEndActions.Sort((a, b) =>
                     {
                         var cmp = b.Priority.CompareTo(a.Priority);
@@ -272,8 +311,8 @@ namespace BotMain.AI
                         return b.ProfileScore.Bonus.CompareTo(a.ProfileScore.Bonus);
                     });
 
-                    // 选项2：执行每个非 END_TURN 动作
-                    foreach (var (action, profileScore, _) in nonEndActions)
+                    var actionsToExpand = SelectActionsForExpansion(nonEndActions, phase, Math.Max(1, BeamWidth), UseSearchTreeV2);
+                    foreach (var (action, profileScore, _, isTacticalAction) in actionsToExpand)
                     {
                         totalExpansions++;
                         var clone = beam.Board.Clone();
@@ -283,7 +322,6 @@ namespace BotMain.AI
                         var fingerprint = ComputeBoardFingerprint(clone, UseOrderInvariantFingerprint);
                         var boardScore = GetOrEvaluateBoardScore(clone, fingerprint, param, boardScoreCacheByFingerprint, ref transpositionCacheHitCount);
 
-                        // 如果模拟后敌方英雄已死，直接作为斩杀路径完成
                         if (boardScore >= 100000f)
                         {
                             if (IsDominatedState(bestScoreByFingerprint, fingerprint, boardScore, TranspositionMinDelta))
@@ -301,6 +339,7 @@ namespace BotMain.AI
                                 IsComplete = true,
                             };
                             completedBeams.Add(lethalCandidate);
+                            if (lethalCandidate.Score > bestCompletedScore) bestCompletedScore = lethalCandidate.Score;
                             continue;
                         }
 
@@ -308,11 +347,22 @@ namespace BotMain.AI
                         var cumulativeAdjustment = beam.CumulativeAdjustment + profileScore.Bonus + tradeBonus;
                         var finalScore = boardScore + cumulativeAdjustment;
 
-                        // ── 深度 0 详细诊断日志：每个候选动作的分数分解 ──
                         if (depth == 0 && beam == activeBeams[0])
                         {
                             var delta = finalScore - initialScore;
                             OnLog?.Invoke($"[AI] depth0 candidate: {action.ToActionString()} | boardScore={boardScore:0.#} | profileBonus={profileScore.Bonus:0.#} ({profileScore.Detail}) | tradeBonus={tradeBonus:0.#} | final={finalScore:0.#} | delta={delta:+0.#;-0.#;0}");
+                        }
+
+                        if (UseSearchTreeV2 && UseFutilityPruning && depth >= Math.Max(2, MaxDepth - 3))
+                        {
+                            int remainDepth = Math.Max(0, MaxDepth - depth - 1);
+                            float optimisticGain = ActionPriorityModel.EstimateOptimisticGain(clone, remainDepth, aggroContext);
+                            float baseline = Math.Max(initialScore, bestCompletedScore);
+                            if (ShouldFutilityPrune(finalScore, optimisticGain, baseline))
+                            {
+                                diagnostics.FutilityPruned++;
+                                continue;
+                            }
                         }
 
                         if (IsDominatedState(bestScoreByFingerprint, fingerprint, finalScore, TranspositionMinDelta))
@@ -332,11 +382,26 @@ namespace BotMain.AI
                             IsComplete = false,
                         };
 
-                        AddOrReplaceCandidate(nextBestByFingerprint, candidate, ref mergedStateCount);
+                        if (UseSearchTreeV2 && UseTieredBeam)
+                        {
+                            var ranked = new RankedBeamCandidate
+                            {
+                                Candidate = candidate,
+                                Priority = ActionPriorityModel.Estimate(clone, action, profileScore, aggroContext, ActionPriorityOptions.DefaultSearch),
+                                IsTactical = isTacticalAction,
+                                FirstActionKey = GetFirstNonEndActionKey(candidate.Actions)
+                            };
+                            AddOrReplaceRankedCandidate(
+                                ranked.IsTactical ? tacticalByFingerprint : regularByFingerprint,
+                                ranked,
+                                ref mergedStateCount);
+                        }
+                        else
+                        {
+                            AddOrReplaceCandidate(nextBestByFingerprint, candidate, ref mergedStateCount);
+                        }
                     }
                 }
-
-                if (nextBestByFingerprint.Count == 0) break;
 
                 var avgCandidatesPerBeam = depthExpandedBeamCount > 0
                     ? (float)depthCandidateCount / depthExpandedBeamCount
@@ -349,13 +414,39 @@ namespace BotMain.AI
                 dynamicBeamMinUsed = Math.Min(dynamicBeamMinUsed, currentBeamWidth);
                 dynamicBeamMaxUsed = Math.Max(dynamicBeamMaxUsed, currentBeamWidth);
 
-                OnLog?.Invoke($"[AI] beam depth={depth}: active={activeBeams.Count}, avgCandidates={avgCandidatesPerBeam:0.##}, kept={Math.Min(currentBeamWidth, nextBestByFingerprint.Count)}/{nextBestByFingerprint.Count}, beamWidth={currentBeamWidth}");
+                diagnostics.BeamWidthMin = Math.Min(diagnostics.BeamWidthMin, currentBeamWidth);
+                diagnostics.BeamWidthMax = Math.Max(diagnostics.BeamWidthMax, currentBeamWidth);
 
-                // ── Beam 剪枝：保留 top-N ──
-                beams = nextBestByFingerprint.Values
-                    .OrderByDescending(c => c.Score)
-                    .Take(currentBeamWidth)
-                    .ToList();
+                List<BeamCandidate> selected;
+                int sourceCandidateCount;
+                if (UseSearchTreeV2 && UseTieredBeam)
+                {
+                    selected = MergeTieredCandidates(
+                        tacticalByFingerprint,
+                        regularByFingerprint,
+                        currentBeamWidth,
+                        TacticalTierQuota,
+                        pvFirstActionKey,
+                        UsePvKeep,
+                        diagnostics);
+                    sourceCandidateCount = (tacticalByFingerprint?.Count ?? 0) + (regularByFingerprint?.Count ?? 0);
+                }
+                else
+                {
+                    selected = nextBestByFingerprint.Values
+                        .OrderByDescending(c => c.Score)
+                        .Take(currentBeamWidth)
+                        .ToList();
+                    sourceCandidateCount = nextBestByFingerprint.Count;
+                }
+
+                if (selected.Count == 0) break;
+
+                OnLog?.Invoke($"[AI] beam depth={depth}: active={activeBeams.Count}, avgCandidates={avgCandidatesPerBeam:0.##}, kept={selected.Count}/{sourceCandidateCount}, beamWidth={currentBeamWidth}, phase={phase}");
+                beams = selected;
+
+                if (UseSearchTreeV2 && UsePvKeep)
+                    pvFirstActionKey = GetFirstNonEndActionKey(beams[0].Actions);
             }
 
             // ── 所有仍在活跃的 beam 也作为 END_TURN 完成 ──
@@ -380,6 +471,20 @@ namespace BotMain.AI
 
             if (bestResult == null || bestResult.Actions.Count == 0)
             {
+                diagnostics.CandidatesEvaluated = totalExpansions;
+                diagnostics.ExpandedNodes = totalExpansions;
+                diagnostics.ProfileBlocked = profileBlockedCount;
+                diagnostics.HeuristicPruned = heuristicPrunedCount;
+                diagnostics.TranspositionPruned = transpositionPrunedCount;
+                diagnostics.MergedStateCount = mergedStateCount;
+                diagnostics.DuplicateActions = duplicateActionCount;
+                diagnostics.CacheHit = transpositionCacheHitCount;
+                diagnostics.ElapsedMs = sw.ElapsedMilliseconds;
+                if (diagnostics.BeamWidthMin == int.MaxValue)
+                    diagnostics.BeamWidthMin = lastBeamWidthUsed;
+                if (diagnostics.BeamWidthMax <= 0)
+                    diagnostics.BeamWidthMax = Math.Max(diagnostics.BeamWidthMin, lastBeamWidthUsed);
+                LastDiagnostics = diagnostics.Clone();
                 OnLog?.Invoke("[AI] beam search: no result, fallback END_TURN");
                 return new List<GameAction> { new GameAction { Type = ActionType.EndTurn } };
             }
@@ -396,7 +501,20 @@ namespace BotMain.AI
                 StripWastefulCoin(bestResult.Actions, board);
 
             var actionCount = bestResult.Actions.Count(a => a.Type != ActionType.EndTurn);
-            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}, transpositionPruned={transpositionPrunedCount}, transpositionCacheHit={transpositionCacheHitCount}, mergedState={mergedStateCount}, duplicateActions={duplicateActionCount}, profileBlocked={profileBlockedCount}, heuristicPruned={heuristicPrunedCount}, comboActive={comboSequence.Count > 0}, comboForcedBeam={comboForcedBeamCount}, comboFallback={comboFallbackMissingCount}");
+            diagnostics.CandidatesEvaluated = totalExpansions;
+            diagnostics.ExpandedNodes = totalExpansions;
+            diagnostics.ProfileBlocked = profileBlockedCount;
+            diagnostics.HeuristicPruned = heuristicPrunedCount;
+            diagnostics.TranspositionPruned = transpositionPrunedCount;
+            diagnostics.MergedStateCount = mergedStateCount;
+            diagnostics.DuplicateActions = duplicateActionCount;
+            diagnostics.CacheHit = transpositionCacheHitCount;
+            diagnostics.ElapsedMs = sw.ElapsedMilliseconds;
+            if (diagnostics.BeamWidthMin == int.MaxValue)
+                diagnostics.BeamWidthMin = lastBeamWidthUsed;
+            LastDiagnostics = diagnostics.Clone();
+
+            OnLog?.Invoke($"[AI] beam search done: {actionCount} actions, score={bestResult.Score:0.#}, expansions={totalExpansions}, time={sw.ElapsedMilliseconds}ms, completed={completedBeams.Count}, transpositionPruned={transpositionPrunedCount}, transpositionCacheHit={transpositionCacheHitCount}, mergedState={mergedStateCount}, duplicateActions={duplicateActionCount}, profileBlocked={profileBlockedCount}, heuristicPruned={heuristicPrunedCount}, futilityPruned={diagnostics.FutilityPruned}, tacticalKept={diagnostics.TacticalKept}, pvKept={diagnostics.PvKeepCount}, comboActive={comboSequence.Count > 0}, comboForcedBeam={comboForcedBeamCount}, comboFallback={comboFallbackMissingCount}");
 
             // ── 详细回合决策日志 ──
             {
@@ -801,7 +919,7 @@ namespace BotMain.AI
             return value;
         }
 
-        private static float EstimateActionPriority(
+        private static float EstimateActionPriorityLegacy(
             SimBoard board,
             GameAction action,
             ProfileActionScore profileScore,
@@ -878,6 +996,159 @@ namespace BotMain.AI
             }
 
             return p;
+        }
+
+        private enum SearchPhase
+        {
+            Early,
+            Mid,
+            Late
+        }
+
+        private static SearchPhase DetermineSearchPhase(float elapsedRatio)
+        {
+            if (elapsedRatio < 0.3f) return SearchPhase.Early;
+            if (elapsedRatio < 0.8f) return SearchPhase.Mid;
+            return SearchPhase.Late;
+        }
+
+        private static bool ShouldFutilityPrune(float score, float optimisticGain, float baseline)
+        {
+            return score + Math.Max(0f, optimisticGain) < baseline - 0.6f;
+        }
+
+        private static List<(GameAction Action, ProfileActionScore ProfileScore, float Priority, bool IsTactical)>
+            SelectActionsForExpansion(
+                List<(GameAction Action, ProfileActionScore ProfileScore, float Priority, bool IsTactical)> rankedActions,
+                SearchPhase phase,
+                int baseBeamWidth,
+                bool useV2)
+        {
+            if (rankedActions == null || rankedActions.Count == 0)
+                return new List<(GameAction, ProfileActionScore, float, bool)>();
+            if (!useV2)
+                return rankedActions;
+
+            int width = Math.Max(1, baseBeamWidth);
+            int cap = phase switch
+            {
+                SearchPhase.Early => width * 7,
+                SearchPhase.Mid => width * 5,
+                _ => width * 3
+            };
+            cap = Math.Max(6, Math.Min(cap, rankedActions.Count));
+
+            if (phase != SearchPhase.Late)
+                return rankedActions.Take(cap).ToList();
+
+            // Late phase: 优先保留战术动作，剩余再补常规动作，确保收敛质量。
+            var tactical = rankedActions.Where(x => x.IsTactical).Take(Math.Max(2, width)).ToList();
+            var selected = tactical.ToList();
+            foreach (var item in rankedActions)
+            {
+                if (selected.Count >= cap) break;
+                if (selected.Contains(item)) continue;
+                selected.Add(item);
+            }
+            return selected;
+        }
+
+        private static void AddOrReplaceRankedCandidate(
+            Dictionary<ulong, RankedBeamCandidate> dict,
+            RankedBeamCandidate ranked,
+            ref int mergedStateCount)
+        {
+            if (dict == null || ranked?.Candidate == null) return;
+            var fp = ranked.Candidate.Fingerprint;
+            if (!dict.TryGetValue(fp, out var existing))
+            {
+                dict[fp] = ranked;
+                return;
+            }
+
+            mergedStateCount++;
+            if (ranked.Candidate.Score > existing.Candidate.Score + 0.001f
+                || (Math.Abs(ranked.Candidate.Score - existing.Candidate.Score) <= 0.001f
+                    && ranked.Candidate.Actions.Count < existing.Candidate.Actions.Count))
+            {
+                dict[fp] = ranked;
+            }
+        }
+
+        private static List<BeamCandidate> MergeTieredCandidates(
+            Dictionary<ulong, RankedBeamCandidate> tactical,
+            Dictionary<ulong, RankedBeamCandidate> regular,
+            int beamWidth,
+            float tacticalQuota,
+            string pvFirstActionKey,
+            bool usePvKeep,
+            SearchDiagnostics diagnostics)
+        {
+            beamWidth = Math.Max(1, beamWidth);
+            tacticalQuota = Clamp01(tacticalQuota);
+            var selected = new List<BeamCandidate>(beamWidth);
+
+            var tacticalList = (tactical?.Values ?? Enumerable.Empty<RankedBeamCandidate>())
+                .OrderByDescending(c => c.Candidate.Score)
+                .ThenByDescending(c => c.Priority)
+                .ToList();
+
+            var regularList = (regular?.Values ?? Enumerable.Empty<RankedBeamCandidate>())
+                .OrderByDescending(c => c.Candidate.Score)
+                .ThenByDescending(c => c.Priority)
+                .ToList();
+
+            int tacticalKeep = Math.Min(tacticalList.Count, Math.Max(1, (int)Math.Ceiling(beamWidth * tacticalQuota)));
+            for (int i = 0; i < tacticalKeep; i++)
+            {
+                selected.Add(tacticalList[i].Candidate);
+            }
+            if (diagnostics != null) diagnostics.TacticalKept += tacticalKeep;
+
+            if (usePvKeep && !string.IsNullOrWhiteSpace(pvFirstActionKey))
+            {
+                var pvCandidate = tacticalList.Concat(regularList)
+                    .Where(c => string.Equals(c.FirstActionKey, pvFirstActionKey, StringComparison.Ordinal))
+                    .OrderByDescending(c => c.Candidate.Score)
+                    .ThenByDescending(c => c.Priority)
+                    .FirstOrDefault();
+
+                if (pvCandidate != null && selected.All(c => c.Fingerprint != pvCandidate.Candidate.Fingerprint))
+                {
+                    if (selected.Count >= beamWidth)
+                    {
+                        var dropIdx = selected.Count - 1;
+                        selected.RemoveAt(dropIdx);
+                    }
+                    selected.Add(pvCandidate.Candidate);
+                    if (diagnostics != null) diagnostics.PvKeepCount++;
+                }
+            }
+
+            var remainingRanked = tacticalList
+                .Concat(regularList)
+                .Where(r => selected.All(c => c.Fingerprint != r.Candidate.Fingerprint))
+                .OrderByDescending(r => r.Candidate.Score)
+                .ThenByDescending(r => r.Priority);
+
+            foreach (var ranked in remainingRanked)
+            {
+                if (selected.Count >= beamWidth) break;
+                selected.Add(ranked.Candidate);
+            }
+
+            return selected.OrderByDescending(c => c.Score).Take(beamWidth).ToList();
+        }
+
+        private static string GetFirstNonEndActionKey(IReadOnlyList<GameAction> actions)
+        {
+            if (actions == null) return null;
+            foreach (var a in actions)
+            {
+                if (a == null || a.Type == ActionType.EndTurn) continue;
+                return a.ToActionString();
+            }
+            return null;
         }
 
         private const ulong FnvOffsetBasis = 14695981039346656037UL;

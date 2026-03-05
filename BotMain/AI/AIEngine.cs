@@ -28,6 +28,9 @@ namespace BotMain
         /// <summary>斩杀搜索超时毫秒数（默认 2000）</summary>
         public int LethalTimeoutMs { get; set; } = 2000;
 
+        /// <summary>搜索树策略版本开关（默认 true 使用 V2）</summary>
+        public bool UseSearchTreeV2 { get; set; } = true;
+
         public AIEngine()
         {
             CardTemplate.INIT();
@@ -85,6 +88,7 @@ namespace BotMain
                 if (LethalSearchEnabled)
                 {
                     _lethalFinder.TimeoutMs = LethalTimeoutMs;
+                    _lethalFinder.UseSearchTreeV2 = UseSearchTreeV2;
                     var lethalActions = _lethalFinder.FindLethal(simBoard);
                     if (lethalActions != null && lethalActions.Count > 0)
                     {
@@ -97,6 +101,7 @@ namespace BotMain
                 }
 
                 // ── 常规搜索 ──
+                _engine.UseSearchTreeV2 = UseSearchTreeV2;
                 var actions = _engine.FindBestSequence(simBoard, param);
                 var result = actions.Select(a => a.ToActionString()).ToList();
 

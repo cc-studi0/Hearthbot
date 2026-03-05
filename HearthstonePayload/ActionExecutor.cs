@@ -321,10 +321,53 @@ namespace HearthstonePayload
         private static IEnumerator<float> MousePlayCard(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceIsMinionCard)
         {
             InputHook.Simulating = true;
+            var gsBeforePlay = GetGameState();
+            var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
+            var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
+            var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
 
             // ========== 阶段1: 抓取卡牌 ==========
             // 优先通过 API 抓取（不依赖屏幕坐标，最可靠）
-            bool grabbedViaAPI = TryGrabCardViaAPI(entityId);
+            bool grabbedViaAPI = false;
+            string apiGrabMethod = "none";
+            string apiGrabDetail = string.Empty;
+            int apiHeldEntityId = 0;
+            const int maxApiGrabAttempts = 3;
+
+            for (int attempt = 1; attempt <= maxApiGrabAttempts; attempt++)
+            {
+                if (TryGrabCardViaAPI(
+                        entityId,
+                        sourceZonePosition,
+                        out apiGrabMethod,
+                        out apiHeldEntityId,
+                        out apiGrabDetail))
+                {
+                    grabbedViaAPI = true;
+                    break;
+                }
+
+                TryResetHeldCard();
+                yield return 0.06f;
+            }
+
+            if (grabbedViaAPI)
+            {
+                AppendActionTrace(
+                    "API grabbed card expected=" + entityId
+                    + " held=" + apiHeldEntityId
+                    + " zonePos=" + sourceZonePosition
+                    + " cardId=" + sourceCardId
+                    + " via=" + apiGrabMethod);
+            }
+            else
+            {
+                AppendActionTrace(
+                    "API grab failed expected=" + entityId
+                    + " zonePos=" + sourceZonePosition
+                    + " cardId=" + sourceCardId
+                    + " detail=" + apiGrabDetail);
+            }
 
             if (grabbedViaAPI)
             {
@@ -355,7 +398,10 @@ namespace HearthstonePayload
                 {
                     var handIds = GameObjectFinder.GetHandEntityIds();
                     var handStr = handIds.Count > 0 ? string.Join(",", handIds) : "empty";
-                    _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId + ":hand=[" + handStr + "]");
+                    if (!grabbedViaAPI)
+                        _coroutine.SetResult("FAIL:PLAY:grab_verify_failed:" + entityId + ":hand=[" + handStr + "]");
+                    else
+                        _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId + ":hand=[" + handStr + "]");
                     yield break;
                 }
                 MouseSimulator.MoveTo(sx, sy);
@@ -460,12 +506,39 @@ namespace HearthstonePayload
             // 防止“目标没点上但仍返回 OK”导致后续点击被当作补选目标。
             // 若牌还在手里，说明本次出牌并未真正提交。
             var gsAfterPlay = GetGameState();
+            var hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterPlay, out var afterHandIds);
+            var resolvedStillInHand = false;
+            var stillInHand = false;
             if (gsAfterPlay != null
-                && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out var stillInHand)
-                && stillInHand)
+                && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out stillInHand))
+            {
+                resolvedStillInHand = true;
+            }
+
+            if (resolvedStillInHand && stillInHand)
             {
                 _coroutine.SetResult("FAIL:PLAY:not_left_hand:" + entityId);
                 yield break;
+            }
+
+            if (resolvedStillInHand
+                && !stillInHand
+                && hasBeforeHand
+                && hasAfterHand
+                && beforeHandIds.Contains(entityId))
+            {
+                var removed = beforeHandIds.Where(id => !afterHandIds.Contains(id)).ToList();
+                if (removed.Count == 1 && removed[0] != entityId)
+                {
+                    _coroutine.SetResult("FAIL:PLAY:source_mismatch:" + entityId + ":" + removed[0]);
+                    yield break;
+                }
+
+                if (removed.Count > 1 && !removed.Contains(entityId))
+                {
+                    _coroutine.SetResult("FAIL:PLAY:source_mismatch:" + entityId + ":" + removed[0]);
+                    yield break;
+                }
             }
 
             yield return 0.2f;
@@ -581,23 +654,51 @@ namespace HearthstonePayload
         /// </summary>
         private static bool TryGrabCardViaAPI(int entityId)
         {
+            return TryGrabCardViaAPI(entityId, 0, out _, out _, out _);
+        }
+
+        private static bool TryGrabCardViaAPI(
+            int entityId,
+            int sourceZonePosition,
+            out string methodUsed,
+            out int heldEntityId,
+            out string detail)
+        {
+            methodUsed = string.Empty;
+            heldEntityId = 0;
+            detail = string.Empty;
             try
             {
                 if (!EnsureTypes()) return false;
 
                 var gs = GetGameState();
-                if (gs == null) return false;
-                if (!TryIsEntityInFriendlyHand(gs, entityId, out var inHand) || !inHand)
+                if (gs == null)
+                {
+                    detail = "no_gamestate";
                     return false;
+                }
+                if (!TryIsEntityInFriendlyHand(gs, entityId, out var inHand) || !inHand)
+                {
+                    detail = "source_not_in_hand";
+                    return false;
+                }
 
                 var entity = GetEntity(gs, entityId);
-                if (entity == null) return false;
+                if (entity == null)
+                {
+                    detail = "source_entity_missing";
+                    return false;
+                }
 
                 // 获取 Card 对象（InputManager 的方法需要 Card 或 Entity）
                 var card = Invoke(entity, "GetCard");
 
                 var inputMgr = GetSingleton(_inputMgrType);
-                if (inputMgr == null) return false;
+                if (inputMgr == null)
+                {
+                    detail = "input_manager_missing";
+                    return false;
+                }
 
                 // 尝试多种 InputManager 方法来"抓取"手牌
                 // 炉石不同版本可能使用不同的方法名
@@ -605,12 +706,11 @@ namespace HearthstonePayload
                 {
                     "HandleClickOnCardInHand",
                     "GrabCard",
-                    "PickUpCard",
-                    "HandleCardMouseDown",
-                    "OnCardGrabbed"
+                    "PickUpCard"
                 };
 
                 var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+                string lastFailure = "no_grab_method";
 
                 foreach (var methodName in grabMethods)
                 {
@@ -626,50 +726,52 @@ namespace HearthstonePayload
                         try
                         {
                             // 构造参数：优先传 Card，然后试 Entity
-                            var args = BuildArgs(parameters, card ?? entity, 0, 0);
+                            var args = BuildArgs(parameters, card ?? entity, 0, 0, sourceZonePosition);
                             mi.Invoke(inputMgr, args);
 
                             // 验证是否成功进入持有状态
-                            var heldCard = GetFieldOrProp(inputMgr, "m_heldCard")
-                                ?? GetFieldOrProp(inputMgr, "heldCard")
-                                ?? Invoke(inputMgr, "GetHeldCard");
-
-                            if (heldCard != null)
+                            if (TryGetHeldCardEntityId(inputMgr, out heldEntityId))
                             {
-                                var heldEntity = Invoke(heldCard, "GetEntity")
-                                    ?? GetFieldOrProp(heldCard, "Entity")
-                                    ?? GetFieldOrProp(heldCard, "m_entity")
-                                    ?? heldCard;
-                                var heldEntityId = ResolveEntityId(heldEntity);
-                                if (heldEntityId > 0 && heldEntityId != entityId)
+                                if (heldEntityId == entityId)
                                 {
-                                    System.IO.File.AppendAllText("payload_error.log",
-                                        DateTime.Now + ": [Action] API grab mismatch expected=" + entityId
-                                        + " actual=" + heldEntityId + " via " + methodName + Environment.NewLine);
-                                    continue;
+                                    methodUsed = methodName;
+                                    detail = "ok";
+                                    AppendActionTrace(
+                                        "API grabbed card entityId=" + entityId
+                                        + " via " + methodName
+                                        + " zonePos=" + sourceZonePosition);
+                                    return true;
                                 }
 
-                                System.IO.File.AppendAllText("payload_error.log",
-                                    DateTime.Now + ": [Action] API grabbed card entityId=" + entityId
-                                    + " via " + methodName + Environment.NewLine);
-                                return true;
+                                lastFailure = "held_mismatch:" + methodName + ":" + heldEntityId;
+                                AppendActionTrace(
+                                    "API grab mismatch expected=" + entityId
+                                    + " actual=" + heldEntityId
+                                    + " via " + methodName
+                                    + " zonePos=" + sourceZonePosition);
+                                if (!TryResetHeldCard())
+                                    continue;
+                                continue;
                             }
+
+                            lastFailure = "held_card_not_detected:" + methodName;
                         }
-                        catch
+                        catch (Exception ex)
                         {
                             // 该方法签名不兼容，尝试下一个
+                            lastFailure = "invoke_failed:" + methodName + ":" + SimplifyException(ex);
                         }
                     }
                 }
 
-                System.IO.File.AppendAllText("payload_error.log",
-                    DateTime.Now + ": [Action] API grab not confirmed entityId=" + entityId + Environment.NewLine);
+                detail = lastFailure;
+                AppendActionTrace("API grab not confirmed entityId=" + entityId + ", detail=" + lastFailure);
                 return false;
             }
             catch (Exception ex)
             {
-                System.IO.File.AppendAllText("payload_error.log",
-                    DateTime.Now + ": [Action] TryGrabCardViaAPI exception: " + ex.Message + Environment.NewLine);
+                detail = "exception:" + SimplifyException(ex);
+                AppendActionTrace("TryGrabCardViaAPI exception: " + SimplifyException(ex));
                 return false;
             }
         }
@@ -3406,6 +3508,158 @@ namespace HearthstonePayload
             return cards != null;
         }
 
+        private static bool TryReadFriendlyHandEntityIds(object gameState, out HashSet<int> ids)
+        {
+            ids = new HashSet<int>();
+            if (!TryGetFriendlyHandCards(gameState, out var cards) || cards == null)
+                return false;
+
+            foreach (var candidate in cards)
+            {
+                var candidateEntity = Invoke(candidate, "GetEntity")
+                    ?? GetFieldOrProp(candidate, "Entity")
+                    ?? candidate;
+                if (candidateEntity == null) continue;
+
+                var id = ResolveEntityId(candidateEntity);
+                if (id > 0)
+                    ids.Add(id);
+            }
+
+            return true;
+        }
+
+        private static bool TryGetHeldCardEntityId(object inputMgr, out int heldEntityId)
+        {
+            heldEntityId = 0;
+            if (inputMgr == null)
+                return false;
+
+            var heldCard = GetFieldOrProp(inputMgr, "m_heldCard")
+                ?? GetFieldOrProp(inputMgr, "heldCard")
+                ?? Invoke(inputMgr, "GetHeldCard");
+            if (heldCard == null)
+                return false;
+
+            var heldEntity = Invoke(heldCard, "GetEntity")
+                ?? GetFieldOrProp(heldCard, "Entity")
+                ?? GetFieldOrProp(heldCard, "m_entity")
+                ?? heldCard;
+            heldEntityId = ResolveEntityId(heldEntity);
+            return heldEntityId > 0;
+        }
+
+        private static bool TryResetHeldCard()
+        {
+            try
+            {
+                if (!EnsureTypes())
+                    return false;
+
+                var inputMgr = GetSingleton(_inputMgrType);
+                if (inputMgr == null)
+                    return false;
+
+                if (TryInvokeParameterlessMethods(inputMgr, new[]
+                {
+                    "CancelHeldCard",
+                    "CancelDragCard",
+                    "ClearHeldCard",
+                    "ReleaseHeldCard",
+                    "OnCardDragCanceled",
+                    "CancelDrag",
+                    "Abort"
+                }, out _))
+                {
+                    return true;
+                }
+
+                var type = inputMgr.GetType();
+                var field = type.GetField("m_heldCard", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? type.GetField("heldCard", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null)
+                {
+                    field.SetValue(inputMgr, null);
+                    return true;
+                }
+
+                var prop = type.GetProperty("heldCard", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? type.GetProperty("HeldCard", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    ?? type.GetProperty("m_heldCard", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (prop != null && prop.CanWrite)
+                {
+                    prop.SetValue(inputMgr, null, null);
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static string ResolveEntityCardId(object gameState, int entityId)
+        {
+            if (gameState == null || entityId <= 0)
+                return string.Empty;
+
+            var entity = GetEntity(gameState, entityId);
+            if (entity == null)
+                return string.Empty;
+
+            var cardIdObj = Invoke(entity, "GetCardId")
+                ?? GetFieldOrProp(entity, "CardId")
+                ?? GetFieldOrProp(entity, "m_cardId")
+                ?? GetFieldOrProp(entity, "m_cardID");
+            return cardIdObj?.ToString() ?? string.Empty;
+        }
+
+        private static int ResolveEntityZonePosition(object gameState, int entityId)
+        {
+            if (gameState == null || entityId <= 0)
+                return 0;
+
+            var entity = GetEntity(gameState, entityId);
+            if (entity == null)
+                return 0;
+
+            try
+            {
+                var ctx = ReflectionContext.Instance;
+                if (ctx.Init())
+                {
+                    var zonePos = ctx.GetTagValue(entity, "ZONE_POSITION");
+                    if (zonePos > 0)
+                        return zonePos;
+                }
+            }
+            catch
+            {
+            }
+
+            var fallback = GetIntFieldOrProp(entity, "ZonePosition");
+            if (fallback <= 0) fallback = GetIntFieldOrProp(entity, "ZONE_POSITION");
+            if (fallback <= 0) fallback = GetIntFieldOrProp(entity, "m_zonePosition");
+            return fallback > 0 ? fallback : 0;
+        }
+
+        private static void AppendActionTrace(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return;
+
+            try
+            {
+                System.IO.File.AppendAllText(
+                    "payload_error.log",
+                    DateTime.Now + ": [Action] " + message + Environment.NewLine);
+            }
+            catch
+            {
+            }
+        }
+
         private static object GetSingleton(Type type)
         {
             if (type == null) return null;
@@ -3599,7 +3853,12 @@ namespace HearthstonePayload
             }
         }
 
-        private static object[] BuildArgs(ParameterInfo[] pars, object entity, int targetEntityId, int position)
+        private static object[] BuildArgs(
+            ParameterInfo[] pars,
+            object entity,
+            int targetEntityId,
+            int position,
+            int sourceZonePosition = 0)
         {
             var args = new object[pars.Length];
             for (int i = 0; i < pars.Length; i++)
@@ -3607,9 +3866,24 @@ namespace HearthstonePayload
                 if (i == 0) args[i] = entity;
                 else if (pars[i].ParameterType == typeof(int))
                 {
-                    if (pars[i].Name.ToLower().Contains("target"))
+                    var paramName = (pars[i].Name ?? string.Empty).ToLowerInvariant();
+                    if (paramName.Contains("target"))
                         args[i] = targetEntityId;
-                    else if (pars[i].Name.ToLower().Contains("pos"))
+                    else if (paramName.Contains("index")
+                        || paramName.Contains("idx")
+                        || paramName.Contains("slot")
+                        || paramName == "i")
+                    {
+                        args[i] = sourceZonePosition > 0
+                            ? Math.Max(0, sourceZonePosition - 1)
+                            : 0;
+                    }
+                    else if (paramName.Contains("zoneposition")
+                        || paramName.Contains("zone_position"))
+                    {
+                        args[i] = sourceZonePosition > 0 ? sourceZonePosition : 0;
+                    }
+                    else if (paramName.Contains("pos"))
                         args[i] = position;
                     else
                         args[i] = 0;
