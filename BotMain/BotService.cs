@@ -824,23 +824,9 @@ namespace BotMain
                                     && mulliganResult.Contains("waiting_for_tracker"))
                                 {
                                     trackerMulliganFailCount++;
-                                    if (trackerMulliganFailCount >= 8)
+                                    if (trackerMulliganFailCount == 1 || trackerMulliganFailCount % 8 == 0)
                                     {
-                                        Log($"[MainLoop] tracker mulligan failed {trackerMulliganFailCount} times, falling back to local mulligan profile...");
-                                        var savedFlag = _followTrackerRecommendA;
-                                        _followTrackerRecommendA = false;
-                                        ok = TryApplyMulligan(pipe, out mulliganResult);
-                                        _followTrackerRecommendA = savedFlag;
-                                        if (ok)
-                                        {
-                                            mulliganHandled = true;
-                                            trackerMulliganFailCount = 0;
-                                            Log($"[MainLoop] mulligan applied (fallback): {mulliganResult}");
-                                        }
-                                        else
-                                        {
-                                            Log($"[MainLoop] mulligan fallback also failed: {mulliganResult}");
-                                        }
+                                        Log($"[MainLoop] tracker mulligan not ready ({trackerMulliganFailCount}), keep waiting tracker recommendation (pure tracker mode, no local mulligan fallback).");
                                     }
                                 }
 
@@ -1048,7 +1034,6 @@ namespace BotMain
                     else
                     {
                         trackerReason = bridgeReason;
-                        var hasLocalFallbackAction = false;
                         if (IsTrackerNoDataReason(trackerReason))
                         {
                             _trackerNoDataStreak++;
@@ -1056,45 +1041,15 @@ namespace BotMain
                             if (_trackerNoDataStreak == 1 || _trackerNoDataStreak % 4 == 0)
                                 Log($"[TrackerMode] recommendation not ready, keep waiting ({trackerReason}). Check HSBox recommend module/tab if this keeps repeating.");
 
-                            // 连续无数据超过阈值时，降级到本地 AI 出一步牌，
-                            // 通常可以触发盒子更新推荐，后续回合恢复跟随。
-                            if (_trackerNoDataStreak >= 15)
-                            {
-                                Log($"[TrackerMode] no data for {_trackerNoDataStreak} attempts, falling back to local AI for one action...");
-                                _trackerNoDataStreak = 0;
-                                try
-                                {
-                                    decision = _ai.DecideActionPlan(seed, _selectedProfile, deckCards);
-                                    actions = decision?.Actions;
-                                    trackerReason = "local_ai_fallback";
-                                    if (actions != null && actions.Count > 0)
-                                    {
-                                        // 只执行第一个动作，给盒子时间更新推荐
-                                        actions = new List<string> { actions[0] };
-                                        Log($"[TrackerMode] local AI fallback action: {actions[0]}");
-                                        LogTrackerActionsReadable(planningBoard, actions);
-                                        hasLocalFallbackAction = true;
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    Log($"[TrackerMode] local AI fallback failed: {ex.Message}");
-                                }
-                            }
-                            else
-                            {
-                                TryRecoverTrackerCaptureForNoData(trackerReason);
-                                Thread.Sleep(180);
-                                continue;
-                            }
+                            TryRecoverTrackerCaptureForNoData(trackerReason);
+                            Thread.Sleep(180);
+                            continue;
                         }
 
-                        if (!hasLocalFallbackAction)
-                        {
-                            _trackerNoDataStreak = 0;
-                            actions = new List<string> { "END_TURN" };
-                            Log($"[TrackerMode] recommendation unavailable, fallback END_TURN ({trackerReason})");
-                        }
+                        _trackerNoDataStreak = 0;
+                        Log($"[TrackerMode] recommendation unavailable, skip local fallback and wait next tracker update ({trackerReason})");
+                        Thread.Sleep(TrackerActionFailDelayMs);
+                        continue;
                     }
                 }
                 else
@@ -1723,6 +1678,12 @@ namespace BotMain
                 {
                     pickedIndex = maintainIdx;
                     Log($"[Discover] Rewind detected (origin={originCardId}), tracker unavailable, fallback Maintain (index={pickedIndex})");
+                }
+
+                if (pickedIndex < 0 && _followTrackerRecommendA)
+                {
+                    pickedIndex = 0;
+                    Log("[Discover][Tracker] tracker recommendation unavailable, fallback first choice (pure tracker mode, no discover profile fallback).");
                 }
 
                 if (pickedIndex < 0)
