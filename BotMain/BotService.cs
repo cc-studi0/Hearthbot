@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net.Sockets;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,34 +30,6 @@ namespace BotMain
         private const int EndTurnPostWaitMaxMs = 3000;
         private const int EndTurnPostWaitPollIntervalMs = 100;
         private const int EndTurnPostWaitGetSeedTimeoutMs = 500;
-        private const int TrackerCdpPort = 9222;
-        private const bool TrackerUseInMemoryBridge = true;
-        private const bool TrackerMirrorAcceptedRecommendationsToJsonl = true;
-        private const int TrackerRestartCooldownSeconds = 8;
-        private const int TrackerHsBoxEnsureCooldownSeconds = 15;
-        private const int TrackerNoDataRestartStreakThreshold = 4;
-        private const int TrackerStaleRecommendRestartStreakThreshold = 8;
-        private const int TrackerEmptyJsonlRestartStreakThreshold = 12;
-        private const int TrackerCaptureWarmupSeconds = 10;
-        private const int TrackerRecommendRetryWindowMs = 1400;
-        private const int TrackerRecommendRetrySleepMs = 30;
-        private const int TrackerWaitReadyCommandTimeoutMs = 260;
-        private const int TrackerMainReadyRetries = 12;
-        private const int TrackerMainReadyIntervalMs = 20;
-        private const int TrackerPreActionReadyRetries = 10;
-        private const int TrackerPreActionReadyIntervalMs = 16;
-        private const int TrackerPostActionReadyRetries = 6;
-        private const int TrackerPostActionReadyIntervalMs = 12;
-        private const int TrackerComboAttackReadyRetries = 6;
-        private const int TrackerComboAttackReadyIntervalMs = 8;
-        private const int TrackerActionDelayMs = 8;
-        private const int TrackerLoopIdleDelayMs = 10;
-        private const int TrackerActionFailDelayMs = 80;
-        private const int TrackerForcedEndTurnDelayMs = 1200;
-        private const int TrackerRepeatFailSoftBlockMs = 500;
-        private const int TrackerRepeatFailHardBlockMs = 1400;
-        private const int TrackerRepeatFailLogCooldownMs = 1500;
-        private const int TrackerMulliganRecommendWaitMs = 6000;
         private const int ChoiceStateWatchWindowMs = 8000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private static readonly string[] ChoiceStateTextMembers =
@@ -126,9 +97,6 @@ namespace BotMain
         private bool _autoConcedeAlternativeMode;
         private int _autoConcedeMaxRank;
         private bool _concedeWhenLethal;
-        private bool _followTrackerRecommendA;
-        private bool _trackerDiagVerbose = true;
-        private TrackerRecommendSourceMode _trackerRecommendSourceMode = TrackerRecommendSourceMode.PrimaryHookOnly;
         private bool _thinkingRoutineEnabled;
         private bool _hoverRoutineEnabled;
         private int _latencySamplingRate = 20000;
@@ -167,23 +135,10 @@ namespace BotMain
         private string _localDataDir;
         private string _pluginDir;
         private string _smartBotRootOverride;
-        private string _hbRootOverride;
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
-        private TrackerRecommendationBridge _trackerRecommendationBridge;
-        private string _trackerRecommendJsonlPath;
-        private string _trackerTapScriptPath;
-        private readonly object _trackerCaptureLock = new object();
-        private Process _trackerCaptureProcess;
-        private DateTime _trackerCaptureStartedUtc = DateTime.MinValue;
-        private DateTime _nextTrackerCaptureStartUtc = DateTime.MinValue;
-        private readonly object _hsBoxEnsureLock = new object();
-        private DateTime _nextHsBoxEnsureUtc = DateTime.MinValue;
-        private int _trackerNoDataStreak;
-        private string _trackerBlockedDecisionKey = string.Empty;
-        private DateTime _trackerBlockedUntilUtc = DateTime.MinValue;
-        private DateTime _trackerBlockedLastLogUtc = DateTime.MinValue;
+        private readonly IGameRecommendationProvider _recommendationProvider;
         private DateTime _choiceStateWatchUntilUtc = DateTime.MinValue;
         private string _choiceStateWatchSource = string.Empty;
 
@@ -202,8 +157,10 @@ namespace BotMain
 
         public BotService()
         {
-            AppDomain.CurrentDomain.ProcessExit += (_, _) => StopTrackerCaptureProcess("process_exit");
-            AppDomain.CurrentDomain.DomainUnload += (_, _) => StopTrackerCaptureProcess("domain_unload");
+            _recommendationProvider = new LocalGameRecommendationProvider(
+                RecommendLocalActions,
+                RecommendLocalMulligan,
+                RecommendLocalDiscover);
         }
 
         public void RefreshProfiles()
@@ -258,10 +215,9 @@ namespace BotMain
             _discoverProfile = string.IsNullOrWhiteSpace(discoverProfile) ? "None" : discoverProfile;
         }
 
-        public void SetExternalPaths(string smartBotRoot, string hbRoot)
+        public void SetExternalPaths(string smartBotRoot)
         {
             _smartBotRootOverride = NormalizeExternalPath(smartBotRoot);
-            _hbRootOverride = NormalizeExternalPath(hbRoot);
         }
 
         public void Prepare()
@@ -442,39 +398,6 @@ namespace BotMain
         public void SetAutoConcedeAlternativeMode(bool v) { _autoConcedeAlternativeMode = v; Log($"[Settings] AutoConcedeAlt={v}"); }
         public void SetAutoConcedeMaxRank(int v) { _autoConcedeMaxRank = v; Log($"[Settings] AutoConcedeMaxRank={v}"); }
         public void SetConcedeWhenLethal(bool v) { _concedeWhenLethal = v; Log($"[Settings] ConcedeWhenLethal={v}"); }
-        public void SetTrackerDiagVerbose(bool v) { _trackerDiagVerbose = v; Log($"[Settings] TrackerDiagVerbose={v}"); }
-        public void SetTrackerRecommendSourceMode(TrackerRecommendSourceMode mode)
-        {
-            _trackerRecommendSourceMode = mode;
-            _trackerNoDataStreak = 0;
-            EnsureTrackerPathsInitialized();
-            _trackerRecommendationBridge?.SetSourceMode(mode);
-            Log($"[Settings] TrackerRecommendSourceMode={mode}");
-
-            if (_followTrackerRecommendA)
-            {
-                TryClearTrackerRecommendationBuffer("source_mode_changed");
-                _trackerRecommendationBridge?.BeginTurnContext(DateTime.UtcNow.AddSeconds(-30));
-                TryEnsureTrackerCaptureProcessRunning();
-            }
-        }
-        public void SetFollowTrackerRecommendA(bool v)
-        {
-            _followTrackerRecommendA = v;
-            _trackerNoDataStreak = 0;
-            Log($"[Settings] FollowTrackerRecommendA={v}");
-            if (v)
-            {
-                StopTrackerCaptureProcess("setting_enabled_refresh");
-                EnsureTrackerPathsInitialized();
-                _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
-                TryClearTrackerRecommendationBuffer("setting_enabled");
-                _trackerRecommendationBridge?.BeginTurnContext(DateTime.UtcNow.AddSeconds(-30));
-                TryEnsureTrackerCaptureProcessRunning();
-            }
-            else
-                StopTrackerCaptureProcess("setting_disabled");
-        }
         public void SetThinkingRoutineEnabled(bool v) { _thinkingRoutineEnabled = v; Log($"[Settings] ThinkingRoutine={v}"); }
         public void SetHoverRoutineEnabled(bool v) { _hoverRoutineEnabled = v; Log($"[Settings] HoverRoutine={v}"); }
         public void SetLatencySamplingRate(int v) { _latencySamplingRate = v; Log($"[Settings] LatencySamplingRate={v}"); }
@@ -593,26 +516,8 @@ namespace BotMain
             _sbapiPath = Path.Combine(root, "Libs", "SBAPI.dll");
             _localDataDir = root;
             _smartBotRootOverride = ResolveSmartBotRoot(root);
-            _hbRootOverride = ResolveHbRoot();
             var smartbotRoot = _smartBotRootOverride;
             EnsureScriptAssemblyResolution(root, _sbapiPath, smartbotRoot);
-
-            var trackerPath = Path.Combine(root, "Scripts", "hs_rec.jsonl");
-            _trackerTapScriptPath = Path.Combine(root, "Scripts", "hsbox_cdp_tap.js");
-            if (!string.Equals(_trackerRecommendJsonlPath, trackerPath, StringComparison.OrdinalIgnoreCase))
-            {
-                _trackerRecommendJsonlPath = trackerPath;
-                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
-            }
-            else if (_trackerRecommendationBridge == null)
-            {
-                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
-            }
-
-            _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
-
-            if (_followTrackerRecommendA)
-                TryEnsureTrackerCaptureProcessRunning();
 
             if (!_profilesLoadAttempted)
             {
@@ -644,9 +549,6 @@ namespace BotMain
                 {
                     Log("SmartBotRoot not configured, using local resources only.");
                 }
-
-                if (!string.IsNullOrWhiteSpace(_hbRootOverride))
-                    Log($"HBRoot configured: {_hbRootOverride}");
 
                 // 首次初始化时并行加载，显著减少“准备中”耗时。
                 var loadSw = Stopwatch.StartNew();
@@ -715,7 +617,6 @@ namespace BotMain
             int mulliganStreak = 0;
             bool mulliganHandled = false;
             DateTime nextMulliganAttemptUtc = DateTime.MinValue;
-            int trackerMulliganFailCount = 0;
             int gameReadyWaitStreak = 0;
             bool wasInGame = false;
             int lastTurnNumber = -1;
@@ -723,7 +624,6 @@ namespace BotMain
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
-            DateTime trackerTurnContextStartUtc = DateTime.MinValue;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
 
             while (_running && pipe != null && pipe.IsConnected)
@@ -731,9 +631,6 @@ namespace BotMain
                 while (_suspended && _running)
                     Thread.Sleep(500);
                 if (!_running) break;
-
-                if (_followTrackerRecommendA)
-                    TryEnsureTrackerCaptureProcessRunning();
 
                 _botApiHandler?.Poll();
                 _botApiHandler?.UpdateBotState(
@@ -833,9 +730,6 @@ namespace BotMain
                             HandleGameResult(resultResp);
                             _pluginSystem?.FireOnGameEnd();
                             CheckRunLimits();
-
-                            if (_followTrackerRecommendA)
-                                TryClearTrackerRecommendationBuffer("game_end");
                         }
                         _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
                         notOurTurnStreak = 0;
@@ -843,7 +737,6 @@ namespace BotMain
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
-                        trackerMulliganFailCount = 0;
                         playActionFailStreakByEntity.Clear();
                         AutoQueue(pipe);
                     }
@@ -881,13 +774,10 @@ namespace BotMain
                             if (ok)
                             {
                                 mulliganHandled = true;
-                                trackerMulliganFailCount = 0;
                                 Log($"[MainLoop] mulligan applied: {mulliganResult}");
                             }
                             else
                             {
-                                // 留牌不走 tracker，不需要处理 waiting_for_tracker
-
                                 if (!mulliganHandled)
                                 {
                                     var retryMs = IsMulliganTransientFailure(mulliganResult) ? 300 : 2000;
@@ -1005,7 +895,6 @@ namespace BotMain
                     var turnNumber = planningBoard.TurnCount;
                     if (turnNumber != lastTurnNumber)
                     {
-                        var firstObservedTurn = lastTurnNumber < 0;
                         if (lastTurnNumber >= 0)
                             _pluginSystem?.FireOnTurnEnd();
                         lastTurnNumber = turnNumber;
@@ -1013,18 +902,6 @@ namespace BotMain
                         resimulationCount = 0;
                         actionFailStreak = 0;
                         playActionFailStreakByEntity.Clear();
-                        if (_followTrackerRecommendA)
-                        {
-                            if (_trackerRecommendationBridge != null)
-                            {
-                                var contextStartUtc = firstObservedTurn
-                                    ? DateTime.UtcNow.AddSeconds(-20)
-                                    : DateTime.UtcNow.AddSeconds(-2);
-                                trackerTurnContextStartUtc = contextStartUtc;
-                                _trackerRecommendationBridge.BeginTurnContext(contextStartUtc);
-                            }
-                            Log($"[TrackerMode] turn context reset: turn={turnNumber}");
-                        }
                         _pluginSystem?.FireOnTurnBegin();
                     }
                 }
@@ -1035,10 +912,7 @@ namespace BotMain
 
                 var swTurn = Stopwatch.StartNew();
 
-                var mainReadyRetries = _followTrackerRecommendA ? TrackerMainReadyRetries : 30;
-                var mainReadyIntervalMs = _followTrackerRecommendA ? TrackerMainReadyIntervalMs : 300;
-                var mainReadyTimeoutMs = _followTrackerRecommendA ? TrackerWaitReadyCommandTimeoutMs : 3000;
-                if (!WaitForGameReady(pipe, mainReadyRetries, mainReadyIntervalMs, mainReadyTimeoutMs))
+                if (!WaitForGameReady(pipe, 30, 300, 3000))
                 {
                     gameReadyWaitStreak++;
                     if (gameReadyWaitStreak % 8 == 1)
@@ -1075,83 +949,19 @@ namespace BotMain
                 catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
                 var sw = Stopwatch.StartNew();
-                AIDecisionPlan decision = null;
-                List<string> actions = null;
-                string trackerReason = string.Empty;
-                string trackerRecommendationKey = string.Empty;
-
-                if (_followTrackerRecommendA)
-                {
-                    LogTrackerDiag(
-                        $"action.request turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, contextStartUtc={FormatTrackerDiagUtc(trackerTurnContextStartUtc)}");
-
-                    if (TryBuildTrackerActionsWithRetry(planningBoard, out var trackerActions, out var bridgeReason, out var bridgeRecommendationKey))
-                    {
-                        trackerReason = bridgeReason;
-                        trackerRecommendationKey = bridgeRecommendationKey;
-                        _trackerNoDataStreak = 0;
-                        actions = trackerActions;
-                        LogTrackerDiag(
-                            $"action.result status=ok, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, attempts={ExtractAttemptsFromReason(trackerReason)}, actions={actions.Count}, key={SanitizeTrackerDiag(trackerRecommendationKey)}, reason={SanitizeTrackerDiag(trackerReason)}");
-                        Log($"[TrackerMode] {trackerReason}");
-                        LogTrackerActionsReadable(planningBoard, actions);
-                    }
-                    else
-                    {
-                        trackerReason = bridgeReason;
-                        LogTrackerDiag(
-                            $"action.result status=miss, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, attempts={ExtractAttemptsFromReason(trackerReason)}, reason={SanitizeTrackerDiag(trackerReason)}, noDataStreak={_trackerNoDataStreak + 1}");
-                        if (IsTrackerNoDataReason(trackerReason))
-                        {
-                            _trackerNoDataStreak++;
-
-                            if (_trackerNoDataStreak == 1 || _trackerNoDataStreak % 4 == 0)
-                                Log($"[TrackerMode] recommendation not ready, keep waiting ({trackerReason}). Check HSBox recommend module/tab if this keeps repeating.");
-
-                            TryRecoverTrackerCaptureForNoData(trackerReason);
-                            Thread.Sleep(40);
-                            continue;
-                        }
-
-                        _trackerNoDataStreak = 0;
-                        LogTrackerDiag(
-                            $"action.result status=skip_wait_next, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, reason={SanitizeTrackerDiag(trackerReason)}");
-                        Log($"[TrackerMode] recommendation unavailable, skip local fallback and wait next tracker update ({trackerReason})");
-                        Thread.Sleep(TrackerActionFailDelayMs);
-                        continue;
-                    }
-                }
-                else
-                {
-                    decision = _ai.DecideActionPlan(seed, _selectedProfile, deckCards);
-                    actions = decision?.Actions;
-                }
+                var recommendation = _recommendationProvider.RecommendActions(
+                    new ActionRecommendationRequest(seed, planningBoard, _selectedProfile, deckCards));
+                var decision = recommendation?.DecisionPlan;
+                var actions = recommendation?.Actions?.ToList();
 
                 if (actions == null || actions.Count == 0)
                     actions = new List<string> { "END_TURN" };
 
-                if (_followTrackerRecommendA
-                    && actions.Count > 1
-                    && !actions[0].StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
-                {
-                    actions = new List<string> { actions[0] };
-                }
-
-                if (_followTrackerRecommendA
-                    && ShouldSkipBlockedTrackerDecision(actions, trackerRecommendationKey, out var skipReason))
-                {
-                    if (!string.IsNullOrWhiteSpace(skipReason))
-                        Log($"[TrackerMode] {skipReason}");
-                    Thread.Sleep(TrackerActionFailDelayMs);
-                    continue;
-                }
-
                 sw.Stop();
                 AvgCalcTime = (AvgCalcTime + sw.ElapsedMilliseconds) / 2;
-                if (_followTrackerRecommendA)
-                    Log($"[Timing] Tracker recommend parse took {sw.ElapsedMilliseconds}ms, total since turn start: {swTurn.ElapsedMilliseconds}ms");
-                else
-                    Log($"[Timing] AI DecideActionPlan took {sw.ElapsedMilliseconds}ms, total since turn start: {swTurn.ElapsedMilliseconds}ms");
+                Log($"[Timing] Action recommendation took {sw.ElapsedMilliseconds}ms, total since turn start: {swTurn.ElapsedMilliseconds}ms");
+                if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
+                    Log($"[Recommend] {recommendation.Detail}");
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
 
@@ -1176,14 +986,13 @@ namespace BotMain
                     bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
                     bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
                     bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
-                    bool isTrackerChoice = action.StartsWith("TRACKER_CHOICE|", StringComparison.OrdinalIgnoreCase);
                     bool nextIsAttack = ai + 1 < actions.Count
                         && actions[ai + 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                    int preReadyRetries = _followTrackerRecommendA ? TrackerPreActionReadyRetries : 30;
-                    int preReadyIntervalMs = _followTrackerRecommendA ? TrackerPreActionReadyIntervalMs : 300;
-                    int postReadyRetries = _followTrackerRecommendA ? TrackerPostActionReadyRetries : 30;
-                    int postReadyIntervalMs = _followTrackerRecommendA ? TrackerPostActionReadyIntervalMs : 300;
-                    int actionDelayMs = _followTrackerRecommendA ? TrackerActionDelayMs : 80;
+                    const int preReadyRetries = 30;
+                    const int preReadyIntervalMs = 300;
+                    const int postReadyRetries = 30;
+                    const int postReadyIntervalMs = 300;
+                    const int actionDelayMs = 80;
 
                     // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
                     if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
@@ -1192,7 +1001,7 @@ namespace BotMain
                         break;
                     }
 
-                    var readyTimeoutMs = _followTrackerRecommendA ? TrackerWaitReadyCommandTimeoutMs : 3000;
+                    const int readyTimeoutMs = 3000;
                     if (!WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
                     {
                         actionFailed = true;
@@ -1200,52 +1009,11 @@ namespace BotMain
                         break;
                     }
 
-                    if (isTrackerChoice)
-                    {
-                        if (!TryApplyTrackerChoiceAction(pipe, action, out var trackerChoiceDetail))
-                        {
-                            Log($"[Action] {action} -> FAIL:{trackerChoiceDetail}");
-
-                            if (_followTrackerRecommendA)
-                            {
-                                if (ai + 1 < actions.Count)
-                                {
-                                    Log("[TrackerMode] tracker choice failed, try next action in same recommendation.");
-                                    continue;
-                                }
-                            }
-
-                            actionFailed = true;
-                            break;
-                        }
-
-                        Log($"[Action] {action} -> OK:{trackerChoiceDetail}");
-                        if (_followTrackerRecommendA)
-                        {
-                            _trackerRecommendationBridge?.MarkLastBuiltRecommendationConsumed(action);
-                            ClearTrackerDecisionBlock();
-                        }
-                        Thread.Sleep(actionDelayMs);
-                        if (_followTrackerRecommendA)
-                            WaitForGameReady(pipe, maxRetries: 1, intervalMs: 0, commandTimeoutMs: 80);
-                        else
-                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
-                        continue;
-                    }
-
                     var result = pipe.SendAndReceive("ACTION:" + action, 5000) ?? "NO_RESPONSE";
                     Log($"[Action] {action} -> {result}");
 
                     if (IsActionFailure(result))
                     {
-                        if (_followTrackerRecommendA)
-                        {
-                            var blockMs = IsTrackerHardFailure(result)
-                                ? TrackerRepeatFailHardBlockMs
-                                : TrackerRepeatFailSoftBlockMs;
-                            BlockTrackerDecision(action, trackerRecommendationKey, blockMs);
-                        }
-
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
@@ -1279,15 +1047,6 @@ namespace BotMain
                             }
                         }
 
-                        if (_followTrackerRecommendA)
-                        {
-                            if (ai + 1 < actions.Count)
-                            {
-                                Log("[TrackerMode] action failed, try next action in same recommendation.");
-                                continue;
-                            }
-                        }
-
                         actionFailed = true;
                         break;
                     }
@@ -1296,12 +1055,6 @@ namespace BotMain
                         && TryGetActionSourceEntityId(action, out var playedEntityId))
                     {
                         playActionFailStreakByEntity.Remove(playedEntityId);
-                    }
-
-                    if (_followTrackerRecommendA)
-                    {
-                        _trackerRecommendationBridge?.MarkLastBuiltRecommendationConsumed(action);
-                        ClearTrackerDecisionBlock();
                     }
 
                     // 出牌/攻击详细日志
@@ -1343,22 +1096,15 @@ namespace BotMain
                     // 连续攻击：快速轮询就绪，跳过固定延迟
                     if (isAttack && nextIsAttack)
                     {
-                        if (_followTrackerRecommendA)
-                            WaitForGameReady(pipe, TrackerComboAttackReadyRetries, TrackerComboAttackReadyIntervalMs, readyTimeoutMs);
-                        else
-                            WaitForGameReady(pipe, 40, 50);
+                        WaitForGameReady(pipe, 40, 50);
                     }
                     else
                     {
                         Thread.Sleep(actionDelayMs);
-                        if (_followTrackerRecommendA)
-                            WaitForGameReady(pipe, maxRetries: 1, intervalMs: 0, commandTimeoutMs: 80);
-                        else
-                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
+                        WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
                     }
 
-                    if (!_followTrackerRecommendA
-                        && decision != null
+                    if (decision != null
                         && ShouldResimulateAfterAction(
                             action,
                             planningBoard,
@@ -1403,15 +1149,6 @@ namespace BotMain
                 {
                     actionFailStreak++;
 
-                    if (_followTrackerRecommendA)
-                    {
-                        if (actionFailStreak == 1 || actionFailStreak % 3 == 0)
-                            Log($"[TrackerMode] action failed streak={actionFailStreak}, skip forced END_TURN and wait next latest recommendation.");
-
-                        Thread.Sleep(TrackerActionFailDelayMs);
-                        continue;
-                    }
-
                     if (actionFailStreak >= 3)
                     {
                         Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
@@ -1430,9 +1167,6 @@ namespace BotMain
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
                 if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (_followTrackerRecommendA)
-                        TryClearTrackerRecommendationBuffer("our_end_turn");
-
                     var endTurnWaitSw = Stopwatch.StartNew();
                     string lastProbe = null;
                     var deadline = DateTime.UtcNow.AddMilliseconds(EndTurnPostWaitMaxMs);
@@ -1457,7 +1191,7 @@ namespace BotMain
                     continue;
                 }
 
-                Thread.Sleep(_followTrackerRecommendA ? TrackerLoopIdleDelayMs : 800);
+                Thread.Sleep(800);
             }
 
             if (pipe == null || !pipe.IsConnected)
@@ -1896,13 +1630,12 @@ namespace BotMain
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            var choiceStateTimeoutMs = _followTrackerRecommendA ? 250 : 700;
             if (!TryGetChoiceState(
                 pipe,
                 maxRetries: 1,
                 retryDelayMs: 0,
                 out var resp,
-                commandTimeoutMs: choiceStateTimeoutMs))
+                commandTimeoutMs: 700))
                 return false;
 
             if (string.IsNullOrWhiteSpace(resp)
@@ -1919,7 +1652,6 @@ namespace BotMain
 
         private void TryHandleDiscover(PipeServer pipe, string seed)
         {
-            // 与普通 profile 模式保持一致：统一使用稳态探测与轮询节奏。
             var rounds = 3;
             for (int retry = 0; retry < rounds; retry++)
             {
@@ -1979,46 +1711,22 @@ namespace BotMain
                     return;
                 }
 
-                int pickedIndex = -1;
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb");
-
-                if (_followTrackerRecommendA
-                    && TryGetTrackerChoiceEntityId(choiceCardIds, choiceEntityIds, out var trackerChoiceEntityId, out var trackerChoiceDetail))
-                {
-                    pickedIndex = choiceEntityIds.IndexOf(trackerChoiceEntityId);
-                    if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
-                        pickedIndex = 0;
-                    Log($"[Discover][Tracker] {trackerChoiceDetail}");
-                }
-
-                if (pickedIndex < 0 && isRewindChoice)
-                {
-                    pickedIndex = maintainIdx;
-                    Log($"[Discover] Rewind detected (origin={originCardId}), tracker unavailable, fallback Maintain (index={pickedIndex})");
-                }
-
-                if (pickedIndex < 0 && _followTrackerRecommendA)
-                {
+                var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                var recommendation = _recommendationProvider.RecommendDiscover(
+                    new DiscoverRecommendationRequest(
+                        originCardId,
+                        choiceCardIds,
+                        choiceEntityIds,
+                        strategySeed,
+                        isRewindChoice,
+                        maintainIdx));
+                var pickedIndex = recommendation?.PickedIndex ?? -1;
+                if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
                     pickedIndex = 0;
-                    Log("[Discover][Tracker] tracker recommendation unavailable, fallback first choice (pure tracker mode, no discover profile fallback).");
-                }
-
-                if (pickedIndex < 0)
-                {
-                    var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                    if (TryPickDiscoverByChoicesModifiers(originCardId, choiceCardIds, strategySeed, out var profilePickIndex, out var profilePickDetail))
-                    {
-                        pickedIndex = profilePickIndex;
-                        Log($"[Discover] ChoicesModifiers命中: {profilePickDetail}");
-                    }
-                    else
-                    {
-                        pickedIndex = RunDiscoverStrategy(originCardId, choiceCardIds, strategySeed);
-                    }
-                    if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
-                        pickedIndex = 0;
-                }
+                if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
+                    Log($"[Discover] {recommendation.Detail}");
 
                 var pickedCardId = choiceCardIds[pickedIndex];
                 var pickedEntityId = choiceEntityIds[pickedIndex];
@@ -2052,112 +1760,6 @@ namespace BotMain
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
             }
-        }
-
-        private bool TryApplyTrackerChoiceAction(PipeServer pipe, string trackerChoiceAction, out string detail)
-        {
-            detail = "unknown";
-            if (pipe == null || !pipe.IsConnected)
-            {
-                detail = "pipe_disconnected";
-                return false;
-            }
-
-            if (string.IsNullOrWhiteSpace(trackerChoiceAction))
-            {
-                detail = "empty_action";
-                return false;
-            }
-
-            var parts = trackerChoiceAction.Split('|');
-            if (parts.Length < 2)
-            {
-                detail = "invalid_action_format";
-                return false;
-            }
-
-            var expectedCardId = parts[1];
-            if (string.Equals(expectedCardId, "-", StringComparison.Ordinal))
-                expectedCardId = string.Empty;
-
-            var expectedPosition = 0;
-            if (parts.Length >= 3)
-                int.TryParse(parts[2], out expectedPosition);
-
-            if (!TryGetChoiceState(pipe, maxRetries: 8, retryDelayMs: 80, out var choiceState)
-                || string.IsNullOrWhiteSpace(choiceState)
-                || !choiceState.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
-            {
-                detail = $"choice_state_unavailable:{choiceState ?? "null"}";
-                return false;
-            }
-
-            var payload = choiceState.Substring("CHOICE_STATE:".Length);
-            var payloadParts = payload.Split('|');
-            if (payloadParts.Length < 2)
-            {
-                detail = "choice_payload_invalid";
-                return false;
-            }
-
-            var candidates = new List<(string cardId, int entityId, int index)>();
-            var entries = payloadParts[1].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-            for (int i = 0; i < entries.Length; i++)
-            {
-                var kv = entries[i].Split(',');
-                if (kv.Length != 2 || !int.TryParse(kv[1], out var entityId) || entityId <= 0)
-                    continue;
-                candidates.Add((kv[0], entityId, i + 1));
-            }
-
-            if (candidates.Count == 0)
-            {
-                detail = "choice_candidates_empty";
-                return false;
-            }
-
-            IEnumerable<(string cardId, int entityId, int index)> filtered = candidates;
-            if (!string.IsNullOrWhiteSpace(expectedCardId))
-            {
-                filtered = filtered.Where(c => CardIdLooselyEquals(c.cardId, expectedCardId));
-            }
-
-            var picked = filtered.FirstOrDefault(c => expectedPosition > 0 && c.index == expectedPosition);
-            if (picked.entityId <= 0)
-                picked = filtered.FirstOrDefault();
-            if (picked.entityId <= 0)
-                picked = candidates.FirstOrDefault();
-            if (picked.entityId <= 0)
-            {
-                detail = "choice_pick_failed";
-                return false;
-            }
-
-            if (!TryApplyChoiceWithFallback(
-                pipe,
-                payload,
-                picked.entityId,
-                out var applyDetail,
-                out var confirmDetail))
-            {
-                detail = $"apply={applyDetail},confirm={confirmDetail}";
-                return false;
-            }
-
-            detail = $"picked={picked.cardId}({picked.entityId}),apply={applyDetail},confirm={confirmDetail}";
-            return true;
-        }
-
-        private static bool CardIdLooselyEquals(string left, string right)
-        {
-            if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
-                return false;
-
-            var a = left.Trim();
-            var b = right.Trim();
-            return string.Equals(a, b, StringComparison.OrdinalIgnoreCase)
-                || a.StartsWith(b, StringComparison.OrdinalIgnoreCase)
-                || b.StartsWith(a, StringComparison.OrdinalIgnoreCase);
         }
 
         private bool TryPickDiscoverByChoicesModifiers(
@@ -2436,6 +2038,55 @@ namespace BotMain
             }
         }
 
+        private ActionRecommendationResult RecommendLocalActions(ActionRecommendationRequest request)
+        {
+            var decision = _ai.DecideActionPlan(request.Seed, request.SelectedProfile, request.DeckCards?.ToList());
+            var actions = decision?.Actions?.ToList() ?? new List<string>();
+            var detail = request.SelectedProfile?.GetType().Name ?? "no_profile";
+            return new ActionRecommendationResult(decision, actions, $"local_ai profile={detail}, actions={actions.Count}");
+        }
+
+        private MulliganRecommendationResult RecommendLocalMulligan(MulliganRecommendationRequest request)
+        {
+            var snapshot = new MulliganStateSnapshot
+            {
+                OwnClass = request.OwnClass,
+                EnemyClass = request.EnemyClass
+            };
+
+            foreach (var choice in request.Choices ?? Array.Empty<RecommendationChoiceState>())
+            {
+                snapshot.Choices.Add(new MulliganChoiceState
+                {
+                    CardId = choice.CardId,
+                    EntityId = choice.EntityId
+                });
+            }
+
+            var replaceEntityIds = GetMulliganReplaceEntityIds(snapshot, out var detail);
+            return new MulliganRecommendationResult(replaceEntityIds, detail);
+        }
+
+        private DiscoverRecommendationResult RecommendLocalDiscover(DiscoverRecommendationRequest request)
+        {
+            if (request == null || request.ChoiceCardIds == null || request.ChoiceCardIds.Count == 0)
+                return new DiscoverRecommendationResult(0, "discover fallback:first choice");
+
+            if (request.IsRewindChoice && request.MaintainIndex >= 0 && request.MaintainIndex < request.ChoiceCardIds.Count)
+            {
+                return new DiscoverRecommendationResult(
+                    request.MaintainIndex,
+                    $"Rewind detected (origin={request.OriginCardId}), fallback Maintain (index={request.MaintainIndex})");
+            }
+
+            var choiceCardIds = request.ChoiceCardIds.ToList();
+            if (TryPickDiscoverByChoicesModifiers(request.OriginCardId, choiceCardIds, request.Seed, out var profilePickIndex, out var profilePickDetail))
+                return new DiscoverRecommendationResult(profilePickIndex, $"ChoicesModifiers命中: {profilePickDetail}");
+
+            var strategyIndex = RunDiscoverStrategy(request.OriginCardId, choiceCardIds, request.Seed);
+            return new DiscoverRecommendationResult(strategyIndex, $"profile strategy index={strategyIndex}");
+        }
+
         private static bool IsActionFailure(string result)
         {
             if (string.IsNullOrWhiteSpace(result))
@@ -2549,7 +2200,6 @@ namespace BotMain
             var normalized = result.ToLowerInvariant();
             return normalized.Contains("waiting_for_cards")
                 || normalized.Contains("waiting_for_ready")
-                || normalized.Contains("waiting_for_tracker")
                 || normalized.Contains("waiting_for_user_input")
                 || normalized.Contains("friendly_choices_not_ready")
                 || normalized.Contains("response_packet_blocked")
@@ -2677,19 +2327,21 @@ namespace BotMain
                     return false;
                 }
 
-                LogTrackerDiag(
-                    $"mulligan.snapshot ready={readyState}, own={snapshot.OwnClass}, enemy={snapshot.EnemyClass}, choices={snapshot.Choices.Count}");
-
                 if (snapshot.Choices.Count == 0)
                 {
                     result = "waiting_for_cards";
                     return false;
                 }
 
-                List<int> replaceEntityIds;
-                string decisionInfo;
-                // 留牌始终走本地策略（tracker 只用于行动阶段）
-                replaceEntityIds = GetMulliganReplaceEntityIds(snapshot, out decisionInfo);
+                var recommendation = _recommendationProvider.RecommendMulligan(
+                    new MulliganRecommendationRequest(
+                        snapshot.OwnClass,
+                        snapshot.EnemyClass,
+                        snapshot.Choices
+                            .Select(choice => new RecommendationChoiceState(choice.CardId, choice.EntityId))
+                            .ToList()));
+                var replaceEntityIds = recommendation?.ReplaceEntityIds?.ToList() ?? new List<int>();
+                var decisionInfo = recommendation?.Detail ?? string.Empty;
 
                 var applyPayload = string.Join(",", replaceEntityIds);
                 var gotApplyResp = TrySendAndReceiveExpected(
@@ -2703,8 +2355,6 @@ namespace BotMain
                     out var applyRespRaw,
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
-                LogTrackerDiag(
-                    $"mulligan.apply ready={readyState}, replace={replaceEntityIds.Count}, apply={SanitizeTrackerDiag(applyResp)}, decision={SanitizeTrackerDiag(decisionInfo)}");
                 result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
@@ -2789,98 +2439,6 @@ namespace BotMain
 
             decisionInfo = $"profile={_mulliganProfile}, own={ownClass}, enemy={enemyClass}";
             return replaceEntityIds;
-        }
-
-        private bool TryGetTrackerMulliganReplaceEntityIds(
-            MulliganStateSnapshot snapshot,
-            out List<int> replaceEntityIds,
-            out string decisionInfo)
-        {
-            replaceEntityIds = new List<int>();
-            decisionInfo = "tracker bridge unavailable";
-
-            if (snapshot == null || snapshot.Choices.Count == 0)
-            {
-                decisionInfo = "mulligan choices empty";
-                return false;
-            }
-
-            if (_trackerRecommendationBridge == null)
-                return false;
-
-            var choiceCardIds = snapshot.Choices.Select(c => c.CardId).ToList();
-            var choiceEntityIds = snapshot.Choices.Select(c => c.EntityId).ToList();
-
-            var deadline = DateTime.UtcNow.AddMilliseconds(TrackerMulliganRecommendWaitMs);
-            string lastReason = "no_data";
-            int attempts = 0;
-
-            while (DateTime.UtcNow <= deadline)
-            {
-                attempts++;
-                if (_trackerRecommendationBridge.TryBuildMulliganReplaceEntityIds(
-                    choiceCardIds,
-                    choiceEntityIds,
-                    out replaceEntityIds,
-                    out var reason))
-                {
-                    decisionInfo = $"tracker mulligan {reason}";
-                    return true;
-                }
-
-                lastReason = reason;
-                Thread.Sleep(120);
-            }
-
-            decisionInfo = $"attempts={attempts}, last={lastReason}";
-            replaceEntityIds = new List<int>();
-            return false;
-        }
-
-        private bool TryGetTrackerChoiceEntityId(
-            IList<string> choiceCardIds,
-            IList<int> choiceEntityIds,
-            out int pickedEntityId,
-            out string decisionInfo)
-        {
-            pickedEntityId = 0;
-            decisionInfo = "tracker bridge unavailable";
-
-            if (choiceCardIds == null || choiceEntityIds == null
-                || choiceCardIds.Count == 0
-                || choiceCardIds.Count != choiceEntityIds.Count)
-            {
-                decisionInfo = "discover choices invalid";
-                return false;
-            }
-
-            if (_trackerRecommendationBridge == null)
-                return false;
-
-            var deadline = DateTime.UtcNow.AddMilliseconds(1800);
-            string lastReason = "no_data";
-            int attempts = 0;
-
-            while (DateTime.UtcNow <= deadline)
-            {
-                attempts++;
-                if (_trackerRecommendationBridge.TryBuildChoiceEntityId(
-                    choiceCardIds,
-                    choiceEntityIds,
-                    out pickedEntityId,
-                    out var reason))
-                {
-                    decisionInfo = $"tracker choice {reason}, pickedEntityId={pickedEntityId}";
-                    return pickedEntityId > 0;
-                }
-
-                lastReason = reason;
-                Thread.Sleep(120);
-            }
-
-            pickedEntityId = 0;
-            decisionInfo = $"attempts={attempts}, last={lastReason}";
-            return false;
         }
 
         private static bool TryParseMulliganState(string payload, out MulliganStateSnapshot snapshot, out string error)
@@ -3243,837 +2801,6 @@ namespace BotMain
                 return "SEED";
             return probe.Length > 40 ? probe.Substring(0, 40) : probe;
         }
-
-        private bool TryBuildTrackerActionsWithRetry(
-            Board planningBoard,
-            out List<string> actions,
-            out string reason,
-            out string recommendationKey)
-        {
-            actions = null;
-            reason = "bridge unavailable";
-            recommendationKey = string.Empty;
-
-            if (_trackerRecommendationBridge == null)
-                return false;
-
-            var deadline = DateTime.UtcNow.AddMilliseconds(TrackerRecommendRetryWindowMs);
-            string lastReason = "no_data";
-            int attempts = 0;
-            var pendingEndTurnActions = (List<string>)null;
-            string pendingEndTurnReason = string.Empty;
-            string pendingEndTurnRecommendationKey = string.Empty;
-            bool endTurnRecheckDone = false;
-
-            while (DateTime.UtcNow <= deadline)
-            {
-                attempts++;
-                if (_trackerRecommendationBridge.TryBuildActions(
-                    planningBoard,
-                    out actions,
-                    out reason,
-                    out recommendationKey,
-                    appendEndTurn: false))
-                {
-                    if (_followTrackerRecommendA && IsEndTurnOnlyActions(actions))
-                    {
-                        pendingEndTurnActions = new List<string>(actions);
-                        pendingEndTurnReason = reason;
-                        pendingEndTurnRecommendationKey = recommendationKey;
-
-                        // 命中 END_TURN 时额外重新识别一次，避免吃到上一拍的回合末建议。
-                        if (!endTurnRecheckDone && DateTime.UtcNow < deadline)
-                        {
-                            endTurnRecheckDone = true;
-                            lastReason = "end_turn_recheck_once";
-                            Thread.Sleep(TrackerRecommendRetrySleepMs);
-                            continue;
-                        }
-                    }
-
-                    return true;
-                }
-
-                lastReason = reason;
-                if (_followTrackerRecommendA && endTurnRecheckDone && pendingEndTurnActions != null)
-                {
-                    actions = pendingEndTurnActions;
-                    reason = $"{pendingEndTurnReason}, end_turn_recheck=miss:{lastReason}";
-                    recommendationKey = pendingEndTurnRecommendationKey;
-                    return true;
-                }
-
-                if (!_followTrackerRecommendA)
-                    break;
-
-                Thread.Sleep(TrackerRecommendRetrySleepMs);
-            }
-
-            if (_followTrackerRecommendA && pendingEndTurnActions != null)
-            {
-                actions = pendingEndTurnActions;
-                reason = $"{pendingEndTurnReason}, end_turn_recheck=timeout";
-                recommendationKey = pendingEndTurnRecommendationKey;
-                return true;
-            }
-
-            reason = $"attempts={attempts}, last={lastReason}";
-            actions = null;
-            recommendationKey = string.Empty;
-            return false;
-        }
-
-        private static bool IsEndTurnOnlyActions(IList<string> actions)
-        {
-            if (actions == null || actions.Count == 0)
-                return false;
-
-            for (int i = 0; i < actions.Count; i++)
-            {
-                if (!string.Equals(actions[i], "END_TURN", StringComparison.OrdinalIgnoreCase))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private void LogTrackerActionsReadable(Board board, IList<string> actions)
-        {
-            if (actions == null || actions.Count == 0 || board == null) return;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                var raw = actions[i] ?? "";
-                var parts = raw.Split('|');
-                string desc;
-                switch (parts[0])
-                {
-                    case "PLAY":
-                        {
-                            var cardName = ResolveEntityName(board, parts.Length > 1 ? parts[1] : "");
-                            var targetName = parts.Length > 2 ? ResolveEntityName(board, parts[2]) : "";
-                            desc = string.IsNullOrWhiteSpace(targetName) || targetName == "0"
-                                ? $"打出 {cardName}"
-                                : $"打出 {cardName} → 目标 {targetName}";
-                            break;
-                        }
-                    case "ATTACK":
-                        {
-                            var srcName = ResolveEntityName(board, parts.Length > 1 ? parts[1] : "");
-                            var tgtName = ResolveEntityName(board, parts.Length > 2 ? parts[2] : "");
-                            desc = $"攻击 {srcName} → {tgtName}";
-                            break;
-                        }
-                    case "HERO_POWER":
-                        {
-                            var tgtName = parts.Length > 2 ? ResolveEntityName(board, parts[2]) : "";
-                            desc = string.IsNullOrWhiteSpace(tgtName) || tgtName == "0"
-                                ? "使用英雄技能"
-                                : $"使用英雄技能 → 目标 {tgtName}";
-                            break;
-                        }
-                    case "USE_LOCATION":
-                        {
-                            var locName = ResolveEntityName(board, parts.Length > 1 ? parts[1] : "");
-                            var tgtName = parts.Length > 2 ? ResolveEntityName(board, parts[2]) : "";
-                            desc = string.IsNullOrWhiteSpace(tgtName)
-                                ? $"使用地标 {locName}"
-                                : $"使用地标 {locName} → 目标 {tgtName}";
-                            break;
-                        }
-                    case "TRADE":
-                        {
-                            var cardName = ResolveEntityName(board, parts.Length > 1 ? parts[1] : "");
-                            desc = $"交易 {cardName}";
-                            break;
-                        }
-                    case "END_TURN":
-                        desc = "结束回合";
-                        break;
-                    default:
-                        desc = raw;
-                        break;
-                }
-                Log($"[TrackerMode]  #{i + 1} {desc}");
-            }
-        }
-
-        private static string ResolveEntityName(Board board, string idStr)
-        {
-            if (string.IsNullOrWhiteSpace(idStr)) return "?";
-            if (!int.TryParse(idStr, out var id) || id <= 0) return idStr;
-
-            if (board.HeroFriend != null && board.HeroFriend.Id == id) return "[我方英雄]";
-            if (board.HeroEnemy != null && board.HeroEnemy.Id == id) return "[敌方英雄]";
-            if (board.Ability != null && board.Ability.Id == id) return "[英雄技能]";
-            if (board.WeaponFriend != null && board.WeaponFriend.Id == id) return "[我方武器]";
-
-            if (board.Hand != null)
-                foreach (var c in board.Hand)
-                    if (c != null && c.Id == id) return c.Template.Id.ToString();
-
-            if (board.MinionFriend != null)
-                foreach (var m in board.MinionFriend)
-                    if (m != null && m.Id == id) return m.Template.Id.ToString();
-
-            if (board.MinionEnemy != null)
-                foreach (var m in board.MinionEnemy)
-                    if (m != null && m.Id == id) return m.Template.Id.ToString();
-
-            return $"#{id}";
-        }
-
-        private void LogTrackerDiag(string message)
-        {
-            if (!_trackerDiagVerbose || string.IsNullOrWhiteSpace(message))
-                return;
-
-            Log($"[TrackerDiag] {message}");
-        }
-
-        private void LogTrackerBridgeDiag(string message)
-        {
-            if (!_trackerDiagVerbose || string.IsNullOrWhiteSpace(message))
-                return;
-
-            Log($"[TrackerDiag][Bridge] {message}");
-        }
-
-        private static string SanitizeTrackerDiag(string text, int maxLen = 220)
-        {
-            if (string.IsNullOrWhiteSpace(text))
-                return "-";
-
-            var cleaned = text.Replace('\r', ' ').Replace('\n', ' ').Trim();
-            if (cleaned.Length <= maxLen)
-                return cleaned;
-            return cleaned.Substring(0, maxLen) + "...";
-        }
-
-        private static int ExtractAttemptsFromReason(string reason)
-        {
-            if (string.IsNullOrWhiteSpace(reason))
-                return 0;
-
-            const string marker = "attempts=";
-            var idx = reason.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-            if (idx < 0)
-                return 0;
-
-            idx += marker.Length;
-            var end = idx;
-            while (end < reason.Length && char.IsDigit(reason[end]))
-                end++;
-
-            if (end <= idx)
-                return 0;
-
-            return int.TryParse(reason.Substring(idx, end - idx), out var attempts)
-                ? attempts
-                : 0;
-        }
-
-        private static string FormatTrackerDiagUtc(DateTime timestampUtc)
-        {
-            if (timestampUtc == DateTime.MinValue)
-                return "unknown";
-            return timestampUtc.ToString("O");
-        }
-
-        private static bool IsTrackerNoDataReason(string reason)
-        {
-            if (string.IsNullOrWhiteSpace(reason))
-                return false;
-
-            return reason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("jsonl not found", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("no valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("bridge unavailable", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("map action failed", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("recommendation has no executable actions", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private static bool ShouldRestartTrackerCaptureForNoData(string reason)
-        {
-            if (string.IsNullOrWhiteSpace(reason))
-                return false;
-
-            // 仅在明确“采集链路异常”时重启 tap，避免无推荐场景反复重启导致首帧永远拿不到。
-            return reason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("jsonl not found", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("bridge unavailable", StringComparison.OrdinalIgnoreCase) >= 0
-                || reason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0;
-        }
-
-        private bool ShouldSkipBlockedTrackerDecision(IList<string> actions, string trackerRecommendationKey, out string detail)
-        {
-            detail = string.Empty;
-
-            if (!_followTrackerRecommendA || actions == null || actions.Count == 0)
-                return false;
-
-            var firstAction = actions[0] ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(firstAction)
-                || firstAction.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            var decisionKey = BuildTrackerDecisionKey(firstAction, trackerRecommendationKey);
-            if (!string.Equals(decisionKey, _trackerBlockedDecisionKey, StringComparison.Ordinal))
-            {
-                ClearTrackerDecisionBlock();
-                return false;
-            }
-
-            var now = DateTime.UtcNow;
-            if (now >= _trackerBlockedUntilUtc)
-                return false;
-
-            if ((now - _trackerBlockedLastLogUtc).TotalMilliseconds >= TrackerRepeatFailLogCooldownMs)
-            {
-                detail = $"blocked repeated failed action, waiting for tracker update: {firstAction}";
-                _trackerBlockedLastLogUtc = now;
-            }
-
-            return true;
-        }
-
-        private static string BuildTrackerDecisionKey(string action, string trackerRecommendationKey)
-        {
-            return (trackerRecommendationKey ?? string.Empty) + "||" + (action ?? string.Empty);
-        }
-
-        private void BlockTrackerDecision(string action, string trackerRecommendationKey, int blockMs)
-        {
-            if (string.IsNullOrWhiteSpace(action)
-                || action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
-            {
-                return;
-            }
-
-            _trackerBlockedDecisionKey = BuildTrackerDecisionKey(action, trackerRecommendationKey);
-            _trackerBlockedUntilUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(200, blockMs));
-            _trackerBlockedLastLogUtc = DateTime.MinValue;
-        }
-
-        private void ClearTrackerDecisionBlock()
-        {
-            _trackerBlockedDecisionKey = string.Empty;
-            _trackerBlockedUntilUtc = DateTime.MinValue;
-            _trackerBlockedLastLogUtc = DateTime.MinValue;
-        }
-
-        private static bool IsTrackerHardFailure(string actionResult)
-        {
-            if (string.IsNullOrWhiteSpace(actionResult))
-                return false;
-
-            var normalized = actionResult.ToLowerInvariant();
-            return normalized.Contains("not_left_hand")
-                || normalized.Contains("not_in_hand")
-                || normalized.Contains("attack_count_limit")
-                || normalized.Contains("entity_not_found")
-                || normalized.Contains("target_not_found")
-                || normalized.Contains("invalid_target")
-                || normalized.Contains("not_ready")
-                || normalized.Contains("already_attacked")
-                || normalized.Contains("already");
-        }
-
-        private void TryClearTrackerRecommendationBuffer(string stage)
-        {
-            if (!_followTrackerRecommendA)
-                return;
-
-            EnsureTrackerPathsInitialized();
-            if (_trackerRecommendationBridge == null)
-                return;
-
-            if (_trackerRecommendationBridge.TryClearBuffer(out var clearReason))
-            {
-                LogTrackerDiag($"buffer_clear stage={stage}, status=ok");
-                Log($"[TrackerMode] recommendation buffer cleared ({stage}).");
-            }
-            else
-            {
-                LogTrackerDiag($"buffer_clear stage={stage}, status=fail, reason={SanitizeTrackerDiag(clearReason)}");
-                Log($"[TrackerMode] recommendation buffer clear failed ({stage}): {clearReason}");
-            }
-        }
-
-        private void TryRecoverTrackerCaptureForNoData(string trackerReason)
-        {
-            if (!ShouldRestartTrackerCaptureForNoData(trackerReason))
-                return;
-
-            var threshold = TrackerNoDataRestartStreakThreshold;
-            if (!string.IsNullOrWhiteSpace(trackerReason))
-            {
-                if (trackerReason.IndexOf("jsonl empty", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    threshold = TrackerEmptyJsonlRestartStreakThreshold;
-                }
-                else if (trackerReason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    threshold = TrackerStaleRecommendRestartStreakThreshold;
-                }
-            }
-
-            if (_trackerNoDataStreak < threshold)
-                return;
-
-            var captureStartedUtc = _trackerCaptureStartedUtc;
-            if (captureStartedUtc != DateTime.MinValue)
-            {
-                var age = DateTime.UtcNow - captureStartedUtc;
-                if (age < TimeSpan.FromSeconds(TrackerCaptureWarmupSeconds))
-                {
-                    Log($"[TrackerMode] no-data streak reached but capture warmup ({age.TotalSeconds:0.0}s<{TrackerCaptureWarmupSeconds}s), skip restart, reason={trackerReason}.");
-                    return;
-                }
-            }
-
-            Log($"[TrackerMode] no recommendation streak={_trackerNoDataStreak}, restarting tap only (no HSBox restart), reason={trackerReason}.");
-            _trackerNoDataStreak = 0;
-
-            StopTrackerCaptureProcess("no_data_restart");
-            _nextTrackerCaptureStartUtc = DateTime.MinValue;
-            TryEnsureTrackerCaptureProcessRunning(allowHsBoxRelaunch: false);
-        }
-
-        private void EnsureTrackerPathsInitialized()
-        {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var root = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
-
-            if (string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
-                _trackerRecommendJsonlPath = Path.Combine(root, "Scripts", "hs_rec.jsonl");
-            if (string.IsNullOrWhiteSpace(_trackerTapScriptPath))
-                _trackerTapScriptPath = Path.Combine(root, "Scripts", "hsbox_cdp_tap.js");
-
-            if (_trackerRecommendationBridge == null)
-                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
-
-            _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
-        }
-
-        private TrackerRecommendationBridge CreateTrackerRecommendationBridge()
-        {
-            var rawPath = TrackerUseInMemoryBridge ? string.Empty : _trackerRecommendJsonlPath;
-            var mirrorPath = TrackerUseInMemoryBridge && TrackerMirrorAcceptedRecommendationsToJsonl
-                ? _trackerRecommendJsonlPath
-                : string.Empty;
-            var bridge = new TrackerRecommendationBridge(
-                rawPath,
-                acceptedActionMirrorPath: mirrorPath,
-                diagLog: LogTrackerBridgeDiag);
-            bridge.SetSourceMode(_trackerRecommendSourceMode);
-            return bridge;
-        }
-
-        private bool EnsureHsBoxRemoteDebuggingReady()
-        {
-            if (IsTcpPortOpen("127.0.0.1", TrackerCdpPort, 300))
-                return true;
-
-            if (DateTime.UtcNow < _nextHsBoxEnsureUtc)
-                return false;
-
-            lock (_hsBoxEnsureLock)
-            {
-                if (IsTcpPortOpen("127.0.0.1", TrackerCdpPort, 300))
-                    return true;
-
-                if (DateTime.UtcNow < _nextHsBoxEnsureUtc)
-                    return false;
-
-                if (!TryResolveHsBoxExecutablePath(out var hsBoxExePath, out var resolveDetail))
-                {
-                    Log($"[TrackerCapture] HSBox executable not found: {resolveDetail}");
-                    _nextHsBoxEnsureUtc = DateTime.UtcNow.AddSeconds(TrackerHsBoxEnsureCooldownSeconds);
-                    return false;
-                }
-
-                var processName = Path.GetFileNameWithoutExtension(hsBoxExePath);
-                if (!string.IsNullOrWhiteSpace(processName))
-                {
-                    try
-                    {
-                        foreach (var proc in Process.GetProcessesByName(processName))
-                        {
-                            try
-                            {
-                                if (proc.HasExited)
-                                    continue;
-
-                                Log($"[TrackerCapture] closing existing HSBox process PID={proc.Id}");
-                                proc.Kill();
-                                proc.WaitForExit(8000);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log($"[TrackerCapture] close HSBox process failed: {ex.Message}");
-                            }
-                            finally
-                            {
-                                try { proc.Dispose(); } catch { }
-                            }
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"[TrackerCapture] enumerate HSBox process failed: {ex.Message}");
-                    }
-                }
-
-                try
-                {
-                    var psi = new ProcessStartInfo
-                    {
-                        FileName = hsBoxExePath,
-                        Arguments = $"--remote-debugging-port={TrackerCdpPort}",
-                        WorkingDirectory = Path.GetDirectoryName(hsBoxExePath) ?? AppDomain.CurrentDomain.BaseDirectory,
-                        UseShellExecute = true,
-                        CreateNoWindow = false
-                    };
-
-                    var launched = Process.Start(psi);
-                    if (launched == null)
-                    {
-                        Log("[TrackerCapture] launch HSBox failed: Process.Start returned null");
-                        _nextHsBoxEnsureUtc = DateTime.UtcNow.AddSeconds(TrackerHsBoxEnsureCooldownSeconds);
-                        return false;
-                    }
-
-                    Log($"[TrackerCapture] launch HSBox with debug port: {hsBoxExePath}");
-                }
-                catch (Exception ex)
-                {
-                    Log($"[TrackerCapture] launch HSBox failed: {ex.Message}");
-                    _nextHsBoxEnsureUtc = DateTime.UtcNow.AddSeconds(TrackerHsBoxEnsureCooldownSeconds);
-                    return false;
-                }
-
-                var deadline = DateTime.UtcNow.AddSeconds(12);
-                while (DateTime.UtcNow < deadline)
-                {
-                    if (IsTcpPortOpen("127.0.0.1", TrackerCdpPort, 300))
-                    {
-                        Log($"[TrackerCapture] HSBox DevTools port {TrackerCdpPort} is ready.");
-                        _nextHsBoxEnsureUtc = DateTime.MinValue;
-                        return true;
-                    }
-
-                    Thread.Sleep(300);
-                }
-
-                Log($"[TrackerCapture] HSBox DevTools port {TrackerCdpPort} not ready after relaunch.");
-                _nextHsBoxEnsureUtc = DateTime.UtcNow.AddSeconds(TrackerHsBoxEnsureCooldownSeconds);
-                return false;
-            }
-        }
-
-        private bool TryResolveHsBoxExecutablePath(out string executablePath, out string detail)
-        {
-            executablePath = null;
-            detail = string.Empty;
-
-            var rawCandidates = new List<string>
-            {
-                Environment.GetEnvironmentVariable("HEARTHBOT_HSBOX_EXE"),
-                _hbRootOverride,
-                Environment.GetEnvironmentVariable("HEARTHBOT_HB_ROOT"),
-                @"F:\炉石传说盒子\HSAng.exe",
-                @"D:\炉石传说盒子\HSAng.exe",
-                @"C:\炉石传说盒子\HSAng.exe",
-                @"F:\炉石传说盒子",
-                @"D:\炉石传说盒子",
-                @"C:\炉石传说盒子"
-            };
-
-            var normalizedCandidates = rawCandidates
-                .Where(c => !string.IsNullOrWhiteSpace(c))
-                .Select(NormalizeExternalPath)
-                .Where(c => !string.IsNullOrWhiteSpace(c))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            foreach (var candidate in normalizedCandidates)
-            {
-                if (File.Exists(candidate) && IsExecutableFile(candidate))
-                {
-                    executablePath = candidate;
-                    detail = "direct_exe";
-                    return true;
-                }
-
-                if (!Directory.Exists(candidate))
-                    continue;
-
-                foreach (var fileName in new[] { "HSAng.exe", "hsang.exe" })
-                {
-                    var direct = Path.Combine(candidate, fileName);
-                    if (File.Exists(direct))
-                    {
-                        executablePath = direct;
-                        detail = "dir_direct";
-                        return true;
-                    }
-                }
-
-                try
-                {
-                    var recursive = Directory.GetFiles(candidate, "HSAng.exe", SearchOption.AllDirectories)
-                        .FirstOrDefault();
-                    if (!string.IsNullOrWhiteSpace(recursive))
-                    {
-                        executablePath = recursive;
-                        detail = "dir_recursive";
-                        return true;
-                    }
-                }
-                catch
-                {
-                    // ignore recursive scan errors
-                }
-            }
-
-            detail = normalizedCandidates.Count > 0
-                ? string.Join(" | ", normalizedCandidates.Take(4))
-                : "no_candidates";
-            return false;
-        }
-
-        private static bool IsExecutableFile(string path)
-        {
-            if (string.IsNullOrWhiteSpace(path))
-                return false;
-            var ext = Path.GetExtension(path);
-            return string.Equals(ext, ".exe", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsTcpPortOpen(string host, int port, int timeoutMs)
-        {
-            try
-            {
-                using var client = new TcpClient();
-                var task = client.ConnectAsync(host, port);
-                if (!task.Wait(Math.Max(100, timeoutMs)))
-                    return false;
-                return client.Connected;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        private void TryEnsureTrackerCaptureProcessRunning(bool allowHsBoxRelaunch = true)
-        {
-            if (!_followTrackerRecommendA)
-                return;
-
-            EnsureTrackerPathsInitialized();
-
-            if (allowHsBoxRelaunch)
-            {
-                if (!EnsureHsBoxRemoteDebuggingReady())
-                    return;
-            }
-            else
-            {
-                if (!IsTcpPortOpen("127.0.0.1", TrackerCdpPort, 300))
-                    Log($"[TrackerCapture] DevTools port {TrackerCdpPort} not ready, skip HSBox relaunch (tap-only mode).");
-            }
-
-            lock (_trackerCaptureLock)
-            {
-                if (IsProcessRunning(_trackerCaptureProcess))
-                    return;
-
-                if (DateTime.UtcNow < _nextTrackerCaptureStartUtc)
-                    return;
-
-                if (string.IsNullOrWhiteSpace(_trackerTapScriptPath) || !File.Exists(_trackerTapScriptPath))
-                {
-                    Log($"[TrackerCapture] tap script not found: {_trackerTapScriptPath}");
-                    _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                    return;
-                }
-
-                if (string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
-                {
-                    Log("[TrackerCapture] output path is empty");
-                    _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                    return;
-                }
-
-                try
-                {
-                    var outDir = Path.GetDirectoryName(_trackerRecommendJsonlPath);
-                    if (!string.IsNullOrWhiteSpace(outDir))
-                        Directory.CreateDirectory(outDir);
-                    File.WriteAllText(_trackerRecommendJsonlPath, string.Empty);
-                }
-                catch (Exception ex)
-                {
-                    Log($"[TrackerCapture] prepare output file failed: {ex.Message}");
-                    _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                    return;
-                }
-
-                var workingDir = Path.GetDirectoryName(_trackerTapScriptPath);
-                if (string.IsNullOrWhiteSpace(workingDir))
-                    workingDir = AppDomain.CurrentDomain.BaseDirectory;
-
-                var args = $"\"{_trackerTapScriptPath}\" --port {TrackerCdpPort} --hint ladder-opp";
-                if (!TrackerUseInMemoryBridge && !string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
-                    args += $" --out \"{_trackerRecommendJsonlPath}\"";
-                var psi = new ProcessStartInfo
-                {
-                    FileName = "node",
-                    Arguments = args,
-                    WorkingDirectory = workingDir,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                };
-
-                try
-                {
-                    var proc = new Process
-                    {
-                        StartInfo = psi,
-                        EnableRaisingEvents = true
-                    };
-
-                    proc.OutputDataReceived += (_, e) =>
-                    {
-                        var line = e.Data;
-                        if (string.IsNullOrWhiteSpace(line))
-                            return;
-
-                        var trimmed = line.Trim();
-                        if (!trimmed.StartsWith("{", StringComparison.Ordinal))
-                            return;
-                        if (trimmed.IndexOf("\"source\"", StringComparison.OrdinalIgnoreCase) < 0)
-                            return;
-
-                        _trackerRecommendationBridge?.PushRawLine(trimmed);
-                    };
-                    proc.ErrorDataReceived += (_, e) =>
-                    {
-                        if (string.IsNullOrWhiteSpace(e.Data))
-                            return;
-
-                        if (e.Data.IndexOf("[hsbox-cdp][diag]", StringComparison.OrdinalIgnoreCase) >= 0
-                            && e.Data.IndexOf("\"payloadKeysTopN\":[\"args\"]", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            // 忽略 args-only 诊断噪声，避免刷屏影响问题定位。
-                            return;
-                        }
-
-                        if (e.Data.IndexOf("[hsbox-cdp]", StringComparison.OrdinalIgnoreCase) >= 0
-                            || e.Data.IndexOf("fatal", StringComparison.OrdinalIgnoreCase) >= 0
-                            || e.Data.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
-                            || e.Data.IndexOf("retry", StringComparison.OrdinalIgnoreCase) >= 0
-                            || e.Data.IndexOf("attached", StringComparison.OrdinalIgnoreCase) >= 0
-                            || e.Data.IndexOf("no target matched", StringComparison.OrdinalIgnoreCase) >= 0)
-                        {
-                            Log($"[TrackerCapture] {e.Data}");
-                        }
-                    };
-                    proc.Exited += (_, _) =>
-                    {
-                        int exitCode = -1;
-                        try { exitCode = proc.ExitCode; } catch { }
-
-                        lock (_trackerCaptureLock)
-                        {
-                            if (ReferenceEquals(_trackerCaptureProcess, proc))
-                            {
-                                _trackerCaptureProcess = null;
-                                _trackerCaptureStartedUtc = DateTime.MinValue;
-                            }
-                        }
-
-                        try { proc.Dispose(); } catch { }
-
-                        if (_followTrackerRecommendA)
-                        {
-                            _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                            Log($"[TrackerCapture] exited (code={exitCode}), will retry.");
-                        }
-                    };
-
-                    if (!proc.Start())
-                    {
-                        Log("[TrackerCapture] failed to start node process.");
-                        _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                        try { proc.Dispose(); } catch { }
-                        return;
-                    }
-
-                    _trackerCaptureProcess = proc;
-                    _trackerCaptureStartedUtc = DateTime.UtcNow;
-                    _nextTrackerCaptureStartUtc = DateTime.MinValue;
-
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-
-                    Log($"[TrackerCapture] started: node {args}");
-                }
-                catch (Exception ex)
-                {
-                    Log($"[TrackerCapture] start failed: {ex.Message}");
-                    _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                }
-            }
-        }
-
-        private void StopTrackerCaptureProcess(string reason)
-        {
-            Process proc = null;
-            lock (_trackerCaptureLock)
-            {
-                if (_trackerCaptureProcess == null)
-                    return;
-                proc = _trackerCaptureProcess;
-                _trackerCaptureProcess = null;
-                _trackerCaptureStartedUtc = DateTime.MinValue;
-            }
-
-            try
-            {
-                if (!proc.HasExited)
-                {
-                    try { proc.Kill(true); }
-                    catch { proc.Kill(); }
-                    proc.WaitForExit(3000);
-                }
-            }
-            catch
-            {
-            }
-            finally
-            {
-                try { proc.Dispose(); } catch { }
-            }
-
-            Log($"[TrackerCapture] stopped ({reason})");
-        }
-
-        private static bool IsProcessRunning(Process process)
-        {
-            if (process == null)
-                return false;
-
-            try { return !process.HasExited; }
-            catch { return false; }
-        }
-
         private void RestartHearthstone()
         {
             _findingGameSince = null;
@@ -4496,14 +3223,6 @@ namespace BotMain
 
             return candidate;
         }
-
-        private string ResolveHbRoot()
-        {
-            return NormalizeExternalPath(_hbRootOverride)
-                ?? NormalizeExternalPath(Environment.GetEnvironmentVariable("HEARTHBOT_HB_ROOT"))
-                ?? NormalizeExternalPath(Path.Combine(_localDataDir ?? string.Empty, "..", "HB1.1.8"));
-        }
-
         private static string NormalizeExternalPath(string value)
         {
             if (string.IsNullOrWhiteSpace(value))
@@ -4604,4 +3323,6 @@ namespace BotMain
         }
     }
 }
+
+
 

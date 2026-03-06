@@ -18,11 +18,6 @@
   <ItemGroup>
     <ProjectReference Include="..\BotCore\BotCore.csproj" />
   </ItemGroup>
-
-  <ItemGroup>
-    <Compile Include="..\BotMain\TrackerRecommendationBridge.cs" Link="TrackerRecommendationBridge.cs" />
-  </ItemGroup>
-
   <ItemGroup>
     <Reference Include="SBAPI">
       <HintPath>..\Libs\SBAPI.dll</HintPath>

@@ -396,9 +396,6 @@ namespace BotMain
 
             if (ConsumeFlag("_setLatencySamplingRate"))
                 _service.SetLatencySamplingRate(GetField("_setLatencySamplingRateValue", 20000));
-
-            if (ConsumeFlag("_setTrackerDiagVerbose"))
-                _service.SetTrackerDiagVerbose(GetField("_setTrackerDiagVerboseValue", true));
         }
 
         private void PollSocialFlags()
