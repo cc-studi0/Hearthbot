@@ -322,7 +322,7 @@ function buildInjectCode() {
 (() => {
   const PREFIX = "${PREFIX}";
   const DIAG_PREFIX = "${DIAG_PREFIX}";
-  const ENABLE_FALLBACK_CAPTURE = false;
+  const ENABLE_FALLBACK_CAPTURE = true;
 
   const isActionArrayLike = (arr) => {
     if (!Array.isArray(arr)) return false;
@@ -419,8 +419,10 @@ function buildInjectCode() {
       const data = { source, ts: now };
       if (payload !== undefined) data.payload = payload;
       if (error) data.error = String(error);
+      // 通道1: 打到 console，便于在 DevTools 直接观察推荐内容
       console.log(PREFIX + JSON.stringify(data));
 
+      // 诊断信息保留 console 输出（节流，避免刷屏）
       const diag = buildDiagSummary(source, payload, error);
       const isArgsOnly = payload
         && typeof payload === "object"
@@ -436,6 +438,12 @@ function buildInjectCode() {
           console.log(DIAG_PREFIX + JSON.stringify(diag));
         }
       }
+
+      // 通道2: 数据存入队列，由外部 Runtime.evaluate 读取（更稳）
+      if (!window.__hsRecQueue) window.__hsRecQueue = [];
+      window.__hsRecQueue.push(data);
+      if (window.__hsRecQueue.length > 80)
+        window.__hsRecQueue = window.__hsRecQueue.slice(-50);
     } catch (err) {
       try {
         console.log(PREFIX + JSON.stringify({
@@ -914,9 +922,11 @@ function buildInjectCode() {
   };
 
   const HOOK_NAMES = window.__hsHookNames || new Set([
-    // 主动作仅保留天梯推荐主入口，减少空事件风暴。
+    // 主动作推荐入口
     "onUpdateLadderActionRecommend",
-    // 留牌相关保留最小集合。
+    "onUpdateArenaRecommend",
+    "fRecommend",
+    // 留牌相关
     "onUpdateMulliganRecommend",
     "onUpdateLadderMulliganRecommend",
     "onUpdateActionMulliganRecommend",
@@ -996,6 +1006,77 @@ function buildInjectCode() {
     } catch (_) {}
   };
 
+  const maybeActivePullLadderOpp = () => {
+    try {
+      if (!ENABLE_FALLBACK_CAPTURE || typeof window.fetch !== "function")
+        return;
+
+      const now = Date.now();
+      const lastEmitTs = Number(window.__hsLastEmitTs || 0);
+      const lastPullTs = Number(window.__hsLastPullTs || 0);
+      if (window.__hsPullInFlight)
+        return;
+      if (lastPullTs > 0 && now - lastPullTs < 1000)
+        return;
+      if (lastEmitTs > 0 && now - lastEmitTs < 650)
+        return;
+
+      window.__hsLastPullTs = now;
+      window.__hsPullInFlight = true;
+
+      const fallback = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp";
+      const pullUrl = String(window.location?.origin || "").includes("lushi.163.com")
+        ? "/client-jipaiqi/ladder-opp"
+        : fallback;
+
+      window.fetch(pullUrl, {
+        cache: "no-store",
+        credentials: "include"
+      })
+        .then((resp) => {
+          return resp.text().then((text) => ({
+            ok: !!resp.ok,
+            text,
+            status: Number(resp.status || 0),
+            finalUrl: String(resp.url || pullUrl)
+          }));
+        })
+        .then((result) => {
+          if (!result || !result.ok || !result.text)
+            return;
+          const parsed = parsePayload(result.text);
+          if (!parsed || typeof parsed !== "object")
+            return;
+
+          let serialized = "";
+          try { serialized = JSON.stringify(parsed); } catch (_) {}
+          if (!serialized)
+            return;
+
+          const fp = shortHash(serialized.slice(0, 8192));
+          const prevFp = String(window.__hsLastPullFp || "");
+          const lastPullEmitTs = Number(window.__hsLastPullEmitTs || 0);
+          if (fp && prevFp === fp && now - lastPullEmitTs < 2400)
+            return;
+
+          window.__hsLastPullFp = fp;
+          window.__hsLastPullEmitTs = Date.now();
+          emit("fetch_recommend", {
+            url: result.finalUrl,
+            data: parsed,
+            status: result.status,
+            via: "active_pull"
+          }, null);
+        })
+        .catch(() => {})
+        .finally(() => {
+          window.__hsPullInFlight = false;
+        });
+    } catch (_) {
+      window.__hsPullInFlight = false;
+    }
+  };
+
   if (ENABLE_FALLBACK_CAPTURE && !window.__hsHookFetch && typeof window.fetch === "function") {
     const rawFetch = window.fetch;
     const wrappedFetch = async function(...args) {
@@ -1057,6 +1138,7 @@ function buildInjectCode() {
       hookAll();
       if (ENABLE_FALLBACK_CAPTURE) {
         maybeEmitPolledRecommend();
+        maybeActivePullLadderOpp();
       }
       const lastEmitTs = Number(window.__hsLastEmitTs || 0);
       if (!lastEmitTs || Date.now() - lastEmitTs > 1200)
@@ -1208,6 +1290,12 @@ function shouldKeepRecommendationEvent(source, payload) {
     return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
   }
 
+  if (stringEqualsIgnoreCase(src, "network_ws")
+    || stringEqualsIgnoreCase(src, "network_response")
+    || stringEqualsIgnoreCase(src, "dom_recommend")) {
+    return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
+  }
+
   return false;
 }
 
@@ -1247,6 +1335,12 @@ function shouldLogDiagEvent(diag) {
   if (stringEqualsIgnoreCase(source, "pollRecommend")
     || stringEqualsIgnoreCase(source, "fetch_recommend")
     || stringEqualsIgnoreCase(source, "xhr_recommend")) {
+    return !!diag.hasActionPayload || !!diag.hasMulliganSignal;
+  }
+
+  if (stringEqualsIgnoreCase(source, "network_ws")
+    || stringEqualsIgnoreCase(source, "network_response")
+    || stringEqualsIgnoreCase(source, "dom_recommend")) {
     return !!diag.hasActionPayload || !!diag.hasMulliganSignal;
   }
 
@@ -1327,18 +1421,13 @@ async function runOnce(cfg) {
     `[hsbox-cdp] target shortlist: ${targets.map((t) => `${t.title || "<no-title>"}|${t.url || "<no-url>"}|score=${t.__score || 0}`).join(" || ")}\n`
   );
 
-  const outStream = cfg.outFile
-    ? fs.createWriteStream(cfg.outFile, { flags: "a" })
-    : null;
-  let lastEmitFingerprint = "";
-
   const emitLine = (obj) => {
-    const line = JSON.stringify(obj);
-    process.stdout.write(line + "\n");
-    if (outStream) {
-      outStream.write(line + "\n");
-    }
+    // 数据只写 stdout，由 C# 端通过管道接收后写入 JSONL
+    process.stdout.write(JSON.stringify(obj) + "\n");
   };
+  let lastEmitFingerprint = "";
+  let lastEmitTs = 0;
+  const DUPLICATE_EMIT_WINDOW_MS = 2600;
 
   const emitRecommendation = (source, payload, extra = null) => {
     const normalizedPayload = normalizePayloadForSource(source, payload);
@@ -1355,14 +1444,29 @@ async function runOnce(cfg) {
         event[k] = v;
     }
 
-    const fingerprint = JSON.stringify({
-      source: event.source,
-      payload: event.payload,
-      extra: extra || {}
-    });
-    if (fingerprint === lastEmitFingerprint)
+    // 短窗去重：抑制 poke 导致的同一推荐反复落盘。
+    // 仅按时间窗口去重，不跨长时间保留，避免跨回合误伤。
+    let fingerprint = "";
+    try {
+      fingerprint = JSON.stringify({
+        source: event.source,
+        payload: event.payload,
+        target: event.target || "",
+        via: event.via || "",
+        url: event.url || ""
+      });
+    } catch {
+      fingerprint = "";
+    }
+    if (fingerprint
+      && fingerprint === lastEmitFingerprint
+      && event.ts - lastEmitTs <= DUPLICATE_EMIT_WINDOW_MS) {
       return;
-    lastEmitFingerprint = fingerprint;
+    }
+    if (fingerprint) {
+      lastEmitFingerprint = fingerprint;
+      lastEmitTs = event.ts;
+    }
 
     emitLine(event);
     if (hasActionPayload(normalizedPayload)) {
@@ -1497,8 +1601,11 @@ async function runOnce(cfg) {
 
       if (method === "Network.responseReceived") {
         const requestId = String(params?.requestId || "");
+        if (!requestId)
+          return;
+
         const url = String(params?.response?.url || "");
-        if (!requestId || !isRecommendUrl(url))
+        if (!isRecommendUrl(url))
           return;
 
         cdp.call("Network.getResponseBody", { requestId })
@@ -1586,6 +1693,89 @@ async function runOnce(cfg) {
       }
     })(cdp.onEvent);
 
+    // ── 队列轮询: 定期读取注入代码存入的推荐队列 ──
+    const QUEUE_POLL_MS = 250;
+
+    const queuePollExpression = `
+    (() => {
+      const now = Date.now();
+
+      // 仅在静默阶段 poke，避免同一推荐反复回放
+      const lastPoke = Number(window.__hsLastPokeTs || 0);
+      const lastEmit = Number(window.__hsLastEmitTs || 0);
+      if ((!lastEmit || now - lastEmit >= 1300) && now - lastPoke >= 1200) {
+        window.__hsLastPokeTs = now;
+        const names = [
+          "onUpdateLadderActionRecommend",
+          "onUpdateMulliganRecommend",
+          "onUpdateLadderMulliganRecommend"
+        ];
+        for (const name of names) {
+          try {
+            const fn = window[name];
+            if (typeof fn === "function") fn.call(window);
+          } catch(_){}
+        }
+      }
+
+      // 取走队列数据
+      if (window.__hsRecQueue && window.__hsRecQueue.length > 0) {
+        const items = window.__hsRecQueue.splice(0);
+        return JSON.stringify({ queueItems: items });
+      }
+
+      return JSON.stringify({ skip: true });
+    })()
+    `;
+
+    let pollTimer = null;
+
+    const startPoll = () => {
+      if (pollTimer) return;
+      pollTimer = setInterval(async () => {
+        try {
+          const evalResult = await cdp.call("Runtime.evaluate", {
+            expression: queuePollExpression,
+            returnByValue: true,
+            awaitPromise: false,
+          });
+
+          const raw = evalResult?.result?.value;
+          if (!raw || typeof raw !== "string") return;
+
+          const parsed = JSON.parse(raw);
+          if (parsed.skip) return;
+
+          if (Array.isArray(parsed.queueItems)) {
+            for (const item of parsed.queueItems) {
+              const src = String(item?.source || "queue_recommend");
+              const normalizedPayload = normalizePayloadForSource(src, item?.payload);
+              emitRecommendation(src, normalizedPayload, {
+                target: String(target?.url || ""),
+                via: "direct_queue"
+              });
+            }
+          }
+        } catch (_) {
+          // CDP 连接断开或页面不可用时静默忽略
+        }
+      }, QUEUE_POLL_MS);
+    };
+
+    // CDP 关闭时清理定时器
+    const prevOnClose = cdp.onClose;
+    cdp.onClose = () => {
+      if (pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+      if (typeof prevOnClose === "function") {
+        try { prevOnClose(); } catch { }
+      }
+    };
+
+    startPoll();
+
     process.stderr.write(
       `[hsbox-cdp] attached: ${target.title || "<no-title>"} | ${target.url}\n`
     );
@@ -1593,24 +1783,23 @@ async function runOnce(cfg) {
   };
 
   const sessions = [];
-  // 只保留单会话，避免多个页面推荐流混在一起导致误执行。
+  // 同时 attach 候选页，降低单页 miss 导致的漏采
   for (const target of targets) {
     try {
       const cdp = await attachOneTarget(target);
       sessions.push({ cdp, target });
-      break;
     } catch (err) {
       process.stderr.write(`[hsbox-cdp] attach failed: ${String(err.message || err)} | ${target.url || "<no-url>"}\n`);
     }
   }
 
   if (sessions.length === 0) {
-    if (outStream) outStream.end();
+    // 不再使用持久文件流，无需关闭
     throw new Error("attach failed for all targets");
   }
 
   process.stderr.write(
-    `[hsbox-cdp] waiting data... (prefix ${PREFIX}, sessions=${sessions.length})\n`
+    `[hsbox-cdp] ready (prefix ${PREFIX}, session=1)\n`
   );
 
   // Keep process alive until Ctrl+C or all sockets close.
@@ -1623,7 +1812,7 @@ async function runOnce(cfg) {
       for (const s of sessions) {
         try { s.cdp.close(); } catch { }
       }
-      if (outStream) outStream.end();
+      // 不再使用持久文件流，无需关闭
       resolve(reason);
     };
 

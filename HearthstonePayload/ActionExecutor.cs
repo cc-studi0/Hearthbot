@@ -2045,6 +2045,51 @@ namespace HearthstonePayload
             }
         }
 
+        private static bool IsChoiceModeActive(object gameState)
+        {
+            if (gameState == null)
+                return false;
+
+            if (TryInvokeBoolMethod(gameState, "IsInChoiceMode", out var inChoiceMode))
+                return inChoiceMode;
+
+            var responseMode = Invoke(gameState, "GetResponseMode");
+            return IsChoiceResponseMode(responseMode);
+        }
+
+        private static string GetChoiceModeBySourceTags(object sourceEntity)
+        {
+            if (sourceEntity == null)
+                return "CHOOSE_ONE";
+
+            // 与 HB1.1.8 的判定一致：优先用来源实体标签区分具体选择模式。
+            if (HasSourceEntityTag(sourceEntity, "DISCOVER")) return "DISCOVER";
+            if (HasSourceEntityTag(sourceEntity, "ADAPT")) return "ADAPT";
+            if (HasSourceEntityTag(sourceEntity, "DREDGE")) return "DREDGE";
+            if (HasSourceEntityTag(sourceEntity, "TITAN")) return "TITAN";
+
+            return "CHOOSE_ONE";
+        }
+
+        private static bool HasSourceEntityTag(object sourceEntity, string tagName)
+        {
+            if (sourceEntity == null || string.IsNullOrWhiteSpace(tagName))
+                return false;
+
+            try
+            {
+                var ctx = ReflectionContext.Instance;
+                if (!ctx.Init())
+                    return false;
+
+                return ctx.GetTagValue(sourceEntity, tagName) > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         private static bool TryGetCollectionCount(object collection, out int count)
         {
             count = 0;
@@ -2566,7 +2611,7 @@ namespace HearthstonePayload
 
         /// <summary>
         /// 检测当前是否处于发现/选择状态，返回选项信息
-        /// 格式: originCardId|cardId1,entityId1;cardId2,entityId2;cardId3,entityId3
+        /// 格式: originCardId|cardId1,entityId1;cardId2,entityId2;cardId3,entityId3|choiceMode
         /// </summary>
         public static string GetChoiceState()
         {
@@ -2574,8 +2619,7 @@ namespace HearthstonePayload
             var gs = GetGameState();
             if (gs == null) return null;
 
-            var responseMode = Invoke(gs, "GetResponseMode");
-            if (!IsChoiceResponseMode(responseMode)) return null;
+            if (!IsChoiceModeActive(gs)) return null;
 
             // 排除调度阶段
             if (TryGetMulliganManager() != null)
@@ -2592,15 +2636,17 @@ namespace HearthstonePayload
             var sourceEntityId = GetIntFieldOrProp(choices, "Source");
             if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choices, "m_source");
             string originCardId = "";
+            object sourceEntity = null;
             if (sourceEntityId > 0)
             {
-                var sourceEntity = GetEntity(gs, sourceEntityId);
+                sourceEntity = GetEntity(gs, sourceEntityId);
                 if (sourceEntity != null)
                 {
                     var cardIdObj = Invoke(sourceEntity, "GetCardId") ?? GetFieldOrProp(sourceEntity, "CardId");
                     originCardId = cardIdObj?.ToString() ?? "";
                 }
             }
+            var choiceMode = GetChoiceModeBySourceTags(sourceEntity);
 
             // 获取选项实体列表
             var entities = GetFieldOrProp(choices, "Entities") as IEnumerable;
@@ -2619,7 +2665,7 @@ namespace HearthstonePayload
             }
 
             if (parts.Count == 0) return null;
-            return originCardId + "|" + string.Join(";", parts);
+            return originCardId + "|" + string.Join(";", parts) + "|" + choiceMode;
         }
 
         /// <summary>
@@ -2813,8 +2859,7 @@ namespace HearthstonePayload
             var gs = GetGameState();
             if (gs == null) return false;
 
-            var responseMode = Invoke(gs, "GetResponseMode");
-            if (!IsChoiceResponseMode(responseMode)) return false;
+            if (!IsChoiceModeActive(gs)) return false;
 
             var choices = Invoke(gs, "GetFriendlyEntityChoices");
             if (choices == null) return false;

@@ -18,6 +18,9 @@ namespace BotMain
         private readonly object _diagLock = new();
         private readonly Dictionary<string, DateTime> _diagLastUtc = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _actionContextLock = new();
+        private readonly object _streamLock = new();
+        private readonly Queue<string> _streamLines = new();
+        private const int MaxStreamLines = 6000;
         private DateTime _actionContextStartUtc = DateTime.MinValue;
 
         public TrackerRecommendationBridge(
@@ -78,14 +81,7 @@ namespace BotMain
                 return false;
             }
 
-            if (actions.Count == 1
-                && string.Equals(actions[0], "END_TURN", StringComparison.OrdinalIgnoreCase)
-                && HasLikelyPlayableAction(board))
-            {
-                reason = "end_turn_only_while_actions_available";
-                actions.Clear();
-                return false;
-            }
+            // 完全信任 tracker: tracker 说结束回合就结束，不再检查场面
 
             if (appendEndTurn && !actions.Any(a => a.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)))
                 actions.Add("END_TURN");
@@ -112,6 +108,45 @@ namespace BotMain
                         : turnStartUtc.ToUniversalTime();
                 }
             }
+        }
+
+        public void PushRawLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return;
+
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("{", StringComparison.Ordinal))
+                return;
+
+            lock (_streamLock)
+            {
+                _streamLines.Enqueue(trimmed);
+                while (_streamLines.Count > MaxStreamLines)
+                    _streamLines.Dequeue();
+            }
+        }
+
+        private bool TryGetRecentLines(out List<string> lines, out string reason)
+        {
+            reason = string.Empty;
+            lock (_streamLock)
+            {
+                if (_streamLines.Count > 0)
+                {
+                    lines = _streamLines.ToList();
+                    return true;
+                }
+            }
+
+            lines = new List<string>();
+            if (string.IsNullOrWhiteSpace(_jsonlPath))
+                return true;
+
+            if (!File.Exists(_jsonlPath))
+                return true;
+
+            return TryReadTailLines(_jsonlPath, _maxTailBytes, out lines, out reason);
         }
 
         private static bool HasLikelyPlayableAction(Board board)
@@ -172,11 +207,11 @@ namespace BotMain
         public bool TryClearBuffer(out string reason)
         {
             reason = string.Empty;
+            lock (_streamLock)
+                _streamLines.Clear();
+
             if (string.IsNullOrWhiteSpace(_jsonlPath))
-            {
-                reason = "jsonl path empty";
-                return false;
-            }
+                return true;
 
             try
             {
@@ -211,19 +246,7 @@ namespace BotMain
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(_jsonlPath))
-            {
-                reason = "jsonl path empty";
-                return false;
-            }
-
-            if (!File.Exists(_jsonlPath))
-            {
-                reason = $"jsonl not found: {_jsonlPath}";
-                return false;
-            }
-
-            if (!TryReadTailLines(_jsonlPath, _maxTailBytes, out var lines, out reason))
+            if (!TryGetRecentLines(out var lines, out reason))
                 return false;
 
             if (lines.Count == 0)
@@ -428,19 +451,7 @@ namespace BotMain
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(_jsonlPath))
-            {
-                reason = "jsonl path empty";
-                return false;
-            }
-
-            if (!File.Exists(_jsonlPath))
-            {
-                reason = $"jsonl not found: {_jsonlPath}";
-                return false;
-            }
-
-            if (!TryReadTailLines(_jsonlPath, _maxTailBytes, out var lines, out reason))
+            if (!TryGetRecentLines(out var lines, out reason))
                 return false;
 
             if (lines.Count == 0)
@@ -779,21 +790,7 @@ namespace BotMain
             recommendation = null;
             reason = string.Empty;
 
-            if (string.IsNullOrWhiteSpace(_jsonlPath))
-            {
-                reason = "jsonl path empty";
-                EmitDiag("action_drop", $"action.drop reason={reason}");
-                return false;
-            }
-
-            if (!File.Exists(_jsonlPath))
-            {
-                reason = $"jsonl not found: {_jsonlPath}";
-                EmitDiag("action_drop", $"action.drop reason={SanitizeDiag(reason)}");
-                return false;
-            }
-
-            if (!TryReadTailLines(_jsonlPath, _maxTailBytes, out var lines, out reason))
+            if (!TryGetRecentLines(out var lines, out reason))
             {
                 EmitDiag("action_drop", $"action.drop reason=read_tail_failed, detail={SanitizeDiag(reason)}");
                 return false;
@@ -964,7 +961,9 @@ namespace BotMain
             return source.IndexOf("recommend", StringComparison.OrdinalIgnoreCase) >= 0
                 || source.IndexOf("ladder", StringComparison.OrdinalIgnoreCase) >= 0
                 || source.IndexOf("action", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("poll", StringComparison.OrdinalIgnoreCase) >= 0;
+                || source.IndexOf("poll", StringComparison.OrdinalIgnoreCase) >= 0
+                || source.IndexOf("network", StringComparison.OrdinalIgnoreCase) >= 0
+                || source.IndexOf("dom", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool TryReadTailLines(string path, int maxTailBytes, out List<string> lines, out string reason)
