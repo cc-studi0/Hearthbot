@@ -9,27 +9,43 @@ using SmartBot.Plugins.API;
 
 namespace BotMain
 {
+    internal enum TrackerRecommendSourceMode
+    {
+        PrimaryHookOnly = 0,
+        FallbackNetworkOnly = 1
+    }
+
     internal sealed class TrackerRecommendationBridge
     {
         private readonly string _jsonlPath;
+        private readonly string _acceptedActionMirrorPath;
         private readonly int _maxTailBytes;
         private readonly TimeSpan _maxActionRecommendationAge;
         private readonly Action<string> _diagLog;
         private readonly object _diagLock = new();
         private readonly Dictionary<string, DateTime> _diagLastUtc = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _actionContextLock = new();
+        private readonly object _actionSelectionLock = new();
         private readonly object _streamLock = new();
+        private readonly object _mirrorLock = new();
         private readonly Queue<string> _streamLines = new();
         private const int MaxStreamLines = 6000;
         private DateTime _actionContextStartUtc = DateTime.MinValue;
+        private TrackerRecommendation _lastBuiltActionRecommendation;
+        private long _lastConsumedActionCaptureSequence = long.MinValue;
+        private DateTime _lastConsumedActionTimestampUtc = DateTime.MinValue;
+        private string _lastConsumedActionFingerprint = string.Empty;
+        private TrackerRecommendSourceMode _sourceMode = TrackerRecommendSourceMode.PrimaryHookOnly;
 
         public TrackerRecommendationBridge(
             string jsonlPath,
+            string acceptedActionMirrorPath = "",
             int maxTailBytes = 2 * 1024 * 1024,
             TimeSpan? maxAge = null,
             Action<string> diagLog = null)
         {
             _jsonlPath = jsonlPath ?? string.Empty;
+            _acceptedActionMirrorPath = acceptedActionMirrorPath ?? string.Empty;
             _maxTailBytes = maxTailBytes > 0 ? maxTailBytes : 2 * 1024 * 1024;
             var configuredAge = maxAge ?? TimeSpan.FromSeconds(25);
             _maxActionRecommendationAge = configuredAge > TimeSpan.Zero
@@ -38,10 +54,22 @@ namespace BotMain
             _diagLog = diagLog;
         }
 
-        public bool TryBuildActions(Board board, out List<string> actions, out string reason, bool appendEndTurn = true)
+        public void SetSourceMode(TrackerRecommendSourceMode mode)
+        {
+            _sourceMode = mode;
+            EmitDiag("action_mode", $"action.mode mode={mode}", minIntervalMs: 50);
+        }
+
+        public bool TryBuildActions(
+            Board board,
+            out List<string> actions,
+            out string reason,
+            out string recommendationKey,
+            bool appendEndTurn = true)
         {
             actions = new List<string>();
             reason = string.Empty;
+            recommendationKey = string.Empty;
 
             if (board == null)
             {
@@ -49,7 +77,7 @@ namespace BotMain
                 return false;
             }
 
-            if (!TryGetLatestRecommendation(out var recommendation, out reason))
+            if (!TryGetLatestRecommendation(out var recommendation, out reason, out recommendationKey))
                 return false;
 
             for (int i = 0; i < recommendation.Actions.Count; i++)
@@ -89,7 +117,7 @@ namespace BotMain
             var ts = recommendation.TimestampUtc == DateTime.MinValue
                 ? "unknown"
                 : recommendation.TimestampUtc.ToLocalTime().ToString("HH:mm:ss", CultureInfo.InvariantCulture);
-            reason = $"source={recommendation.Source}, ts={ts}, actions={actions.Count}";
+            reason = $"source={recommendation.Source}, tier={recommendation.SourceTier}, seq={recommendation.CaptureSequence}, ts={ts}, actions={actions.Count}";
             return true;
         }
 
@@ -108,6 +136,8 @@ namespace BotMain
                         : turnStartUtc.ToUniversalTime();
                 }
             }
+
+            ResetActionRecommendationState();
         }
 
         public void PushRawLine(string line)
@@ -125,6 +155,8 @@ namespace BotMain
                 while (_streamLines.Count > MaxStreamLines)
                     _streamLines.Dequeue();
             }
+
+            TryMirrorAcceptedActionLine(trimmed);
         }
 
         private bool TryGetRecentLines(out List<string> lines, out string reason)
@@ -209,23 +241,89 @@ namespace BotMain
             reason = string.Empty;
             lock (_streamLock)
                 _streamLines.Clear();
-
-            if (string.IsNullOrWhiteSpace(_jsonlPath))
-                return true;
+            ResetActionRecommendationState();
 
             try
             {
-                // 删除后重建而非截断。Windows 上截断已被 Node.js 以 append 模式
-                // 打开的文件，可能导致后续写入偏移量错位，产生空字节前导导致 JSON 解析失败。
-                if (File.Exists(_jsonlPath))
-                    File.Delete(_jsonlPath);
-                File.WriteAllText(_jsonlPath, string.Empty);
+                ClearFileIfConfigured(_jsonlPath);
+                if (!string.Equals(_acceptedActionMirrorPath, _jsonlPath, StringComparison.OrdinalIgnoreCase))
+                    ClearFileIfConfigured(_acceptedActionMirrorPath);
                 return true;
             }
             catch (Exception ex)
             {
                 reason = ex.Message;
                 return false;
+            }
+        }
+
+        public void MarkLastBuiltRecommendationConsumed(string executedAction)
+        {
+            TrackerRecommendation recommendation;
+            lock (_actionSelectionLock)
+            {
+                recommendation = _lastBuiltActionRecommendation;
+                if (recommendation == null)
+                    return;
+
+                _lastConsumedActionCaptureSequence = Math.Max(
+                    _lastConsumedActionCaptureSequence,
+                    recommendation.CaptureSequence);
+
+                if (recommendation.TimestampUtc != DateTime.MinValue
+                    && recommendation.TimestampUtc > _lastConsumedActionTimestampUtc)
+                {
+                    _lastConsumedActionTimestampUtc = recommendation.TimestampUtc;
+                }
+
+                if (!string.IsNullOrWhiteSpace(recommendation.Fingerprint))
+                    _lastConsumedActionFingerprint = recommendation.Fingerprint;
+
+                _lastBuiltActionRecommendation = null;
+            }
+
+            EmitDiag(
+                "action_consume",
+                $"action.consume action={SanitizeDiag(executedAction)}, source={SanitizeDiag(recommendation.Source)}, tier={recommendation.SourceTier}, seq={recommendation.CaptureSequence}, key={SanitizeDiag(recommendation.RecommendationKey)}",
+                minIntervalMs: 50);
+        }
+
+        internal bool TryPeekLatestRecommendationForTests(
+            out string recommendationKey,
+            out string source,
+            out int sourceTier,
+            out long captureSequence,
+            out string fingerprint,
+            out int actionCount,
+            out string reason)
+        {
+            recommendationKey = string.Empty;
+            source = string.Empty;
+            sourceTier = 0;
+            captureSequence = 0;
+            fingerprint = string.Empty;
+            actionCount = 0;
+            reason = string.Empty;
+
+            if (!TryGetLatestRecommendation(out var recommendation, out reason, out recommendationKey))
+                return false;
+
+            source = recommendation.Source;
+            sourceTier = recommendation.SourceTier;
+            captureSequence = recommendation.CaptureSequence;
+            fingerprint = recommendation.Fingerprint;
+            actionCount = recommendation.Actions?.Count ?? 0;
+            return true;
+        }
+
+        private void ResetActionRecommendationState()
+        {
+            lock (_actionSelectionLock)
+            {
+                _lastBuiltActionRecommendation = null;
+                _lastConsumedActionCaptureSequence = long.MinValue;
+                _lastConsumedActionTimestampUtc = DateTime.MinValue;
+                _lastConsumedActionFingerprint = string.Empty;
             }
         }
 
@@ -785,10 +883,14 @@ namespace BotMain
             return false;
         }
 
-        private bool TryGetLatestRecommendation(out TrackerRecommendation recommendation, out string reason)
+        private bool TryGetLatestRecommendation(
+            out TrackerRecommendation recommendation,
+            out string reason,
+            out string recommendationKey)
         {
             recommendation = null;
             reason = string.Empty;
+            recommendationKey = string.Empty;
 
             if (!TryGetRecentLines(out var lines, out reason))
             {
@@ -803,7 +905,6 @@ namespace BotMain
                 return false;
             }
 
-            TrackerRecommendation latestFallback = null;
             DateTime lastParsedTs = DateTime.MinValue;
             string lastParsedSource = string.Empty;
             bool hasStaleRecommendation = false;
@@ -811,8 +912,12 @@ namespace BotMain
             int parseFail = 0;
             int staleCount = 0;
             int contextDropCount = 0;
-            int fallbackFreshCount = 0;
+            int consumedDropCount = 0;
+            int sourceModeDropCount = 0;
+            int candidateCount = 0;
             string parseFailSample = string.Empty;
+            string lastModeDropSource = string.Empty;
+            TrackerRecommendation bestCandidate = null;
 
             for (int i = lines.Count - 1; i >= 0; i--)
             {
@@ -828,6 +933,14 @@ namespace BotMain
                 lastParsedTs = parsed.TimestampUtc;
                 lastParsedSource = parsed.Source;
 
+                if (!IsSourceAllowedForCurrentMode(parsed.Source))
+                {
+                    sourceModeDropCount++;
+                    if (string.IsNullOrWhiteSpace(lastModeDropSource))
+                        lastModeDropSource = parsed.Source;
+                    continue;
+                }
+
                 if (!IsFreshForAction(parsed.TimestampUtc, _maxActionRecommendationAge))
                 {
                     hasStaleRecommendation = true;
@@ -841,50 +954,135 @@ namespace BotMain
                     continue;
                 }
 
-                // 不考虑“已消费”状态，始终跟随最新推荐。
-                if (IsPreferredActionSource(parsed.Source))
+                if (IsConsumedActionRecommendation(parsed))
                 {
-                    recommendation = parsed;
-                    reason = $"source={parsed.Source}";
-                    EmitDiag("action_pick",
-                        $"action.pick result=preferred, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(parsed.Source)}, tsUtc={FormatDiagUtc(parsed.TimestampUtc)}, ageMs={FormatAgeMs(parsed.TimestampUtc)}");
-                    return true;
+                    consumedDropCount++;
+                    continue;
                 }
 
-                latestFallback ??= parsed;
-                fallbackFreshCount++;
+                candidateCount++;
+                if (CompareActionRecommendations(parsed, bestCandidate) > 0)
+                    bestCandidate = parsed;
             }
 
-            recommendation = latestFallback;
+            recommendation = bestCandidate;
             if (recommendation != null)
             {
-                reason = $"source={recommendation.Source}";
+                recommendationKey = recommendation.RecommendationKey;
+                lock (_actionSelectionLock)
+                    _lastBuiltActionRecommendation = recommendation;
+
+                reason = $"source={recommendation.Source}, tier={recommendation.SourceTier}, seq={recommendation.CaptureSequence}";
                 EmitDiag("action_pick",
-                    $"action.pick result=fallback, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, source={SanitizeDiag(recommendation.Source)}, tsUtc={FormatDiagUtc(recommendation.TimestampUtc)}, ageMs={FormatAgeMs(recommendation.TimestampUtc)}");
+                    $"action.pick result=ok, mode={GetSourceMode()}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, sourceDrop={sourceModeDropCount}, stale={staleCount}, contextDrop={contextDropCount}, consumedDrop={consumedDropCount}, candidates={candidateCount}, source={SanitizeDiag(recommendation.Source)}, tier={recommendation.SourceTier}, realtime={recommendation.IsRealtime}, structured={recommendation.HasStructuredActionPayload}, seq={recommendation.CaptureSequence}, tsUtc={FormatDiagUtc(recommendation.TimestampUtc)}, ageMs={FormatAgeMs(recommendation.TimestampUtc)}, key={SanitizeDiag(recommendation.RecommendationKey)}");
                 return true;
             }
 
             if (hasStaleRecommendation)
             {
-                reason = $"no fresh/valid recommendation (maxAgeMs={_maxActionRecommendationAge.TotalMilliseconds:0})";
+                reason = $"no fresh/valid recommendation (mode={GetSourceMode()}, maxAgeMs={_maxActionRecommendationAge.TotalMilliseconds:0})";
                 EmitDiag("action_drop",
-                    $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
+                    $"action.drop reason={SanitizeDiag(reason)}, mode={GetSourceMode()}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, sourceDrop={sourceModeDropCount}, sourceDropSample={SanitizeDiag(lastModeDropSource)}, stale={staleCount}, contextDrop={contextDropCount}, consumedDrop={consumedDropCount}, candidates={candidateCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
                 return false;
             }
 
             if (lastParsedTs != DateTime.MinValue)
             {
                 var ageMs = Math.Max(0, (DateTime.UtcNow - lastParsedTs).TotalMilliseconds);
-                reason = $"no valid recommendation (lastSource={lastParsedSource}, ageMs={ageMs:0})";
+                if (sourceModeDropCount > 0 && candidateCount == 0)
+                    reason = $"no recommendation for mode={GetSourceMode()} (lastSource={lastParsedSource}, sourceDrop={sourceModeDropCount}, ageMs={ageMs:0})";
+                else
+                    reason = $"no valid recommendation (mode={GetSourceMode()}, lastSource={lastParsedSource}, ageMs={ageMs:0})";
             }
             else
             {
-                reason = "no valid recommendation";
+                reason = $"no valid recommendation (mode={GetSourceMode()})";
             }
             EmitDiag("action_drop",
-                $"action.drop reason={SanitizeDiag(reason)}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, stale={staleCount}, contextDrop={contextDropCount}, fallbackFresh={fallbackFreshCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
+                $"action.drop reason={SanitizeDiag(reason)}, mode={GetSourceMode()}, lines={lines.Count}, parseOk={parseOk}, parseFail={parseFail}, sourceDrop={sourceModeDropCount}, sourceDropSample={SanitizeDiag(lastModeDropSource)}, stale={staleCount}, contextDrop={contextDropCount}, consumedDrop={consumedDropCount}, candidates={candidateCount}, lastSource={SanitizeDiag(lastParsedSource)}, lastTsUtc={FormatDiagUtc(lastParsedTs)}, lastAgeMs={FormatAgeMs(lastParsedTs)}, parseFailSample={SanitizeDiag(parseFailSample)}");
             return false;
         }
+
+        private bool IsConsumedActionRecommendation(TrackerRecommendation recommendation)
+        {
+            if (recommendation == null)
+                return false;
+
+            long consumedSequence;
+            DateTime consumedTimestampUtc;
+            string consumedFingerprint;
+            lock (_actionSelectionLock)
+            {
+                consumedSequence = _lastConsumedActionCaptureSequence;
+                consumedTimestampUtc = _lastConsumedActionTimestampUtc;
+                consumedFingerprint = _lastConsumedActionFingerprint;
+            }
+
+            if (recommendation.CaptureSequence > 0
+                && consumedSequence > long.MinValue
+                && recommendation.CaptureSequence <= consumedSequence)
+            {
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(consumedFingerprint)
+                && string.Equals(recommendation.Fingerprint, consumedFingerprint, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            if (recommendation.CaptureSequence <= 0
+                && consumedTimestampUtc != DateTime.MinValue
+                && recommendation.TimestampUtc != DateTime.MinValue
+                && recommendation.TimestampUtc <= consumedTimestampUtc)
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int CompareActionRecommendations(TrackerRecommendation left, TrackerRecommendation right)
+        {
+            if (ReferenceEquals(left, right))
+                return 0;
+            if (left == null)
+                return -1;
+            if (right == null)
+                return 1;
+
+            int result = left.SourceTier.CompareTo(right.SourceTier);
+            if (result != 0)
+                return result;
+
+            result = BoolToInt(left.IsRealtime).CompareTo(BoolToInt(right.IsRealtime));
+            if (result != 0)
+                return result;
+
+            result = BoolToInt(left.HasStructuredActionPayload).CompareTo(BoolToInt(right.HasStructuredActionPayload));
+            if (result != 0)
+                return result;
+
+            result = BoolToInt(!left.IsFallbackOnly).CompareTo(BoolToInt(!right.IsFallbackOnly));
+            if (result != 0)
+                return result;
+
+            result = left.CaptureSequence.CompareTo(right.CaptureSequence);
+            if (result != 0)
+                return result;
+
+            result = left.TimestampUtc.CompareTo(right.TimestampUtc);
+            if (result != 0)
+                return result;
+
+            result = (left.Actions?.Count ?? 0).CompareTo(right.Actions?.Count ?? 0);
+            if (result != 0)
+                return result;
+
+            return string.Compare(left.RecommendationKey, right.RecommendationKey, StringComparison.Ordinal);
+        }
+
+        private static int BoolToInt(bool value) => value ? 1 : 0;
 
         private bool IsInCurrentActionContext(DateTime timestampUtc)
         {
@@ -950,20 +1148,139 @@ namespace BotMain
             return ageMs.ToString("0", CultureInfo.InvariantCulture);
         }
 
-        private static bool IsPreferredActionSource(string source)
+        private TrackerRecommendSourceMode GetSourceMode() => _sourceMode;
+
+        private bool IsSourceAllowedForCurrentMode(string source)
         {
-            if (string.IsNullOrWhiteSpace(source))
-                return false;
+            switch (GetSourceMode())
+            {
+                case TrackerRecommendSourceMode.FallbackNetworkOnly:
+                    return string.Equals(source, "network_ws", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(source, "network_response", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(source, "dom_recommend", StringComparison.OrdinalIgnoreCase);
 
-            if (string.Equals(source, "highLightAction", StringComparison.OrdinalIgnoreCase))
-                return false;
+                case TrackerRecommendSourceMode.PrimaryHookOnly:
+                default:
+                    return string.Equals(source, "onUpdateLadderActionRecommend", StringComparison.OrdinalIgnoreCase);
+            }
+        }
 
-            return source.IndexOf("recommend", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("ladder", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("action", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("poll", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("network", StringComparison.OrdinalIgnoreCase) >= 0
-                || source.IndexOf("dom", StringComparison.OrdinalIgnoreCase) >= 0;
+        private void TryMirrorAcceptedActionLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(_acceptedActionMirrorPath))
+                return;
+
+            if (!TryParseLine(line, out var recommendation, out _)
+                || recommendation == null
+                || recommendation.Actions == null
+                || recommendation.Actions.Count == 0
+                || !IsSourceAllowedForCurrentMode(recommendation.Source))
+            {
+                return;
+            }
+
+            try
+            {
+                lock (_mirrorLock)
+                {
+                    File.AppendAllText(_acceptedActionMirrorPath, line + Environment.NewLine);
+                }
+            }
+            catch (Exception ex)
+            {
+                EmitDiag("mirror_append_fail", $"action.mirror status=fail, detail={SanitizeDiag(ex.Message)}", minIntervalMs: 1000);
+            }
+        }
+
+        private static void ClearFileIfConfigured(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            var dir = Path.GetDirectoryName(path);
+            if (!string.IsNullOrWhiteSpace(dir))
+                Directory.CreateDirectory(dir);
+
+            if (File.Exists(path))
+                File.Delete(path);
+            File.WriteAllText(path, string.Empty);
+        }
+
+        private static TrackerSourceMeta ClassifyActionSource(
+            string source,
+            JsonElement root,
+            bool hasStructuredActionPayload,
+            bool isFallbackOnly)
+        {
+            source ??= string.Empty;
+            var via = ReadString(root, "via");
+            var isDirectQueue = string.Equals(via, "direct_queue", StringComparison.OrdinalIgnoreCase);
+
+            if (isFallbackOnly || string.Equals(source, "highLightAction", StringComparison.OrdinalIgnoreCase))
+                return new TrackerSourceMeta(40, false, via);
+
+            if (isDirectQueue)
+                return new TrackerSourceMeta(460, true, via);
+
+            if (source.StartsWith("onUpdate", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source, "queue_recommend", StringComparison.OrdinalIgnoreCase))
+            {
+                return new TrackerSourceMeta(420, true, via);
+            }
+
+            if (string.Equals(source, "pollRecommend", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source, "fetch_recommend", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source, "xhr_recommend", StringComparison.OrdinalIgnoreCase))
+            {
+                return new TrackerSourceMeta(300, false, via);
+            }
+
+            if (string.Equals(source, "network_ws", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source, "network_response", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(source, "dom_recommend", StringComparison.OrdinalIgnoreCase))
+            {
+                return new TrackerSourceMeta(220, false, via);
+            }
+
+            if (hasStructuredActionPayload)
+                return new TrackerSourceMeta(140, false, via);
+
+            return new TrackerSourceMeta(60, false, via);
+        }
+
+        private static string BuildActionFingerprint(IReadOnlyList<TrackerAction> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return "no_actions";
+
+            return string.Join(">",
+                actions.Take(12).Select(action =>
+                    string.Join(":",
+                        NormalizeToken(action.ActionName),
+                        FormatCardRefFingerprint(action.Card),
+                        FormatCardRefFingerprint(action.Target),
+                        FormatCardRefFingerprint(action.OppTarget),
+                        FormatCardRefFingerprint(action.SubOption),
+                        action.TargetHero ? "th1" : "th0",
+                        action.OppTargetHero ? "oh1" : "oh0",
+                        action.Position.ToString(CultureInfo.InvariantCulture))));
+        }
+
+        private static string FormatCardRefFingerprint(TrackerCardRef cardRef)
+        {
+            var cardId = NormalizeCardIdOrSelf(cardRef.CardId);
+            if (string.IsNullOrWhiteSpace(cardId))
+                cardId = "-";
+
+            return $"{cardId}@{cardRef.ZonePosition.ToString(CultureInfo.InvariantCulture)}/{cardRef.Position.ToString(CultureInfo.InvariantCulture)}";
+        }
+
+        private static string NormalizeToken(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "-";
+
+            return raw.Trim().ToLowerInvariant();
         }
 
         private static bool TryReadTailLines(string path, int maxTailBytes, out List<string> lines, out string reason)
@@ -1037,8 +1354,11 @@ namespace BotMain
                     payload = payloadValue;
 
                 List<TrackerAction> actions;
+                bool hasStructuredActionPayload = false;
+                bool isFallbackOnly = false;
                 if (TryExtractActionArray(payload, out var actionArray, out reason))
                 {
+                    hasStructuredActionPayload = true;
                     if (!TryParseActions(actionArray, out actions, out reason))
                         return false;
                 }
@@ -1046,13 +1366,30 @@ namespace BotMain
                 {
                     if (!TryBuildFallbackActionsFromHighlight(source, payload, out actions, out reason))
                         return false;
+                    isFallbackOnly = true;
                 }
+
+                var sourceMeta = ClassifyActionSource(source, root, hasStructuredActionPayload, isFallbackOnly);
+                var captureSequence = ReadLong(root, "captureSeq", "capture_seq", "seq", "eventSeq", "event_seq");
+                if (captureSequence <= 0 && ts != DateTime.MinValue)
+                    captureSequence = new DateTimeOffset(ts).ToUnixTimeMilliseconds();
+
+                var fingerprint = ReadString(root, "fingerprint", "actionFingerprint", "payloadFingerprint");
+                if (string.IsNullOrWhiteSpace(fingerprint))
+                    fingerprint = BuildActionFingerprint(actions);
 
                 recommendation = new TrackerRecommendation
                 {
                     Source = source,
                     TimestampUtc = ts,
-                    Actions = actions
+                    Actions = actions,
+                    SourceTier = sourceMeta.SourceTier,
+                    IsRealtime = sourceMeta.IsRealtime,
+                    Via = sourceMeta.Via,
+                    CaptureSequence = captureSequence,
+                    Fingerprint = fingerprint,
+                    HasStructuredActionPayload = hasStructuredActionPayload,
+                    IsFallbackOnly = isFallbackOnly
                 };
                 return true;
             }
@@ -2196,6 +2533,20 @@ namespace BotMain
             return 0;
         }
 
+        private static long ReadLong(JsonElement obj, params string[] names)
+        {
+            foreach (var name in names)
+            {
+                if (!TryGetPropertyInsensitive(obj, name, out var value))
+                    continue;
+
+                if (TryReadInt64(value, out var longValue))
+                    return longValue;
+            }
+
+            return 0;
+        }
+
         private static bool ReadBool(JsonElement obj, params string[] names)
         {
             foreach (var name in names)
@@ -2309,6 +2660,28 @@ namespace BotMain
             public string Source { get; set; } = string.Empty;
             public DateTime TimestampUtc { get; set; } = DateTime.MinValue;
             public List<TrackerAction> Actions { get; set; } = new();
+            public int SourceTier { get; set; }
+            public bool IsRealtime { get; set; }
+            public string Via { get; set; } = string.Empty;
+            public long CaptureSequence { get; set; }
+            public string Fingerprint { get; set; } = string.Empty;
+            public bool HasStructuredActionPayload { get; set; }
+            public bool IsFallbackOnly { get; set; }
+            public string RecommendationKey => $"{SourceTier.ToString(CultureInfo.InvariantCulture)}|{CaptureSequence.ToString(CultureInfo.InvariantCulture)}|{Fingerprint}";
+        }
+
+        private readonly struct TrackerSourceMeta
+        {
+            public TrackerSourceMeta(int sourceTier, bool isRealtime, string via)
+            {
+                SourceTier = sourceTier;
+                IsRealtime = isRealtime;
+                Via = via ?? string.Empty;
+            }
+
+            public int SourceTier { get; }
+            public bool IsRealtime { get; }
+            public string Via { get; }
         }
 
         private struct TrackerAction

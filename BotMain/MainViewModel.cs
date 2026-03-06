@@ -135,7 +135,7 @@ namespace BotMain
 
         // 设置
         private bool _coachMode, _overlayMode, _autoConcede, _concedeWhenLethal, _followTrackerRecommendA, _trackerDiagVerbose = true, _fpsLock;
-        private int _fpsValue = 30, _modeIndex;
+        private int _fpsValue = 30, _modeIndex, _trackerRecommendSourceModeIndex;
         public bool CoachMode { get => _coachMode; set { _coachMode = value; AutoSave(); } }
         public bool OverlayMode { get => _overlayMode; set { _overlayMode = value; AutoSave(); } }
         public bool AutoConcede { get => _autoConcede; set { _autoConcede = value; AutoSave(); } }
@@ -168,6 +168,19 @@ namespace BotMain
             {
                 _trackerDiagVerbose = value;
                 _bot.SetTrackerDiagVerbose(value);
+                Notify();
+                AutoSave();
+            }
+        }
+        public int TrackerRecommendSourceModeIndex
+        {
+            get => _trackerRecommendSourceModeIndex;
+            set
+            {
+                _trackerRecommendSourceModeIndex = value == (int)TrackerRecommendSourceMode.FallbackNetworkOnly
+                    ? (int)TrackerRecommendSourceMode.FallbackNetworkOnly
+                    : (int)TrackerRecommendSourceMode.PrimaryHookOnly;
+                _bot.SetTrackerRecommendSourceMode((TrackerRecommendSourceMode)_trackerRecommendSourceModeIndex);
                 Notify();
                 AutoSave();
             }
@@ -373,6 +386,7 @@ namespace BotMain
                 dict["ConcedeWhenLethal"] = JsonSerializer.SerializeToElement(ConcedeWhenLethal);
                 dict["FollowTrackerRecommendA"] = JsonSerializer.SerializeToElement(FollowTrackerRecommendA);
                 dict["TrackerDiagVerbose"] = JsonSerializer.SerializeToElement(TrackerDiagVerbose);
+                dict["TrackerRecommendSourceModeIndex"] = JsonSerializer.SerializeToElement(TrackerRecommendSourceModeIndex);
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
@@ -412,6 +426,7 @@ namespace BotMain
                         if (dict.TryGetValue("ConcedeWhenLethal", out v)) ConcedeWhenLethal = v.GetBoolean();
                         if (dict.TryGetValue("FollowTrackerRecommendA", out v)) FollowTrackerRecommendA = v.GetBoolean();
                         if (dict.TryGetValue("TrackerDiagVerbose", out v)) TrackerDiagVerbose = v.GetBoolean();
+                        if (dict.TryGetValue("TrackerRecommendSourceModeIndex", out v)) TrackerRecommendSourceModeIndex = v.GetInt32();
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();

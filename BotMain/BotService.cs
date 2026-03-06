@@ -33,6 +33,7 @@ namespace BotMain
         private const int EndTurnPostWaitGetSeedTimeoutMs = 500;
         private const int TrackerCdpPort = 9222;
         private const bool TrackerUseInMemoryBridge = true;
+        private const bool TrackerMirrorAcceptedRecommendationsToJsonl = true;
         private const int TrackerRestartCooldownSeconds = 8;
         private const int TrackerHsBoxEnsureCooldownSeconds = 15;
         private const int TrackerNoDataRestartStreakThreshold = 4;
@@ -127,6 +128,7 @@ namespace BotMain
         private bool _concedeWhenLethal;
         private bool _followTrackerRecommendA;
         private bool _trackerDiagVerbose = true;
+        private TrackerRecommendSourceMode _trackerRecommendSourceMode = TrackerRecommendSourceMode.PrimaryHookOnly;
         private bool _thinkingRoutineEnabled;
         private bool _hoverRoutineEnabled;
         private int _latencySamplingRate = 20000;
@@ -441,6 +443,21 @@ namespace BotMain
         public void SetAutoConcedeMaxRank(int v) { _autoConcedeMaxRank = v; Log($"[Settings] AutoConcedeMaxRank={v}"); }
         public void SetConcedeWhenLethal(bool v) { _concedeWhenLethal = v; Log($"[Settings] ConcedeWhenLethal={v}"); }
         public void SetTrackerDiagVerbose(bool v) { _trackerDiagVerbose = v; Log($"[Settings] TrackerDiagVerbose={v}"); }
+        public void SetTrackerRecommendSourceMode(TrackerRecommendSourceMode mode)
+        {
+            _trackerRecommendSourceMode = mode;
+            _trackerNoDataStreak = 0;
+            EnsureTrackerPathsInitialized();
+            _trackerRecommendationBridge?.SetSourceMode(mode);
+            Log($"[Settings] TrackerRecommendSourceMode={mode}");
+
+            if (_followTrackerRecommendA)
+            {
+                TryClearTrackerRecommendationBuffer("source_mode_changed");
+                _trackerRecommendationBridge?.BeginTurnContext(DateTime.UtcNow.AddSeconds(-30));
+                TryEnsureTrackerCaptureProcessRunning();
+            }
+        }
         public void SetFollowTrackerRecommendA(bool v)
         {
             _followTrackerRecommendA = v;
@@ -450,6 +467,7 @@ namespace BotMain
             {
                 StopTrackerCaptureProcess("setting_enabled_refresh");
                 EnsureTrackerPathsInitialized();
+                _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
                 TryClearTrackerRecommendationBuffer("setting_enabled");
                 _trackerRecommendationBridge?.BeginTurnContext(DateTime.UtcNow.AddSeconds(-30));
                 TryEnsureTrackerCaptureProcessRunning();
@@ -584,10 +602,14 @@ namespace BotMain
             if (!string.Equals(_trackerRecommendJsonlPath, trackerPath, StringComparison.OrdinalIgnoreCase))
             {
                 _trackerRecommendJsonlPath = trackerPath;
-                _trackerRecommendationBridge = new TrackerRecommendationBridge(
-                    TrackerUseInMemoryBridge ? string.Empty : _trackerRecommendJsonlPath,
-                    diagLog: LogTrackerBridgeDiag);
+                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
             }
+            else if (_trackerRecommendationBridge == null)
+            {
+                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
+            }
+
+            _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
 
             if (_followTrackerRecommendA)
                 TryEnsureTrackerCaptureProcessRunning();
@@ -1056,19 +1078,21 @@ namespace BotMain
                 AIDecisionPlan decision = null;
                 List<string> actions = null;
                 string trackerReason = string.Empty;
+                string trackerRecommendationKey = string.Empty;
 
                 if (_followTrackerRecommendA)
                 {
                     LogTrackerDiag(
-                        $"action.request turn={lastTurnNumber}, contextStartUtc={FormatTrackerDiagUtc(trackerTurnContextStartUtc)}");
+                        $"action.request turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, contextStartUtc={FormatTrackerDiagUtc(trackerTurnContextStartUtc)}");
 
-                    if (TryBuildTrackerActionsWithRetry(planningBoard, out var trackerActions, out var bridgeReason))
+                    if (TryBuildTrackerActionsWithRetry(planningBoard, out var trackerActions, out var bridgeReason, out var bridgeRecommendationKey))
                     {
                         trackerReason = bridgeReason;
+                        trackerRecommendationKey = bridgeRecommendationKey;
                         _trackerNoDataStreak = 0;
                         actions = trackerActions;
                         LogTrackerDiag(
-                            $"action.result status=ok, turn={lastTurnNumber}, attempts={ExtractAttemptsFromReason(trackerReason)}, actions={actions.Count}, reason={SanitizeTrackerDiag(trackerReason)}");
+                            $"action.result status=ok, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, attempts={ExtractAttemptsFromReason(trackerReason)}, actions={actions.Count}, key={SanitizeTrackerDiag(trackerRecommendationKey)}, reason={SanitizeTrackerDiag(trackerReason)}");
                         Log($"[TrackerMode] {trackerReason}");
                         LogTrackerActionsReadable(planningBoard, actions);
                     }
@@ -1076,7 +1100,7 @@ namespace BotMain
                     {
                         trackerReason = bridgeReason;
                         LogTrackerDiag(
-                            $"action.result status=miss, turn={lastTurnNumber}, attempts={ExtractAttemptsFromReason(trackerReason)}, reason={SanitizeTrackerDiag(trackerReason)}, noDataStreak={_trackerNoDataStreak + 1}");
+                            $"action.result status=miss, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, attempts={ExtractAttemptsFromReason(trackerReason)}, reason={SanitizeTrackerDiag(trackerReason)}, noDataStreak={_trackerNoDataStreak + 1}");
                         if (IsTrackerNoDataReason(trackerReason))
                         {
                             _trackerNoDataStreak++;
@@ -1091,7 +1115,7 @@ namespace BotMain
 
                         _trackerNoDataStreak = 0;
                         LogTrackerDiag(
-                            $"action.result status=skip_wait_next, turn={lastTurnNumber}, reason={SanitizeTrackerDiag(trackerReason)}");
+                            $"action.result status=skip_wait_next, turn={lastTurnNumber}, mode={_trackerRecommendSourceMode}, reason={SanitizeTrackerDiag(trackerReason)}");
                         Log($"[TrackerMode] recommendation unavailable, skip local fallback and wait next tracker update ({trackerReason})");
                         Thread.Sleep(TrackerActionFailDelayMs);
                         continue;
@@ -1114,7 +1138,7 @@ namespace BotMain
                 }
 
                 if (_followTrackerRecommendA
-                    && ShouldSkipBlockedTrackerDecision(actions, trackerReason, out var skipReason))
+                    && ShouldSkipBlockedTrackerDecision(actions, trackerRecommendationKey, out var skipReason))
                 {
                     if (!string.IsNullOrWhiteSpace(skipReason))
                         Log($"[TrackerMode] {skipReason}");
@@ -1196,6 +1220,11 @@ namespace BotMain
                         }
 
                         Log($"[Action] {action} -> OK:{trackerChoiceDetail}");
+                        if (_followTrackerRecommendA)
+                        {
+                            _trackerRecommendationBridge?.MarkLastBuiltRecommendationConsumed(action);
+                            ClearTrackerDecisionBlock();
+                        }
                         Thread.Sleep(actionDelayMs);
                         if (_followTrackerRecommendA)
                             WaitForGameReady(pipe, maxRetries: 1, intervalMs: 0, commandTimeoutMs: 80);
@@ -1214,7 +1243,7 @@ namespace BotMain
                             var blockMs = IsTrackerHardFailure(result)
                                 ? TrackerRepeatFailHardBlockMs
                                 : TrackerRepeatFailSoftBlockMs;
-                            BlockTrackerDecision(action, trackerReason, blockMs);
+                            BlockTrackerDecision(action, trackerRecommendationKey, blockMs);
                         }
 
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
@@ -1270,7 +1299,10 @@ namespace BotMain
                     }
 
                     if (_followTrackerRecommendA)
+                    {
+                        _trackerRecommendationBridge?.MarkLastBuiltRecommendationConsumed(action);
                         ClearTrackerDecisionBlock();
+                    }
 
                     // 出牌/攻击详细日志
                     try
@@ -3212,10 +3244,15 @@ namespace BotMain
             return probe.Length > 40 ? probe.Substring(0, 40) : probe;
         }
 
-        private bool TryBuildTrackerActionsWithRetry(Board planningBoard, out List<string> actions, out string reason)
+        private bool TryBuildTrackerActionsWithRetry(
+            Board planningBoard,
+            out List<string> actions,
+            out string reason,
+            out string recommendationKey)
         {
             actions = null;
             reason = "bridge unavailable";
+            recommendationKey = string.Empty;
 
             if (_trackerRecommendationBridge == null)
                 return false;
@@ -3225,17 +3262,24 @@ namespace BotMain
             int attempts = 0;
             var pendingEndTurnActions = (List<string>)null;
             string pendingEndTurnReason = string.Empty;
+            string pendingEndTurnRecommendationKey = string.Empty;
             bool endTurnRecheckDone = false;
 
             while (DateTime.UtcNow <= deadline)
             {
                 attempts++;
-                if (_trackerRecommendationBridge.TryBuildActions(planningBoard, out actions, out reason, appendEndTurn: false))
+                if (_trackerRecommendationBridge.TryBuildActions(
+                    planningBoard,
+                    out actions,
+                    out reason,
+                    out recommendationKey,
+                    appendEndTurn: false))
                 {
                     if (_followTrackerRecommendA && IsEndTurnOnlyActions(actions))
                     {
                         pendingEndTurnActions = new List<string>(actions);
                         pendingEndTurnReason = reason;
+                        pendingEndTurnRecommendationKey = recommendationKey;
 
                         // 命中 END_TURN 时额外重新识别一次，避免吃到上一拍的回合末建议。
                         if (!endTurnRecheckDone && DateTime.UtcNow < deadline)
@@ -3255,6 +3299,7 @@ namespace BotMain
                 {
                     actions = pendingEndTurnActions;
                     reason = $"{pendingEndTurnReason}, end_turn_recheck=miss:{lastReason}";
+                    recommendationKey = pendingEndTurnRecommendationKey;
                     return true;
                 }
 
@@ -3268,11 +3313,13 @@ namespace BotMain
             {
                 actions = pendingEndTurnActions;
                 reason = $"{pendingEndTurnReason}, end_turn_recheck=timeout";
+                recommendationKey = pendingEndTurnRecommendationKey;
                 return true;
             }
 
             reason = $"attempts={attempts}, last={lastReason}";
             actions = null;
+            recommendationKey = string.Empty;
             return false;
         }
 
@@ -3458,7 +3505,7 @@ namespace BotMain
                 || reason.IndexOf("no fresh/valid recommendation", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
-        private bool ShouldSkipBlockedTrackerDecision(IList<string> actions, string trackerReason, out string detail)
+        private bool ShouldSkipBlockedTrackerDecision(IList<string> actions, string trackerRecommendationKey, out string detail)
         {
             detail = string.Empty;
 
@@ -3472,7 +3519,7 @@ namespace BotMain
                 return false;
             }
 
-            var decisionKey = BuildTrackerDecisionKey(firstAction, trackerReason);
+            var decisionKey = BuildTrackerDecisionKey(firstAction, trackerRecommendationKey);
             if (!string.Equals(decisionKey, _trackerBlockedDecisionKey, StringComparison.Ordinal))
             {
                 ClearTrackerDecisionBlock();
@@ -3492,12 +3539,12 @@ namespace BotMain
             return true;
         }
 
-        private static string BuildTrackerDecisionKey(string action, string trackerReason)
+        private static string BuildTrackerDecisionKey(string action, string trackerRecommendationKey)
         {
-            return (trackerReason ?? string.Empty) + "||" + (action ?? string.Empty);
+            return (trackerRecommendationKey ?? string.Empty) + "||" + (action ?? string.Empty);
         }
 
-        private void BlockTrackerDecision(string action, string trackerReason, int blockMs)
+        private void BlockTrackerDecision(string action, string trackerRecommendationKey, int blockMs)
         {
             if (string.IsNullOrWhiteSpace(action)
                 || action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase))
@@ -3505,7 +3552,7 @@ namespace BotMain
                 return;
             }
 
-            _trackerBlockedDecisionKey = BuildTrackerDecisionKey(action, trackerReason);
+            _trackerBlockedDecisionKey = BuildTrackerDecisionKey(action, trackerRecommendationKey);
             _trackerBlockedUntilUtc = DateTime.UtcNow.AddMilliseconds(Math.Max(200, blockMs));
             _trackerBlockedLastLogUtc = DateTime.MinValue;
         }
@@ -3606,9 +3653,23 @@ namespace BotMain
                 _trackerTapScriptPath = Path.Combine(root, "Scripts", "hsbox_cdp_tap.js");
 
             if (_trackerRecommendationBridge == null)
-                _trackerRecommendationBridge = new TrackerRecommendationBridge(
-                    TrackerUseInMemoryBridge ? string.Empty : _trackerRecommendJsonlPath,
-                    diagLog: LogTrackerBridgeDiag);
+                _trackerRecommendationBridge = CreateTrackerRecommendationBridge();
+
+            _trackerRecommendationBridge?.SetSourceMode(_trackerRecommendSourceMode);
+        }
+
+        private TrackerRecommendationBridge CreateTrackerRecommendationBridge()
+        {
+            var rawPath = TrackerUseInMemoryBridge ? string.Empty : _trackerRecommendJsonlPath;
+            var mirrorPath = TrackerUseInMemoryBridge && TrackerMirrorAcceptedRecommendationsToJsonl
+                ? _trackerRecommendJsonlPath
+                : string.Empty;
+            var bridge = new TrackerRecommendationBridge(
+                rawPath,
+                acceptedActionMirrorPath: mirrorPath,
+                diagLog: LogTrackerBridgeDiag);
+            bridge.SetSourceMode(_trackerRecommendSourceMode);
+            return bridge;
         }
 
         private bool EnsureHsBoxRemoteDebuggingReady()
@@ -3841,30 +3902,25 @@ namespace BotMain
                     return;
                 }
 
-                if (!TrackerUseInMemoryBridge
-                    && string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
+                if (string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
                 {
                     Log("[TrackerCapture] output path is empty");
                     _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
                     return;
                 }
 
-                if (!TrackerUseInMemoryBridge)
+                try
                 {
-                    try
-                    {
-                        var outDir = Path.GetDirectoryName(_trackerRecommendJsonlPath);
-                        if (!string.IsNullOrWhiteSpace(outDir))
-                            Directory.CreateDirectory(outDir);
-                        // 每次重启 tap 都清空输出文件，避免读取到旧局/旧会话推荐。
-                        File.WriteAllText(_trackerRecommendJsonlPath, string.Empty);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"[TrackerCapture] prepare output file failed: {ex.Message}");
-                        _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
-                        return;
-                    }
+                    var outDir = Path.GetDirectoryName(_trackerRecommendJsonlPath);
+                    if (!string.IsNullOrWhiteSpace(outDir))
+                        Directory.CreateDirectory(outDir);
+                    File.WriteAllText(_trackerRecommendJsonlPath, string.Empty);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[TrackerCapture] prepare output file failed: {ex.Message}");
+                    _nextTrackerCaptureStartUtc = DateTime.UtcNow.AddSeconds(TrackerRestartCooldownSeconds);
+                    return;
                 }
 
                 var workingDir = Path.GetDirectoryName(_trackerTapScriptPath);
@@ -3906,19 +3962,6 @@ namespace BotMain
                             return;
 
                         _trackerRecommendationBridge?.PushRawLine(trimmed);
-
-                        if (!TrackerUseInMemoryBridge)
-                        {
-                            try
-                            {
-                                if (!string.IsNullOrWhiteSpace(_trackerRecommendJsonlPath))
-                                    File.AppendAllText(_trackerRecommendJsonlPath, trimmed + Environment.NewLine);
-                            }
-                            catch (Exception ex)
-                            {
-                                Log($"[TrackerCapture] append stdout jsonl failed: {ex.Message}");
-                            }
-                        }
                     };
                     proc.ErrorDataReceived += (_, e) =>
                     {

@@ -111,6 +111,13 @@
                     <CheckBox Content="Auto-concede" FontSize="11" IsChecked="{Binding AutoConcede}" Margin="0,0,0,2"/>
                     <CheckBox Content="Concede if Dead Next" FontSize="11" IsChecked="{Binding ConcedeWhenLethal}" Margin="0,0,0,2"/>
                     <CheckBox Content="Follow Tracker Recommend A" FontSize="11" IsChecked="{Binding FollowTrackerRecommendA}" Margin="0,0,0,2"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                        <TextBlock Text="Tracker Source:" FontSize="11" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Width="120" Height="22" SelectedIndex="{Binding TrackerRecommendSourceModeIndex}" FontSize="11">
+                            <ComboBoxItem Content="Primary Hook"/>
+                            <ComboBoxItem Content="Fallback Net"/>
+                        </ComboBox>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal">
                         <CheckBox Content="FPS lock:" FontSize="11" IsChecked="{Binding FpsLock}" Margin="0,0,3,0"/>
                         <TextBox Width="30" Height="20" Text="{Binding FpsValue}" FontSize="11"

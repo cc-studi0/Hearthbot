@@ -483,6 +483,20 @@ function buildInjectCode() {
     }
   };
 
+  const looksLikeHtmlDocument = (raw) => {
+    if (typeof raw !== "string")
+      return false;
+
+    const trimmed = raw.trimStart();
+    if (!trimmed)
+      return false;
+
+    return /^<!doctype\s+html/i.test(trimmed)
+      || /^<html\b/i.test(trimmed)
+      || /^<head\b/i.test(trimmed)
+      || /^<body\b/i.test(trimmed);
+  };
+
   const shouldCaptureUrl = (url) => {
     const u = String(url || "").toLowerCase();
     if (!u) return false;
@@ -1044,9 +1058,19 @@ function buildInjectCode() {
         .then((result) => {
           if (!result || !result.ok || !result.text)
             return;
+          if (looksLikeHtmlDocument(result.text))
+            return;
           const parsed = parsePayload(result.text);
           if (!parsed || typeof parsed !== "object")
             return;
+          if (!shouldKeepRecommendationEvent("fetch_recommend", {
+            url: result.finalUrl,
+            data: parsed,
+            status: result.status,
+            via: "active_pull"
+          })) {
+            return;
+          }
 
           let serialized = "";
           try { serialized = JSON.stringify(parsed); } catch (_) {}
@@ -1088,9 +1112,12 @@ function buildInjectCode() {
         if (shouldCaptureUrl(url)) {
           resp.clone().text().then((text) => {
             if (!text) return;
+            if (looksLikeHtmlDocument(text)) return;
             const payload = parsePayload(text);
-            if (payload && typeof payload === "object")
-              emit("fetch_recommend", { url, data: payload }, null);
+            const eventPayload = { url, data: payload };
+            if (payload && typeof payload === "object"
+              && shouldKeepRecommendationEvent("fetch_recommend", eventPayload))
+              emit("fetch_recommend", eventPayload, null);
           }).catch(() => {});
         }
       } catch (_) {}
@@ -1120,9 +1147,12 @@ function buildInjectCode() {
               if (!shouldCaptureUrl(url)) return;
               const text = typeof this.responseText === "string" ? this.responseText : "";
               if (!text) return;
+              if (looksLikeHtmlDocument(text)) return;
               const payload = parsePayload(text);
-              if (payload && typeof payload === "object")
-                emit("xhr_recommend", { url, data: payload }, null);
+              const eventPayload = { url, data: payload };
+              if (payload && typeof payload === "object"
+                && shouldKeepRecommendationEvent("xhr_recommend", eventPayload))
+                emit("xhr_recommend", eventPayload, null);
             } catch (_) {}
           }, { once: true });
         } catch (_) {}
@@ -1254,6 +1284,61 @@ function normalizePayloadForSource(source, payload) {
   return payload;
 }
 
+function classifyRecommendationEvent(source, payload, extra) {
+  const via = String(extra?.via || "");
+  const hasAction = hasActionPayload(payload);
+  const hasMulligan = hasMulliganSignal(payload);
+  const hasCardId = hasCardIdSignal(payload);
+  const isHighlight = stringEqualsIgnoreCase(source, "highLightAction");
+  const isDirectQueue = stringEqualsIgnoreCase(via, "direct_queue");
+  const isRealtime = isDirectQueue
+    || /^onUpdate/i.test(String(source || ""))
+    || stringEqualsIgnoreCase(source, "queue_recommend");
+
+  let tier = 60;
+  let kind = hasAction ? "action" : (hasMulligan ? "mulligan" : (hasCardId ? "highlight" : "signal"));
+  let origin = "fallback";
+
+  if (isHighlight) {
+    tier = 40;
+    kind = "highlight";
+    origin = "highlight";
+  } else if (isDirectQueue) {
+    tier = hasAction ? 460 : 240;
+    origin = "direct_queue";
+  } else if (isRealtime) {
+    tier = hasAction ? 420 : 220;
+    origin = "realtime_callback";
+  } else if (stringEqualsIgnoreCase(source, "pollRecommend")
+    || stringEqualsIgnoreCase(source, "fetch_recommend")
+    || stringEqualsIgnoreCase(source, "xhr_recommend")) {
+    tier = hasAction ? 300 : 180;
+    origin = "poll_or_http";
+  } else if (stringEqualsIgnoreCase(source, "network_ws")
+    || stringEqualsIgnoreCase(source, "network_response")
+    || stringEqualsIgnoreCase(source, "dom_recommend")) {
+    tier = hasAction ? 220 : 140;
+    origin = "network_or_dom";
+  } else if (hasAction) {
+    tier = 140;
+    origin = "structured_other";
+  }
+
+  return { via, hasAction, hasMulligan, hasCardId, isRealtime, tier, kind, origin };
+}
+
+function buildRecommendationFingerprint(meta, payload) {
+  try {
+    return JSON.stringify({
+      kind: meta?.kind || "",
+      hasAction: !!meta?.hasAction,
+      payload
+    });
+  } catch {
+    return "";
+  }
+}
+
 function stringEqualsIgnoreCase(a, b) {
   return String(a || "").toLowerCase() === String(b || "").toLowerCase();
 }
@@ -1270,6 +1355,12 @@ function shouldKeepRecommendationEvent(source, payload) {
     return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
   }
 
+  if (stringEqualsIgnoreCase(src, "pollRecommend")
+    || stringEqualsIgnoreCase(src, "fetch_recommend")
+    || stringEqualsIgnoreCase(src, "xhr_recommend")) {
+    return false;
+  }
+
   if (stringEqualsIgnoreCase(src, "highLightAction")) {
     return hasCardIdSignal(payload) || hasMulliganSignal(payload);
   }
@@ -1282,12 +1373,6 @@ function shouldKeepRecommendationEvent(source, payload) {
     || stringEqualsIgnoreCase(src, "fReplaceCard")
     || stringEqualsIgnoreCase(src, "fWasterCard")) {
     return hasMulliganSignal(payload) || hasCardIdSignal(payload);
-  }
-
-  if (stringEqualsIgnoreCase(src, "pollRecommend")
-    || stringEqualsIgnoreCase(src, "fetch_recommend")
-    || stringEqualsIgnoreCase(src, "xhr_recommend")) {
-    return hasActionPayload(payload) || hasMulliganSignal(payload) || hasCardIdSignal(payload);
   }
 
   if (stringEqualsIgnoreCase(src, "network_ws")
@@ -1335,7 +1420,7 @@ function shouldLogDiagEvent(diag) {
   if (stringEqualsIgnoreCase(source, "pollRecommend")
     || stringEqualsIgnoreCase(source, "fetch_recommend")
     || stringEqualsIgnoreCase(source, "xhr_recommend")) {
-    return !!diag.hasActionPayload || !!diag.hasMulliganSignal;
+    return false;
   }
 
   if (stringEqualsIgnoreCase(source, "network_ws")
@@ -1427,6 +1512,7 @@ async function runOnce(cfg) {
   };
   let lastEmitFingerprint = "";
   let lastEmitTs = 0;
+  let captureSeq = 0;
   const DUPLICATE_EMIT_WINDOW_MS = 2600;
 
   const emitRecommendation = (source, payload, extra = null) => {
@@ -1434,10 +1520,21 @@ async function runOnce(cfg) {
     if (!shouldKeepRecommendationEvent(source, normalizedPayload))
       return;
 
+    const sourceMeta = classifyRecommendationEvent(source, normalizedPayload, extra);
+    const now = Date.now();
+    const eventFingerprint = buildRecommendationFingerprint(sourceMeta, normalizedPayload);
+
     const event = {
       source,
-      ts: Date.now(),
-      payload: normalizedPayload
+      ts: now,
+      emittedAtUtc: new Date(now).toISOString(),
+      payload: normalizedPayload,
+      kind: sourceMeta.kind,
+      tier: sourceMeta.tier,
+      isRealtime: sourceMeta.isRealtime,
+      origin: sourceMeta.origin,
+      captureSeq: ++captureSeq,
+      fingerprint: eventFingerprint
     };
     if (extra && typeof extra === "object") {
       for (const [k, v] of Object.entries(extra))
@@ -1446,25 +1543,27 @@ async function runOnce(cfg) {
 
     // 短窗去重：抑制 poke 导致的同一推荐反复落盘。
     // 仅按时间窗口去重，不跨长时间保留，避免跨回合误伤。
-    let fingerprint = "";
+    let dedupeFingerprint = "";
     try {
-      fingerprint = JSON.stringify({
+      dedupeFingerprint = JSON.stringify({
         source: event.source,
+        kind: event.kind,
         payload: event.payload,
         target: event.target || "",
         via: event.via || "",
-        url: event.url || ""
+        url: event.url || "",
+        origin: event.origin || ""
       });
     } catch {
-      fingerprint = "";
+      dedupeFingerprint = "";
     }
-    if (fingerprint
-      && fingerprint === lastEmitFingerprint
+    if (dedupeFingerprint
+      && dedupeFingerprint === lastEmitFingerprint
       && event.ts - lastEmitTs <= DUPLICATE_EMIT_WINDOW_MS) {
       return;
     }
-    if (fingerprint) {
-      lastEmitFingerprint = fingerprint;
+    if (dedupeFingerprint) {
+      lastEmitFingerprint = dedupeFingerprint;
       lastEmitTs = event.ts;
     }
 
