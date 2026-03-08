@@ -14,6 +14,7 @@ namespace HearthstonePayload
     /// </summary>
     public static class ActionExecutor
     {
+        private const int ClickScreenTimeoutMs = 1500;
         private static Assembly _asm;
         private static Type _gameStateType;
         private static Type _entityType;
@@ -71,24 +72,24 @@ namespace HearthstonePayload
                         int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
                         int targetHeroSide = -1; // -1: 不是英雄目标, 0: 我方英雄, 1: 敌方英雄
-                        bool sourceIsMinionCard = false;
+                        bool sourceUsesBoardDrop = false;
 
-                        if (targetId > 0)
+                        try
                         {
-                            try
+                            var s = reader?.ReadGameState();
+                            if (targetId > 0)
                             {
-                                var s = reader?.ReadGameState();
                                 if (s?.HeroFriend != null && s.HeroFriend.EntityId == targetId) targetHeroSide = 0;
                                 else if (s?.HeroEnemy != null && s.HeroEnemy.EntityId == targetId) targetHeroSide = 1;
-
-                                var gs = GetGameState();
-                                if (gs != null)
-                                    TryIsMinionCardEntity(gs, sourceId, out sourceIsMinionCard);
                             }
-                            catch { }
-                        }
 
-                        return _coroutine.RunAndWait(MousePlayCard(sourceId, targetId, position, targetHeroSide, sourceIsMinionCard));
+                            var gs = GetGameState();
+                            if (gs != null)
+                                TryUsesBoardDropForPlay(gs, sourceId, out sourceUsesBoardDrop);
+                        }
+                        catch { }
+
+                        return _coroutine.RunAndWait(MousePlayCardByMouseFlow(sourceId, targetId, position, targetHeroSide, sourceUsesBoardDrop));
                     }
                 case "ATTACK":
                     {
@@ -342,6 +343,11 @@ namespace HearthstonePayload
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
+            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var sourceX, out var sourceY))
+            {
+                _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
+                yield break;
+            }
 
             // ========== 阶段1: 抓取卡牌 ==========
             // 优先通过 API 抓取（不依赖屏幕坐标，最可靠）
@@ -367,7 +373,6 @@ namespace HearthstonePayload
                 TryResetHeldCard();
                 yield return 0.06f;
             }
-
             if (grabbedViaAPI)
             {
                 AppendActionTrace(
@@ -386,45 +391,27 @@ namespace HearthstonePayload
                     + " detail=" + apiGrabDetail);
             }
 
+            if (!grabbedViaAPI)
+            {
+                TryResetHeldCard();
+                _coroutine.SetResult("FAIL:PLAY:grab_api_failed:" + entityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
+                yield break;
+            }
+
             if (grabbedViaAPI)
             {
                 // API 抓取成功，需要同步设置鼠标按下状态
                 // 游戏每帧检查 Input.GetMouseButton(0) 来判断玩家是否还在持有卡牌
                 // 如果不设置 LeftDown，游戏会认为玩家立即松手导致卡牌弹回
-                int midX = MouseSimulator.GetScreenWidth() / 2;
-                int midY = MouseSimulator.GetScreenHeight() / 2;
-                MouseSimulator.MoveTo(midX, midY);
+                MouseSimulator.MoveTo(sourceX, sourceY);
                 MouseSimulator.LeftDown();
-                yield return 0.15f;
+                yield return 0.08f;
             }
             else
             {
                 // API 失败，回退到鼠标点击手牌位置抓取
-                int sx = 0, sy = 0;
-                bool foundSource = false;
-                for (int retry = 0; retry < 5; retry++)
-                {
-                    if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
-                    {
-                        foundSource = true;
-                        break;
-                    }
-                    yield return 0.5f;
-                }
-                if (!foundSource)
-                {
-                    var handIds = GameObjectFinder.GetHandEntityIds();
-                    var handStr = handIds.Count > 0 ? string.Join(",", handIds) : "empty";
-                    if (!grabbedViaAPI)
-                        _coroutine.SetResult("FAIL:PLAY:grab_verify_failed:" + entityId + ":hand=[" + handStr + "]");
-                    else
-                        _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId + ":hand=[" + handStr + "]");
-                    yield break;
-                }
-                MouseSimulator.MoveTo(sx, sy);
-                yield return 0.05f;
-                MouseSimulator.LeftDown();
-                yield return 0.15f;
+                _coroutine.SetResult("FAIL:PLAY:grab_api_failed:" + entityId + ":mouse_grab_disabled");
+                yield break;
             }
 
             // ========== 阶段2+3: 拖动并释放 ==========
@@ -534,7 +521,12 @@ namespace HearthstonePayload
 
             if (resolvedStillInHand && stillInHand)
             {
-                _coroutine.SetResult("FAIL:PLAY:not_left_hand:" + entityId);
+                AppendActionTrace(
+                    "PLAY still in hand after release entityId=" + entityId
+                    + " targetId=" + targetEntityId
+                    + " isMinionCard=" + sourceIsMinionCard
+                    + " cardId=" + sourceCardId);
+                _coroutine.SetResult("FAIL:PLAY:still_in_hand:" + entityId);
                 yield break;
             }
 
@@ -559,8 +551,409 @@ namespace HearthstonePayload
             }
 
             yield return 0.2f;
-            var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
-            _coroutine.SetResult("OK:PLAY:" + entityId + ":" + method);
+            _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab");
+        }
+
+        private static IEnumerator<float> MousePlayCardByMouseFlow(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop)
+        {
+            InputHook.Simulating = true;
+            var gsBeforePlay = GetGameState();
+            var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
+            var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
+            var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
+
+            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var sourceX, out var sourceY))
+            {
+                _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
+                yield break;
+            }
+
+            bool grabbedViaAPI = false;
+            string apiGrabMethod = "none";
+            string apiGrabDetail = string.Empty;
+            int apiHeldEntityId = 0;
+
+            for (int attempt = 1; attempt <= 3; attempt++)
+            {
+                if (TryGrabCardViaAPI(
+                        entityId,
+                        sourceZonePosition,
+                        out apiGrabMethod,
+                        out apiHeldEntityId,
+                        out apiGrabDetail))
+                {
+                    grabbedViaAPI = true;
+                    break;
+                }
+
+                TryResetHeldCard();
+                yield return 0.06f;
+            }
+
+            if (grabbedViaAPI)
+            {
+                AppendActionTrace(
+                    "PLAY(mouse) API grabbed card expected=" + entityId
+                    + " held=" + apiHeldEntityId
+                    + " zonePos=" + sourceZonePosition
+                    + " cardId=" + sourceCardId
+                    + " via=" + apiGrabMethod);
+            }
+            else
+            {
+                AppendActionTrace(
+                    "PLAY(mouse) API grab failed expected=" + entityId
+                    + " zonePos=" + sourceZonePosition
+                    + " cardId=" + sourceCardId
+                    + " detail=" + apiGrabDetail);
+                TryResetHeldCard();
+                _coroutine.SetResult("FAIL:PLAY:grab_api_failed:" + entityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
+                yield break;
+            }
+
+            MouseSimulator.MoveTo(sourceX, sourceY);
+            yield return 0.03f;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+
+            bool targetConfirmationPending = false;
+            if (targetEntityId > 0)
+            {
+                if (sourceUsesBoardDrop)
+                {
+                    int totalMinions = GetFriendlyMinionCount();
+                    if (!GameObjectFinder.GetBoardDropZoneScreenPos(position, totalMinions, out var dropX, out var dropY))
+                    {
+                        MouseSimulator.LeftUp();
+                        TryResetHeldCard();
+                        _coroutine.SetResult("FAIL:PLAY:drop_pos");
+                        yield break;
+                    }
+
+                    foreach (var w in SmoothMove(dropX, dropY, 18)) yield return w;
+                    MouseSimulator.LeftUp();
+                    yield return 0.18f;
+
+                    bool sourceLeftHand = false;
+                    for (int retry = 0; retry < 12; retry++)
+                    {
+                        var gs = GetGameState();
+                        if (gs != null && TryIsEntityInFriendlyHand(gs, entityId, out var inHandAfterDrop))
+                        {
+                            sourceLeftHand = !inHandAfterDrop;
+                            if (sourceLeftHand)
+                                break;
+                        }
+
+                        yield return 0.05f;
+                    }
+
+                    bool confirmed = false;
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        bool gotTarget = false;
+                        int targetX = 0, targetY = 0;
+                        for (int retry = 0; retry < 6 && !gotTarget; retry++)
+                        {
+                            if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out targetX, out targetY))
+                            {
+                                gotTarget = true;
+                                break;
+                            }
+
+                            if (retry < 5)
+                                yield return 0.1f;
+                        }
+
+                        if (!gotTarget)
+                        {
+                            TryResetHeldCard();
+                            _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
+                            yield break;
+                        }
+
+                        MouseSimulator.MoveTo(targetX, targetY);
+                        yield return 0.05f;
+                        MouseSimulator.LeftDown();
+                        yield return 0.04f;
+                        MouseSimulator.LeftUp();
+
+                        for (int retry = 0; retry < 6; retry++)
+                        {
+                            if (!IsPlayTargetConfirmationPending(entityId))
+                            {
+                                confirmed = true;
+                                break;
+                            }
+
+                            yield return 0.06f;
+                        }
+
+                        if (confirmed)
+                            break;
+                    }
+
+                    targetConfirmationPending = !confirmed && sourceLeftHand && IsPlayTargetConfirmationPending(entityId);
+                }
+                else
+                {
+                    bool gotTarget = false;
+                    int targetX = 0, targetY = 0;
+                    for (int retry = 0; retry < 6 && !gotTarget; retry++)
+                    {
+                        if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out targetX, out targetY))
+                        {
+                            gotTarget = true;
+                            break;
+                        }
+
+                        if (retry < 5)
+                            yield return 0.1f;
+                    }
+
+                    if (!gotTarget)
+                    {
+                        MouseSimulator.LeftUp();
+                        TryResetHeldCard();
+                        _coroutine.SetResult("FAIL:PLAY:target_pos:" + targetEntityId);
+                        yield break;
+                    }
+
+                    foreach (var w in SmoothMove(targetX, targetY, 18)) yield return w;
+                    MouseSimulator.LeftUp();
+                    yield return 0.14f;
+
+                    targetConfirmationPending = IsPlayTargetConfirmationPending(entityId);
+                    if (targetConfirmationPending)
+                    {
+                        for (int attempt = 0; attempt < 2 && targetConfirmationPending; attempt++)
+                        {
+                            if (attempt > 0)
+                            {
+                                bool refreshed = false;
+                                for (int retry = 0; retry < 4 && !refreshed; retry++)
+                                {
+                                    refreshed = TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out targetX, out targetY);
+                                    if (!refreshed && retry < 3)
+                                        yield return 0.08f;
+                                }
+                            }
+
+                            MouseSimulator.MoveTo(targetX, targetY);
+                            yield return 0.04f;
+                            MouseSimulator.LeftDown();
+                            yield return 0.04f;
+                            MouseSimulator.LeftUp();
+
+                            for (int retry = 0; retry < 5; retry++)
+                            {
+                                if (!IsPlayTargetConfirmationPending(entityId))
+                                {
+                                    targetConfirmationPending = false;
+                                    break;
+                                }
+
+                                yield return 0.06f;
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                int releaseX = 0;
+                int releaseY = 0;
+                if (sourceUsesBoardDrop)
+                {
+                    int totalMinions = GetFriendlyMinionCount();
+                    if (!GameObjectFinder.GetBoardDropZoneScreenPos(position, totalMinions, out releaseX, out releaseY))
+                    {
+                        MouseSimulator.LeftUp();
+                        TryResetHeldCard();
+                        _coroutine.SetResult("FAIL:PLAY:drop_pos");
+                        yield break;
+                    }
+                }
+                else if (!GameObjectFinder.GetPlayReleaseScreenPos(out releaseX, out releaseY))
+                {
+                    MouseSimulator.LeftUp();
+                    TryResetHeldCard();
+                    _coroutine.SetResult("FAIL:PLAY:drop_pos");
+                    yield break;
+                }
+
+                foreach (var w in SmoothMove(releaseX, releaseY, 16)) yield return w;
+                MouseSimulator.LeftUp();
+            }
+
+            yield return 0.25f;
+
+            var gsAfterPlay = GetGameState();
+            var hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterPlay, out var afterHandIds);
+            var resolvedStillInHand = false;
+            var stillInHand = false;
+            if (gsAfterPlay != null && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out stillInHand))
+                resolvedStillInHand = true;
+
+            if (resolvedStillInHand && stillInHand)
+            {
+                AppendActionTrace(
+                    "PLAY(mouse) still in hand entityId=" + entityId
+                    + " targetId=" + targetEntityId
+                    + " usesBoardDrop=" + sourceUsesBoardDrop
+                    + " cardId=" + sourceCardId);
+                _coroutine.SetResult("FAIL:PLAY:still_in_hand:" + entityId);
+                yield break;
+            }
+
+            if (resolvedStillInHand
+                && !stillInHand
+                && hasBeforeHand
+                && hasAfterHand
+                && beforeHandIds.Contains(entityId))
+            {
+                var removed = beforeHandIds.Where(id => !afterHandIds.Contains(id)).ToList();
+                if (removed.Count == 1 && removed[0] != entityId)
+                {
+                    _coroutine.SetResult("FAIL:PLAY:source_mismatch:" + entityId + ":" + removed[0]);
+                    yield break;
+                }
+
+                if (removed.Count > 1 && !removed.Contains(entityId))
+                {
+                    _coroutine.SetResult("FAIL:PLAY:source_mismatch:" + entityId + ":" + removed[0]);
+                    yield break;
+                }
+            }
+
+            if (targetEntityId > 0 && resolvedStillInHand && !stillInHand)
+            {
+                if (!targetConfirmationPending)
+                {
+                    for (int retry = 0; retry < 4; retry++)
+                    {
+                        if (!IsPlayTargetConfirmationPending(entityId))
+                            break;
+
+                        targetConfirmationPending = true;
+                        yield return 0.05f;
+                    }
+                }
+
+                if (targetConfirmationPending)
+                {
+                    AppendActionTrace(
+                        "PLAY(mouse) target not confirmed entityId=" + entityId
+                        + " targetId=" + targetEntityId
+                        + " usesBoardDrop=" + sourceUsesBoardDrop
+                        + " cardId=" + sourceCardId);
+                    TryResetHeldCard();
+                    _coroutine.SetResult("FAIL:PLAY:target_not_confirmed:" + entityId + ":" + targetEntityId);
+                    yield break;
+                }
+            }
+
+            yield return 0.2f;
+            _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab_mouse");
+        }
+
+        private static bool TryResolvePlayTargetScreenPos(int targetEntityId, int targetHeroSide, out int x, out int y)
+        {
+            x = y = 0;
+            if (targetHeroSide == 0)
+                return GameObjectFinder.GetHeroScreenPos(true, out x, out y);
+            if (targetHeroSide == 1)
+                return GameObjectFinder.GetHeroScreenPos(false, out x, out y);
+            return GameObjectFinder.GetEntityScreenPos(targetEntityId, out x, out y);
+        }
+
+        private static bool IsPlayTargetConfirmationPending(int sourceEntityId)
+        {
+            try
+            {
+                var gs = GetGameState();
+                if (gs == null)
+                    return false;
+
+                if (TryInvokeBoolMethod(gs, "IsResponsePacketBlocked", out var blocked) && blocked)
+                    return false;
+                if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
+                    return false;
+                if (TryInvokeBoolMethod(gs, "IsBlockingPowerProcessor", out var bpp) && bpp)
+                    return false;
+
+                var ppType = _asm?.GetType("PowerProcessor");
+                if (ppType != null)
+                {
+                    var pp = GetSingleton(ppType);
+                    if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var running) && running)
+                        return false;
+                }
+
+                var inputMgr = GetSingleton(_inputMgrType);
+                if (TryGetHeldCardEntityId(inputMgr, out var heldEntityId) && heldEntityId == sourceEntityId)
+                    return true;
+
+                if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
+                {
+                    var modeName = modeObj.ToString();
+                    if (string.Equals(modeName, "OPTION", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(modeName, "TARGET", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static bool TryUsesBoardDropForPlay(object gameState, int entityId, out bool usesBoardDrop)
+        {
+            usesBoardDrop = false;
+            if (gameState == null || entityId <= 0)
+                return false;
+
+            try
+            {
+                var entity = GetEntity(gameState, entityId);
+                if (entity == null)
+                    return false;
+
+                var ctx = ReflectionContext.Instance;
+                if (!ctx.Init())
+                    return false;
+
+                var cardTypeTag = ctx.GetTagValue(entity, "CARDTYPE");
+                if (cardTypeTag <= 0)
+                    return false;
+
+                try
+                {
+                    var cardTypeEnum = ctx.AsmCSharp?.GetType("TAG_CARDTYPE");
+                    if (cardTypeEnum != null)
+                    {
+                        var minionValue = Convert.ToInt32(Enum.Parse(cardTypeEnum, "MINION", true));
+                        var locationValue = Convert.ToInt32(Enum.Parse(cardTypeEnum, "LOCATION", true));
+                        usesBoardDrop = cardTypeTag == minionValue || cardTypeTag == locationValue;
+                        return true;
+                    }
+                }
+                catch
+                {
+                }
+
+                usesBoardDrop = cardTypeTag == 4 || cardTypeTag == 39;
+                return true;
+            }
+            catch
+            {
+            }
+
+            return false;
         }
 
         private static bool TryIsMinionCardEntity(object gameState, int entityId, out bool isMinion)
@@ -615,7 +1008,28 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
-            bool grabbedViaAPI = TryGrabCardViaAPI(entityId);
+            var gsBeforeTrade = GetGameState();
+            var sourceZonePosition = ResolveEntityZonePosition(gsBeforeTrade, entityId);
+            bool grabbedViaAPI = TryGrabCardViaAPI(entityId, sourceZonePosition, out var apiGrabMethod, out var apiHeldEntityId, out var apiGrabDetail);
+            if (grabbedViaAPI)
+            {
+                AppendActionTrace(
+                    "API grabbed card expected=" + entityId
+                    + " held=" + apiHeldEntityId
+                    + " zonePos=" + sourceZonePosition
+                    + " via=" + apiGrabMethod);
+            }
+            else
+            {
+                AppendActionTrace(
+                    "API grab failed expected=" + entityId
+                    + " zonePos=" + sourceZonePosition
+                    + " detail=" + apiGrabDetail);
+                TryResetHeldCard();
+                _coroutine.SetResult("FAIL:TRADE:grab_api_failed:" + entityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
+                yield break;
+            }
+
             if (grabbedViaAPI)
             {
                 int midX = MouseSimulator.GetScreenWidth() / 2;
@@ -626,27 +1040,8 @@ namespace HearthstonePayload
             }
             else
             {
-                int sx = 0, sy = 0;
-                bool foundSource = false;
-                for (int retry = 0; retry < 5; retry++)
-                {
-                    if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
-                    {
-                        foundSource = true;
-                        break;
-                    }
-                    yield return 0.35f;
-                }
-                if (!foundSource)
-                {
-                    _coroutine.SetResult("FAIL:TRADE:source_pos:" + entityId);
-                    yield break;
-                }
-
-                MouseSimulator.MoveTo(sx, sy);
-                yield return 0.05f;
-                MouseSimulator.LeftDown();
-                yield return 0.12f;
+                _coroutine.SetResult("FAIL:TRADE:grab_api_failed:" + entityId + ":mouse_grab_disabled");
+                yield break;
             }
 
             if (!GameObjectFinder.GetFriendlyDeckScreenPos(out var dx, out var dy))
@@ -660,8 +1055,7 @@ namespace HearthstonePayload
             MouseSimulator.LeftUp();
             yield return 0.45f;
 
-            var method = grabbedViaAPI ? "api_grab" : "mouse_grab";
-            _coroutine.SetResult("OK:TRADE:" + entityId + ":" + method);
+            _coroutine.SetResult("OK:TRADE:" + entityId + ":api_grab");
         }
 
         /// <summary>
@@ -708,7 +1102,13 @@ namespace HearthstonePayload
                 }
 
                 // 获取 Card 对象（InputManager 的方法需要 Card 或 Entity）
-                var card = Invoke(entity, "GetCard");
+                var handCard = ResolveFriendlyHandCardObject(gs, entityId);
+                var entityCard = Invoke(entity, "GetCard");
+                var card = handCard ?? entityCard;
+                var cardObjectCandidates = new List<object>();
+                AddDistinctObjectCandidate(cardObjectCandidates, handCard);
+                AddDistinctObjectCandidate(cardObjectCandidates, entityCard);
+                AddDistinctObjectCandidate(cardObjectCandidates, card);
 
                 var inputMgr = GetSingleton(_inputMgrType);
                 if (inputMgr == null)
@@ -717,17 +1117,83 @@ namespace HearthstonePayload
                     return false;
                 }
 
+                AppendActionTrace(
+                    "API grab begin entityId=" + entityId
+                    + " zonePos=" + sourceZonePosition
+                    + " handCardType=" + DescribeObjectType(handCard)
+                    + " entityCardType=" + DescribeObjectType(entityCard)
+                    + " cardCandidates=" + string.Join(",", cardObjectCandidates.Select(DescribeObjectType).ToArray()));
+
+                if (TryGrabCardViaCurrentClientFlow(
+                        card,
+                        inputMgr,
+                        entityId,
+                        sourceZonePosition,
+                        out var currentMethodUsed,
+                        out heldEntityId,
+                        out var currentClientGrabDetail))
+                {
+                    methodUsed = currentMethodUsed;
+                    detail = currentClientGrabDetail;
+                    return true;
+                }
+
+                var cardGrabDetail = cardObjectCandidates.Count == 0 ? "card_object_missing" : string.Empty;
+                var cardGrabFailures = new List<string>();
+                foreach (var cardCandidate in cardObjectCandidates)
+                {
+                    if (TryGrabCardViaCardObject(
+                            cardCandidate,
+                            inputMgr,
+                            entityId,
+                            sourceZonePosition,
+                            out var cardMethodUsed,
+                            out heldEntityId,
+                            out var candidateGrabDetail))
+                    {
+                        methodUsed = cardMethodUsed;
+                        detail = candidateGrabDetail;
+                        return true;
+                    }
+
+                    cardGrabFailures.Add(DescribeObjectType(cardCandidate) + ":" + candidateGrabDetail);
+                }
+
+                if (!string.IsNullOrWhiteSpace(currentClientGrabDetail))
+                {
+                    cardGrabFailures.Insert(0, "current_client:" + currentClientGrabDetail);
+                }
+
+                if (cardGrabFailures.Count > 0)
+                {
+                    cardGrabDetail = "card_pickup_failed:" + string.Join(" | ", cardGrabFailures.ToArray());
+                    AppendActionTrace(
+                        "API card-object grab failed entityId=" + entityId
+                        + " zonePos=" + sourceZonePosition
+                        + " detail=" + cardGrabDetail);
+                }
+
                 // 尝试多种 InputManager 方法来"抓取"手牌
                 // 炉石不同版本可能使用不同的方法名
                 var grabMethods = new[]
                 {
                     "HandleClickOnCardInHand",
                     "GrabCard",
-                    "PickUpCard"
+                    "PickUpCard",
+                    "HandleCardClicked",
+                    "OnCardClicked"
                 };
 
                 var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
-                string lastFailure = "no_grab_method";
+                string lastFailure = string.IsNullOrWhiteSpace(cardGrabDetail) ? "no_grab_method" : cardGrabDetail;
+                var gameObject = ResolveGrabGameObject(entity, entityCard ?? handCard ?? card);
+                var firstArgCandidates = new List<object>();
+                AddDistinctObjectCandidate(firstArgCandidates, handCard);
+                AddDistinctObjectCandidate(firstArgCandidates, entityCard);
+                AddDistinctObjectCandidate(firstArgCandidates, card);
+                AddDistinctObjectCandidate(firstArgCandidates, entity);
+                AddDistinctObjectCandidate(firstArgCandidates, gameObject);
+                var inputMgrFailures = new List<string>();
 
                 foreach (var methodName in grabMethods)
                 {
@@ -735,11 +1201,77 @@ namespace HearthstonePayload
                         .Where(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase))
                         .ToArray();
 
+                    if (methods.Length == 0)
+                    {
+                        inputMgrFailures.Add(methodName + ":method_not_found");
+                        continue;
+                    }
+
                     foreach (var mi in methods)
                     {
                         var parameters = mi.GetParameters();
-                        if (parameters.Length == 0) continue;
+                        var signature = DescribeParameters(parameters);
+                        if (parameters.Length == 0)
+                        {
+                            lastFailure = "no_parameters:" + methodName;
+                            inputMgrFailures.Add(methodName + "[" + signature + "]:" + lastFailure);
+                            continue;
+                        }
 
+                        var invoked = false;
+                        foreach (var firstArg in firstArgCandidates)
+                        {
+                            if (!TryBuildGrabArgs(parameters, firstArg, sourceZonePosition, out var args))
+                                continue;
+
+                            invoked = true;
+                            var attemptKey = methodName + "[" + signature + "]<" + DescribeObjectType(firstArg) + ">";
+                            try
+                            {
+                                mi.Invoke(inputMgr, args);
+
+                                var holdStatus = WaitForHeldCardAfterGrab(inputMgr, entityId, out heldEntityId);
+                                if (holdStatus == HeldCardWaitStatus.Expected)
+                                {
+                                    methodUsed = methodName;
+                                    detail = "ok";
+                                    AppendActionTrace(
+                                        "API grabbed card entityId=" + entityId
+                                        + " via " + methodName
+                                        + " zonePos=" + sourceZonePosition);
+                                    return true;
+                                }
+
+                                if (holdStatus == HeldCardWaitStatus.Mismatch)
+                                {
+                                    lastFailure = "held_mismatch:" + methodName + ":" + heldEntityId;
+                                    inputMgrFailures.Add(attemptKey + ":" + lastFailure);
+                                    AppendActionTrace(
+                                        "API grab mismatch expected=" + entityId
+                                        + " actual=" + heldEntityId
+                                        + " via " + methodName
+                                        + " zonePos=" + sourceZonePosition);
+                                    TryResetHeldCard();
+                                    break;
+                                }
+
+                                lastFailure = "held_card_not_detected:" + methodName;
+                                inputMgrFailures.Add(attemptKey + ":" + lastFailure);
+                            }
+                            catch (Exception ex)
+                            {
+                                lastFailure = "invoke_failed:" + methodName + ":" + SimplifyException(ex);
+                                inputMgrFailures.Add(attemptKey + ":" + lastFailure);
+                            }
+                        }
+
+                        if (!invoked)
+                        {
+                            lastFailure = "no_compatible_overload:" + methodName;
+                            inputMgrFailures.Add(methodName + "[" + signature + "]:" + lastFailure);
+                        }
+
+                        if (Environment.TickCount == int.MinValue)
                         try
                         {
                             // 构造参数：优先传 Card，然后试 Entity
@@ -781,8 +1313,13 @@ namespace HearthstonePayload
                     }
                 }
 
-                detail = lastFailure;
-                AppendActionTrace("API grab not confirmed entityId=" + entityId + ", detail=" + lastFailure);
+                detail = string.IsNullOrWhiteSpace(cardGrabDetail)
+                    ? lastFailure
+                    : cardGrabDetail + ";input_mgr_failed:" + lastFailure;
+                AppendActionTrace(
+                    "API grab not confirmed entityId=" + entityId
+                    + ", detail=" + detail
+                    + ", inputAttempts=" + string.Join(" || ", inputMgrFailures.Take(12).ToArray()));
                 return false;
             }
             catch (Exception ex)
@@ -2910,7 +3447,7 @@ namespace HearthstonePayload
         public static string ClickScreen(float ratioX, float ratioY)
         {
             if (_coroutine == null) return "ERROR:no_coroutine";
-            return _coroutine.RunAndWait(MouseClickScreenCoroutine(ratioX, ratioY));
+            return _coroutine.RunAndWait(MouseClickScreenCoroutine(ratioX, ratioY), ClickScreenTimeoutMs);
         }
 
         private static IEnumerator<float> MouseClickScreenCoroutine(float ratioX, float ratioY)
@@ -3987,6 +4524,30 @@ namespace HearthstonePayload
             return true;
         }
 
+        private static object ResolveFriendlyHandCardObject(object gameState, int entityId)
+        {
+            if (gameState == null || entityId <= 0)
+                return null;
+
+            if (!TryGetFriendlyHandCards(gameState, out var cards) || cards == null)
+                return null;
+
+            foreach (var candidate in cards)
+            {
+                var candidateEntity = Invoke(candidate, "GetEntity")
+                    ?? GetFieldOrProp(candidate, "Entity")
+                    ?? GetFieldOrProp(candidate, "m_entity")
+                    ?? candidate;
+                if (candidateEntity == null)
+                    continue;
+
+                if (ResolveEntityId(candidateEntity) == entityId)
+                    return candidate;
+            }
+
+            return null;
+        }
+
         private static bool TryGetHeldCardEntityId(object inputMgr, out int heldEntityId)
         {
             heldEntityId = 0;
@@ -4005,6 +4566,337 @@ namespace HearthstonePayload
                 ?? heldCard;
             heldEntityId = ResolveEntityId(heldEntity);
             return heldEntityId > 0;
+        }
+
+        private enum HeldCardWaitStatus
+        {
+            None = 0,
+            Expected = 1,
+            Mismatch = 2
+        }
+
+        private static HeldCardWaitStatus WaitForHeldCardAfterGrab(object inputMgr, int expectedEntityId, out int heldEntityId)
+        {
+            heldEntityId = 0;
+            if (inputMgr == null || expectedEntityId <= 0)
+                return HeldCardWaitStatus.None;
+
+            const int timeoutMs = 100;
+            const int pollMs = 8;
+            var deadline = Environment.TickCount + timeoutMs;
+
+            while (true)
+            {
+                if (TryGetHeldCardEntityId(inputMgr, out heldEntityId))
+                {
+                    return heldEntityId == expectedEntityId
+                        ? HeldCardWaitStatus.Expected
+                        : HeldCardWaitStatus.Mismatch;
+                }
+
+                if (Environment.TickCount - deadline >= 0)
+                    break;
+
+                Thread.Sleep(pollMs);
+            }
+
+            heldEntityId = 0;
+            return HeldCardWaitStatus.None;
+        }
+
+        private static object ResolveGrabGameObject(object entity, object card)
+        {
+            try
+            {
+                var actor = card != null ? Invoke(card, "GetActor") : null;
+                return GetFieldOrProp(card, "gameObject")
+                    ?? GetFieldOrProp(actor, "gameObject")
+                    ?? GetFieldOrProp(entity, "gameObject");
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryGrabCardViaCurrentClientFlow(
+            object card,
+            object inputMgr,
+            int entityId,
+            int sourceZonePosition,
+            out string methodUsed,
+            out int heldEntityId,
+            out string detail)
+        {
+            methodUsed = string.Empty;
+            heldEntityId = 0;
+            detail = "current_client_card_missing";
+
+            if (card == null)
+                return false;
+            if (inputMgr == null || entityId <= 0)
+            {
+                detail = "input_manager_missing";
+                return false;
+            }
+
+            var cardGameObject = GetFieldOrProp(card, "gameObject");
+            var zoneHand = Invoke(card, "GetZone");
+            if (zoneHand == null || !string.Equals(zoneHand.GetType().Name, "ZoneHand", StringComparison.OrdinalIgnoreCase))
+            {
+                detail = "zonehand_missing";
+                return false;
+            }
+
+            var standIn = ResolveCardStandIn(zoneHand, card, out var standInDetail);
+            var standInGameObject = standIn != null ? GetFieldOrProp(standIn, "gameObject") : null;
+            var attempts = new List<string>();
+
+            AppendActionTrace(
+                "Current-client grab prepare entityId=" + entityId
+                + " zonePos=" + sourceZonePosition
+                + " cardGameObject=" + DescribeObjectName(cardGameObject)
+                + " standInType=" + DescribeObjectType(standIn)
+                + " standInGameObject=" + DescribeObjectName(standInGameObject)
+                + " standInDetail=" + standInDetail);
+
+            if (standIn != null && standInGameObject != null)
+            {
+                if (TryInvokeMethod(inputMgr, "TryHandleClickOnCard", new object[] { standInGameObject, standIn }, out _, out var standInInvokeError))
+                {
+                    var holdStatus = WaitForHeldCardAfterGrab(inputMgr, entityId, out heldEntityId);
+                    if (holdStatus == HeldCardWaitStatus.Expected)
+                    {
+                        methodUsed = "TryHandleClickOnCard";
+                        detail = "ok";
+                        AppendActionTrace(
+                            "API grabbed card entityId=" + entityId
+                            + " via TryHandleClickOnCard"
+                            + " zonePos=" + sourceZonePosition);
+                        return true;
+                    }
+
+                    if (holdStatus == HeldCardWaitStatus.Mismatch)
+                    {
+                        attempts.Add("TryHandleClickOnCard:held_mismatch:" + heldEntityId);
+                        TryResetHeldCard();
+                    }
+                    else
+                    {
+                        attempts.Add("TryHandleClickOnCard:held_card_not_detected");
+                    }
+                }
+                else
+                {
+                    attempts.Add("TryHandleClickOnCard:invoke_failed:" + standInInvokeError);
+                }
+            }
+            else
+            {
+                attempts.Add("TryHandleClickOnCard:standin_unavailable:" + standInDetail);
+            }
+
+            if (cardGameObject != null)
+            {
+                if (TryInvokeMethod(inputMgr, "HandleClickOnCard", new object[] { cardGameObject, true }, out _, out var handleClickError))
+                {
+                    var holdStatus = WaitForHeldCardAfterGrab(inputMgr, entityId, out heldEntityId);
+                    if (holdStatus == HeldCardWaitStatus.Expected)
+                    {
+                        methodUsed = "HandleClickOnCard";
+                        detail = "ok";
+                        AppendActionTrace(
+                            "API grabbed card entityId=" + entityId
+                            + " via HandleClickOnCard"
+                            + " zonePos=" + sourceZonePosition);
+                        return true;
+                    }
+
+                    if (holdStatus == HeldCardWaitStatus.Mismatch)
+                    {
+                        attempts.Add("HandleClickOnCard:held_mismatch:" + heldEntityId);
+                        TryResetHeldCard();
+                    }
+                    else
+                    {
+                        attempts.Add("HandleClickOnCard:held_card_not_detected");
+                    }
+                }
+                else
+                {
+                    attempts.Add("HandleClickOnCard:invoke_failed:" + handleClickError);
+                }
+
+                if (TryInvokeMethod(inputMgr, "GrabCard", new object[] { cardGameObject }, out _, out var grabError))
+                {
+                    var holdStatus = WaitForHeldCardAfterGrab(inputMgr, entityId, out heldEntityId);
+                    if (holdStatus == HeldCardWaitStatus.Expected)
+                    {
+                        methodUsed = "GrabCard";
+                        detail = "ok";
+                        AppendActionTrace(
+                            "API grabbed card entityId=" + entityId
+                            + " via GrabCard"
+                            + " zonePos=" + sourceZonePosition);
+                        return true;
+                    }
+
+                    if (holdStatus == HeldCardWaitStatus.Mismatch)
+                    {
+                        attempts.Add("GrabCard:held_mismatch:" + heldEntityId);
+                        TryResetHeldCard();
+                    }
+                    else
+                    {
+                        attempts.Add("GrabCard:held_card_not_detected");
+                    }
+                }
+                else
+                {
+                    attempts.Add("GrabCard:invoke_failed:" + grabError);
+                }
+            }
+            else
+            {
+                attempts.Add("card_gameobject_missing");
+            }
+
+            detail = string.Join(" | ", attempts.ToArray());
+            AppendActionTrace(
+                "Current-client grab failed entityId=" + entityId
+                + " zonePos=" + sourceZonePosition
+                + " detail=" + detail);
+            return false;
+        }
+
+        private static object ResolveCardStandIn(object zoneHand, object card, out string detail)
+        {
+            detail = string.Empty;
+            if (zoneHand == null || card == null)
+            {
+                detail = "missing_zonehand_or_card";
+                return null;
+            }
+
+            if (TryInvokeMethod(zoneHand, "GetStandIn", new object[] { card }, out var standIn, out var getStandInError) && standIn != null)
+                return standIn;
+
+            if (TryInvokeMethod(zoneHand, "CreateCardStandIn", new object[] { card }, out _, out var createStandInError))
+            {
+                if (TryInvokeMethod(zoneHand, "GetStandIn", new object[] { card }, out standIn, out getStandInError) && standIn != null)
+                    return standIn;
+            }
+
+            standIn = GetFieldOrProp(zoneHand, "CurrentStandIn")
+                ?? GetFieldOrProp(zoneHand, "m_hiddenStandIn");
+            if (standIn != null)
+                return standIn;
+
+            detail = "get=" + (string.IsNullOrWhiteSpace(getStandInError) ? "null" : getStandInError)
+                + ";create=" + (string.IsNullOrWhiteSpace(createStandInError) ? "null" : createStandInError);
+            return null;
+        }
+
+        private static bool TryGrabCardViaCardObject(
+            object card,
+            object inputMgr,
+            int entityId,
+            int sourceZonePosition,
+            out string methodUsed,
+            out int heldEntityId,
+            out string detail)
+        {
+            methodUsed = string.Empty;
+            heldEntityId = 0;
+            detail = "card_object_missing";
+
+            if (card == null)
+                return false;
+            if (inputMgr == null || entityId <= 0)
+            {
+                detail = "input_manager_missing";
+                return false;
+            }
+
+            var methodNames = new[]
+            {
+                "LightningPickup",
+                "Pickup",
+                "PickUp"
+            };
+
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var lastFailure = "no_card_pickup_method";
+            var attemptFailures = new List<string>();
+            var cardType = DescribeObjectType(card);
+
+            foreach (var methodName in methodNames)
+            {
+                var methods = card.GetType().GetMethods(flags)
+                    .Where(m => string.Equals(m.Name, methodName, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(m => m.GetParameters().Length)
+                    .ToArray();
+
+                foreach (var method in methods)
+                {
+                    var parameters = method.GetParameters();
+                    var signature = DescribeParameters(parameters);
+                    if (!TryBuildCardPickupArgs(parameters, out var args))
+                    {
+                        lastFailure = "no_compatible_card_pickup_overload:" + methodName;
+                        attemptFailures.Add("Card." + methodName + "[" + signature + "]:" + lastFailure);
+                        continue;
+                    }
+
+                    try
+                    {
+                        method.Invoke(card, args);
+
+                        var holdStatus = WaitForHeldCardAfterGrab(inputMgr, entityId, out heldEntityId);
+                        if (holdStatus == HeldCardWaitStatus.Expected)
+                        {
+                            methodUsed = "Card." + methodName;
+                            detail = "ok";
+                            AppendActionTrace(
+                                "API grabbed card entityId=" + entityId
+                                + " via Card." + methodName
+                                + " zonePos=" + sourceZonePosition
+                                + " cardType=" + card.GetType().FullName);
+                            return true;
+                        }
+
+                        if (holdStatus == HeldCardWaitStatus.Mismatch)
+                        {
+                            lastFailure = "held_mismatch:Card." + methodName + ":" + heldEntityId;
+                            attemptFailures.Add("Card." + methodName + "[" + signature + "]:" + lastFailure);
+                            AppendActionTrace(
+                                "API grab mismatch expected=" + entityId
+                                + " actual=" + heldEntityId
+                                + " via Card." + methodName
+                                + " zonePos=" + sourceZonePosition);
+                            TryResetHeldCard();
+                            break;
+                        }
+
+                        lastFailure = "held_card_not_detected:Card." + methodName;
+                        attemptFailures.Add("Card." + methodName + "[" + signature + "]:" + lastFailure);
+                    }
+                    catch (Exception ex)
+                    {
+                        lastFailure = "invoke_failed:Card." + methodName + ":" + SimplifyException(ex);
+                        attemptFailures.Add("Card." + methodName + "[" + signature + "]:" + lastFailure);
+                    }
+                }
+            }
+
+            detail = lastFailure;
+            AppendActionTrace(
+                "Card-object grab failed entityId=" + entityId
+                + " zonePos=" + sourceZonePosition
+                + " cardType=" + cardType
+                + " detail=" + lastFailure
+                + " attempts=" + string.Join(" || ", attemptFailures.Take(8).ToArray()));
+            return false;
         }
 
         private static bool TryResetHeldCard()
@@ -4102,6 +4994,42 @@ namespace HearthstonePayload
             return fallback > 0 ? fallback : 0;
         }
 
+        private static void AddDistinctObjectCandidate(List<object> list, object candidate)
+        {
+            if (list == null || candidate == null)
+                return;
+
+            if (!list.Any(existing => ReferenceEquals(existing, candidate)))
+                list.Add(candidate);
+        }
+
+        private static string DescribeObjectType(object value)
+        {
+            return value == null ? "null" : value.GetType().FullName;
+        }
+
+        private static string DescribeObjectName(object value)
+        {
+            if (value == null)
+                return "null";
+
+            var name = GetFieldOrProp(value, "name")?.ToString();
+            if (!string.IsNullOrWhiteSpace(name))
+                return DescribeObjectType(value) + ":" + name;
+
+            return DescribeObjectType(value);
+        }
+
+        private static string DescribeParameters(ParameterInfo[] parameters)
+        {
+            if (parameters == null || parameters.Length == 0)
+                return "void";
+
+            return string.Join(
+                ",",
+                parameters.Select(p => p.ParameterType.Name + " " + (p.Name ?? string.Empty)).ToArray());
+        }
+
         private static void AppendActionTrace(string message)
         {
             if (string.IsNullOrWhiteSpace(message))
@@ -4109,8 +5037,12 @@ namespace HearthstonePayload
 
             try
             {
+                var logDir = System.IO.Path.GetDirectoryName(typeof(ActionExecutor).Assembly.Location);
+                var logPath = string.IsNullOrWhiteSpace(logDir)
+                    ? "payload_error.log"
+                    : System.IO.Path.Combine(logDir, "payload_error.log");
                 System.IO.File.AppendAllText(
-                    "payload_error.log",
+                    logPath,
                     DateTime.Now + ": [Action] " + message + Environment.NewLine);
             }
             catch
@@ -4360,6 +5292,117 @@ namespace HearthstonePayload
                 }
             }
             return args;
+        }
+
+        private static bool TryBuildCardPickupArgs(ParameterInfo[] pars, out object[] args)
+        {
+            args = null;
+            if (pars == null)
+                return false;
+
+            var built = new object[pars.Length];
+            for (int i = 0; i < pars.Length; i++)
+            {
+                var paramType = pars[i].ParameterType;
+                if (paramType.IsByRef)
+                    return false;
+
+                var paramName = (pars[i].Name ?? string.Empty).ToLowerInvariant();
+                if (paramType == typeof(int))
+                {
+                    built[i] = paramName.Contains("timeout") || paramName.Contains("delay")
+                        ? 100
+                        : 0;
+                    continue;
+                }
+
+                if (paramType == typeof(bool))
+                {
+                    built[i] = false;
+                    continue;
+                }
+
+                if (paramType == typeof(string))
+                {
+                    built[i] = string.Empty;
+                    continue;
+                }
+
+                if (paramType.IsValueType)
+                {
+                    built[i] = Activator.CreateInstance(paramType);
+                    continue;
+                }
+
+                built[i] = null;
+            }
+
+            args = built;
+            return true;
+        }
+
+        private static bool TryBuildGrabArgs(
+            ParameterInfo[] pars,
+            object firstArg,
+            int sourceZonePosition,
+            out object[] args)
+        {
+            args = null;
+            if (pars == null || pars.Length == 0 || firstArg == null)
+                return false;
+
+            if (!pars[0].ParameterType.IsInstanceOfType(firstArg))
+                return false;
+
+            var built = new object[pars.Length];
+            built[0] = firstArg;
+
+            for (int i = 1; i < pars.Length; i++)
+            {
+                var paramType = pars[i].ParameterType;
+                var paramName = (pars[i].Name ?? string.Empty).ToLowerInvariant();
+
+                if (paramType == typeof(int))
+                {
+                    if (paramName.Contains("index")
+                        || paramName.Contains("idx")
+                        || paramName.Contains("slot")
+                        || paramName == "i")
+                    {
+                        built[i] = sourceZonePosition > 0
+                            ? Math.Max(0, sourceZonePosition - 1)
+                            : 0;
+                    }
+                    else if (paramName.Contains("zoneposition")
+                        || paramName.Contains("zone_position"))
+                    {
+                        built[i] = sourceZonePosition > 0 ? sourceZonePosition : 0;
+                    }
+                    else
+                    {
+                        built[i] = 0;
+                    }
+
+                    continue;
+                }
+
+                if (paramType == typeof(bool))
+                {
+                    built[i] = false;
+                    continue;
+                }
+
+                if (paramType.IsValueType)
+                {
+                    built[i] = Activator.CreateInstance(paramType);
+                    continue;
+                }
+
+                built[i] = null;
+            }
+
+            args = built;
+            return true;
         }
 
         #endregion

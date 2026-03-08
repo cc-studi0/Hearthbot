@@ -20,6 +20,21 @@ using Debug = SmartBot.Plugins.API.Debug;
 
 namespace BotMain
 {
+    public readonly struct BotStatsSnapshot
+    {
+        public BotStatsSnapshot(int wins, int losses, int concedes)
+        {
+            Wins = wins;
+            Losses = losses;
+            Concedes = concedes;
+        }
+
+        public int Wins { get; }
+        public int Losses { get; }
+        public int Concedes { get; }
+        public int WinRate => Wins + Losses > 0 ? Wins * 100 / (Wins + Losses) : 0;
+    }
+
     public enum BotState { Idle, Running, Finishing }
 
     public class BotService
@@ -80,11 +95,15 @@ namespace BotMain
         private DateTime? _findingGameSince;
         private bool _wasMatchmaking;
         private const int MatchmakingTimeoutSeconds = 60;
+        private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
+        private const int PostGameLobbyConfirmationsRequired = 2;
         /// <summary>
         /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
         /// 在保护期内不会导航到传统对战，防止把正在加载的对局拉出来。
         /// </summary>
         private DateTime? _matchEndedUtc;
+        private DateTime? _postGameSinceUtc;
+        private int _postGameLobbyConfirmCount;
         private const int MatchLoadGracePeriodSeconds = 30;
 
         // 运行限制设置
@@ -101,10 +120,12 @@ namespace BotMain
         private bool _thinkingRoutineEnabled;
         private bool _hoverRoutineEnabled;
         private int _latencySamplingRate = 20000;
+        private bool _pendingConcedeLoss;
 
         public event Action<string> OnLog;
         public event Action<Board> OnBoardUpdated;
         public event Action<string> OnStatusChanged;
+        public event Action<BotStatsSnapshot> OnStatsChanged;
         public event Action<List<string>> OnProfilesLoaded;
         public event Action<List<string>> OnMulliganProfilesLoaded;
         public event Action<List<string>> OnDiscoverProfilesLoaded;
@@ -286,6 +307,7 @@ namespace BotMain
             State = BotState.Running;
             _running = true;
             _finishAfterGame = false;
+            ClearPendingConcedeLoss();
             _cts = new CancellationTokenSource();
             StatusChanged("Starting");
 
@@ -297,6 +319,7 @@ namespace BotMain
         {
             _running = false;
             _finishAfterGame = false;
+            ClearPendingConcedeLoss();
             try { _cts?.Cancel(); } catch { }
         }
 
@@ -308,6 +331,13 @@ namespace BotMain
                 State = BotState.Finishing;
                 StatusChanged("Finishing...");
             }
+        }
+
+        public void ResetStats()
+        {
+            _stats?.ResetAll();
+            ClearPendingConcedeLoss();
+            PublishStatsChanged();
         }
 
         // ── Bot API 方法（供 BotApiHandler 调用）──
@@ -428,6 +458,29 @@ namespace BotMain
             LoadPluginSystem();
         }
 
+        private BotStatsSnapshot GetStatsSnapshot()
+        {
+            if (_stats == null)
+                return new BotStatsSnapshot(0, 0, 0);
+
+            return new BotStatsSnapshot(_stats.Wins, _stats.Losses, _stats.Concedes);
+        }
+
+        private void PublishStatsChanged()
+        {
+            OnStatsChanged?.Invoke(GetStatsSnapshot());
+        }
+
+        private void MarkPendingConcedeLoss()
+        {
+            _pendingConcedeLoss = true;
+        }
+
+        private void ClearPendingConcedeLoss()
+        {
+            _pendingConcedeLoss = false;
+        }
+
         private void HandleGameResult(string resultResp)
         {
             if (string.IsNullOrWhiteSpace(resultResp) || !resultResp.StartsWith("RESULT:", StringComparison.Ordinal))
@@ -437,14 +490,24 @@ namespace BotMain
             if (result == "WIN")
             {
                 _stats?.RecordWin();
+                ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnVictory();
                 Log("[Game] Victory");
+                PublishStatsChanged();
             }
             else if (result == "LOSS")
             {
                 _stats?.RecordLoss();
+                if (_pendingConcedeLoss)
+                    _stats?.RecordConcede();
+                ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnDefeat();
                 Log("[Game] Defeat");
+                PublishStatsChanged();
+            }
+            else
+            {
+                ClearPendingConcedeLoss();
             }
         }
 
@@ -597,6 +660,7 @@ namespace BotMain
             {
                 _stats = new StatsBridge(Log);
                 Log("StatsBridge initialized");
+                PublishStatsChanged();
             }
 
             if (_ai == null)
@@ -670,7 +734,11 @@ namespace BotMain
                 var (lavg, lmin, lmax) = GetLatency();
                 _botApiHandler?.SetLatency(lavg, lmin, lmax);
 
-                _stats?.PollReset();
+                if (_stats?.PollReset() == true)
+                {
+                    ClearPendingConcedeLoss();
+                    PublishStatsChanged();
+                }
                 _stats?.UpdateElapsed();
 
                 // 同步插件列表到 Bot._plugins
@@ -689,6 +757,8 @@ namespace BotMain
                     _concedeRequested = false;
                     var concedeResp = pipe.SendAndReceive("ACTION:CONCEDE", 5000) ?? "NO_RESPONSE";
                     Log($"[Concede] -> {concedeResp}");
+                    if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+                        MarkPendingConcedeLoss();
                     _pluginSystem?.FireOnConcede();
                     continue;
                 }
@@ -707,10 +777,7 @@ namespace BotMain
                     pipe,
                     "GET_SEED",
                     MainLoopGetSeedTimeoutMs,
-                    r => r.StartsWith("SEED:", StringComparison.Ordinal)
-                        || string.Equals(r, "NO_GAME", StringComparison.Ordinal)
-                        || string.Equals(r, "MULLIGAN", StringComparison.Ordinal)
-                        || string.Equals(r, "NOT_OUR_TURN", StringComparison.Ordinal),
+                    BotProtocol.IsSeedResponse,
                     out var resp,
                     "MainLoop");
                 seedSw.Stop();
@@ -745,36 +812,68 @@ namespace BotMain
 
                 if (!resp.StartsWith("SEED:", StringComparison.Ordinal))
                 {
-                    if (resp == "NO_GAME")
+                    if (BotProtocol.IsEndgamePendingState(resp))
                     {
-                        ClearChoiceStateWatch("no_game");
                         if (wasInGame)
-                        {
-                            wasInGame = false;
-                            lastTurnNumber = -1;
-                            var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
-                            HandleGameResult(resultResp);
-                            _pluginSystem?.FireOnGameEnd();
-                            CheckRunLimits();
-                        }
-                        _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
+                            _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
                         notOurTurnStreak = 0;
                         nextPostGameDismissUtc = DateTime.MinValue;
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         mulliganPhaseStartedUtc = DateTime.MinValue;
-                        currentTurnStartedUtc = DateTime.MinValue;
-                        lastConsumedHsBoxActionUpdatedAtMs = 0;
                         playActionFailStreakByEntity.Clear();
-                        AutoQueue(pipe);
+
+                        var pendingResolution = ResolveEndgamePending(pipe, "MainLoopEndgame", out var pendingScene);
+                        if (pendingResolution == EndgamePendingResolution.GameLeftGameplay)
+                        {
+                            Log($"[MainLoop] ENDGAME_PENDING 结束，scene={pendingScene}，按对局结束处理。");
+                            FinalizeMatchAndAutoQueue(
+                                pipe,
+                                ref wasInGame,
+                                ref lastTurnNumber,
+                                ref currentTurnStartedUtc,
+                                ref lastConsumedHsBoxActionUpdatedAtMs,
+                                ref notOurTurnStreak,
+                                ref nextPostGameDismissUtc,
+                                ref mulliganStreak,
+                                ref mulliganHandled,
+                                ref nextMulliganAttemptUtc,
+                                ref mulliganPhaseStartedUtc,
+                                playActionFailStreakByEntity,
+                                "endgame_pending");
+                        }
+                        else
+                        {
+                            Thread.Sleep(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 250);
+                        }
+                    }
+                    else if (resp == "NO_GAME")
+                    {
+                        FinalizeMatchAndAutoQueue(
+                            pipe,
+                            ref wasInGame,
+                            ref lastTurnNumber,
+                            ref currentTurnStartedUtc,
+                            ref lastConsumedHsBoxActionUpdatedAtMs,
+                            ref notOurTurnStreak,
+                            ref nextPostGameDismissUtc,
+                            ref mulliganStreak,
+                            ref mulliganHandled,
+                            ref nextMulliganAttemptUtc,
+                            ref mulliganPhaseStartedUtc,
+                            playActionFailStreakByEntity,
+                            "no_game");
                     }
                     else if (resp == "MULLIGAN")
                     {
                         if (!wasInGame)
                         {
                             wasInGame = true;
+                            ClearPendingConcedeLoss();
                             _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
+                            _postGameSinceUtc = null;
+                            _postGameLobbyConfirmCount = 0;
                             _pluginSystem?.FireOnGameBegin();
                         }
                         notOurTurnStreak = 0;
@@ -833,38 +932,35 @@ namespace BotMain
                             && DateTime.UtcNow >= nextPostGameDismissUtc)
                         {
                             // 先看场景，若已不在对局场景则直接走 NO_GAME 处理，避免卡在假 NOT_OUR_TURN 状态
-                            var sceneResp = pipe.SendAndReceive("GET_SCENE", 2500) ?? "NO_RESPONSE";
-                            var scene = sceneResp.StartsWith("SCENE:", StringComparison.Ordinal)
-                                ? sceneResp.Substring("SCENE:".Length)
-                                : sceneResp;
+                            if (!TryGetSceneValue(pipe, 2500, out var scene, "MainLoopNotOurTurn"))
+                            {
+                                Log("[MainLoop] NOT_OUR_TURN 场景探测超时/串包，等待重试。");
+                                nextPostGameDismissUtc = DateTime.UtcNow.AddSeconds(2);
+                                Thread.Sleep(300);
+                                continue;
+                            }
                             if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                             {
                                 Log($"[MainLoop] NOT_OUR_TURN 持续 {notOurTurnStreak} 次，scene={scene}，按对局结束处理。");
-                                if (wasInGame)
-                                {
-                                    wasInGame = false;
-                                    lastTurnNumber = -1;
-                                    currentTurnStartedUtc = DateTime.MinValue;
-                                    lastConsumedHsBoxActionUpdatedAtMs = 0;
-                                    var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
-                                    HandleGameResult(resultResp);
-                                    _pluginSystem?.FireOnGameEnd();
-                                    CheckRunLimits();
-                                }
-                                ClearChoiceStateWatch("leave_gameplay_scene");
-                                _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
-                                notOurTurnStreak = 0;
-                                nextPostGameDismissUtc = DateTime.MinValue;
-                                mulliganStreak = 0;
-                                mulliganHandled = false;
-                                nextMulliganAttemptUtc = DateTime.MinValue;
-                                mulliganPhaseStartedUtc = DateTime.MinValue;
-                                playActionFailStreakByEntity.Clear();
-                                AutoQueue(pipe);
+                                FinalizeMatchAndAutoQueue(
+                                    pipe,
+                                    ref wasInGame,
+                                    ref lastTurnNumber,
+                                    ref currentTurnStartedUtc,
+                                    ref lastConsumedHsBoxActionUpdatedAtMs,
+                                    ref notOurTurnStreak,
+                                    ref nextPostGameDismissUtc,
+                                    ref mulliganStreak,
+                                    ref mulliganHandled,
+                                    ref nextMulliganAttemptUtc,
+                                    ref mulliganPhaseStartedUtc,
+                                    playActionFailStreakByEntity,
+                                    "leave_gameplay_scene");
                                 continue;
                             }
 
-                            var readyResp = pipe.SendAndReceive("WAIT_READY", 1200) ?? "NO_RESPONSE";
+                            var gotReadyResp = TryGetReadyState(pipe, 1200, out var readyResp, "MainLoopNotOurTurn");
+                            readyResp = gotReadyResp ? readyResp ?? "NO_RESPONSE" : "NO_RESPONSE";
                             // 强制点击条件更严格：
                             // 1) 必须已在对局中 (wasInGame)
                             // 2) NOT_OUR_TURN 持续 >= 250 次 (≈75s，接近单回合时间上限)
@@ -873,7 +969,8 @@ namespace BotMain
                             var shouldForceDismiss = wasInGame && notOurTurnStreak >= 250 && isReady;
                             if (isReady || shouldForceDismiss)
                             {
-                                var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 3000) ?? "NO_RESPONSE";
+                                var gotDismissResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", 2500, out var dismissResp, "MainLoopNotOurTurn");
+                                dismissResp = gotDismissResp ? dismissResp ?? "NO_RESPONSE" : "NO_RESPONSE";
                                 var reason = shouldForceDismiss
                                     ? $"force(streak={notOurTurnStreak},ready={readyResp})"
                                     : "WAIT_READY=READY";
@@ -914,7 +1011,10 @@ namespace BotMain
                 if (!wasInGame)
                 {
                     wasInGame = true;
+                    ClearPendingConcedeLoss();
                     _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
+                    _postGameSinceUtc = null;
+                    _postGameLobbyConfirmCount = 0;
                     _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
                     _pluginSystem?.FireOnGameBegin();
                 }
@@ -2415,6 +2515,8 @@ namespace BotMain
                 Log($"[ConcedeWhenLethal] trigger: {detail}");
                 var concedeResp = pipe.SendAndReceive("ACTION:CONCEDE", 5000) ?? "NO_RESPONSE";
                 Log($"[Action] CONCEDE -> {concedeResp}");
+                if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+                    MarkPendingConcedeLoss();
                 _pluginSystem?.FireOnConcede();
 
                 return concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
@@ -2544,26 +2646,246 @@ namespace BotMain
 
         private static bool IsCrossCommandResponse(string resp)
         {
-            if (string.IsNullOrWhiteSpace(resp))
+            return BotProtocol.IsCrossCommandResponse(resp);
+        }
+
+        private bool TryGetSceneValue(PipeServer pipe, int timeoutMs, out string scene, string scope)
+        {
+            scene = null;
+            var got = TrySendAndReceiveExpected(
+                pipe,
+                "GET_SCENE",
+                timeoutMs,
+                BotProtocol.IsSceneResponse,
+                out var resp,
+                scope);
+            return got && BotProtocol.TryParseScene(resp, out scene);
+        }
+
+        private bool TryGetSeedProbe(PipeServer pipe, int timeoutMs, out string probe, string scope)
+        {
+            probe = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                "GET_SEED",
+                timeoutMs,
+                BotProtocol.IsSeedResponse,
+                out probe,
+                scope);
+        }
+
+        private bool TryGetEndgameState(PipeServer pipe, int timeoutMs, out bool shown, out string endgameClass, string scope)
+        {
+            shown = false;
+            endgameClass = string.Empty;
+            var got = TrySendAndReceiveExpected(
+                pipe,
+                "GET_ENDGAME_STATE",
+                timeoutMs,
+                BotProtocol.IsEndgameResponse,
+                out var resp,
+                scope);
+            return got && BotProtocol.TryParseEndgameState(resp, out shown, out endgameClass);
+        }
+
+        private bool TrySendStatusCommand(PipeServer pipe, string command, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                command,
+                timeoutMs,
+                BotProtocol.IsStatusResponse,
+                out response,
+                scope);
+        }
+
+        private bool TryGetReadyState(PipeServer pipe, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                "WAIT_READY",
+                timeoutMs,
+                r => string.Equals(r, "READY", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(r, "BUSY", StringComparison.OrdinalIgnoreCase),
+                out response,
+                scope);
+        }
+
+        private bool TryGetYesNoResponse(PipeServer pipe, string command, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                command,
+                timeoutMs,
+                BotProtocol.IsYesNoResponse,
+                out response,
+                scope);
+        }
+
+        private enum EndgamePendingResolution
+        {
+            Waiting,
+            GameplayContinues,
+            GameLeftGameplay
+        }
+
+        private bool RunPostGameDismissLoop(PipeServer pipe, string scope, out string sceneAfter)
+        {
+            sceneAfter = "GAMEPLAY";
+            var clickCount = 0;
+            var deadline = DateTime.UtcNow.AddSeconds(20);
+
+            while (_running
+                && DateTime.UtcNow < deadline
+                && string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+            {
+                var gotDismissResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", 2500, out var dismissResp, scope);
+                dismissResp = gotDismissResp ? dismissResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                clickCount++;
+
+                string extraClickResp = null;
+                if (clickCount % 3 == 0)
+                {
+                    var gotExtraResp = TrySendStatusCommand(pipe, "CLICK_SCREEN:0.5,0.78", 2000, out extraClickResp, scope);
+                    extraClickResp = gotExtraResp ? extraClickResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                }
+
+                if (!TryGetSceneValue(pipe, 2500, out var nextScene, scope))
+                {
+                    if (clickCount <= 3 || clickCount % 5 == 0)
+                    {
+                        var extraInfo = extraClickResp == null ? string.Empty : $", extra={extraClickResp}";
+                        Log($"[{scope}] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene_probe=timeout");
+                    }
+                    Thread.Sleep(250);
+                    continue;
+                }
+
+                sceneAfter = nextScene;
+
+                if (clickCount <= 3
+                    || clickCount % 5 == 0
+                    || !string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    var extraInfo = extraClickResp == null ? string.Empty : $", extra={extraClickResp}";
+                    Log($"[{scope}] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene={sceneAfter}");
+                }
+
+                if (!string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    break;
+
+                Thread.Sleep(250);
+            }
+
+            if (string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+            {
+                Log($"[{scope}] 仍在结算界面，连续点击 {clickCount} 次后等待下一轮重试。");
                 return false;
+            }
 
-            if (resp == "READY" || resp == "BUSY" || resp == "PONG")
-                return true;
-            if (resp == "MULLIGAN" || resp == "NOT_OUR_TURN" || resp == "NO_GAME" || resp == "NO_MULLIGAN")
-                return true;
-            if (resp.StartsWith("SEED:", StringComparison.Ordinal)
-                || resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
-                || resp.StartsWith("SCENE:", StringComparison.Ordinal)
-                || resp.StartsWith("DECKS:", StringComparison.Ordinal)
-                || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
-                || resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal)
-                || resp.StartsWith("RESULT:", StringComparison.Ordinal)
-                || resp.StartsWith("OK:", StringComparison.Ordinal)
-                || resp.StartsWith("FAIL:", StringComparison.Ordinal)
-                || resp.StartsWith("ERROR:", StringComparison.Ordinal))
-                return true;
+            Log($"[{scope}] 已离开结算界面 -> scene={sceneAfter}, clicks={clickCount}");
+            return true;
+        }
 
-            return false;
+        private EndgamePendingResolution ResolveEndgamePending(PipeServer pipe, string scope, out string sceneAfter)
+        {
+            sceneAfter = "GAMEPLAY";
+            var deadline = DateTime.UtcNow.AddSeconds(2);
+
+            while (_running && DateTime.UtcNow < deadline)
+            {
+                if (!TryGetSceneValue(pipe, 2000, out var scene, scope))
+                {
+                    Log($"[{scope}] ENDGAME_PENDING 场景探测超时/串包，等待重试。");
+                    return EndgamePendingResolution.Waiting;
+                }
+
+                sceneAfter = scene;
+                if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    return EndgamePendingResolution.GameLeftGameplay;
+
+                if (!TryGetEndgameState(pipe, 2000, out var endgameShown, out var endgameClass, scope))
+                {
+                    Log($"[{scope}] ENDGAME_PENDING 结算页探测超时/串包，等待重试。");
+                    return EndgamePendingResolution.Waiting;
+                }
+
+                if (BotProtocol.ShouldClickPostGameDismiss(scene, BotProtocol.EndgamePending, endgameShown))
+                {
+                    Log($"[{scope}] 检测到结算页显示({endgameClass})，开始连续点击跳过...");
+                    return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
+                        ? EndgamePendingResolution.GameLeftGameplay
+                        : EndgamePendingResolution.Waiting;
+                }
+
+                if (!TryGetSeedProbe(pipe, 1500, out var seedProbe, scope))
+                {
+                    Log($"[{scope}] ENDGAME_PENDING seed 探测超时/串包，等待重试。");
+                    return EndgamePendingResolution.Waiting;
+                }
+
+                if (BotProtocol.ShouldAbortPostGameDismiss(seedProbe))
+                {
+                    Log($"[{scope}] ENDGAME_PENDING 中断：seed={ShortenSeedProbe(seedProbe)}，判定仍在对局流程。");
+                    return EndgamePendingResolution.GameplayContinues;
+                }
+
+                Thread.Sleep(150);
+            }
+
+            return EndgamePendingResolution.Waiting;
+        }
+
+        private void FinalizeMatchAndAutoQueue(
+            PipeServer pipe,
+            ref bool wasInGame,
+            ref int lastTurnNumber,
+            ref DateTime currentTurnStartedUtc,
+            ref long lastConsumedHsBoxActionUpdatedAtMs,
+            ref int notOurTurnStreak,
+            ref DateTime nextPostGameDismissUtc,
+            ref int mulliganStreak,
+            ref bool mulliganHandled,
+            ref DateTime nextMulliganAttemptUtc,
+            ref DateTime mulliganPhaseStartedUtc,
+            Dictionary<int, int> playActionFailStreakByEntity,
+            string clearChoiceReason)
+        {
+            if (wasInGame && _postGameSinceUtc == null)
+            {
+                _postGameSinceUtc = DateTime.UtcNow;
+                _postGameLobbyConfirmCount = 0;
+            }
+
+            ClearChoiceStateWatch(clearChoiceReason);
+            if (wasInGame)
+            {
+                wasInGame = false;
+                lastTurnNumber = -1;
+                currentTurnStartedUtc = DateTime.MinValue;
+                lastConsumedHsBoxActionUpdatedAtMs = 0;
+                var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
+                HandleGameResult(resultResp);
+                _pluginSystem?.FireOnGameEnd();
+                CheckRunLimits();
+            }
+
+            currentTurnStartedUtc = DateTime.MinValue;
+            lastConsumedHsBoxActionUpdatedAtMs = 0;
+            lastTurnNumber = -1;
+
+            _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
+            notOurTurnStreak = 0;
+            nextPostGameDismissUtc = DateTime.MinValue;
+            mulliganStreak = 0;
+            mulliganHandled = false;
+            nextMulliganAttemptUtc = DateTime.MinValue;
+            mulliganPhaseStartedUtc = DateTime.MinValue;
+            playActionFailStreakByEntity.Clear();
+            AutoQueue(pipe);
         }
 
         private bool TryApplyMulligan(PipeServer pipe, DateTime mulliganPhaseStartedUtc, out string result)
@@ -2798,26 +3120,36 @@ namespace BotMain
 
         private void AutoQueue(PipeServer pipe)
         {
-            var scene = pipe.SendAndReceive("GET_SCENE", 5000);
-            if (scene == null) { Thread.Sleep(1000); return; }
-            scene = scene.StartsWith("SCENE:") ? scene.Substring(6) : scene;
+            if (!TryGetSceneValue(pipe, 5000, out var scene, "AutoQueue"))
+            {
+                Log("[AutoQueue] GET_SCENE 超时/串包，等待重试...");
+                Thread.Sleep(1000);
+                return;
+            }
 
             if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
                 // 结算检测采用“双保险”：
                 // 1) GET_SEED == NO_GAME
                 // 2) payload 侧 EndGameScreen 明确处于显示状态
-                var seedProbe = pipe.SendAndReceive("GET_SEED", 2500) ?? "NO_RESPONSE";
-                var endgameProbe = pipe.SendAndReceive("GET_ENDGAME_STATE", 2500) ?? "ENDGAME:0:";
-                var endgameShown = TryParseEndgameState(endgameProbe, out var endgameClass);
-                var seedNoGame = string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal);
-                if (!seedNoGame && !endgameShown)
+                if (!TryGetSeedProbe(pipe, 2500, out var seedProbe, "AutoQueue")
+                    || !TryGetEndgameState(pipe, 2500, out var endgameShown, out var endgameClass, "AutoQueue"))
                 {
-                    if (seedProbe.StartsWith("SEED:", StringComparison.Ordinal)
-                        || string.Equals(seedProbe, "MULLIGAN", StringComparison.Ordinal)
-                        || string.Equals(seedProbe, "NOT_OUR_TURN", StringComparison.Ordinal))
+                    Log("[AutoQueue] 结算探测超时/串包，等待下一轮确认。");
+                    Thread.Sleep(500);
+                    return;
+                }
+
+                if (!BotProtocol.ShouldClickPostGameDismiss(scene, seedProbe, endgameShown))
+                {
+                    if (BotProtocol.ShouldAbortPostGameDismiss(seedProbe))
                     {
                         Log($"[AutoQueue] scene=GAMEPLAY，seed={ShortenSeedProbe(seedProbe)}，endgame=0，判定为对局中/加载中，不执行结算点击。");
+                    }
+                    else if (BotProtocol.IsEndgamePendingState(seedProbe)
+                        || string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal))
+                    {
+                        Log($"[AutoQueue] scene=GAMEPLAY，seed={ShortenSeedProbe(seedProbe)}，等待结算页显示后再点击。");
                     }
                     else
                     {
@@ -2827,76 +3159,19 @@ namespace BotMain
                     return;
                 }
 
-                var reason = seedNoGame ? "seed=NO_GAME" : $"endgame=1({endgameClass})";
+                var reason = $"endgame=1({endgameClass})";
                 Log($"[AutoQueue] 检测到对局结算({reason})，开始连续点击跳过...");
                 _findingGameSince = null;
 
-                var currentScene = scene;
-                var clickCount = 0;
-                var deadline = DateTime.UtcNow.AddSeconds(20);
-                while (_running
-                    && DateTime.UtcNow < deadline
-                    && string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                if (!RunPostGameDismissLoop(pipe, "AutoQueue", out scene))
                 {
-                    var loopSeed = pipe.SendAndReceive("GET_SEED", 2000) ?? "NO_RESPONSE";
-                    var loopEndgameResp = pipe.SendAndReceive("GET_ENDGAME_STATE", 2000) ?? "ENDGAME:0:";
-                    var loopEndgameShown = TryParseEndgameState(loopEndgameResp, out _);
-                    var loopSeedNoGame = string.Equals(loopSeed, "NO_GAME", StringComparison.Ordinal);
-                    if (!loopSeedNoGame && !loopEndgameShown)
-                    {
-                        if (loopSeed.StartsWith("SEED:", StringComparison.Ordinal)
-                            || string.Equals(loopSeed, "MULLIGAN", StringComparison.Ordinal)
-                            || string.Equals(loopSeed, "NOT_OUR_TURN", StringComparison.Ordinal))
-                        {
-                            Log($"[AutoQueue] 结算点击中断：seed={ShortenSeedProbe(loopSeed)}，判定已进入对局流程。");
-                            break;
-                        }
-                    }
-
-                    var dismissResp = pipe.SendAndReceive("CLICK_DISMISS", 2500) ?? "NO_RESPONSE";
-                    clickCount++;
-
-                    // 某些结算界面不会响应中心点，周期性补点底部中间区域。
-                    string extraClickResp = null;
-                    if (clickCount % 3 == 0)
-                        extraClickResp = pipe.SendAndReceive("CLICK_SCREEN:0.5,0.78", 2000) ?? "NO_RESPONSE";
-
-                    var sceneResp = pipe.SendAndReceive("GET_SCENE", 2500) ?? "NO_RESPONSE";
-                    currentScene = sceneResp.StartsWith("SCENE:", StringComparison.Ordinal)
-                        ? sceneResp.Substring("SCENE:".Length)
-                        : sceneResp;
-
-                    if (clickCount <= 3
-                        || clickCount % 5 == 0
-                        || !string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var extraInfo = extraClickResp == null ? "" : $", extra={extraClickResp}";
-                        Log($"[AutoQueue] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene={currentScene}");
-                    }
-
-                    if (!string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                        break;
-
-                    Thread.Sleep(250);
-                }
-
-                scene = currentScene;
-                if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                {
-                    Log($"[AutoQueue] 仍在结算界面，连续点击 {clickCount} 次后等待下一轮重试。");
                     Thread.Sleep(800);
                     return;
                 }
-
-                Log($"[AutoQueue] 已离开结算界面 -> scene={scene}, clicks={clickCount}");
             }
 
             // 检查是否已在匹配中
-            var finding = pipe.SendAndReceive("IS_FINDING", 5000);
-
-            // IS_FINDING 超时（返回 null）说明 payload 侧正忙/游戏无响应，
-            // 可能是匹配成功后游戏正在加载，不能继续往下走导航逻辑。
-            if (finding == null)
+            if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))
             {
                 Log("[AutoQueue] IS_FINDING 超时（payload 无响应），等待重试...");
                 Thread.Sleep(2000);
@@ -2906,6 +3181,8 @@ namespace BotMain
             if (finding == "YES")
             {
                 _wasMatchmaking = true;
+                _postGameSinceUtc = null;
+                _postGameLobbyConfirmCount = 0;
                 if (_findingGameSince == null)
                 {
                     _findingGameSince = DateTime.UtcNow;
@@ -2940,21 +3217,21 @@ namespace BotMain
                 while (_running && DateTime.UtcNow < loadDeadline)
                 {
                     Thread.Sleep(3000);
-                    var probe = pipe.SendAndReceive("GET_SEED", 3000);
-                    if (probe != null)
+                    if (TryGetSeedProbe(pipe, 3000, out var probe, "AutoQueueLoad"))
                     {
                         if (probe.StartsWith("SEED:", StringComparison.Ordinal)
                             || string.Equals(probe, "MULLIGAN", StringComparison.Ordinal)
-                            || string.Equals(probe, "NOT_OUR_TURN", StringComparison.Ordinal))
+                            || string.Equals(probe, "NOT_OUR_TURN", StringComparison.Ordinal)
+                            || string.Equals(probe, BotProtocol.EndgamePending, StringComparison.Ordinal))
                         {
                             Log($"[AutoQueue] 游戏已加载完成 (seed={ShortenSeedProbe(probe)})，返回主循环。");
                             return; // 返回 MainLoop，由主循环正常处理对局
                         }
-                    }
 
-                    var elapsed = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
-                    if ((int)elapsed % 9 < 4)
-                        Log($"[AutoQueue] 等待游戏加载中... {elapsed:F0}s, probe={ShortenSeedProbe(probe ?? "null")}");
+                        var elapsed = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
+                        if ((int)elapsed % 9 < 4)
+                            Log($"[AutoQueue] 等待游戏加载中... {elapsed:F0}s, probe={ShortenSeedProbe(probe ?? "null")}");
+                    }
                 }
 
                 Log("[AutoQueue] 加载等待超时(60s)，继续正常流程。");
@@ -2973,27 +3250,23 @@ namespace BotMain
                 if (sincEnd < MatchLoadGracePeriodSeconds)
                 {
                     // 保护期内，重新确认场景和游戏状态
-                    var graceScene = pipe.SendAndReceive("GET_SCENE", 3000);
-                    // 只信任带 SCENE: 前缀的正常响应，其他一律视为不可靠（可能是串包）
-                    var graceSceneParsed = graceScene != null && graceScene.StartsWith("SCENE:", StringComparison.Ordinal)
-                        ? graceScene.Substring(6) : null;
-                    var graceSeed = pipe.SendAndReceive("GET_SEED", 3000) ?? "NO_RESPONSE";
+                    var gotGraceScene = TryGetSceneValue(pipe, 3000, out var graceSceneParsed, "AutoQueueGrace");
+                    var gotGraceSeed = TryGetSeedProbe(pipe, 3000, out var graceSeed, "AutoQueueGrace");
+                    graceSeed = gotGraceSeed ? graceSeed ?? "NO_RESPONSE" : "NO_RESPONSE";
 
                     // 如果 GET_SEED 返回了有效游戏数据，说明已进入对局，继续保护
                     var seedIndicatesGame = graceSeed.StartsWith("SEED:", StringComparison.Ordinal)
                         || string.Equals(graceSeed, "MULLIGAN", StringComparison.Ordinal)
-                        || string.Equals(graceSeed, "NOT_OUR_TURN", StringComparison.Ordinal);
+                        || string.Equals(graceSeed, "NOT_OUR_TURN", StringComparison.Ordinal)
+                        || string.Equals(graceSeed, BotProtocol.EndgamePending, StringComparison.Ordinal);
 
                     // 只有确认场景是已知的安全大厅场景（白名单）才允许提前结束保护期
                     // 注意：GET_SCENE 可能收到串包响应（如 NO_GAME），不能用排除法判断
-                    var isKnownLobby = graceSceneParsed != null
-                        && (string.Equals(graceSceneParsed, "HUB", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(graceSceneParsed, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
-                            || string.Equals(graceSceneParsed, "LOGIN", StringComparison.OrdinalIgnoreCase));
+                    var isKnownLobby = gotGraceScene && BotProtocol.IsStableLobbyScene(graceSceneParsed);
 
                     if (!isKnownLobby || seedIndicatesGame)
                     {
-                        Log($"[AutoQueue] 匹配加载保护期({sincEnd:F0}s/{MatchLoadGracePeriodSeconds}s)：scene={graceSceneParsed ?? graceScene ?? "null"}，seed={ShortenSeedProbe(graceSeed)}，等待加载完成...");
+                        Log($"[AutoQueue] 匹配加载保护期({sincEnd:F0}s/{MatchLoadGracePeriodSeconds}s)：scene={graceSceneParsed ?? "null"}，seed={ShortenSeedProbe(graceSeed)}，等待加载完成...");
                         Thread.Sleep(3000);
                         return;
                     }
@@ -3009,11 +3282,39 @@ namespace BotMain
                 }
             }
 
+            if (_postGameSinceUtc != null)
+            {
+                if (BotProtocol.IsPostGameNavigationDelayActive(_postGameSinceUtc, DateTime.UtcNow, PostGameNavigationMinDelay))
+                {
+                    var elapsed = (DateTime.UtcNow - _postGameSinceUtc.Value).TotalMilliseconds;
+                    Log($"[AutoQueue] 结算保护期 {elapsed:0}ms/{PostGameNavigationMinDelay.TotalMilliseconds:0}ms，延后导航...");
+                    Thread.Sleep(1000);
+                    return;
+                }
+
+                if (!TryGetEndgameState(pipe, 2500, out var postGameEndgameShown, out var postGameEndgameClass, "AutoQueue"))
+                {
+                    Log("[AutoQueue] 结算保护期中的 ENDGAME 状态读取失败，等待重试。");
+                    Thread.Sleep(1000);
+                    return;
+                }
+
+                _postGameLobbyConfirmCount = BotProtocol.UpdatePostGameLobbyConfirmCount(
+                    _postGameLobbyConfirmCount,
+                    scene,
+                    postGameEndgameShown);
+
+                if (_postGameLobbyConfirmCount < PostGameLobbyConfirmationsRequired)
+                {
+                    Log($"[AutoQueue] 等待大厅稳定确认 {_postGameLobbyConfirmCount}/{PostGameLobbyConfirmationsRequired}：scene={scene}, endgame={(postGameEndgameShown ? "1" : "0")}({postGameEndgameClass})");
+                    Thread.Sleep(1000);
+                    return;
+                }
+            }
+
             // ── 安全检查：绝不在 GAMEPLAY / UNKNOWN 场景下导航 ──
             // 即使不在保护期，如果场景是 GAMEPLAY 或 UNKNOWN，也不应该导航到传统对战
-            if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(scene, "UNKNOWN", StringComparison.OrdinalIgnoreCase)
-                || string.IsNullOrWhiteSpace(scene))
+            if (BotProtocol.IsNavigationBlockedScene(scene))
             {
                 Log($"[AutoQueue] 场景={scene}，不适合导航，等待场景变化...");
                 Thread.Sleep(3000);
@@ -3036,6 +3337,8 @@ namespace BotMain
                 // 点击开始后立即标记为匹配中，防止匹配瞬间完成时保护机制来不及生效
                 _wasMatchmaking = true;
                 _findingGameSince = DateTime.UtcNow;
+                _postGameSinceUtc = null;
+                _postGameLobbyConfirmCount = 0;
                 Thread.Sleep(5000);
                 return;
             }
@@ -3065,22 +3368,14 @@ namespace BotMain
             // 点击开始后立即标记为匹配中，防止匹配瞬间完成时保护机制来不及生效
             _wasMatchmaking = true;
             _findingGameSince = DateTime.UtcNow;
+            _postGameSinceUtc = null;
+            _postGameLobbyConfirmCount = 0;
             Thread.Sleep(5000);
         }
 
         private static bool TryParseEndgameState(string resp, out string endgameClass)
         {
-            endgameClass = string.Empty;
-            if (string.IsNullOrWhiteSpace(resp)) return false;
-            if (!resp.StartsWith("ENDGAME:", StringComparison.Ordinal)) return false;
-
-            var payload = resp.Substring("ENDGAME:".Length);
-            var idx = payload.IndexOf(':');
-            var shownPart = idx >= 0 ? payload.Substring(0, idx) : payload;
-            endgameClass = idx >= 0 && idx + 1 < payload.Length ? payload.Substring(idx + 1) : string.Empty;
-
-            return shownPart == "1"
-                || shownPart.Equals("true", StringComparison.OrdinalIgnoreCase);
+            return BotProtocol.TryParseEndgameState(resp, out var shown, out endgameClass) && shown;
         }
 
         private static string ShortenSeedProbe(string probe)

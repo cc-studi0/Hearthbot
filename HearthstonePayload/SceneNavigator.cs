@@ -11,6 +11,7 @@ namespace HearthstonePayload
     /// </summary>
     public class SceneNavigator
     {
+        private const int DismissClickTimeoutMs = 2400;
         private Assembly _asm;
         private Type _sceneMgrType;
         private Type _gameMgrType;
@@ -852,7 +853,7 @@ namespace HearthstonePayload
             var w = dims[0];
             var h = dims[1];
             if (w <= 0 || h <= 0) return "ERROR:no_screen";
-            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h));
+            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
             return result ?? "ERROR:click_failed";
         }
 
@@ -894,12 +895,16 @@ namespace HearthstonePayload
             var cy = h / 2;
             var lowerY = (int)(h * 0.70f);
             var bottomY = (int)(h * 0.82f);
+            var continueY = (int)(h * 0.93f);
             var sideOffset = Math.Max(14, w / 12);
             var points = new[]
             {
                 (x: cx, y: cy),
                 (x: cx, y: lowerY),
                 (x: cx, y: bottomY),
+                (x: cx, y: continueY),
+                (x: cx - sideOffset, y: continueY),
+                (x: cx + sideOffset, y: continueY),
                 (x: cx - sideOffset, y: lowerY),
                 (x: cx + sideOffset, y: lowerY),
                 (x: cx, y: cy),

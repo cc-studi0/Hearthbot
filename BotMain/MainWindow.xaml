@@ -89,9 +89,9 @@
                     <TextBlock Text="Statistics:" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,2"/>
                     <TextBlock FontSize="11" Foreground="#333">
                         <Run Text="Runtime: "/><Run Text="{Binding RuntimeText, Mode=OneWay}"/>
-                        <Run Text="  -  Stats: "/><Run Text="{Binding Wins, Mode=OneWay}"/><Run Text="W "/>
-                        <Run Text="{Binding Losses, Mode=OneWay}"/><Run Text="L "/>
-                        <Run Text="{Binding Concedes, Mode=OneWay}"/><Run Text="C"/>
+                        <Run Text="  -  胜: "/><Run Text="{Binding Wins, Mode=OneWay}"/>
+                        <Run Text="  负: "/><Run Text="{Binding Losses, Mode=OneWay}"/>
+                        <Run Text="  投: "/><Run Text="{Binding Concedes, Mode=OneWay}"/>
                     </TextBlock>
                     <TextBlock FontSize="11" Foreground="#333">
                         <Run Text="WR: "/><Run Text="{Binding WinRate, Mode=OneWay}"/><Run Text="%"/>

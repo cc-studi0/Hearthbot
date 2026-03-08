@@ -10,6 +10,7 @@ namespace HearthstonePayload
     [BepInPlugin("com.bot.hearthstone", "HearthstoneBot", "1.0.0")]
     public class Plugin : BaseUnityPlugin
     {
+        private const string EndgamePending = "ENDGAME_PENDING";
         private static bool _running;
         private static PipeClient _pipe;
         private static CoroutineExecutor _coroutine;
@@ -26,6 +27,7 @@ namespace HearthstonePayload
         {
             try
             {
+                UnityEngine.Application.runInBackground = true;
                 var harmony = new Harmony("com.bot.hearthstone");
                 AntiCheatPatches.Apply(harmony);
                 InputHook.Apply(harmony);
@@ -137,8 +139,20 @@ namespace HearthstonePayload
                                 _lastGameResult = state.Result != GameResult.None
                                     ? state.Result.ToString().ToUpper()
                                     : "NONE";
-                                // 对局已结算：主动返回 NO_GAME，让上层立即走结算/跳过动画/自动开始下一局流程
-                                _pipe.Write("NO_GAME");
+                                // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
+                                var endScreenShown = reader.IsEndGameScreenShown(out _);
+                                if (endScreenShown)
+                                {
+                                    _pipe.Write("NO_GAME");
+                                }
+                                else
+                                {
+                                    var scene = nav.GetScene();
+                                    if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                                        _pipe.Write(EndgamePending);
+                                    else
+                                        _pipe.Write("NO_GAME");
+                                }
                                 continue;
                             }
                             if (state.IsMulliganPhase)
@@ -297,7 +311,11 @@ namespace HearthstonePayload
                 }
                 catch (Exception ex)
                 {
-                    System.IO.File.AppendAllText("payload_error.log",
+                    var logDir = System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location);
+                    var logPath = string.IsNullOrWhiteSpace(logDir)
+                        ? "payload_error.log"
+                        : System.IO.Path.Combine(logDir, "payload_error.log");
+                    System.IO.File.AppendAllText(logPath,
                         DateTime.Now + ": " + ex.Message + Environment.NewLine);
                     Thread.Sleep(2000);
                 }

@@ -236,6 +236,8 @@ namespace HearthstonePayload
         {
             x = y = 0;
             // 尝试通过BoardZone获取
+            var normalizedPosition = NormalizeBoardDropPosition(position, totalMinions);
+            var slots = Math.Max(1, totalMinions + 1);
             if (EnsureTypes())
             {
                 var gs = InvokeStatic(_gameStateType, "Get");
@@ -255,14 +257,43 @@ namespace HearthstonePayload
                             float baseX = GetFloat(pos, "x");
                             float baseY = GetFloat(pos, "y");
                             float baseZ = GetFloat(pos, "z");
-                            float offset = (position - (totalMinions + 1) / 2.0f) * 1.8f;
+                            float offset = ((normalizedPosition - 0.5f) - slots / 2.0f) * 1.8f;
                             return MouseSimulator.WorldToScreen(
                                 baseX + offset, baseY, baseZ, out x, out y);
                         }
                     }
                 }
             }
-            return FallbackBoardDrop(position, totalMinions, out x, out y);
+            return FallbackBoardDrop(normalizedPosition, totalMinions, out x, out y);
+        }
+
+        public static bool GetPlayReleaseScreenPos(out int x, out int y)
+        {
+            x = y = 0;
+            if (!EnsureTypes()) return FallbackPlayRelease(out x, out y);
+
+            var gs = InvokeStatic(_gameStateType, "Get");
+            if (gs == null) return FallbackPlayRelease(out x, out y);
+
+            var friendly = Invoke(gs, "GetFriendlySidePlayer")
+                ?? Invoke(gs, "GetFriendlyPlayer")
+                ?? Invoke(gs, "GetLocalPlayer");
+            if (friendly == null) return FallbackPlayRelease(out x, out y);
+
+            var zone = Invoke(friendly, "GetBattlefieldZone")
+                ?? Invoke(friendly, "GetPlayZone")
+                ?? GetProp(friendly, "m_battlefieldZone")
+                ?? GetProp(friendly, "BattlefieldZone");
+            if (zone == null) return FallbackPlayRelease(out x, out y);
+
+            var pos = GetTransformPos(zone);
+            if (pos == null) return FallbackPlayRelease(out x, out y);
+
+            if (!MouseSimulator.WorldToScreen(
+                GetFloat(pos, "x"), GetFloat(pos, "y"), GetFloat(pos, "z"), out x, out y))
+                return FallbackPlayRelease(out x, out y);
+
+            return true;
         }
 
         /// <summary>
@@ -496,10 +527,20 @@ namespace HearthstonePayload
             int w = MouseSimulator.GetScreenWidth();
             int h = MouseSimulator.GetScreenHeight();
             if (w <= 0 || h <= 0) { x = y = 0; return false; }
-            float slots = totalMinions + 1;
-            float ratio = (position + 0.5f) / slots;
+            float slots = Math.Max(1, totalMinions + 1);
+            float ratio = (position - 0.5f) / slots;
             x = (int)(w * (0.25 + ratio * 0.5));
             y = (int)(h * 0.55);
+            return true;
+        }
+
+        private static bool FallbackPlayRelease(out int x, out int y)
+        {
+            int w = MouseSimulator.GetScreenWidth();
+            int h = MouseSimulator.GetScreenHeight();
+            if (w <= 0 || h <= 0) { x = y = 0; return false; }
+            x = (int)(w * 0.5);
+            y = (int)(h * 0.56);
             return true;
         }
 
@@ -549,6 +590,16 @@ namespace HearthstonePayload
             if (vector3 == null) return 0;
             var f = vector3.GetType().GetField(field);
             return f != null ? (float)f.GetValue(vector3) : 0;
+        }
+
+        public static int NormalizeBoardDropPosition(int position, int totalMinions)
+        {
+            var slots = Math.Max(1, totalMinions + 1);
+            if (position <= 0)
+                return slots;
+            if (position > slots)
+                return slots;
+            return position;
         }
 
         private static object GetEntity(object gs, int entityId)

@@ -28,7 +28,11 @@ namespace HearthstonePayload
                 _done.Reset();
                 _queue.Enqueue(coroutine);
             }
-            return _done.Wait(timeoutMs) ? (_result ?? "OK") : "ERROR:coroutine_timeout";
+            if (_done.Wait(timeoutMs))
+                return _result ?? "OK";
+
+            AbortTimedOutCoroutine();
+            return "ERROR:coroutine_timeout";
         }
 
         /// <summary>
@@ -77,6 +81,19 @@ namespace HearthstonePayload
         public void SetResult(string result)
         {
             _result = result;
+        }
+
+        private void AbortTimedOutCoroutine()
+        {
+            lock (_lock)
+            {
+                _current = null;
+                _queue.Clear();
+                _waitRemaining = 0;
+                _result = "ERROR:coroutine_timeout";
+            }
+            InputHook.Simulating = false;
+            _done.Set();
         }
 
         private void Complete(string result)

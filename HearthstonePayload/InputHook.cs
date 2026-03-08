@@ -27,10 +27,15 @@ namespace HearthstonePayload
                 .FirstOrDefault(t => t != null);
             if (inputType == null) return;
 
+            var applicationType = AppDomain.CurrentDomain.GetAssemblies()
+                .Select(a => a.GetType("UnityEngine.Application"))
+                .FirstOrDefault(t => t != null);
+
             TryPatch(harmony, inputType, "mousePosition", nameof(MousePosPre));
             TryPatch(harmony, inputType, "GetMouseButton", nameof(GetButtonPre));
             TryPatch(harmony, inputType, "GetMouseButtonDown", nameof(GetButtonDownPre));
             TryPatch(harmony, inputType, "GetMouseButtonUp", nameof(GetButtonUpPre));
+            TryPatch(harmony, applicationType, "isFocused", nameof(IsFocusedPre));
         }
 
         private static void TryPatch(Harmony harmony, Type inputType, string name, string prefixName)
@@ -78,6 +83,13 @@ namespace HearthstonePayload
         {
             if (!Simulating || button != 0) return true;
             __result = (ReleaseFrame == FrameCount);
+            return false;
+        }
+
+        static bool IsFocusedPre(ref bool __result)
+        {
+            if (!Simulating) return true;
+            __result = true;
             return false;
         }
     }

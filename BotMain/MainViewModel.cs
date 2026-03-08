@@ -47,6 +47,16 @@ namespace BotMain
                 Notify(nameof(TopStatusText));
                 Notify(nameof(MainButtonText));
             });
+            _bot.OnStatsChanged += stats => _dispatcher.BeginInvoke(() =>
+            {
+                Wins = stats.Wins;
+                Losses = stats.Losses;
+                Concedes = stats.Concedes;
+                Notify(nameof(Wins));
+                Notify(nameof(Losses));
+                Notify(nameof(Concedes));
+                Notify(nameof(WinRate));
+            });
             _bot.OnBoardUpdated += OnBoard;
             _bot.OnProfilesLoaded += names => _dispatcher.BeginInvoke(() =>
             {
@@ -106,8 +116,7 @@ namespace BotMain
 
             MainCmd = new RelayCommand(_ => OnMainButton());
             FinishCmd = new RelayCommand(_ => _bot.FinishAfterGame(), _ => _bot.State == BotState.Running);
-            ResetStatsCmd = new RelayCommand(_ => { Wins = Losses = Concedes = 0;
-                Notify(nameof(Wins)); Notify(nameof(Losses)); Notify(nameof(Concedes)); Notify(nameof(WinRate)); });
+            ResetStatsCmd = new RelayCommand(_ => _bot.ResetStats());
             SaveLogCmd = new RelayCommand(_ => SaveLog());
             SettingsCmd = new RelayCommand(_ => { });
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());

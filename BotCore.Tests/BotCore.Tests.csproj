@@ -19,6 +19,10 @@
     <ProjectReference Include="..\BotCore\BotCore.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
+    <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Reference Include="SBAPI">
       <HintPath>..\Libs\SBAPI.dll</HintPath>
     </Reference>

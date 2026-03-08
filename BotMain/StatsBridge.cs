@@ -75,12 +75,12 @@ namespace BotMain
         /// <summary>
         /// 轮询 Statistics._reset 标志，如果被插件触发则重置计数
         /// </summary>
-        public void PollReset()
+        public bool PollReset()
         {
             try
             {
                 var reset = (bool?)_resetField?.GetValue(null) ?? false;
-                if (!reset) return;
+                if (!reset) return false;
                 _resetField.SetValue(null, false);
 
                 Wins = 0;
@@ -89,8 +89,11 @@ namespace BotMain
                 _startTimeUtc = DateTime.UtcNow;
                 SyncToSbapi();
                 _log?.Invoke("[Stats] Reset by plugin");
+                return true;
             }
             catch { }
+
+            return false;
         }
 
         /// <summary>
