@@ -963,19 +963,16 @@ namespace BotMain
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
 
-                if (_followHsBoxRecommendations)
+                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState))
                 {
-                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState))
-                    {
-                        Thread.Sleep(120);
-                        continue;
-                    }
+                    Thread.Sleep(120);
+                    continue;
+                }
 
-                    if (waitingForChoiceState)
-                    {
-                        Thread.Sleep(120);
-                        continue;
-                    }
+                if (waitingForChoiceState)
+                {
+                    Thread.Sleep(120);
+                    continue;
                 }
 
                 _pluginSystem?.FireOnSimulation();

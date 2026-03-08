@@ -20,6 +20,7 @@ namespace HearthstonePayload
         private static Type _networkType;
         private static Type _inputMgrType;
         private static Type _connectApiType;
+        private static Type _choiceCardMgrType;
 
         private static CoroutineExecutor _coroutine;
 
@@ -43,6 +44,7 @@ namespace HearthstonePayload
             _networkType = ctx.NetworkType;
             _inputMgrType = ctx.InputMgrType;
             _connectApiType = ctx.ConnectApiType;
+            _choiceCardMgrType = _asm?.GetType("ChoiceCardMgr");
             return _gameStateType != null;
         }
 
@@ -2084,6 +2086,9 @@ namespace HearthstonePayload
 
         private static bool IsChoiceModeActive(object gameState)
         {
+            if (TryGetChoiceCardMgrFriendlyCards(out var friendlyCards))
+                return friendlyCards.Count > 0;
+
             if (gameState == null)
                 return false;
 
@@ -2106,6 +2111,209 @@ namespace HearthstonePayload
             if (HasSourceEntityTag(sourceEntity, "TITAN")) return "TITAN";
 
             return "CHOOSE_ONE";
+        }
+
+        private static object TryGetChoiceCardMgr()
+        {
+            if (!EnsureTypes())
+                return null;
+
+            if (_choiceCardMgrType == null)
+                _choiceCardMgrType = _asm?.GetType("ChoiceCardMgr");
+            if (_choiceCardMgrType == null)
+                return null;
+
+            try
+            {
+                return GetSingleton(_choiceCardMgrType);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static bool TryGetChoiceCardMgrFriendlyCards(out List<object> cards)
+        {
+            cards = null;
+
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            if (choiceCardMgr == null)
+                return false;
+
+            var friendlyCards = Invoke(choiceCardMgr, "GetFriendlyCards") as IEnumerable;
+            if (friendlyCards == null)
+            {
+                var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
+                friendlyCards = GetFieldOrProp(choiceState, "m_cards") as IEnumerable
+                    ?? GetFieldOrProp(choiceState, "Cards") as IEnumerable;
+            }
+
+            if (friendlyCards == null)
+                return false;
+
+            cards = new List<object>();
+            foreach (var card in friendlyCards)
+            {
+                if (card != null)
+                    cards.Add(card);
+            }
+
+            return true;
+        }
+
+        private static object TryGetCurrentFriendlyChoiceState(object choiceCardMgr)
+        {
+            if (choiceCardMgr == null)
+                return null;
+
+            var choiceState = GetFieldOrProp(choiceCardMgr, "m_lastShownChoiceState")
+                ?? GetFieldOrProp(choiceCardMgr, "lastShownChoiceState")
+                ?? GetFieldOrProp(choiceCardMgr, "LastShownChoiceState");
+            return IsFriendlyChoiceState(choiceState) ? choiceState : null;
+        }
+
+        private static bool IsFriendlyChoiceState(object choiceState)
+        {
+            if (choiceState == null)
+                return false;
+
+            var flag = GetFieldOrProp(choiceState, "m_isFriendly")
+                ?? GetFieldOrProp(choiceState, "IsFriendly")
+                ?? GetFieldOrProp(choiceState, "isFriendly");
+
+            if (flag is bool boolFlag)
+                return boolFlag;
+
+            try
+            {
+                return flag != null && Convert.ToBoolean(flag);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryResolveChoiceSourceEntity(object gameState, object choiceCardMgr, object choicePacket, out int sourceEntityId, out object sourceEntity)
+        {
+            sourceEntityId = 0;
+            sourceEntity = null;
+
+            if (choicePacket != null)
+            {
+                sourceEntityId = GetIntFieldOrProp(choicePacket, "Source");
+                if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choicePacket, "m_source");
+                if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choicePacket, "SourceEntityId");
+            }
+
+            if (sourceEntityId <= 0)
+            {
+                var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
+                if (choiceState != null)
+                {
+                    sourceEntityId = GetIntFieldOrProp(choiceState, "m_sourceEntityId");
+                    if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choiceState, "SourceEntityId");
+                    if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choiceState, "Source");
+                }
+            }
+
+            if (sourceEntityId > 0 && gameState != null)
+                sourceEntity = GetEntity(gameState, sourceEntityId);
+
+            return sourceEntityId > 0 || sourceEntity != null;
+        }
+
+        private static bool TryBuildChoicePartsFromChoiceCardMgr(object gameState, out List<string> parts)
+        {
+            parts = null;
+
+            if (!TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
+                || friendlyCards == null
+                || friendlyCards.Count == 0)
+            {
+                return false;
+            }
+
+            var result = new List<string>();
+            foreach (var card in friendlyCards)
+            {
+                var entity = ResolveChoiceCardEntity(card);
+                if (entity == null)
+                    continue;
+
+                var entityId = ResolveEntityId(entity);
+                if (entityId <= 0)
+                    continue;
+
+                var cardId = ResolveCardIdFromObject(entity);
+                if (string.IsNullOrWhiteSpace(cardId))
+                    cardId = ResolveCardIdFromObject(card);
+                if (string.IsNullOrWhiteSpace(cardId) && gameState != null)
+                    cardId = ResolveEntityCardId(gameState, entityId);
+
+                result.Add((cardId ?? string.Empty) + "," + entityId);
+            }
+
+            if (result.Count == 0)
+                return false;
+
+            parts = result;
+            return true;
+        }
+
+        private static bool TryBuildChoicePartsFromPacket(object gameState, object choicePacket, out List<string> parts)
+        {
+            parts = null;
+            if (choicePacket == null)
+                return false;
+
+            var entities = GetFieldOrProp(choicePacket, "Entities") as IEnumerable;
+            if (entities == null)
+                return false;
+
+            var result = new List<string>();
+            foreach (var eid in entities)
+            {
+                int id;
+                try { id = Convert.ToInt32(eid); } catch { continue; }
+                if (id <= 0) continue;
+
+                var entity = GetEntity(gameState, id);
+                if (entity == null) continue;
+
+                var cardId = ResolveCardIdFromObject(entity);
+                result.Add((cardId ?? string.Empty) + "," + id);
+            }
+
+            if (result.Count == 0)
+                return false;
+
+            parts = result;
+            return true;
+        }
+
+        private static object ResolveChoiceCardEntity(object card)
+        {
+            if (card == null)
+                return null;
+
+            return Invoke(card, "GetEntity")
+                ?? GetFieldOrProp(card, "Entity")
+                ?? GetFieldOrProp(card, "m_entity")
+                ?? card;
+        }
+
+        private static string ResolveCardIdFromObject(object source)
+        {
+            if (source == null)
+                return string.Empty;
+
+            var cardIdObj = Invoke(source, "GetCardId")
+                ?? GetFieldOrProp(source, "CardId")
+                ?? GetFieldOrProp(source, "m_cardId")
+                ?? GetFieldOrProp(source, "m_cardID");
+            return cardIdObj?.ToString() ?? string.Empty;
         }
 
         private static bool HasSourceEntityTag(object sourceEntity, string tagName)
@@ -2666,43 +2874,33 @@ namespace HearthstonePayload
                     return null;
             }
 
-            var choices = Invoke(gs, "GetFriendlyEntityChoices");
-            if (choices == null) return null;
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            var choicePacket = Invoke(gs, "GetFriendlyEntityChoices");
+            if (choicePacket == null)
+                return null;
+
+            TryResolveChoiceSourceEntity(gs, choiceCardMgr, choicePacket, out var resolvedSourceEntityId, out var resolvedSourceEntity);
+
+            var resolvedOriginCardId = ResolveCardIdFromObject(resolvedSourceEntity);
+            if (string.IsNullOrWhiteSpace(resolvedOriginCardId) && resolvedSourceEntityId > 0)
+                resolvedOriginCardId = ResolveEntityCardId(gs, resolvedSourceEntityId);
+
+            var resolvedChoiceMode = GetChoiceModeBySourceTags(resolvedSourceEntity);
+
+            List<string> resolvedChoiceParts = null;
+            if (!TryBuildChoicePartsFromPacket(gs, choicePacket, out resolvedChoiceParts))
+                TryBuildChoicePartsFromChoiceCardMgr(gs, out resolvedChoiceParts);
+
+            if (resolvedChoiceParts == null || resolvedChoiceParts.Count == 0)
+                return null;
+
+            return resolvedOriginCardId + "|" + string.Join(";", resolvedChoiceParts) + "|" + resolvedChoiceMode;
+
 
             // 获取来源卡牌ID
-            var sourceEntityId = GetIntFieldOrProp(choices, "Source");
-            if (sourceEntityId <= 0) sourceEntityId = GetIntFieldOrProp(choices, "m_source");
-            string originCardId = "";
-            object sourceEntity = null;
-            if (sourceEntityId > 0)
-            {
-                sourceEntity = GetEntity(gs, sourceEntityId);
-                if (sourceEntity != null)
-                {
-                    var cardIdObj = Invoke(sourceEntity, "GetCardId") ?? GetFieldOrProp(sourceEntity, "CardId");
-                    originCardId = cardIdObj?.ToString() ?? "";
-                }
-            }
-            var choiceMode = GetChoiceModeBySourceTags(sourceEntity);
 
             // 获取选项实体列表
-            var entities = GetFieldOrProp(choices, "Entities") as IEnumerable;
-            if (entities == null) return null;
 
-            var parts = new List<string>();
-            foreach (var eid in entities)
-            {
-                int id;
-                try { id = System.Convert.ToInt32(eid); } catch { continue; }
-                if (id <= 0) continue;
-                var entity = GetEntity(gs, id);
-                if (entity == null) continue;
-                var cid = (Invoke(entity, "GetCardId") ?? GetFieldOrProp(entity, "CardId"))?.ToString() ?? "";
-                parts.Add(cid + "," + id);
-            }
-
-            if (parts.Count == 0) return null;
-            return originCardId + "|" + string.Join(";", parts) + "|" + choiceMode;
         }
 
         /// <summary>
@@ -2898,31 +3096,51 @@ namespace HearthstonePayload
 
             if (!IsChoiceModeActive(gs)) return false;
 
-            var choices = Invoke(gs, "GetFriendlyEntityChoices");
-            if (choices == null) return false;
-
-            choiceId = GetIntFieldOrProp(choices, "ID");
-            if (choiceId <= 0) choiceId = GetIntFieldOrProp(choices, "Id");
-
-            var entities = GetFieldOrProp(choices, "Entities") as IEnumerable;
-            if (entities == null) return false;
-
-            var ids = new List<int>();
-            foreach (var eid in entities)
+            var choicePacket = Invoke(gs, "GetFriendlyEntityChoices");
+            if (choicePacket != null)
             {
-                try
+                choiceId = GetIntFieldOrProp(choicePacket, "ID");
+                if (choiceId <= 0) choiceId = GetIntFieldOrProp(choicePacket, "Id");
+            }
+
+            var choiceEntityIds = new List<int>();
+            if (choicePacket != null)
+            {
+                var packetEntities = GetFieldOrProp(choicePacket, "Entities") as IEnumerable;
+                if (packetEntities != null)
                 {
-                    var id = Convert.ToInt32(eid);
-                    if (id > 0) ids.Add(id);
-                }
-                catch
-                {
+                    foreach (var eid in packetEntities)
+                    {
+                        try
+                        {
+                            var id = Convert.ToInt32(eid);
+                            if (id > 0) choiceEntityIds.Add(id);
+                        }
+                        catch
+                        {
+                        }
+                    }
                 }
             }
 
-            ids.Sort();
-            signature = choiceId.ToString() + ":" + string.Join(",", ids);
+            if (choiceEntityIds.Count == 0 && TryGetChoiceCardMgrFriendlyCards(out var friendlyCards) && friendlyCards != null)
+            {
+                foreach (var card in friendlyCards)
+                {
+                    var entity = ResolveChoiceCardEntity(card);
+                    var id = ResolveEntityId(entity);
+                    if (id > 0)
+                        choiceEntityIds.Add(id);
+                }
+            }
+
+            if (choiceEntityIds.Count == 0)
+                return false;
+
+            choiceEntityIds.Sort();
+            signature = choiceId.ToString() + ":" + string.Join(",", choiceEntityIds);
             return true;
+
         }
 
         #endregion
