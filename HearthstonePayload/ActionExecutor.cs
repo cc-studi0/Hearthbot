@@ -108,7 +108,7 @@ namespace HearthstonePayload
                             if (!targetIsEnemyHero)
                                 targetIsEnemyHero = IsEnemyHeroEntityId(targetId);
                             if (beforeState != null
-                                && !CanEntityAttackNow(beforeState, attackerId, out var notReadyReason))
+                                && !CanEntityAttackNow(beforeState, attackerId, targetId, out var notReadyReason))
                             {
                                 // 英雄攻击：EXHAUSTED / NUM_ATTACKS_THIS_TURN / ATK 等 tag 在客户端帧上频繁出现
                                 // 短暂错位，导致这里 false-reject。对英雄攻击完全跳过预检查，
@@ -983,7 +983,7 @@ namespace HearthstonePayload
             return false;
         }
 
-        private static bool CanEntityAttackNow(GameStateData state, int attackerEntityId, out string reason)
+        private static bool CanEntityAttackNow(GameStateData state, int attackerEntityId, int targetEntityId, out string reason)
         {
             reason = "unknown";
             if (state == null)
@@ -1020,6 +1020,27 @@ namespace HearthstonePayload
 
             if (attacker.Exhausted && attacker.AttackCount <= 0)
             {
+                if (attacker.Charge)
+                {
+                    reason = "ok_charge";
+                    return true;
+                }
+
+                if (attacker.Rush)
+                {
+                    if (IsEnemyMinionEntity(state, targetEntityId))
+                    {
+                        reason = "ok_rush_vs_minion";
+                        return true;
+                    }
+
+                    if (state.HeroEnemy != null && state.HeroEnemy.EntityId == targetEntityId)
+                    {
+                        reason = "rush_cannot_attack_hero";
+                        return false;
+                    }
+                }
+
                 reason = "exhausted";
                 return false;
             }
@@ -1070,6 +1091,13 @@ namespace HearthstonePayload
             if (inEnemyMinions != null) return inEnemyMinions;
 
             return state.Hand?.FirstOrDefault(e => e != null && e.EntityId == entityId);
+        }
+
+        private static bool IsEnemyMinionEntity(GameStateData state, int entityId)
+        {
+            return state?.MinionEnemy != null
+                && entityId > 0
+                && state.MinionEnemy.Any(entity => entity != null && entity.EntityId == entityId);
         }
 
         /// <summary>
