@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Newtonsoft.Json.Linq;
 using SmartBot.Arena;
 using SmartBot.Database;
 using SmartBot.Discover;
@@ -138,9 +139,14 @@ namespace BotMain
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
-        private readonly IGameRecommendationProvider _recommendationProvider;
+        private readonly IGameRecommendationProvider _localRecommendationProvider;
+        private readonly HsBoxGameRecommendationProvider _hsBoxRecommendationProvider;
         private DateTime _choiceStateWatchUntilUtc = DateTime.MinValue;
         private string _choiceStateWatchSource = string.Empty;
+        private readonly object _cardMechanicsLock = new object();
+        private Dictionary<string, HashSet<string>> _cardMechanicsById;
+        private bool _cardMechanicsLoadAttempted;
+        private volatile bool _followHsBoxRecommendations;
 
         private sealed class MulliganChoiceState
         {
@@ -157,10 +163,11 @@ namespace BotMain
 
         public BotService()
         {
-            _recommendationProvider = new LocalGameRecommendationProvider(
+            _localRecommendationProvider = new LocalGameRecommendationProvider(
                 RecommendLocalActions,
                 RecommendLocalMulligan,
                 RecommendLocalDiscover);
+            _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
         }
 
         public void RefreshProfiles()
@@ -218,6 +225,12 @@ namespace BotMain
         public void SetExternalPaths(string smartBotRoot)
         {
             _smartBotRootOverride = NormalizeExternalPath(smartBotRoot);
+        }
+
+        public void SetFollowHsBoxRecommendations(bool value)
+        {
+            _followHsBoxRecommendations = value;
+            Log($"[Settings] FollowHsBoxRecommendations={value}");
         }
 
         public void Prepare()
@@ -401,6 +414,13 @@ namespace BotMain
         public void SetThinkingRoutineEnabled(bool v) { _thinkingRoutineEnabled = v; Log($"[Settings] ThinkingRoutine={v}"); }
         public void SetHoverRoutineEnabled(bool v) { _hoverRoutineEnabled = v; Log($"[Settings] HoverRoutine={v}"); }
         public void SetLatencySamplingRate(int v) { _latencySamplingRate = v; Log($"[Settings] LatencySamplingRate={v}"); }
+
+        private IGameRecommendationProvider GetRecommendationProvider()
+        {
+            return _followHsBoxRecommendations
+                ? _hsBoxRecommendationProvider
+                : _localRecommendationProvider;
+        }
 
         public void ReloadPlugins()
         {
@@ -617,9 +637,12 @@ namespace BotMain
             int mulliganStreak = 0;
             bool mulliganHandled = false;
             DateTime nextMulliganAttemptUtc = DateTime.MinValue;
+            DateTime mulliganPhaseStartedUtc = DateTime.MinValue;
             int gameReadyWaitStreak = 0;
             bool wasInGame = false;
             int lastTurnNumber = -1;
+            DateTime currentTurnStartedUtc = DateTime.MinValue;
+            long lastConsumedHsBoxActionUpdatedAtMs = 0;
             int resimulationCount = 0;
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
@@ -675,6 +698,9 @@ namespace BotMain
                     TryFetchDecks();
                     _nextDeckFetchUtc = DateTime.UtcNow.AddSeconds(DeckRetryIntervalSeconds);
                 }
+
+                if (_followHsBoxRecommendations)
+                    _hsBoxRecommendationProvider.Prime();
 
                 var seedSw = Stopwatch.StartNew();
                 var gotSeedResp = TrySendAndReceiveExpected(
@@ -737,6 +763,9 @@ namespace BotMain
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
+                        mulliganPhaseStartedUtc = DateTime.MinValue;
+                        currentTurnStartedUtc = DateTime.MinValue;
+                        lastConsumedHsBoxActionUpdatedAtMs = 0;
                         playActionFailStreakByEntity.Clear();
                         AutoQueue(pipe);
                     }
@@ -756,6 +785,7 @@ namespace BotMain
                         // 首次检测到留牌阶段，等待2秒再处理
                         if (mulliganStreak == 1)
                         {
+                            mulliganPhaseStartedUtc = DateTime.UtcNow;
                             Log("[MainLoop] mulligan phase detected; waiting mulligan ui ready...");
                             nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
                         }
@@ -765,12 +795,13 @@ namespace BotMain
                             Log("[MainLoop] mulligan was marked handled but still in mulligan phase, retrying...");
                             mulliganHandled = false;
                             mulliganStreak = 1;
+                            mulliganPhaseStartedUtc = DateTime.UtcNow;
                             nextMulliganAttemptUtc = DateTime.MinValue;
                         }
 
                         if (!mulliganHandled && DateTime.UtcNow >= nextMulliganAttemptUtc)
                         {
-                            var ok = TryApplyMulligan(pipe, out var mulliganResult);
+                            var ok = TryApplyMulligan(pipe, mulliganPhaseStartedUtc, out var mulliganResult);
                             if (ok)
                             {
                                 mulliganHandled = true;
@@ -813,6 +844,8 @@ namespace BotMain
                                 {
                                     wasInGame = false;
                                     lastTurnNumber = -1;
+                                    currentTurnStartedUtc = DateTime.MinValue;
+                                    lastConsumedHsBoxActionUpdatedAtMs = 0;
                                     var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
                                     HandleGameResult(resultResp);
                                     _pluginSystem?.FireOnGameEnd();
@@ -825,6 +858,7 @@ namespace BotMain
                                 mulliganStreak = 0;
                                 mulliganHandled = false;
                                 nextMulliganAttemptUtc = DateTime.MinValue;
+                                mulliganPhaseStartedUtc = DateTime.MinValue;
                                 playActionFailStreakByEntity.Clear();
                                 AutoQueue(pipe);
                                 continue;
@@ -862,6 +896,8 @@ namespace BotMain
                         mulliganStreak = 0;
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
+                        mulliganPhaseStartedUtc = DateTime.MinValue;
+                        lastConsumedHsBoxActionUpdatedAtMs = 0;
                         Log($"[MainLoop] GET_SEED -> {resp}");
                         Thread.Sleep(1000);
                     }
@@ -873,6 +909,7 @@ namespace BotMain
                 mulliganStreak = 0;
                 mulliganHandled = false;
                 nextMulliganAttemptUtc = DateTime.MinValue;
+                mulliganPhaseStartedUtc = DateTime.MinValue;
 
                 if (!wasInGame)
                 {
@@ -898,6 +935,8 @@ namespace BotMain
                         if (lastTurnNumber >= 0)
                             _pluginSystem?.FireOnTurnEnd();
                         lastTurnNumber = turnNumber;
+                        currentTurnStartedUtc = DateTime.UtcNow;
+                        lastConsumedHsBoxActionUpdatedAtMs = 0;
                         ClearChoiceStateWatch("turn_changed");
                         resimulationCount = 0;
                         actionFailStreak = 0;
@@ -924,6 +963,21 @@ namespace BotMain
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
 
+                if (_followHsBoxRecommendations)
+                {
+                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState))
+                    {
+                        Thread.Sleep(120);
+                        continue;
+                    }
+
+                    if (waitingForChoiceState)
+                    {
+                        Thread.Sleep(120);
+                        continue;
+                    }
+                }
+
                 _pluginSystem?.FireOnSimulation();
 
                 // 查询牌库剩余卡牌
@@ -949,13 +1003,20 @@ namespace BotMain
                 catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
                 var sw = Stopwatch.StartNew();
-                var recommendation = _recommendationProvider.RecommendActions(
-                    new ActionRecommendationRequest(seed, planningBoard, _selectedProfile, deckCards));
+                var recommendation = GetRecommendationProvider().RecommendActions(
+                    new ActionRecommendationRequest(
+                        seed,
+                        planningBoard,
+                        _selectedProfile,
+                        deckCards,
+                        currentTurnStartedUtc == DateTime.MinValue
+                            ? 0
+                            : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
+                        _followHsBoxRecommendations ? lastConsumedHsBoxActionUpdatedAtMs : 0));
                 var decision = recommendation?.DecisionPlan;
                 var actions = recommendation?.Actions?.ToList();
 
-                if (actions == null || actions.Count == 0)
-                    actions = new List<string> { "END_TURN" };
+                actions = NormalizeRecommendedActions(actions);
 
                 sw.Stop();
                 AvgCalcTime = (AvgCalcTime + sw.ElapsedMilliseconds) / 2;
@@ -1055,6 +1116,18 @@ namespace BotMain
                         && TryGetActionSourceEntityId(action, out var playedEntityId))
                     {
                         playActionFailStreakByEntity.Remove(playedEntityId);
+                    }
+
+                    if (_followHsBoxRecommendations)
+                    {
+                        if (action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ClearChoiceStateWatch("option_executed");
+                        }
+                        else
+                        {
+                            TryArmChoiceStateWatchForAction(action, planningBoard);
+                        }
                     }
 
                     // 出牌/攻击详细日志
@@ -1163,8 +1236,20 @@ namespace BotMain
                     continue;
                 }
 
-                // END_TURN 后等待回合切换，避免重复发送
+                if (_followHsBoxRecommendations && (recommendation?.SourceUpdatedAtMs ?? 0) > 0)
+                    lastConsumedHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
+                if (_followHsBoxRecommendations
+                    && !string.IsNullOrWhiteSpace(lastAction)
+                    && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
+                {
+                    actionFailStreak = 0;
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                // END_TURN 后等待回合切换，避免重复发送
                 if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     var endTurnWaitSw = Stopwatch.StartNew();
@@ -1416,12 +1501,12 @@ namespace BotMain
             if (!TryResolveChoiceSourceTemplate(action, planningBoard, out var template, out var sourceDetail))
                 return false;
 
-            if (!TemplateHasChoiceKeywords(template))
+            if (!TryMatchChoiceTemplate(template, out var matchDetail))
                 return false;
 
             _choiceStateWatchUntilUtc = DateTime.UtcNow.AddMilliseconds(ChoiceStateWatchWindowMs);
             _choiceStateWatchSource = sourceDetail;
-            Log($"[Discover] watch armed ({ChoiceStateWatchWindowMs}ms) source={sourceDetail}");
+            Log($"[Discover] watch armed ({ChoiceStateWatchWindowMs}ms) source={sourceDetail} match={matchDetail}");
             return true;
         }
 
@@ -1507,6 +1592,196 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        private List<string> NormalizeRecommendedActions(List<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return new List<string> { "END_TURN" };
+
+            if (!_followHsBoxRecommendations || actions.Count <= 1)
+                return actions;
+
+            var firstAction = actions[0];
+            var secondAction = actions[1];
+            if (TryMatchFollowHsBoxPlayOptionPair(firstAction, secondAction, out var sharedSourceEntityId, out var reason))
+            {
+                Log($"[FollowBox] keep_follow_box_pair play+option source={sharedSourceEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - 2)} first={firstAction} second={secondAction}");
+                return new List<string> { firstAction, secondAction };
+            }
+
+            Log($"[FollowBox] trim_follow_box_actions reason={reason} total={actions.Count} dropped={Math.Max(0, actions.Count - 1)} keep={firstAction} second={secondAction}");
+            return new List<string> { firstAction };
+        }
+
+        private static bool TryMatchFollowHsBoxPlayOptionPair(
+            string firstAction,
+            string secondAction,
+            out int sharedSourceEntityId,
+            out string reason)
+        {
+            sharedSourceEntityId = 0;
+            reason = "not_play_option_pair";
+
+            if (string.IsNullOrWhiteSpace(firstAction))
+            {
+                reason = "first_empty";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(secondAction))
+            {
+                reason = "second_empty";
+                return false;
+            }
+
+            if (!firstAction.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "first_not_play";
+                return false;
+            }
+
+            if (!secondAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "second_not_option";
+                return false;
+            }
+
+            if (!TryGetActionSourceEntityId(firstAction, out var playSourceEntityId))
+            {
+                reason = "play_source_missing";
+                return false;
+            }
+
+            if (!TryGetActionSourceEntityId(secondAction, out var optionSourceEntityId))
+            {
+                reason = "option_source_missing";
+                return false;
+            }
+
+            if (playSourceEntityId != optionSourceEntityId)
+            {
+                reason = $"source_mismatch:{playSourceEntityId}!={optionSourceEntityId}";
+                return false;
+            }
+
+            sharedSourceEntityId = playSourceEntityId;
+            reason = "play_option_source_match";
+            return true;
+        }
+
+        private bool TryMatchChoiceTemplate(object template, out string detail)
+        {
+            detail = "no_match";
+            if (template == null)
+                return false;
+
+            var cardId = GetTemplateDebugCardId(template);
+            if (TryGetCardMechanics(cardId, out var mechanics))
+            {
+                if (mechanics.Contains("DISCOVER"))
+                {
+                    detail = $"mechanic:DISCOVER:{cardId}";
+                    return true;
+                }
+
+                if (mechanics.Contains("CHOOSE_ONE"))
+                {
+                    detail = $"mechanic:CHOOSE_ONE:{cardId}";
+                    return true;
+                }
+            }
+
+            if (TemplateHasChoiceKeywords(template))
+            {
+                detail = $"keyword_text:{cardId}";
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool TryGetCardMechanics(string cardId, out HashSet<string> mechanics)
+        {
+            mechanics = null;
+            if (string.IsNullOrWhiteSpace(cardId))
+                return false;
+
+            EnsureCardMechanicsLoaded();
+            return _cardMechanicsById != null
+                && _cardMechanicsById.TryGetValue(cardId, out mechanics)
+                && mechanics != null
+                && mechanics.Count > 0;
+        }
+
+        private void EnsureCardMechanicsLoaded()
+        {
+            if (_cardMechanicsLoadAttempted)
+                return;
+
+            lock (_cardMechanicsLock)
+            {
+                if (_cardMechanicsLoadAttempted)
+                    return;
+
+                _cardMechanicsLoadAttempted = true;
+                _cardMechanicsById = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var path in GetCardMetadataPaths())
+                {
+                    if (!File.Exists(path))
+                        continue;
+
+                    try
+                    {
+                        var parsed = JArray.Parse(File.ReadAllText(path));
+                        foreach (var item in parsed.OfType<JObject>())
+                        {
+                            var id = item.Value<string>("id");
+                            if (string.IsNullOrWhiteSpace(id))
+                                continue;
+
+                            var tags = item["mechanics"] as JArray;
+                            if (tags == null || tags.Count == 0)
+                                continue;
+
+                            if (!_cardMechanicsById.TryGetValue(id, out var mechanics))
+                            {
+                                mechanics = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                                _cardMechanicsById[id] = mechanics;
+                            }
+
+                            foreach (var tag in tags.Values<string>())
+                            {
+                                if (!string.IsNullOrWhiteSpace(tag))
+                                    mechanics.Add(tag);
+                            }
+                        }
+
+                        Log($"[Choice] mechanics index loaded cards={_cardMechanicsById.Count} path={Path.GetFileName(path)}");
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[Choice] mechanics index load failed path={Path.GetFileName(path)} error={ex.Message}");
+                    }
+                }
+
+                Log("[Choice] mechanics index unavailable, fallback to template text keywords.");
+            }
+        }
+
+        private IEnumerable<string> GetCardMetadataPaths()
+        {
+            var root = _localDataDir;
+            if (string.IsNullOrWhiteSpace(root))
+            {
+                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
+                root = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+            }
+
+            yield return Path.Combine(root, "cards.json");
+            yield return Path.Combine(root, ".playwright-mcp", "hs-cards-all.json");
         }
 
         private static bool TemplateHasChoiceKeywords(object template)
@@ -1626,27 +1901,41 @@ namespace BotMain
         }
 
         private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed)
+            => TryHandlePendingChoiceBeforePlanning(pipe, seed, out _);
+
+        private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
         {
+            waitingForChoiceState = false;
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
+            var watchActive = IsChoiceStateWatchActive();
+
             if (!TryGetChoiceState(
                 pipe,
-                maxRetries: 1,
-                retryDelayMs: 0,
+                maxRetries: watchActive ? 4 : 1,
+                retryDelayMs: watchActive ? 120 : 0,
                 out var resp,
-                commandTimeoutMs: 700))
+                commandTimeoutMs: watchActive ? 900 : 700))
+            {
+                waitingForChoiceState = watchActive;
                 return false;
+            }
 
             if (string.IsNullOrWhiteSpace(resp)
                 || !resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
+            {
+                waitingForChoiceState = watchActive
+                    && string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal);
                 return false;
+            }
 
             var watchSource = string.IsNullOrWhiteSpace(_choiceStateWatchSource)
                 ? "poll"
                 : _choiceStateWatchSource;
             Log($"[Choice] pending choice detected ({watchSource}), resolve before planning.");
             TryHandleDiscover(pipe, seed);
+            ClearChoiceStateWatch("choice_handled");
             return true;
         }
 
@@ -1714,14 +2003,15 @@ namespace BotMain
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb");
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                var recommendation = _recommendationProvider.RecommendDiscover(
+                var recommendation = GetRecommendationProvider().RecommendDiscover(
                     new DiscoverRecommendationRequest(
                         originCardId,
                         choiceCardIds,
                         choiceEntityIds,
                         strategySeed,
                         isRewindChoice,
-                        maintainIdx));
+                        maintainIdx,
+                        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds()));
                 var pickedIndex = recommendation?.PickedIndex ?? -1;
                 if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
                     pickedIndex = 0;
@@ -2279,7 +2569,7 @@ namespace BotMain
             return false;
         }
 
-        private bool TryApplyMulligan(PipeServer pipe, out string result)
+        private bool TryApplyMulligan(PipeServer pipe, DateTime mulliganPhaseStartedUtc, out string result)
         {
             result = "unknown";
 
@@ -2333,13 +2623,16 @@ namespace BotMain
                     return false;
                 }
 
-                var recommendation = _recommendationProvider.RecommendMulligan(
+                var recommendation = GetRecommendationProvider().RecommendMulligan(
                     new MulliganRecommendationRequest(
                         snapshot.OwnClass,
                         snapshot.EnemyClass,
                         snapshot.Choices
                             .Select(choice => new RecommendationChoiceState(choice.CardId, choice.EntityId))
-                            .ToList()));
+                            .ToList(),
+                        mulliganPhaseStartedUtc == DateTime.MinValue
+                            ? 0
+                            : new DateTimeOffset(mulliganPhaseStartedUtc).ToUnixTimeMilliseconds()));
                 var replaceEntityIds = recommendation?.ReplaceEntityIds?.ToList() ?? new List<int>();
                 var decisionInfo = recommendation?.Detail ?? string.Empty;
 

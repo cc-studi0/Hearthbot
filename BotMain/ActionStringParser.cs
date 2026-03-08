@@ -56,6 +56,9 @@ namespace BotMain
                     case "TRADE":
                         return new PushAction(0, source, null);
 
+                    case "OPTION":
+                        return new PushAction(0, source, target);
+
                     default:
                         return null;
                 }

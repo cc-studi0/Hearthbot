@@ -53,46 +53,68 @@ namespace BotMain
 
     internal sealed class ActionRecommendationRequest
     {
-        public ActionRecommendationRequest(string seed, Board planningBoard, Profile selectedProfile, IReadOnlyList<ApiCard.Cards> deckCards)
+        public ActionRecommendationRequest(
+            string seed,
+            Board planningBoard,
+            Profile selectedProfile,
+            IReadOnlyList<ApiCard.Cards> deckCards,
+            long minimumUpdatedAtMs = 0,
+            long lastConsumedUpdatedAtMs = 0)
         {
             Seed = seed ?? string.Empty;
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
+            MinimumUpdatedAtMs = minimumUpdatedAtMs;
+            LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
         }
 
         public string Seed { get; }
         public Board PlanningBoard { get; }
         public Profile SelectedProfile { get; }
         public IReadOnlyList<ApiCard.Cards> DeckCards { get; }
+        public long MinimumUpdatedAtMs { get; }
+        public long LastConsumedUpdatedAtMs { get; }
     }
 
     internal sealed class ActionRecommendationResult
     {
-        public ActionRecommendationResult(AIDecisionPlan decisionPlan, IReadOnlyList<string> actions, string detail)
+        public ActionRecommendationResult(
+            AIDecisionPlan decisionPlan,
+            IReadOnlyList<string> actions,
+            string detail,
+            long sourceUpdatedAtMs = 0)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
             Detail = detail ?? string.Empty;
+            SourceUpdatedAtMs = sourceUpdatedAtMs;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
         public IReadOnlyList<string> Actions { get; }
         public string Detail { get; }
+        public long SourceUpdatedAtMs { get; }
     }
 
     internal sealed class MulliganRecommendationRequest
     {
-        public MulliganRecommendationRequest(int ownClass, int enemyClass, IReadOnlyList<RecommendationChoiceState> choices)
+        public MulliganRecommendationRequest(
+            int ownClass,
+            int enemyClass,
+            IReadOnlyList<RecommendationChoiceState> choices,
+            long minimumUpdatedAtMs = 0)
         {
             OwnClass = ownClass;
             EnemyClass = enemyClass;
             Choices = choices ?? Array.Empty<RecommendationChoiceState>();
+            MinimumUpdatedAtMs = minimumUpdatedAtMs;
         }
 
         public int OwnClass { get; }
         public int EnemyClass { get; }
         public IReadOnlyList<RecommendationChoiceState> Choices { get; }
+        public long MinimumUpdatedAtMs { get; }
     }
 
     internal sealed class MulliganRecommendationResult
@@ -115,7 +137,8 @@ namespace BotMain
             IReadOnlyList<int> choiceEntityIds,
             string seed,
             bool isRewindChoice,
-            int maintainIndex)
+            int maintainIndex,
+            long minimumUpdatedAtMs = 0)
         {
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
@@ -123,6 +146,7 @@ namespace BotMain
             Seed = seed ?? string.Empty;
             IsRewindChoice = isRewindChoice;
             MaintainIndex = maintainIndex;
+            MinimumUpdatedAtMs = minimumUpdatedAtMs;
         }
 
         public string OriginCardId { get; }
@@ -131,6 +155,7 @@ namespace BotMain
         public string Seed { get; }
         public bool IsRewindChoice { get; }
         public int MaintainIndex { get; }
+        public long MinimumUpdatedAtMs { get; }
     }
 
     internal sealed class DiscoverRecommendationResult

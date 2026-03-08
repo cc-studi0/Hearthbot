@@ -179,6 +179,15 @@ namespace HearthstonePayload
 
                         return _coroutine.RunAndWait(MouseUseLocation(sourceId, targetId, targetHeroSide));
                     }
+                case "OPTION":
+                    {
+                        int sourceId = int.Parse(parts[1]);
+                        int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string subOptionCardId = parts.Length > 4 ? parts[4] : null;
+                        var optionResult = SendOptionForEntity(sourceId, targetId, position, subOptionCardId, false);
+                        return optionResult ?? "OK:OPTION";
+                    }
                 case "TRADE":
                     return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
                 case "CONCEDE":
@@ -2457,7 +2466,7 @@ namespace HearthstonePayload
         {
             try
             {
-                if (SendOptionForEntity(entityId, 0, -1, false) == null)
+                if (SendOptionForEntity(entityId, 0, -1, null, false) == null)
                     return true;
 
                 var gameState = GetGameState();
@@ -2940,6 +2949,11 @@ namespace HearthstonePayload
         /// </summary>
         private static string SendOptionForEntity(int entityId, int targetEntityId, int position, bool requireSourceLeaveHand)
         {
+            return SendOptionForEntity(entityId, targetEntityId, position, null, requireSourceLeaveHand);
+        }
+
+        private static string SendOptionForEntity(int entityId, int targetEntityId, int position, string desiredSubOptionCardId, bool requireSourceLeaveHand)
+        {
             try
             {
                 var optionsList = FindOptionsList(out var optDiag);
@@ -2968,7 +2982,9 @@ namespace HearthstonePayload
                     if (optionIndexByField <= 0)
                         optionIndexByField = GetIntFieldOrProp(option, "OptionIndex");
 
-                    var subOptionIndex = -1;
+                    var subOptionIndex = ResolveSubOptionIndex(option, main, desiredSubOptionCardId);
+                    if (!string.IsNullOrWhiteSpace(desiredSubOptionCardId) && subOptionIndex < 0)
+                        continue;
                     var targetIndex = -1;
                     var hasTargets = false;
 
@@ -3137,6 +3153,87 @@ namespace HearthstonePayload
             }
 
             return 0;
+        }
+
+        private static int ResolveSubOptionIndex(object option, object main, string desiredSubOptionCardId)
+        {
+            if (string.IsNullOrWhiteSpace(desiredSubOptionCardId))
+                return -1;
+
+            if (int.TryParse(desiredSubOptionCardId, out var directIndex) && directIndex >= 0)
+                return directIndex;
+
+            var candidates = new[]
+            {
+                GetFieldOrProp(option, "SubOptions"),
+                GetFieldOrProp(option, "m_subOptions"),
+                GetFieldOrProp(option, "SubOptionInfos"),
+                GetFieldOrProp(option, "m_subOptionInfos"),
+                GetFieldOrProp(main, "SubOptions"),
+                GetFieldOrProp(main, "m_subOptions"),
+                GetFieldOrProp(main, "SubOptionInfos"),
+                GetFieldOrProp(main, "m_subOptionInfos"),
+                Invoke(option, "GetSubOptions"),
+                Invoke(main, "GetSubOptions")
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (!(candidate is IEnumerable items))
+                    continue;
+
+                var index = 0;
+                foreach (var item in items)
+                {
+                    if (MatchesSubOptionCardId(item, desiredSubOptionCardId))
+                        return index;
+                    index++;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool MatchesSubOptionCardId(object optionLike, string desiredSubOptionCardId)
+        {
+            if (optionLike == null || string.IsNullOrWhiteSpace(desiredSubOptionCardId))
+                return false;
+
+            var direct = GetFieldOrProp(optionLike, "CardId")
+                ?? GetFieldOrProp(optionLike, "m_cardId")
+                ?? GetFieldOrProp(optionLike, "CardID")
+                ?? GetFieldOrProp(optionLike, "AssetId")
+                ?? GetFieldOrProp(optionLike, "m_assetId");
+            if (direct != null && string.Equals(direct.ToString(), desiredSubOptionCardId, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            var nestedMain = GetFieldOrProp(optionLike, "Main")
+                ?? GetFieldOrProp(optionLike, "m_main")
+                ?? Invoke(optionLike, "GetMain");
+            if (nestedMain != null && !ReferenceEquals(nestedMain, optionLike))
+            {
+                var nestedDirect = GetFieldOrProp(nestedMain, "CardId")
+                    ?? GetFieldOrProp(nestedMain, "m_cardId")
+                    ?? GetFieldOrProp(nestedMain, "CardID")
+                    ?? GetFieldOrProp(nestedMain, "AssetId")
+                    ?? GetFieldOrProp(nestedMain, "m_assetId");
+                if (nestedDirect != null && string.Equals(nestedDirect.ToString(), desiredSubOptionCardId, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
+            var optionEntityId = ResolveOptionEntityId(optionLike);
+            if (optionEntityId > 0)
+            {
+                var gameState = GetGameState();
+                var resolvedCardId = ResolveEntityCardId(gameState, optionEntityId);
+                if (!string.IsNullOrWhiteSpace(resolvedCardId)
+                    && string.Equals(resolvedCardId, desiredSubOptionCardId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool TrySetSelectedOption(object gameState, int optionIndex, int subOptionIndex, int targetIndex, int position, out string error)

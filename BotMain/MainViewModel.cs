@@ -32,6 +32,7 @@ namespace BotMain
         private string _savedProfileName, _savedDeckName, _savedMulliganName, _savedDiscoverName;
         private string _savedSmartBotRoot;
         private bool _settingsLoaded;
+        private bool _followHsBoxOperation;
 
         public MainViewModel()
         {
@@ -123,7 +124,7 @@ namespace BotMain
         public string LogText { get; set; } = "";
         public string Status { get; set; } = "Idle";
         public bool IsRunning => _bot.State == BotState.Running || _bot.State == BotState.Finishing;
-        public string TopStatusText => $"v1.0 - Game: {Status} - Avg calc time: {_bot.AvgCalcTime}ms";
+        public string TopStatusText => $"v1.0 - Game: {Status} - Recommend: {(FollowHsBoxOperation ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
         public string MainButtonText => _bot.State == BotState.Idle ? "Start" : "Stop";
 
         // 统计
@@ -153,6 +154,23 @@ namespace BotMain
         public bool FpsLock { get => _fpsLock; set { _fpsLock = value; AutoSave(); } }
         public int FpsValue { get => _fpsValue; set { _fpsValue = value; AutoSave(); } }
         public int ModeIndex { get => _modeIndex; set { _modeIndex = value; AutoSave(); } }
+        public bool FollowHsBoxOperation
+        {
+            get => _followHsBoxOperation;
+            set
+            {
+                if (_followHsBoxOperation == value)
+                    return;
+
+                _followHsBoxOperation = value;
+                _bot.SetFollowHsBoxRecommendations(value);
+                Notify();
+                Notify(nameof(LocalRecommendationControlsEnabled));
+                Notify(nameof(TopStatusText));
+                AutoSave();
+            }
+        }
+        public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation;
 
         // 策略/卡组
         public ObservableCollection<string> ProfileNames { get; } = new() { "None" };
@@ -265,7 +283,7 @@ namespace BotMain
                 var discoverName = SelectedDiscoverName;
                 var serviceMode = ModeIndex == UiModeTest ? ServiceModeTest : ModeIndex;
                 _bot.SetRunConfiguration(serviceMode, deckName, mulliganName, discoverName);
-                AppendLocalLog($"Start requested: mode={ModeIndex}, deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}");
+                AppendLocalLog($"Start requested: mode={ModeIndex}, deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation ? "hsbox" : "local")}");
 
                 _startTime = DateTime.Now;
                 _timer.Start();
@@ -352,6 +370,7 @@ namespace BotMain
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
+                dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -389,6 +408,7 @@ namespace BotMain
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
+                        if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
@@ -401,6 +421,7 @@ namespace BotMain
             catch { }
 
             _bot.SetExternalPaths(_savedSmartBotRoot);
+            _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
         }
 
         private static string ReadOptionalString(JsonElement element)
