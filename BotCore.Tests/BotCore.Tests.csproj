@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
@@ -20,6 +21,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
+    <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
+    <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
   </ItemGroup>
   <ItemGroup>

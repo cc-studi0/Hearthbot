@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -13,12 +14,34 @@ using SmartBot.Plugins.API;
 
 namespace BotMain
 {
+    internal interface IHsBoxRecommendationBridge
+    {
+        bool TryReadState(out HsBoxRecommendationState state, out string detail);
+    }
+
     internal sealed class HsBoxGameRecommendationProvider : IGameRecommendationProvider
     {
         private const int FreshnessSlackMs = 3000;
 
-        private readonly HsBoxRecommendationBridge _bridge = new();
+        private readonly IHsBoxRecommendationBridge _bridge;
+        private readonly int _actionWaitTimeoutMs;
+        private readonly int _actionPollIntervalMs;
         private DateTime _nextPrimeAllowedUtc = DateTime.MinValue;
+
+        public HsBoxGameRecommendationProvider()
+            : this(new HsBoxRecommendationBridge())
+        {
+        }
+
+        internal HsBoxGameRecommendationProvider(
+            IHsBoxRecommendationBridge bridge,
+            int actionWaitTimeoutMs = 2600,
+            int actionPollIntervalMs = 180)
+        {
+            _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            _actionWaitTimeoutMs = actionWaitTimeoutMs;
+            _actionPollIntervalMs = actionPollIntervalMs;
+        }
 
         public void Prime()
         {
@@ -41,27 +64,36 @@ namespace BotMain
                     out _,
                     out lastStructuredDetail,
                     out lastBodyDetail),
-                timeoutMs: 2600,
-                pollIntervalMs: 180,
-                out var waitDetail);
+                timeoutMs: _actionWaitTimeoutMs,
+                pollIntervalMs: _actionPollIntervalMs,
+                out var waitDetail,
+                out var lastObservedState);
 
             if (state != null
                 && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
             {
-                return new ActionRecommendationResult(null, actions, $"hsbox_actions {structuredDetail}; {lastBodyDetail}", state.UpdatedAtMs);
+                return new ActionRecommendationResult(
+                    null,
+                    actions,
+                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}",
+                    BuildActionCursor(state));
             }
 
             if (state != null
                 && TryGetBodyActions(state, request, out var bodyActions, out var bodyDetail))
             {
-                return new ActionRecommendationResult(null, bodyActions, $"hsbox_actions {bodyDetail}; {lastStructuredDetail}", state.UpdatedAtMs);
+                return new ActionRecommendationResult(
+                    null,
+                    bodyActions,
+                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}",
+                    BuildActionCursor(state));
             }
 
             return new ActionRecommendationResult(
                 null,
-                new[] { "END_TURN" },
-                $"hsbox_actions fallback:end_turn ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail})",
-                state?.UpdatedAtMs ?? 0);
+                Array.Empty<string>(),
+                $"hsbox_actions wait_retry ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail}; lastState={DescribeActionState(lastObservedState)})",
+                shouldRetryWithoutAction: true);
         }
 
         public MulliganRecommendationResult RecommendMulligan(MulliganRecommendationRequest request)
@@ -169,11 +201,11 @@ namespace BotMain
             out string detail)
         {
             actions = null;
-            var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
-            var freshnessDetail = DescribeActionFreshness(state, lastConsumedUpdatedAtMs);
-            if (!IsActionPayloadFreshEnough(state, lastConsumedUpdatedAtMs))
+            var lastConsumedCursor = request?.LastConsumedCursor;
+            var freshnessDetail = DescribeActionFreshness(state, lastConsumedCursor);
+            if (!IsActionPayloadFreshEnough(state, lastConsumedCursor))
             {
-                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedUpdatedAtMs)
+                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedCursor)
                     ? $"json=already_consumed({freshnessDetail})"
                     : $"json=stale({freshnessDetail})";
                 return false;
@@ -195,6 +227,17 @@ namespace BotMain
             out List<string> actions,
             out string detail)
         {
+            actions = null;
+            var lastConsumedCursor = request?.LastConsumedCursor;
+            var freshnessDetail = DescribeActionFreshness(state, lastConsumedCursor);
+            if (!IsActionPayloadFreshEnough(state, lastConsumedCursor))
+            {
+                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedCursor)
+                    ? $"body=already_consumed({freshnessDetail})"
+                    : $"body=stale({freshnessDetail})";
+                return false;
+            }
+
             if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, out actions, out var bodyDetail))
             {
                 detail = $"body=map_failed({bodyDetail})";
@@ -205,39 +248,64 @@ namespace BotMain
             return true;
         }
 
-        private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
+        internal static HsBoxActionCursor BuildActionCursor(HsBoxRecommendationState state)
+        {
+            if (state == null || state.UpdatedAtMs <= 0)
+                return null;
+
+            return new HsBoxActionCursor(state.UpdatedAtMs, state.PayloadSignature);
+        }
+
+        internal static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
         {
             if (state == null || state.UpdatedAtMs <= 0)
                 return false;
 
-            if (lastConsumedUpdatedAtMs > 0)
-                return state.UpdatedAtMs > lastConsumedUpdatedAtMs;
+            if (lastConsumedCursor == null)
+                return true;
 
-            return true;
+            if (state.UpdatedAtMs > lastConsumedCursor.UpdatedAtMs)
+                return true;
+
+            return state.UpdatedAtMs == lastConsumedCursor.UpdatedAtMs
+                && HasActionPayloadChanged(state, lastConsumedCursor);
         }
 
-        private static bool IsActionPayloadAlreadyConsumed(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
+        internal static bool IsActionPayloadAlreadyConsumed(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
         {
             return state != null
                 && state.UpdatedAtMs > 0
-                && lastConsumedUpdatedAtMs > 0
-                && state.UpdatedAtMs <= lastConsumedUpdatedAtMs;
+                && lastConsumedCursor != null
+                && !IsActionPayloadFreshEnough(state, lastConsumedCursor)
+                && state.UpdatedAtMs <= lastConsumedCursor.UpdatedAtMs;
         }
 
-        private static string DescribeActionFreshness(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
+        private static bool HasActionPayloadChanged(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
+        {
+            if (state == null || lastConsumedCursor == null)
+                return false;
+
+            return !string.Equals(
+                state.PayloadSignature,
+                lastConsumedCursor.PayloadSignature,
+                StringComparison.Ordinal);
+        }
+
+        private static string DescribeActionFreshness(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
         {
             if (state == null)
-                return $"state=null,lastConsumedUpdatedAt={lastConsumedUpdatedAtMs}";
+                return $"state=null,lastConsumedUpdatedAt={lastConsumedCursor?.UpdatedAtMs ?? 0}";
 
             var updatedAt = state.UpdatedAtMs;
-            if (lastConsumedUpdatedAtMs > 0)
+            if (lastConsumedCursor != null)
             {
-                var freshByConsumption = state.UpdatedAtMs > lastConsumedUpdatedAtMs;
-                var consumedDeltaMs = updatedAt - lastConsumedUpdatedAtMs;
-                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs}";
+                var payloadChanged = HasActionPayloadChanged(state, lastConsumedCursor);
+                var freshByConsumption = IsActionPayloadFreshEnough(state, lastConsumedCursor);
+                var consumedDeltaMs = updatedAt - lastConsumedCursor.UpdatedAtMs;
+                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedCursor.UpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs},payloadChanged={payloadChanged},count={state.Count}";
             }
 
-            return $"fresh={updatedAt > 0},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt}";
+            return $"fresh={updatedAt > 0},lastConsumedUpdatedAt=0,updatedAt={updatedAt},payloadChanged=true,count={state.Count}";
         }
 
         private static string DescribeFreshness(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
@@ -267,12 +335,25 @@ namespace BotMain
             int pollIntervalMs,
             out string detail)
         {
+            return WaitForState(predicate, timeoutMs, pollIntervalMs, out detail, out _);
+        }
+
+        private HsBoxRecommendationState WaitForState(
+            Func<HsBoxRecommendationState, bool> predicate,
+            int timeoutMs,
+            int pollIntervalMs,
+            out string detail,
+            out HsBoxRecommendationState lastObservedState)
+        {
+            lastObservedState = null;
             detail = "timeout";
             var sw = Stopwatch.StartNew();
             while (sw.ElapsedMilliseconds < timeoutMs)
             {
                 if (_bridge.TryReadState(out var state, out var stateDetail))
                 {
+                    if (state != null)
+                        lastObservedState = state;
                     detail = stateDetail;
                     if (state != null && (predicate == null || predicate(state)))
                         return state;
@@ -288,9 +369,17 @@ namespace BotMain
 
             return null;
         }
+
+        private static string DescribeActionState(HsBoxRecommendationState state)
+        {
+            if (state == null)
+                return "null";
+
+            return $"updatedAt={state.UpdatedAtMs},count={state.Count},signature={state.PayloadSignature}";
+        }
     }
 
-    internal sealed class HsBoxRecommendationBridge
+    internal sealed class HsBoxRecommendationBridge : IHsBoxRecommendationBridge
     {
         private static readonly HttpClient Http = new HttpClient
         {
@@ -559,7 +648,7 @@ namespace BotMain
 
                 if (!TryMapSingleAction(step, board, out var command, out var reason))
                 {
-                    detail = $"map_failed:{step.ActionName}:{reason}; {state.Detail}";
+                    detail = $"map_failed:{step.ActionName}:{reason}; {DescribeStepFailureContext(step, board)}; {state.Detail}";
                     return false;
                 }
 
@@ -1194,7 +1283,7 @@ namespace BotMain
         }
 
         private const string BodyActionBoundaryPattern =
-            @"(?:\u6253\u51fa\s*\d+\s*\u53f7\u4f4d(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)"
+            @"(?:\u6253\u51fa\s*\d+\s*\u53f7\u4f4d\s*(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)"
             + @"|(?:\u64cd\u4f5c)?\s*(?:\u82f1\u96c4|\d+\s*\u53f7\u4f4d\u968f\u4ece)\s*\u653b\u51fb"
             + @"|\u4f7f\u7528\s*\d+\s*\u53f7\u4f4d\u5730\u6807"
             + @"|\u4f7f\u7528\u82f1\u96c4\u6280\u80fd"
@@ -1210,7 +1299,7 @@ namespace BotMain
 
             var match = Regex.Match(
                 bodyText,
-                @"\u6253\u51fa\s*(\d+)\s*\u53f7\u4f4d(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)",
+                @"\u6253\u51fa\s*(\d+)\s*\u53f7\u4f4d\s*(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)",
                 RegexOptions.CultureInvariant);
             if (!match.Success || match.Groups.Count < 2)
                 return false;
@@ -1473,6 +1562,38 @@ namespace BotMain
             return cards[oneBasedIndex - 1]?.Id ?? 0;
         }
 
+        private static string DescribeStepFailureContext(HsBoxActionStep step, Board board)
+        {
+            var card = step?.GetPrimaryCard();
+            var cardId = card?.CardId ?? string.Empty;
+            var cardName = NormalizeDetailText(card?.CardName);
+            var zonePosition = card?.GetZonePosition() ?? 0;
+            return $"action={step?.ActionName ?? "null"},cardId={cardId},cardName={cardName},zonePosition={zonePosition},hand={DescribeFriendlyHand(board)}";
+        }
+
+        private static string DescribeFriendlyHand(Board board)
+        {
+            if (board?.Hand == null || board.Hand.Count == 0)
+                return "[]";
+
+            var entries = board.Hand.Select((card, index) =>
+            {
+                var cardId = card?.Template?.Id.ToString() ?? "?";
+                var cardName = NormalizeDetailText(card?.Template?.NameCN) ?? string.Empty;
+                return $"{index + 1}:{cardId}:{cardName}";
+            });
+
+            return "[" + string.Join(",", entries) + "]";
+        }
+
+        private static string NormalizeDetailText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            return Regex.Replace(text, @"\s+", " ").Trim().Replace(";", ",");
+        }
+
         private static string SummarizeCommands(IReadOnlyList<string> actions)
         {
             if (actions == null || actions.Count == 0)
@@ -1485,6 +1606,8 @@ namespace BotMain
 
     internal sealed class HsBoxRecommendationState
     {
+        private string _payloadSignature;
+
         public bool Ok { get; set; }
         public long Count { get; set; }
         public long UpdatedAtMs { get; set; }
@@ -1493,6 +1616,16 @@ namespace BotMain
         public string BodyText { get; set; }
         public string Reason { get; set; }
         public HsBoxRecommendationEnvelope Envelope { get; set; }
+        public string PayloadSignature
+        {
+            get
+            {
+                if (string.IsNullOrWhiteSpace(_payloadSignature))
+                    _payloadSignature = BuildPayloadSignature(Raw, Envelope, BodyText);
+                return _payloadSignature ?? string.Empty;
+            }
+            set => _payloadSignature = value ?? string.Empty;
+        }
 
         public string Detail
         {
@@ -1527,6 +1660,36 @@ namespace BotMain
                 Reason = dto.Reason ?? string.Empty,
                 Envelope = dto.Data
             };
+        }
+
+        private static string BuildPayloadSignature(string raw, HsBoxRecommendationEnvelope envelope, string bodyText)
+        {
+            string payload = null;
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                payload = raw;
+            }
+            else
+            {
+                try
+                {
+                    payload = JsonConvert.SerializeObject(new
+                    {
+                        envelope,
+                        bodyText = bodyText ?? string.Empty
+                    });
+                }
+                catch
+                {
+                    payload = bodyText ?? string.Empty;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(payload))
+                return string.Empty;
+
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
+            return Convert.ToHexString(hashBytes);
         }
     }
 

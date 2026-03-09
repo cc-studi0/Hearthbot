@@ -47,12 +47,16 @@ namespace HearthstonePayload
             public string SourceCardId = string.Empty;
             public string RawChoiceType = string.Empty;
             public string Mode = "GENERAL";
+            public bool InChoiceMode;
             public bool PacketReady;
+            public bool ChoiceStateActive;
+            public bool ChoiceStateConcealed;
             public bool UiShown;
             public string Signature = string.Empty;
             public List<string> ChoiceParts = new List<string>();
             public List<int> ChoiceEntityIds = new List<int>();
             public List<string> ChoiceCardIds = new List<string>();
+            public List<int> ChosenEntityIds = new List<int>();
         }
 
         /// <summary>
@@ -2660,8 +2664,9 @@ namespace HearthstonePayload
                 return true;
             }
 
-            if (TryGetChoiceCardMgrFriendlyCards(out var friendlyCards))
-                return friendlyCards.Count > 0;
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            if (TryGetCurrentFriendlyChoiceState(choiceCardMgr) != null)
+                return true;
 
             if (gameState == null)
                 return false;
@@ -3034,10 +3039,19 @@ namespace HearthstonePayload
             if (choiceCardMgr == null)
                 return null;
 
+            if (TryInvokeMethod(choiceCardMgr, "GetFriendlyChoiceState", Array.Empty<object>(), out var currentChoiceState)
+                && IsFriendlyChoiceStateActive(currentChoiceState))
+            {
+                return currentChoiceState;
+            }
+
+            if (!HasFriendlyChoiceUi(choiceCardMgr))
+                return null;
+
             var choiceState = GetFieldOrProp(choiceCardMgr, "m_lastShownChoiceState")
                 ?? GetFieldOrProp(choiceCardMgr, "lastShownChoiceState")
                 ?? GetFieldOrProp(choiceCardMgr, "LastShownChoiceState");
-            return IsFriendlyChoiceState(choiceState) ? choiceState : null;
+            return IsFriendlyChoiceStateActive(choiceState) ? choiceState : null;
         }
 
         private static bool IsFriendlyChoiceState(object choiceState)
@@ -3060,6 +3074,129 @@ namespace HearthstonePayload
             {
                 return false;
             }
+        }
+
+        private static bool IsFriendlyChoiceStateActive(object choiceState)
+        {
+            return IsFriendlyChoiceState(choiceState) && !IsChoiceStateConcealed(choiceState);
+        }
+
+        private static bool IsChoiceStateConcealed(object choiceState)
+        {
+            if (choiceState == null)
+                return false;
+
+            var concealed = GetFieldOrProp(choiceState, "m_hasBeenConcealed")
+                ?? GetFieldOrProp(choiceState, "HasBeenConcealed")
+                ?? GetFieldOrProp(choiceState, "hasBeenConcealed");
+
+            if (concealed is bool boolFlag)
+                return boolFlag;
+
+            try
+            {
+                return concealed != null && Convert.ToBoolean(concealed);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool HasFriendlyChoiceUi(object choiceCardMgr)
+        {
+            if (choiceCardMgr == null)
+                return false;
+
+            if (TryInvokeBoolMethod(choiceCardMgr, "HasFriendlyChoices", out var hasFriendlyChoices) && hasFriendlyChoices)
+                return true;
+
+            if (TryInvokeBoolMethod(choiceCardMgr, "IsFriendlyShown", out var isFriendlyShown) && isFriendlyShown)
+                return true;
+
+            var shown = GetFieldOrProp(choiceCardMgr, "m_friendlyChoicesShown")
+                ?? GetFieldOrProp(choiceCardMgr, "FriendlyChoicesShown")
+                ?? GetFieldOrProp(choiceCardMgr, "friendlyChoicesShown");
+
+            if (shown is bool shownFlag)
+                return shownFlag;
+
+            try
+            {
+                return shown != null && Convert.ToBoolean(shown);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryAppendEntityIdsFromEnumerable(object source, List<int> entityIds)
+        {
+            if (!(source is IEnumerable enumerable) || entityIds == null)
+                return false;
+
+            var added = false;
+            foreach (var item in enumerable)
+            {
+                if (item == null)
+                    continue;
+
+                var entityId = 0;
+                try
+                {
+                    entityId = Convert.ToInt32(item);
+                }
+                catch
+                {
+                    entityId = ResolveEntityId(item);
+                }
+
+                if (entityId > 0 && !entityIds.Contains(entityId))
+                {
+                    entityIds.Add(entityId);
+                    added = true;
+                }
+            }
+
+            return added;
+        }
+
+        private static List<int> GetChosenEntityIds(object gameState, object choiceState, object choiceCardMgr)
+        {
+            var entityIds = new List<int>();
+
+            if (gameState != null)
+            {
+                if (TryInvokeMethod(gameState, "GetChosenEntities", Array.Empty<object>(), out var chosenEntities))
+                    TryAppendEntityIdsFromEnumerable(chosenEntities, entityIds);
+
+                if (entityIds.Count == 0)
+                {
+                    TryAppendEntityIdsFromEnumerable(
+                        GetFieldOrProp(gameState, "m_chosenEntities")
+                        ?? GetFieldOrProp(gameState, "ChosenEntities"),
+                        entityIds);
+                }
+            }
+
+            if (entityIds.Count == 0 && choiceState != null)
+            {
+                TryAppendEntityIdsFromEnumerable(
+                    GetFieldOrProp(choiceState, "m_chosenEntities")
+                    ?? GetFieldOrProp(choiceState, "ChosenEntities"),
+                    entityIds);
+            }
+
+            if (entityIds.Count == 0 && choiceCardMgr != null)
+            {
+                TryAppendEntityIdsFromEnumerable(
+                    GetFieldOrProp(choiceCardMgr, "m_lastChosenEntityIds")
+                    ?? GetFieldOrProp(choiceCardMgr, "LastChosenEntityIds"),
+                    entityIds);
+            }
+
+            return entityIds;
         }
 
         private static bool TryResolveChoiceSourceEntity(object gameState, object choiceCardMgr, object choicePacket, out int sourceEntityId, out object sourceEntity)
@@ -3107,14 +3244,18 @@ namespace HearthstonePayload
 
             var choiceCardMgr = TryGetChoiceCardMgr();
             var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
 
             var built = new ChoiceSnapshot();
+            built.InChoiceMode = IsChoiceModeActive(gameState);
             built.PacketReady = TryGetChoicePacketEntityIds(choicePacket, out _);
+            built.ChoiceStateActive = choiceState != null;
+            built.ChoiceStateConcealed = IsChoiceStateConcealed(choiceState);
             built.UiShown = TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
                 && friendlyCards != null
                 && friendlyCards.Count > 0;
 
-            if (!built.PacketReady && !built.UiShown)
+            if (!built.InChoiceMode && !built.PacketReady && !built.ChoiceStateActive)
                 return false;
 
             if (choicePacket != null)
@@ -3124,7 +3265,6 @@ namespace HearthstonePayload
                 built.RawChoiceType = ReadChoiceTypeName(choicePacket);
             }
 
-            var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
             if (string.IsNullOrWhiteSpace(built.RawChoiceType))
                 built.RawChoiceType = ReadChoiceTypeName(choiceState);
 
@@ -3142,6 +3282,11 @@ namespace HearthstonePayload
             if (built.ChoiceEntityIds.Count == 0)
                 return false;
 
+            built.ChosenEntityIds = GetChosenEntityIds(gameState, choiceState, choiceCardMgr)
+                .Where(id => built.ChoiceEntityIds.Contains(id))
+                .Distinct()
+                .OrderBy(id => id)
+                .ToList();
             built.Mode = GetChoiceModeBySourceTags(sourceEntity, built);
             built.Signature = BuildChoiceSignature(built);
             snapshot = built;
@@ -3206,7 +3351,9 @@ namespace HearthstonePayload
                 + ":"
                 + snapshot.Mode
                 + ":"
-                + string.Join(";", snapshot.ChoiceParts ?? new List<string>());
+                + string.Join(";", snapshot.ChoiceParts ?? new List<string>())
+                + ":chosen="
+                + string.Join(",", snapshot.ChosenEntityIds ?? new List<int>());
         }
 
         private static string SerializeChoiceSnapshot(ChoiceSnapshot snapshot)
@@ -3214,11 +3361,16 @@ namespace HearthstonePayload
             if (snapshot == null || snapshot.ChoiceParts == null || snapshot.ChoiceParts.Count == 0)
                 return null;
 
-            return (snapshot.SourceCardId ?? string.Empty)
+            var payload = (snapshot.SourceCardId ?? string.Empty)
                 + "|"
                 + string.Join(";", snapshot.ChoiceParts)
                 + "|"
                 + (string.IsNullOrWhiteSpace(snapshot.Mode) ? "GENERAL" : snapshot.Mode);
+
+            if (snapshot.ChosenEntityIds != null && snapshot.ChosenEntityIds.Count > 0)
+                payload += "|chosen=" + string.Join(",", snapshot.ChosenEntityIds);
+
+            return payload;
         }
 
         private static bool TryBuildChoicePartsFromChoiceCardMgr(object gameState, out List<string> parts)

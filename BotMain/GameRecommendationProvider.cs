@@ -39,6 +39,18 @@ namespace BotMain
             => _discoverRecommendation(request);
     }
 
+    internal sealed class HsBoxActionCursor
+    {
+        public HsBoxActionCursor(long updatedAtMs, string payloadSignature)
+        {
+            UpdatedAtMs = updatedAtMs;
+            PayloadSignature = payloadSignature ?? string.Empty;
+        }
+
+        public long UpdatedAtMs { get; }
+        public string PayloadSignature { get; }
+    }
+
     internal sealed class RecommendationChoiceState
     {
         public RecommendationChoiceState(string cardId, int entityId)
@@ -59,14 +71,14 @@ namespace BotMain
             Profile selectedProfile,
             IReadOnlyList<ApiCard.Cards> deckCards,
             long minimumUpdatedAtMs = 0,
-            long lastConsumedUpdatedAtMs = 0)
+            HsBoxActionCursor lastConsumedCursor = null)
         {
             Seed = seed ?? string.Empty;
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
-            LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
+            LastConsumedCursor = lastConsumedCursor;
         }
 
         public string Seed { get; }
@@ -74,7 +86,8 @@ namespace BotMain
         public Profile SelectedProfile { get; }
         public IReadOnlyList<ApiCard.Cards> DeckCards { get; }
         public long MinimumUpdatedAtMs { get; }
-        public long LastConsumedUpdatedAtMs { get; }
+        public HsBoxActionCursor LastConsumedCursor { get; }
+        public long LastConsumedUpdatedAtMs => LastConsumedCursor?.UpdatedAtMs ?? 0;
     }
 
     internal sealed class ActionRecommendationResult
@@ -83,18 +96,22 @@ namespace BotMain
             AIDecisionPlan decisionPlan,
             IReadOnlyList<string> actions,
             string detail,
-            long sourceUpdatedAtMs = 0)
+            HsBoxActionCursor sourceCursor = null,
+            bool shouldRetryWithoutAction = false)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
             Detail = detail ?? string.Empty;
-            SourceUpdatedAtMs = sourceUpdatedAtMs;
+            SourceCursor = sourceCursor;
+            ShouldRetryWithoutAction = shouldRetryWithoutAction;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
         public IReadOnlyList<string> Actions { get; }
         public string Detail { get; }
-        public long SourceUpdatedAtMs { get; }
+        public HsBoxActionCursor SourceCursor { get; }
+        public long SourceUpdatedAtMs => SourceCursor?.UpdatedAtMs ?? 0;
+        public bool ShouldRetryWithoutAction { get; }
     }
 
     internal sealed class MulliganRecommendationRequest

@@ -714,7 +714,7 @@ namespace BotMain
             bool wasInGame = false;
             int lastTurnNumber = -1;
             DateTime currentTurnStartedUtc = DateTime.MinValue;
-            long lastConsumedHsBoxActionUpdatedAtMs = 0;
+            HsBoxActionCursor lastConsumedHsBoxActionCursor = null;
             int resimulationCount = 0;
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
@@ -844,7 +844,7 @@ namespace BotMain
                                 ref wasInGame,
                                 ref lastTurnNumber,
                                 ref currentTurnStartedUtc,
-                                ref lastConsumedHsBoxActionUpdatedAtMs,
+                                ref lastConsumedHsBoxActionCursor,
                                 ref notOurTurnStreak,
                                 ref nextPostGameDismissUtc,
                                 ref mulliganStreak,
@@ -866,7 +866,7 @@ namespace BotMain
                             ref wasInGame,
                             ref lastTurnNumber,
                             ref currentTurnStartedUtc,
-                            ref lastConsumedHsBoxActionUpdatedAtMs,
+                            ref lastConsumedHsBoxActionCursor,
                             ref notOurTurnStreak,
                             ref nextPostGameDismissUtc,
                             ref mulliganStreak,
@@ -959,7 +959,7 @@ namespace BotMain
                                     ref wasInGame,
                                     ref lastTurnNumber,
                                     ref currentTurnStartedUtc,
-                                    ref lastConsumedHsBoxActionUpdatedAtMs,
+                                    ref lastConsumedHsBoxActionCursor,
                                     ref notOurTurnStreak,
                                     ref nextPostGameDismissUtc,
                                     ref mulliganStreak,
@@ -1009,7 +1009,7 @@ namespace BotMain
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         mulliganPhaseStartedUtc = DateTime.MinValue;
-                        lastConsumedHsBoxActionUpdatedAtMs = 0;
+                        lastConsumedHsBoxActionCursor = null;
                         Log($"[MainLoop] GET_SEED -> {resp}");
                         Thread.Sleep(1000);
                     }
@@ -1066,7 +1066,8 @@ namespace BotMain
 
                 var swTurn = Stopwatch.StartNew();
 
-                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
+                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState)
+                    || waitingForChoiceState)
                 {
                     Thread.Sleep(120);
                     continue;
@@ -1118,17 +1119,23 @@ namespace BotMain
                         currentTurnStartedUtc == DateTime.MinValue
                             ? 0
                             : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
-                        _followHsBoxRecommendations ? lastConsumedHsBoxActionUpdatedAtMs : 0));
+                        _followHsBoxRecommendations ? lastConsumedHsBoxActionCursor : null));
                 var decision = recommendation?.DecisionPlan;
                 var actions = recommendation?.Actions?.ToList();
-
-                actions = NormalizeRecommendedActions(actions);
 
                 sw.Stop();
                 AvgCalcTime = (AvgCalcTime + sw.ElapsedMilliseconds) / 2;
                 Log($"[Timing] Action recommendation took {sw.ElapsedMilliseconds}ms, total since turn start: {swTurn.ElapsedMilliseconds}ms");
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Recommend] {recommendation.Detail}");
+
+                if (recommendation?.ShouldRetryWithoutAction == true)
+                {
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                actions = NormalizeRecommendedActions(actions);
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
 
@@ -1362,8 +1369,8 @@ namespace BotMain
                     _executingActionPlan = false;
                 }
 
-                if (_followHsBoxRecommendations && (recommendation?.SourceUpdatedAtMs ?? 0) > 0)
-                    lastConsumedHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+                if (_followHsBoxRecommendations && recommendation?.SourceCursor != null)
+                    lastConsumedHsBoxActionCursor = recommendation.SourceCursor;
 
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
                 if (_followHsBoxRecommendations
@@ -2144,12 +2151,18 @@ namespace BotMain
                 ? "poll"
                 : _choiceStateWatchSource;
             Log($"[Choice] pending choice detected ({watchSource}), resolve before planning.");
-            TryHandleChoice(pipe, seed);
-            ClearChoiceStateWatch("choice_handled");
-            return true;
+            var handled = TryHandleChoice(pipe, seed);
+            if (handled)
+            {
+                ClearChoiceStateWatch("choice_handled");
+                return true;
+            }
+
+            waitingForChoiceState = true;
+            return false;
         }
 
-        private void TryHandleChoice(PipeServer pipe, string seed)
+        private bool TryHandleChoice(PipeServer pipe, string seed)
         {
             var rounds = 3;
             for (int retry = 0; retry < rounds; retry++)
@@ -2164,9 +2177,12 @@ namespace BotMain
                     out var resp,
                     commandTimeoutMs: commandTimeoutMs))
                 {
+                    if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                        return true;
+
                     if (retry < rounds - 1)
                         continue;
-                    return;
+                    return false;
                 }
 
                 if (!resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
@@ -2175,7 +2191,7 @@ namespace BotMain
                         continue;
 
                     Log($"[Choice] unexpected: {resp}");
-                    return;
+                    return false;
                 }
 
                 var payload = resp.Substring("CHOICE_STATE:".Length);
@@ -2184,7 +2200,7 @@ namespace BotMain
                 {
                     if (retry < rounds - 1)
                         continue;
-                    return;
+                    return false;
                 }
 
                 var originCardId = parts[0];
@@ -2207,7 +2223,7 @@ namespace BotMain
                 {
                     if (retry < rounds - 1)
                         continue;
-                    return;
+                    return false;
                 }
 
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
@@ -2262,7 +2278,10 @@ namespace BotMain
 
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
+                return true;
             }
+
+            return IsChoiceStateClosed(pipe);
         }
 
         private bool TryPickDiscoverByChoicesModifiers(
@@ -2506,6 +2525,30 @@ namespace BotMain
                 }
 
                 detail = "unexpected:" + (resp.Length > 40 ? resp.Substring(0, 40) : resp);
+            }
+
+            return false;
+        }
+
+        private static bool IsChoiceStateClosed(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            for (int i = 0; i < 2; i++)
+            {
+                try
+                {
+                    var resp = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
+                    if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                        return true;
+                }
+                catch
+                {
+                }
+
+                if (i == 0)
+                    Thread.Sleep(80);
             }
 
             return false;
@@ -3093,7 +3136,7 @@ namespace BotMain
             ref bool wasInGame,
             ref int lastTurnNumber,
             ref DateTime currentTurnStartedUtc,
-            ref long lastConsumedHsBoxActionUpdatedAtMs,
+            ref HsBoxActionCursor lastConsumedHsBoxActionCursor,
             ref int notOurTurnStreak,
             ref DateTime nextPostGameDismissUtc,
             ref int mulliganStreak,
@@ -3115,7 +3158,7 @@ namespace BotMain
                 wasInGame = false;
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
-                lastConsumedHsBoxActionUpdatedAtMs = 0;
+                lastConsumedHsBoxActionCursor = null;
                 var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
                 HandleGameResult(resultResp);
                 _pluginSystem?.FireOnGameEnd();
@@ -3123,7 +3166,7 @@ namespace BotMain
             }
 
             currentTurnStartedUtc = DateTime.MinValue;
-            lastConsumedHsBoxActionUpdatedAtMs = 0;
+            lastConsumedHsBoxActionCursor = null;
             lastTurnNumber = -1;
 
             _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);
