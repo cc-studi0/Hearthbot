@@ -96,6 +96,7 @@ namespace BotMain
         private bool _wasMatchmaking;
         private const int MatchmakingTimeoutSeconds = 60;
         private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
+        private static readonly TimeSpan KeepAliveMinInterval = TimeSpan.FromSeconds(45);
         private const int PostGameLobbyConfirmationsRequired = 2;
         /// <summary>
         /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
@@ -105,6 +106,12 @@ namespace BotMain
         private DateTime? _postGameSinceUtc;
         private int _postGameLobbyConfirmCount;
         private const int MatchLoadGracePeriodSeconds = 30;
+        private DateTime _lastActionCommandUtc = DateTime.UtcNow;
+        private DateTime _lastKeepAliveAttemptUtc = DateTime.MinValue;
+        private DateTime _lastKeepAliveSuccessUtc = DateTime.MinValue;
+        private string _lastObservedSeedResponse = string.Empty;
+        private int _keepAliveFailureStreak;
+        private bool _executingActionPlan;
 
         // 运行限制设置
         private int _maxWins;
@@ -755,7 +762,7 @@ namespace BotMain
                 if (_concedeRequested)
                 {
                     _concedeRequested = false;
-                    var concedeResp = pipe.SendAndReceive("ACTION:CONCEDE", 5000) ?? "NO_RESPONSE";
+                    var concedeResp = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
                     Log($"[Concede] -> {concedeResp}");
                     if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
                         MarkPendingConcedeLoss();
@@ -809,6 +816,9 @@ namespace BotMain
                     Thread.Sleep(300);
                     continue;
                 }
+
+                if (BotProtocol.IsSeedResponse(resp))
+                    _lastObservedSeedResponse = resp;
 
                 if (!resp.StartsWith("SEED:", StringComparison.Ordinal))
                 {
@@ -928,6 +938,7 @@ namespace BotMain
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         playActionFailStreakByEntity.Clear();
                         notOurTurnStreak++;
+                        var attemptedDismiss = false;
                         if (notOurTurnStreak >= 25
                             && DateTime.UtcNow >= nextPostGameDismissUtc)
                         {
@@ -975,6 +986,7 @@ namespace BotMain
                                     ? $"force(streak={notOurTurnStreak},ready={readyResp})"
                                     : "WAIT_READY=READY";
                                 Log($"[MainLoop] NOT_OUR_TURN 持续 {notOurTurnStreak} 次，{reason}，尝试点击跳过结算 -> {dismissResp}");
+                                attemptedDismiss = true;
                             }
 
                             // 卡住越久，尝试频率越高
@@ -982,6 +994,8 @@ namespace BotMain
                                 ? DateTime.UtcNow.AddSeconds(1)
                                 : DateTime.UtcNow.AddSeconds(2);
                         }
+                        if (!attemptedDismiss)
+                            TryDoKeepAlive(pipe, "GAMEPLAY");
                         if (notOurTurnStreak % 15 == 0)
                             Log("[MainLoop] waiting for our turn...");
                         Thread.Sleep(300);
@@ -1130,206 +1144,221 @@ namespace BotMain
                 string resimulationReason = null;
                 var concededBeforeEndTurn = false;
                 var actionIndex = 0;
-                for (int ai = 0; ai < actions.Count; ai++)
+                _executingActionPlan = true;
+                try
                 {
-                    var action = actions[ai];
-                    if (!_running) break;
-
-                    // 触发插件 OnActionExecute
-                    if (actionIndex < sbActions.Count)
-                        _pluginSystem?.FireOnActionExecute(sbActions[actionIndex]);
-                    actionIndex++;
-
-                    bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                    bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
-                    bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
-                    bool nextIsAttack = ai + 1 < actions.Count
-                        && actions[ai + 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                    const int preReadyRetries = 30;
-                    const int preReadyIntervalMs = 300;
-                    const int postReadyRetries = 30;
-                    const int postReadyIntervalMs = 300;
-                    const int actionDelayMs = 80;
-
-                    // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
-                    if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
+                    for (int ai = 0; ai < actions.Count; ai++)
                     {
-                        concededBeforeEndTurn = true;
-                        break;
-                    }
+                        var action = actions[ai];
+                        if (!_running) break;
 
-                    const int readyTimeoutMs = 3000;
-                    if (!WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
-                    {
-                        actionFailed = true;
-                        Log($"[Action] wait ready timeout before {action}");
-                        break;
-                    }
+                        // 触发插件 OnActionExecute
+                        if (actionIndex < sbActions.Count)
+                            _pluginSystem?.FireOnActionExecute(sbActions[actionIndex]);
+                        actionIndex++;
 
-                    var result = pipe.SendAndReceive("ACTION:" + action, 5000) ?? "NO_RESPONSE";
-                    Log($"[Action] {action} -> {result}");
+                        bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                        bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
+                        bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
+                        bool nextIsAttack = ai + 1 < actions.Count
+                            && actions[ai + 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                        const int preReadyRetries = 30;
+                        const int preReadyIntervalMs = 300;
+                        const int postReadyRetries = 30;
+                        const int postReadyIntervalMs = 300;
+                        const int actionDelayMs = 80;
 
-                    if (IsActionFailure(result))
-                    {
-                        if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                            || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
-                            || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
-                            || isTrade
-                            || isAttack)
+                        // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
+                        if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
                         {
-                            var cancelResult = pipe.SendAndReceive("ACTION:CANCEL", 3000) ?? "NO_RESPONSE";
-                            Log($"[Action] CANCEL -> {cancelResult}");
+                            concededBeforeEndTurn = true;
+                            break;
                         }
 
-                        if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                            && TryGetActionSourceEntityId(action, out var failedPlayEntityId))
+                        const int readyTimeoutMs = 3000;
+                        if (!WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
                         {
-                            playActionFailStreakByEntity.TryGetValue(failedPlayEntityId, out var failedTimes);
-                            failedTimes++;
-                            playActionFailStreakByEntity[failedPlayEntityId] = failedTimes;
-                            Log($"[Action] PLAY failed entity={failedPlayEntityId}, streak={failedTimes}/{ChoiceProbeAfterPlayFailThreshold}");
+                            actionFailed = true;
+                            Log($"[Action] wait ready timeout before {action}");
+                            break;
+                        }
 
-                            if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
+                        var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
+                        Log($"[Action] {action} -> {result}");
+
+                        if (IsActionFailure(result))
+                        {
+                            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                                || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                                || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                                || isTrade
+                                || isAttack)
                             {
-                                Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing choice state.");
-                                playActionFailStreakByEntity[failedPlayEntityId] = 0;
+                                var cancelResult = SendActionCommand(pipe, "CANCEL", 3000) ?? "NO_RESPONSE";
+                                Log($"[Action] CANCEL -> {cancelResult}");
+                            }
 
-                                if (TryHandlePendingChoiceBeforePlanning(pipe, seed))
+                            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                                && TryGetActionSourceEntityId(action, out var failedPlayEntityId))
+                            {
+                                playActionFailStreakByEntity.TryGetValue(failedPlayEntityId, out var failedTimes);
+                                failedTimes++;
+                                playActionFailStreakByEntity[failedPlayEntityId] = failedTimes;
+                                Log($"[Action] PLAY failed entity={failedPlayEntityId}, streak={failedTimes}/{ChoiceProbeAfterPlayFailThreshold}");
+
+                                if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
                                 {
-                                    requestResimulation = true;
-                                    resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
-                                    Log($"[Choice] detected and resolved after repeated PLAY failure, entity={failedPlayEntityId}. Replanning...");
-                                    break;
+                                    Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing choice state.");
+                                    playActionFailStreakByEntity[failedPlayEntityId] = 0;
+
+                                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed))
+                                    {
+                                        requestResimulation = true;
+                                        resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
+                                        Log($"[Choice] detected and resolved after repeated PLAY failure, entity={failedPlayEntityId}. Replanning...");
+                                        break;
+                                    }
                                 }
                             }
+
+                            actionFailed = true;
+                            break;
                         }
 
-                        actionFailed = true;
-                        break;
-                    }
+                        if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                            && TryGetActionSourceEntityId(action, out var playedEntityId))
+                        {
+                            playActionFailStreakByEntity.Remove(playedEntityId);
+                        }
 
-                    if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                        && TryGetActionSourceEntityId(action, out var playedEntityId))
-                    {
-                        playActionFailStreakByEntity.Remove(playedEntityId);
-                    }
-
-                    if (_followHsBoxRecommendations)
-                    {
-                        if (action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                        if (_followHsBoxRecommendations)
                         {
-                            ClearChoiceStateWatch("option_executed");
-                        }
-                        else
-                        {
-                            TryArmChoiceStateWatchForAction(action, planningBoard);
-                        }
-                    }
-
-                    // 出牌/攻击详细日志
-                    try
-                    {
-                        var parts = action.Split('|');
-                        if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                        {
-                            var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                            Log($"[Action] 打出 {desc}");
-                        }
-                        else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
-                        {
-                            var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
-                            var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
-                            Log($"[Action] {atk} → {def}");
-                        }
-                        else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                        {
-                            var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                            if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
+                            if (action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
                             {
-                                var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
-                                Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
+                                ClearChoiceStateWatch("option_executed");
                             }
                             else
                             {
-                                Log($"[Action] 激活地标 {desc}");
+                                TryArmChoiceStateWatchForAction(action, planningBoard);
                             }
                         }
-                        else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+
+                        // 出牌/攻击详细日志
+                        try
                         {
-                            var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                            Log($"[Action] 交易 {desc}");
+                            var parts = action.Split('|');
+                            if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                            {
+                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                Log($"[Action] 打出 {desc}");
+                            }
+                            else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
+                            {
+                                var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
+                                var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
+                                Log($"[Action] {atk} → {def}");
+                            }
+                            else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                            {
+                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
+                                {
+                                    var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
+                                    Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
+                                }
+                                else
+                                {
+                                    Log($"[Action] 激活地标 {desc}");
+                                }
+                            }
+                            else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                            {
+                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                Log($"[Action] 交易 {desc}");
+                            }
+                        }
+                        catch { }
+
+                        // 连续攻击：快速轮询就绪，跳过固定延迟
+                        if (isAttack && nextIsAttack)
+                        {
+                            WaitForGameReady(pipe, 40, 50);
+                        }
+                        else
+                        {
+                            Thread.Sleep(actionDelayMs);
+                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
+                        }
+
+                        if (decision != null
+                            && ShouldResimulateAfterAction(
+                                action,
+                                planningBoard,
+                                decision.ForceResimulation,
+                                decision.ForcedResimulationCards,
+                                out var reason))
+                        {
+                            requestResimulation = true;
+                            resimulationReason = reason;
+                            break;
                         }
                     }
-                    catch { }
 
-                    // 连续攻击：快速轮询就绪，跳过固定延迟
-                    if (isAttack && nextIsAttack)
+                    if (_finishAfterGame)
                     {
-                        WaitForGameReady(pipe, 40, 50);
-                    }
-                    else
-                    {
-                        Thread.Sleep(actionDelayMs);
-                        WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
-                    }
-
-                    if (decision != null
-                        && ShouldResimulateAfterAction(
-                            action,
-                            planningBoard,
-                            decision.ForceResimulation,
-                            decision.ForcedResimulationCards,
-                            out var reason))
-                    {
-                        requestResimulation = true;
-                        resimulationReason = reason;
+                        Log("Current game finished, stopping automatically.");
+                        _running = false;
                         break;
                     }
-                }
 
-                if (_finishAfterGame)
-                {
-                    Log("Current game finished, stopping automatically.");
-                    _running = false;
-                    break;
-                }
-
-                if (requestResimulation)
-                {
-                    resimulationCount++;
-                    if (resimulationCount <= 5)
+                    if (requestResimulation)
                     {
-                        Log($"[AI] resimulation requested ({resimulationCount}/5): {resimulationReason}");
-                        Thread.Sleep(800);
-                        WaitForGameReady(pipe, 30);
+                        resimulationCount++;
+                        if (resimulationCount <= 5)
+                        {
+                            Log($"[AI] resimulation requested ({resimulationCount}/5): {resimulationReason}");
+                            Thread.Sleep(800);
+                            WaitForGameReady(pipe, 30);
+                            continue;
+                        }
+                        Log($"[AI] resimulation limit reached ({resimulationCount}), skipping further resimulation this turn.");
+                    }
+
+                    if (concededBeforeEndTurn)
+                    {
+                        actionFailStreak = 0;
+                        Thread.Sleep(300);
                         continue;
                     }
-                    Log($"[AI] resimulation limit reached ({resimulationCount}), skipping further resimulation this turn.");
-                }
 
-                if (concededBeforeEndTurn)
-                {
-                    actionFailStreak = 0;
-                    Thread.Sleep(300);
-                    continue;
-                }
-
-                if (actionFailed)
-                {
-                    actionFailStreak++;
-
-                    if (actionFailStreak >= 3)
+                    if (actionFailed)
                     {
-                        Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
-                        try { pipe.SendAndReceive("ACTION:END_TURN", 5000); } catch { }
-                        actionFailStreak = 0;
-                        Thread.Sleep(2000);
+                        actionFailStreak++;
+
+                        if (actionFailStreak >= 3)
+                        {
+                            if (_followHsBoxRecommendations)
+                            {
+                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox; suppressing forced END_TURN.");
+                            }
+                            else
+                            {
+                                Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
+                                try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
+                            }
+                            actionFailStreak = 0;
+                            Thread.Sleep(2000);
+                        }
+                        else
+                        {
+                            Thread.Sleep(1000);
+                        }
+                        continue;
                     }
-                    else
-                    {
-                        Thread.Sleep(1000);
-                    }
-                    continue;
+                }
+                finally
+                {
+                    _executingActionPlan = false;
                 }
 
                 if (_followHsBoxRecommendations && (recommendation?.SourceUpdatedAtMs ?? 0) > 0)
@@ -2512,7 +2541,7 @@ namespace BotMain
                     return false;
 
                 Log($"[ConcedeWhenLethal] trigger: {detail}");
-                var concedeResp = pipe.SendAndReceive("ACTION:CONCEDE", 5000) ?? "NO_RESPONSE";
+                var concedeResp = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
                 Log($"[Action] CONCEDE -> {concedeResp}");
                 if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
                     MarkPendingConcedeLoss();
@@ -2599,6 +2628,98 @@ namespace BotMain
                 || normalized.Contains("wait:mulligan_manager");
         }
 
+        private string SendActionCommand(PipeServer pipe, string action, int timeoutMs)
+        {
+            if (pipe == null || !pipe.IsConnected || string.IsNullOrWhiteSpace(action))
+                return null;
+
+            _lastActionCommandUtc = DateTime.UtcNow;
+            return pipe.SendAndReceive("ACTION:" + action, timeoutMs);
+        }
+
+        private void TryDoKeepAlive(PipeServer pipe, string currentScene = null)
+        {
+            if (pipe == null || !pipe.IsConnected || _executingActionPlan)
+                return;
+
+            var now = DateTime.UtcNow;
+            if (now - _lastActionCommandUtc < KeepAliveMinInterval)
+                return;
+            if (_lastKeepAliveAttemptUtc != DateTime.MinValue
+                && now - _lastKeepAliveAttemptUtc < KeepAliveMinInterval)
+                return;
+            if (_postGameSinceUtc != null)
+                return;
+            if (_matchEndedUtc != null
+                && now - _matchEndedUtc.Value < TimeSpan.FromSeconds(MatchLoadGracePeriodSeconds))
+                return;
+
+            var scene = currentScene;
+            if (string.IsNullOrWhiteSpace(scene)
+                && !TryGetSceneValue(pipe, 1500, out scene, "KeepAliveScene"))
+            {
+                return;
+            }
+
+            var allowKeepAlive = string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
+                || (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(_lastObservedSeedResponse, "NOT_OUR_TURN", StringComparison.Ordinal));
+            if (!allowKeepAlive)
+                return;
+
+            _lastKeepAliveAttemptUtc = now;
+
+            if (!TryGetBlockingDialog(pipe, 1500, out var dialogType, out var buttonLabel, "KeepAlive"))
+            {
+                _keepAliveFailureStreak++;
+                Log($"[KeepAlive] GET_BLOCKING_DIALOG failed, streak={_keepAliveFailureStreak}");
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(dialogType))
+            {
+                _keepAliveFailureStreak = 0;
+                Log($"[KeepAlive] skip blocking dialog {dialogType}({buttonLabel})");
+                return;
+            }
+
+            var gotKeepAliveResp = TrySendAndReceiveExpected(
+                pipe,
+                "CLICK_KEEPALIVE",
+                3000,
+                IsKeepAliveResponse,
+                out var keepAliveResp,
+                "KeepAlive");
+            keepAliveResp = gotKeepAliveResp ? keepAliveResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+
+            if (keepAliveResp.StartsWith("OK:KEEPALIVE:", StringComparison.OrdinalIgnoreCase))
+            {
+                _lastKeepAliveSuccessUtc = now;
+                _keepAliveFailureStreak = 0;
+                Log($"[KeepAlive] {keepAliveResp}");
+                return;
+            }
+
+            if (keepAliveResp.StartsWith("SKIP:KEEPALIVE:", StringComparison.OrdinalIgnoreCase))
+            {
+                _keepAliveFailureStreak = 0;
+                Log($"[KeepAlive] {keepAliveResp}");
+                return;
+            }
+
+            _keepAliveFailureStreak++;
+            Log($"[KeepAlive] {keepAliveResp}, streak={_keepAliveFailureStreak}");
+        }
+
+        private static bool IsKeepAliveResponse(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && (resp.StartsWith("OK:KEEPALIVE:", StringComparison.Ordinal)
+                    || resp.StartsWith("SKIP:KEEPALIVE:", StringComparison.Ordinal)
+                    || resp.StartsWith("ERROR:KEEPALIVE:", StringComparison.Ordinal));
+        }
+
         private bool TrySendAndReceiveExpected(
             PipeServer pipe,
             string command,
@@ -2664,13 +2785,16 @@ namespace BotMain
         private bool TryGetSeedProbe(PipeServer pipe, int timeoutMs, out string probe, string scope)
         {
             probe = null;
-            return TrySendAndReceiveExpected(
+            var got = TrySendAndReceiveExpected(
                 pipe,
                 "GET_SEED",
                 timeoutMs,
                 BotProtocol.IsSeedResponse,
                 out probe,
                 scope);
+            if (got && BotProtocol.IsSeedResponse(probe))
+                _lastObservedSeedResponse = probe;
+            return got;
         }
 
         private bool TryGetEndgameState(PipeServer pipe, int timeoutMs, out bool shown, out string endgameClass, string scope)
@@ -3237,6 +3361,8 @@ namespace BotMain
                     return;
                 }
             }
+
+            TryDoKeepAlive(pipe, scene);
 
             // 检查是否已在匹配中
             if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))

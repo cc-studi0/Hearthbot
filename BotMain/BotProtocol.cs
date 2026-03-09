@@ -98,6 +98,7 @@ namespace BotMain
                 return false;
 
             return resp.StartsWith("OK:", StringComparison.Ordinal)
+                || resp.StartsWith("SKIP:", StringComparison.Ordinal)
                 || resp.StartsWith("FAIL:", StringComparison.Ordinal)
                 || resp.StartsWith("ERROR:", StringComparison.Ordinal);
         }

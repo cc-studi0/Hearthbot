@@ -84,6 +84,7 @@ namespace HearthstonePayload
         {
             var reader = new GameReader();
             var nav = new SceneNavigator();
+            var keepAliveClicker = new BackgroundKeepAliveClicker(reader, nav);
             nav.SetCoroutine(_coroutine);
             nav.SetMainThreadRunner(f => RunOnMainThread(f));
 
@@ -263,6 +264,10 @@ namespace HearthstonePayload
                     else if (cmd == "CLICK_DISMISS")
                     {
                         _pipe.Write(nav.ClickDismiss());
+                    }
+                    else if (cmd == "CLICK_KEEPALIVE")
+                    {
+                        _pipe.Write(keepAliveClicker.Click());
                     }
                     else if (cmd == "IS_FINDING")
                     {
