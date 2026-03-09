@@ -22,8 +22,38 @@ namespace HearthstonePayload
         private static Type _inputMgrType;
         private static Type _connectApiType;
         private static Type _choiceCardMgrType;
+        private static readonly string[] ChoiceTextMemberNames =
+        {
+            "TextCN",
+            "Text",
+            "DescriptionCN",
+            "Description",
+            "CardTextCN",
+            "CardText",
+            "CardTextInHandCN",
+            "CardTextInHand",
+            "GetText",
+            "GetDescription",
+            "GetCardText",
+            "GetCardTextInHand"
+        };
 
         private static CoroutineExecutor _coroutine;
+
+        private sealed class ChoiceSnapshot
+        {
+            public int ChoiceId;
+            public int SourceEntityId;
+            public string SourceCardId = string.Empty;
+            public string RawChoiceType = string.Empty;
+            public string Mode = "GENERAL";
+            public bool PacketReady;
+            public bool UiShown;
+            public string Signature = string.Empty;
+            public List<string> ChoiceParts = new List<string>();
+            public List<int> ChoiceEntityIds = new List<int>();
+            public List<string> ChoiceCardIds = new List<string>();
+        }
 
         /// <summary>
         /// 初始化协程执行器引用
@@ -2623,6 +2653,13 @@ namespace HearthstonePayload
 
         private static bool IsChoiceModeActive(object gameState)
         {
+            var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            if (TryGetChoicePacketEntityIds(choicePacket, out var packetEntityIds)
+                && packetEntityIds.Count > 0)
+            {
+                return true;
+            }
+
             if (TryGetChoiceCardMgrFriendlyCards(out var friendlyCards))
                 return friendlyCards.Count > 0;
 
@@ -2636,10 +2673,25 @@ namespace HearthstonePayload
             return IsChoiceResponseMode(responseMode);
         }
 
-        private static string GetChoiceModeBySourceTags(object sourceEntity)
+        private static string GetChoiceModeBySourceTags(object sourceEntity, ChoiceSnapshot snapshot)
         {
-            if (sourceEntity == null)
-                return "CHOOSE_ONE";
+            if (snapshot != null && snapshot.ChoiceCardIds != null && snapshot.ChoiceCardIds.Count > 0)
+            {
+                var hasMaintain = snapshot.ChoiceCardIds.Any(cardId => string.Equals(cardId, "TIME_000ta", StringComparison.OrdinalIgnoreCase));
+                var hasRewind = snapshot.ChoiceCardIds.Any(cardId => string.Equals(cardId, "TIME_000tb", StringComparison.OrdinalIgnoreCase));
+                if (hasMaintain && hasRewind)
+                    return "TIMELINE";
+            }
+
+            var choiceType = GetChoiceTypeToken(snapshot?.RawChoiceType);
+            if (string.Equals(choiceType, "DISCOVER", StringComparison.OrdinalIgnoreCase))
+                return "DISCOVER";
+            if (string.Equals(choiceType, "TITAN", StringComparison.OrdinalIgnoreCase))
+                return "TITAN";
+            if (string.Equals(choiceType, "DREDGE", StringComparison.OrdinalIgnoreCase))
+                return "DREDGE";
+            if (string.Equals(choiceType, "ADAPT", StringComparison.OrdinalIgnoreCase))
+                return "ADAPT";
 
             // 与 HB1.1.8 的判定一致：优先用来源实体标签区分具体选择模式。
             if (HasSourceEntityTag(sourceEntity, "DISCOVER")) return "DISCOVER";
@@ -2647,7 +2699,285 @@ namespace HearthstonePayload
             if (HasSourceEntityTag(sourceEntity, "DREDGE")) return "DREDGE";
             if (HasSourceEntityTag(sourceEntity, "TITAN")) return "TITAN";
 
-            return "CHOOSE_ONE";
+            if (string.Equals(choiceType, "CHOOSE_ONE", StringComparison.OrdinalIgnoreCase))
+                return "CHOOSE_ONE";
+
+            if (sourceEntity != null
+                && (HasSourceEntityTag(sourceEntity, "CHOOSE_ONE")
+                    || SourceHasMechanic(sourceEntity, "CHOOSE_ONE")
+                    || SourceTextContainsAny(sourceEntity, "抉择", "choose one")))
+            {
+                return "CHOOSE_ONE";
+            }
+
+            return "GENERAL";
+        }
+
+        private static string GetChoiceModeBySourceTags(object sourceEntity)
+        {
+            return GetChoiceModeBySourceTags(sourceEntity, null);
+        }
+
+        private static object TryGetFriendlyChoicePacket(object gameState)
+        {
+            var choicePacket = gameState != null ? Invoke(gameState, "GetFriendlyEntityChoices") : null;
+            if (choicePacket != null)
+                return choicePacket;
+
+            var network = GetSingleton(_networkType);
+            return network == null ? null : Invoke(network, "GetEntityChoices");
+        }
+
+        private static bool TryGetChoicePacketEntityIds(object choicePacket, out List<int> entityIds)
+        {
+            entityIds = new List<int>();
+            if (choicePacket == null)
+                return false;
+
+            var entities = GetFieldOrProp(choicePacket, "Entities") as IEnumerable
+                ?? GetFieldOrProp(choicePacket, "m_entities") as IEnumerable
+                ?? GetFieldOrProp(choicePacket, "EntityIds") as IEnumerable;
+            if (entities == null)
+                return false;
+
+            foreach (var rawEntityId in entities)
+            {
+                try
+                {
+                    var entityId = Convert.ToInt32(rawEntityId);
+                    if (entityId > 0 && !entityIds.Contains(entityId))
+                        entityIds.Add(entityId);
+                }
+                catch
+                {
+                }
+            }
+
+            return entityIds.Count > 0;
+        }
+
+        private static string ReadChoiceTypeName(object source)
+        {
+            if (source == null)
+                return string.Empty;
+
+            var raw = GetFieldOrProp(source, "ChoiceType")
+                ?? GetFieldOrProp(source, "m_choiceType")
+                ?? GetFieldOrProp(source, "Type")
+                ?? GetFieldOrProp(source, "m_type")
+                ?? GetFieldOrProp(source, "ResponseType")
+                ?? GetFieldOrProp(source, "m_responseType");
+            if (raw == null)
+                return string.Empty;
+
+            try
+            {
+                return raw.ToString() ?? string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+
+        private static string GetChoiceTypeToken(string rawChoiceType)
+        {
+            if (string.IsNullOrWhiteSpace(rawChoiceType))
+                return string.Empty;
+
+            var normalized = rawChoiceType.ToUpperInvariant();
+            if (normalized.Contains("CHOOSE_ONE") || normalized.Contains("CHOOSEONE"))
+                return "CHOOSE_ONE";
+            if (normalized.Contains("DISCOVER"))
+                return "DISCOVER";
+            if (normalized.Contains("TITAN"))
+                return "TITAN";
+            if (normalized.Contains("DREDGE"))
+                return "DREDGE";
+            if (normalized.Contains("ADAPT"))
+                return "ADAPT";
+            if (normalized.Contains("GENERAL"))
+                return "GENERAL";
+            return normalized;
+        }
+
+        private static bool SourceHasMechanic(object sourceEntity, string mechanicName)
+        {
+            if (sourceEntity == null || string.IsNullOrWhiteSpace(mechanicName))
+                return false;
+
+            foreach (var candidate in CollectChoiceSourceCandidates(sourceEntity))
+            {
+                if (candidate == null)
+                    continue;
+
+                if (ReferenceEquals(candidate, sourceEntity) && HasSourceEntityTag(candidate, mechanicName))
+                    return true;
+
+                var mechanicSources = new[]
+                {
+                    GetFieldOrProp(candidate, "Mechanics"),
+                    GetFieldOrProp(candidate, "m_mechanics"),
+                    GetFieldOrProp(candidate, "CardTags"),
+                    GetFieldOrProp(candidate, "Tags"),
+                    Invoke(candidate, "GetMechanics")
+                };
+
+                foreach (var mechanicSource in mechanicSources)
+                {
+                    if (MechanicCollectionContains(mechanicSource, mechanicName))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool MechanicCollectionContains(object source, string mechanicName)
+        {
+            if (source == null || string.IsNullOrWhiteSpace(mechanicName))
+                return false;
+
+            if (source is string directText)
+                return directText.IndexOf(mechanicName, StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (source is IEnumerable enumerable)
+            {
+                foreach (var item in enumerable)
+                {
+                    if (item == null)
+                        continue;
+
+                    var text = item.ToString();
+                    if (!string.IsNullOrWhiteSpace(text)
+                        && text.IndexOf(mechanicName, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            var fallback = source.ToString();
+            return !string.IsNullOrWhiteSpace(fallback)
+                && fallback.IndexOf(mechanicName, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool SourceTextContainsAny(object sourceEntity, params string[] keywords)
+        {
+            if (sourceEntity == null || keywords == null || keywords.Length == 0)
+                return false;
+
+            foreach (var candidate in CollectChoiceSourceCandidates(sourceEntity))
+            {
+                if (candidate == null)
+                    continue;
+
+                foreach (var memberName in ChoiceTextMemberNames)
+                {
+                    var text = ReadObjectMemberAsString(candidate, memberName);
+                    if (!string.IsNullOrWhiteSpace(text) && TextContainsAny(text, keywords))
+                        return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static List<object> CollectChoiceSourceCandidates(object sourceEntity)
+        {
+            var candidates = new List<object>();
+            AddDistinctObjectCandidate(candidates, sourceEntity);
+
+            for (var index = 0; index < candidates.Count; index++)
+            {
+                var candidate = candidates[index];
+                if (candidate == null)
+                    continue;
+
+                AddDistinctObjectCandidate(candidates, Invoke(candidate, "GetCard"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "Card"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "m_card"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "Template"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "m_template"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "CardDef"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "m_cardDef"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "EntityDef"));
+                AddDistinctObjectCandidate(candidates, GetFieldOrProp(candidate, "m_entityDef"));
+            }
+
+            return candidates;
+        }
+
+        private static string ReadObjectMemberAsString(object source, string memberName)
+        {
+            if (source == null || string.IsNullOrWhiteSpace(memberName))
+                return null;
+
+            var flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.IgnoreCase;
+            var type = source.GetType();
+
+            try
+            {
+                var prop = type.GetProperty(memberName, flags);
+                if (prop != null)
+                {
+                    var value = prop.GetValue(source, null);
+                    if (value != null)
+                        return value.ToString();
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var field = type.GetField(memberName, flags);
+                if (field != null)
+                {
+                    var value = field.GetValue(source);
+                    if (value != null)
+                        return value.ToString();
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                var method = type.GetMethod(memberName, flags, null, Type.EmptyTypes, null);
+                if (method != null)
+                {
+                    var value = method.Invoke(source, null);
+                    if (value != null)
+                        return value.ToString();
+                }
+            }
+            catch
+            {
+            }
+
+            return null;
+        }
+
+        private static bool TextContainsAny(string text, params string[] keywords)
+        {
+            if (string.IsNullOrWhiteSpace(text) || keywords == null || keywords.Length == 0)
+                return false;
+
+            foreach (var keyword in keywords)
+            {
+                if (!string.IsNullOrWhiteSpace(keyword)
+                    && text.IndexOf(keyword, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static object TryGetChoiceCardMgr()
@@ -2761,6 +3091,136 @@ namespace HearthstonePayload
             return sourceEntityId > 0 || sourceEntity != null;
         }
 
+        private static bool TryBuildChoiceSnapshot(object gameState, out ChoiceSnapshot snapshot)
+        {
+            snapshot = null;
+            if (gameState == null)
+                return false;
+
+            var mulliganMgr = TryGetMulliganManager();
+            if (mulliganMgr != null
+                && TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var mulliganActive)
+                && mulliganActive)
+            {
+                return false;
+            }
+
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            var choicePacket = TryGetFriendlyChoicePacket(gameState);
+
+            var built = new ChoiceSnapshot();
+            built.PacketReady = TryGetChoicePacketEntityIds(choicePacket, out _);
+            built.UiShown = TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
+                && friendlyCards != null
+                && friendlyCards.Count > 0;
+
+            if (!built.PacketReady && !built.UiShown)
+                return false;
+
+            if (choicePacket != null)
+            {
+                built.ChoiceId = GetIntFieldOrProp(choicePacket, "ID");
+                if (built.ChoiceId <= 0) built.ChoiceId = GetIntFieldOrProp(choicePacket, "Id");
+                built.RawChoiceType = ReadChoiceTypeName(choicePacket);
+            }
+
+            var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
+            if (string.IsNullOrWhiteSpace(built.RawChoiceType))
+                built.RawChoiceType = ReadChoiceTypeName(choiceState);
+
+            TryResolveChoiceSourceEntity(gameState, choiceCardMgr, choicePacket, out var sourceEntityId, out var sourceEntity);
+            built.SourceEntityId = sourceEntityId;
+            built.SourceCardId = ResolveCardIdFromObject(sourceEntity);
+            if (string.IsNullOrWhiteSpace(built.SourceCardId) && built.SourceEntityId > 0)
+                built.SourceCardId = ResolveEntityCardId(gameState, built.SourceEntityId);
+
+            if (TryBuildChoicePartsFromPacket(gameState, choicePacket, out var packetParts))
+                MergeChoicePartsIntoSnapshot(built, packetParts);
+            if (TryBuildChoicePartsFromChoiceCardMgr(gameState, out var uiParts))
+                MergeChoicePartsIntoSnapshot(built, uiParts);
+
+            if (built.ChoiceEntityIds.Count == 0)
+                return false;
+
+            built.Mode = GetChoiceModeBySourceTags(sourceEntity, built);
+            built.Signature = BuildChoiceSignature(built);
+            snapshot = built;
+            return true;
+        }
+
+        private static void MergeChoicePartsIntoSnapshot(ChoiceSnapshot snapshot, IEnumerable<string> parts)
+        {
+            if (snapshot == null || parts == null)
+                return;
+
+            foreach (var part in parts)
+            {
+                if (string.IsNullOrWhiteSpace(part))
+                    continue;
+
+                var commaIndex = part.LastIndexOf(',');
+                if (commaIndex < 0 || commaIndex >= part.Length - 1)
+                    continue;
+
+                if (!int.TryParse(part.Substring(commaIndex + 1), out var entityId) || entityId <= 0)
+                    continue;
+
+                var cardId = commaIndex > 0 ? part.Substring(0, commaIndex) : string.Empty;
+                UpsertChoicePart(snapshot, cardId, entityId);
+            }
+        }
+
+        private static void UpsertChoicePart(ChoiceSnapshot snapshot, string cardId, int entityId)
+        {
+            if (snapshot == null || entityId <= 0)
+                return;
+
+            cardId = cardId ?? string.Empty;
+            var index = snapshot.ChoiceEntityIds.IndexOf(entityId);
+            var serialized = cardId + "," + entityId;
+
+            if (index >= 0)
+            {
+                if (string.IsNullOrWhiteSpace(snapshot.ChoiceCardIds[index]) && !string.IsNullOrWhiteSpace(cardId))
+                {
+                    snapshot.ChoiceCardIds[index] = cardId;
+                    snapshot.ChoiceParts[index] = serialized;
+                }
+
+                return;
+            }
+
+            snapshot.ChoiceEntityIds.Add(entityId);
+            snapshot.ChoiceCardIds.Add(cardId);
+            snapshot.ChoiceParts.Add(serialized);
+        }
+
+        private static string BuildChoiceSignature(ChoiceSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return string.Empty;
+
+            return snapshot.ChoiceId
+                + ":"
+                + snapshot.SourceEntityId
+                + ":"
+                + snapshot.Mode
+                + ":"
+                + string.Join(";", snapshot.ChoiceParts ?? new List<string>());
+        }
+
+        private static string SerializeChoiceSnapshot(ChoiceSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.ChoiceParts == null || snapshot.ChoiceParts.Count == 0)
+                return null;
+
+            return (snapshot.SourceCardId ?? string.Empty)
+                + "|"
+                + string.Join(";", snapshot.ChoiceParts)
+                + "|"
+                + (string.IsNullOrWhiteSpace(snapshot.Mode) ? "GENERAL" : snapshot.Mode);
+        }
+
         private static bool TryBuildChoicePartsFromChoiceCardMgr(object gameState, out List<string> parts)
         {
             parts = null;
@@ -2805,21 +3265,16 @@ namespace HearthstonePayload
             if (choicePacket == null)
                 return false;
 
-            var entities = GetFieldOrProp(choicePacket, "Entities") as IEnumerable;
-            if (entities == null)
+            if (!TryGetChoicePacketEntityIds(choicePacket, out var entities) || entities.Count == 0)
                 return false;
 
             var result = new List<string>();
-            foreach (var eid in entities)
+            foreach (var id in entities)
             {
-                int id;
-                try { id = Convert.ToInt32(eid); } catch { continue; }
-                if (id <= 0) continue;
-
                 var entity = GetEntity(gameState, id);
-                if (entity == null) continue;
-
-                var cardId = ResolveCardIdFromObject(entity);
+                var cardId = entity != null ? ResolveCardIdFromObject(entity) : string.Empty;
+                if (string.IsNullOrWhiteSpace(cardId) && gameState != null)
+                    cardId = ResolveEntityCardId(gameState, id);
                 result.Add((cardId ?? string.Empty) + "," + id);
             }
 
@@ -3401,6 +3856,11 @@ namespace HearthstonePayload
             var gs = GetGameState();
             if (gs == null) return null;
 
+            if (TryBuildChoiceSnapshot(gs, out var snapshot))
+                return SerializeChoiceSnapshot(snapshot);
+
+            return null;
+
             if (!IsChoiceModeActive(gs)) return null;
 
             // 排除调度阶段
@@ -3492,7 +3952,7 @@ namespace HearthstonePayload
         {
             var gs = GetGameState();
             if (gs == null) return null;
-            var choices = Invoke(gs, "GetFriendlyEntityChoices");
+            var choices = TryGetFriendlyChoicePacket(gs);
             if (choices == null) return null;
 
             var choiceId = GetIntFieldOrProp(choices, "ID");
@@ -3630,6 +4090,15 @@ namespace HearthstonePayload
 
             var gs = GetGameState();
             if (gs == null) return false;
+
+            if (TryBuildChoiceSnapshot(gs, out var snapshot))
+            {
+                choiceId = snapshot.ChoiceId;
+                signature = snapshot.Signature;
+                return true;
+            }
+
+            return false;
 
             if (!IsChoiceModeActive(gs)) return false;
 

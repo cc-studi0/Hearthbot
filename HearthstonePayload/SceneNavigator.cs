@@ -1,8 +1,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace HearthstonePayload
 {
@@ -11,7 +14,12 @@ namespace HearthstonePayload
     /// </summary>
     public class SceneNavigator
     {
-        private const int DismissClickTimeoutMs = 2400;
+        private const uint GW_OWNER = 4;
+        private const uint WM_MOUSEMOVE = 0x0200;
+        private const uint WM_LBUTTONDOWN = 0x0201;
+        private const uint WM_LBUTTONUP = 0x0202;
+        private const int MK_LBUTTON = 0x0001;
+        private const int DismissClickTimeoutMs = 2500;
         private Assembly _asm;
         private Type _sceneMgrType;
         private Type _gameMgrType;
@@ -1347,6 +1355,14 @@ namespace HearthstonePayload
 
         public string ClickDismiss()
         {
+            if (!TryFindWindow(out var windowHandle, out var clientRect, out var windowError))
+                return "ERROR:bg_dismiss:" + (windowError ?? "window_not_found");
+
+            return ClickDismissByWindowMessage(windowHandle, clientRect);
+        }
+
+        private string ClickDismissLegacy()
+        {
             // Screen.width/height 必须在主线程读取，后台线程返回 0
             // 但 ClickAt → RunAndWait 需要 Update() 驱动协程，
             // 不能放在 OnMain 里（否则死锁），所以只在主线程查屏幕尺寸
@@ -1429,12 +1445,193 @@ namespace HearthstonePayload
             _coroutine.SetResult("OK:center_multi");
         }
 
+        private string ClickDismissByWindowMessage(IntPtr windowHandle, NativeRect clientRect)
+        {
+            if (windowHandle == IntPtr.Zero)
+                return "ERROR:bg_dismiss:no_window";
+            if (clientRect.Width < 100 || clientRect.Height < 100)
+                return "ERROR:bg_dismiss:client_rect_invalid";
+
+            foreach (var point in BuildDismissClientPoints(clientRect))
+            {
+                if (!TryDispatchClick(windowHandle, point, out var error))
+                    return "ERROR:bg_dismiss:" + error;
+            }
+
+            return "OK:bg_dismiss";
+        }
+
+        private static ClientPoint[] BuildDismissClientPoints(NativeRect clientRect)
+        {
+            var width = clientRect.Width;
+            var height = clientRect.Height;
+            var cx = width / 2;
+            var cy = height / 2;
+            var lowerY = (int)(height * 0.70f);
+            var bottomY = (int)(height * 0.82f);
+            var continueY = (int)(height * 0.93f);
+            var sideOffset = Math.Max(14, width / 12);
+
+            return new[]
+            {
+                new ClientPoint(cx, cy),
+                new ClientPoint(cx, lowerY),
+                new ClientPoint(cx, bottomY),
+                new ClientPoint(cx, continueY),
+                new ClientPoint(cx - sideOffset, continueY),
+                new ClientPoint(cx + sideOffset, continueY),
+                new ClientPoint(cx - sideOffset, lowerY),
+                new ClientPoint(cx + sideOffset, lowerY),
+                new ClientPoint(cx, cy),
+            };
+        }
+
+        private static bool TryFindWindow(out IntPtr windowHandle, out NativeRect clientRect, out string error)
+        {
+            var pid = Process.GetCurrentProcess().Id;
+            var bestArea = -1;
+            var bestHandle = IntPtr.Zero;
+            var bestRect = default(NativeRect);
+            var bestError = "window_not_found";
+
+            EnumWindows((candidate, _) =>
+            {
+                GetWindowThreadProcessId(candidate, out var windowPid);
+                if (windowPid != pid)
+                    return true;
+
+                if (!IsWindowVisible(candidate))
+                    return true;
+
+                if (GetWindow(candidate, GW_OWNER) != IntPtr.Zero)
+                    return true;
+
+                if (IsIconic(candidate))
+                {
+                    bestError = "window_minimized";
+                    return true;
+                }
+
+                if (!GetClientRect(candidate, out var rect))
+                    return true;
+
+                if (rect.Width <= 0 || rect.Height <= 0)
+                    return true;
+
+                var area = rect.Width * rect.Height;
+                if (area <= bestArea)
+                    return true;
+
+                bestArea = area;
+                bestHandle = candidate;
+                bestRect = rect;
+                bestError = null;
+                return true;
+            }, IntPtr.Zero);
+
+            windowHandle = bestHandle;
+            clientRect = bestRect;
+            error = bestError;
+            return windowHandle != IntPtr.Zero;
+        }
+
+        private static bool IsForegroundWindow(IntPtr windowHandle)
+        {
+            return windowHandle != IntPtr.Zero && GetForegroundWindow() == windowHandle;
+        }
+
+        private static bool TryDispatchClick(IntPtr windowHandle, ClientPoint point, out string error)
+        {
+            error = null;
+            var lParam = MakeLParam(point.X, point.Y);
+
+            if (!PostMessage(windowHandle, WM_MOUSEMOVE, IntPtr.Zero, lParam))
+            {
+                error = "mouse_move_" + Marshal.GetLastWin32Error();
+                return false;
+            }
+
+            Thread.Sleep(15);
+
+            if (!PostMessage(windowHandle, WM_LBUTTONDOWN, new IntPtr(MK_LBUTTON), lParam))
+            {
+                error = "mouse_down_" + Marshal.GetLastWin32Error();
+                return false;
+            }
+
+            Thread.Sleep(35);
+
+            if (!PostMessage(windowHandle, WM_LBUTTONUP, IntPtr.Zero, lParam))
+            {
+                error = "mouse_up_" + Marshal.GetLastWin32Error();
+                return false;
+            }
+
+            Thread.Sleep(40);
+            return true;
+        }
+
+        private static IntPtr MakeLParam(int x, int y)
+        {
+            return new IntPtr(((y & 0xFFFF) << 16) | (x & 0xFFFF));
+        }
+
         private static string WrapClickResult(string clickResult, string detail)
         {
             if (clickResult != null && clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
                 return "OK:" + detail;
             return clickResult ?? "ERROR:click_failed";
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+
+            public int Width => Right - Left;
+            public int Height => Bottom - Top;
+        }
+
+        private struct ClientPoint
+        {
+            public ClientPoint(int x, int y)
+            {
+                X = x;
+                Y = y;
+            }
+
+            public int X { get; }
+            public int Y { get; }
+        }
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetClientRect(IntPtr hWnd, out NativeRect lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         private static object ResolveAsyncReference(object asyncRef)
         {

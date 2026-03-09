@@ -93,26 +93,29 @@ namespace BotMain
 
         public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
         {
+            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
+            var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var state = WaitForState(
                 current =>
-                    (IsFreshEnough(current, request?.MinimumUpdatedAtMs ?? 0)
-                     && HsBoxRecommendationMapper.TryMapDiscover(current, request, out _, out _))
-                    || HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(current, request, out _, out _),
+                    IsDiscoverPayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                    && (HsBoxRecommendationMapper.TryMapDiscover(current, request, out _, out _)
+                        || HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(current, request, out _, out _)),
                 timeoutMs: 3200,
                 pollIntervalMs: 180,
                 out var waitDetail);
 
             if (state != null
-                && IsFreshEnough(state, request?.MinimumUpdatedAtMs ?? 0)
+                && IsDiscoverPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
                 && HsBoxRecommendationMapper.TryMapDiscover(state, request, out var pickedIndex, out var mapDetail))
             {
-                return new DiscoverRecommendationResult(pickedIndex, $"hsbox_discover {mapDetail}");
+                return new DiscoverRecommendationResult(pickedIndex, $"hsbox_discover {mapDetail}", state.UpdatedAtMs);
             }
 
             if (state != null
+                && IsDiscoverPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
                 && HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(state, request, out var bodyPickedIndex, out var bodyDetail))
             {
-                return new DiscoverRecommendationResult(bodyPickedIndex, $"hsbox_discover {bodyDetail}");
+                return new DiscoverRecommendationResult(bodyPickedIndex, $"hsbox_discover {bodyDetail}", state.UpdatedAtMs);
             }
 
             var fallbackIndex = 0;
@@ -133,6 +136,17 @@ namespace BotMain
                 return true;
 
             return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
+        }
+
+        private static bool IsDiscoverPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
+        {
+            if (state == null || state.UpdatedAtMs <= 0)
+                return false;
+
+            if (lastConsumedUpdatedAtMs > 0)
+                return state.UpdatedAtMs > lastConsumedUpdatedAtMs;
+
+            return IsFreshEnough(state, minimumUpdatedAtMs);
         }
 
         private static bool TryEvaluateActionState(

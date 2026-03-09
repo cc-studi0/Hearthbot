@@ -138,7 +138,8 @@ namespace BotMain
             string seed,
             bool isRewindChoice,
             int maintainIndex,
-            long minimumUpdatedAtMs = 0)
+            long minimumUpdatedAtMs = 0,
+            long lastConsumedUpdatedAtMs = 0)
         {
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
@@ -147,6 +148,7 @@ namespace BotMain
             IsRewindChoice = isRewindChoice;
             MaintainIndex = maintainIndex;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
+            LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
         }
 
         public string OriginCardId { get; }
@@ -156,17 +158,20 @@ namespace BotMain
         public bool IsRewindChoice { get; }
         public int MaintainIndex { get; }
         public long MinimumUpdatedAtMs { get; }
+        public long LastConsumedUpdatedAtMs { get; }
     }
 
     internal sealed class DiscoverRecommendationResult
     {
-        public DiscoverRecommendationResult(int pickedIndex, string detail)
+        public DiscoverRecommendationResult(int pickedIndex, string detail, long sourceUpdatedAtMs = 0)
         {
             PickedIndex = pickedIndex;
             Detail = detail ?? string.Empty;
+            SourceUpdatedAtMs = sourceUpdatedAtMs;
         }
 
         public int PickedIndex { get; }
         public string Detail { get; }
+        public long SourceUpdatedAtMs { get; }
     }
 }
