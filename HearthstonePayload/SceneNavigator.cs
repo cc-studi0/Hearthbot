@@ -19,6 +19,91 @@ namespace HearthstonePayload
         private bool _initialized;
         private CoroutineExecutor _coroutine;
         private Func<Func<object>, object> _runOnMain;
+        private static readonly string[] KnownBlockingDialogTypes =
+        {
+            "AlertPopup",
+            "ReconnectHelperDialog"
+        };
+        private static readonly string[] GenericBlockingDialogTokens =
+        {
+            "dialog",
+            "popup",
+            "alert",
+            "reconnect"
+        };
+        private static readonly string[] BlockingDialogButtonMemberNames =
+        {
+            "m_okayButton",
+            "m_okButton",
+            "m_confirmButton",
+            "m_doneButton",
+            "m_closeButton",
+            "m_cancelButton",
+            "m_backButton",
+            "m_primaryButton",
+            "m_secondaryButton",
+            "m_positiveButton",
+            "m_negativeButton",
+            "m_responseButton",
+            "m_responseButton0",
+            "m_responseButton1",
+            "m_button",
+            "m_button0",
+            "m_button1"
+        };
+        private static readonly string[] ButtonTextMemberNames =
+        {
+            "Text",
+            "text",
+            "Label",
+            "label",
+            "m_text",
+            "m_Text",
+            "m_label",
+            "m_labelText",
+            "m_buttonText",
+            "m_ButtonText",
+            "m_newPlayButtonText",
+            "m_textMeshGameObject",
+            "m_messageText",
+            "m_titleText",
+            "m_headerText",
+            "name",
+            "Name"
+        };
+        private static readonly string[] VisibilityMemberNames =
+        {
+            "Visible",
+            "visible",
+            "m_visible",
+            "m_isVisible",
+            "IsVisible",
+            "Shown",
+            "shown",
+            "m_shown",
+            "m_isShown",
+            "IsShown",
+            "Active",
+            "active",
+            "m_active",
+            "m_isActive",
+            "enabled",
+            "Enabled",
+            "activeSelf",
+            "activeInHierarchy",
+            "isActiveAndEnabled"
+        };
+
+        private sealed class BlockingDialogHit
+        {
+            public string DialogType { get; set; }
+            public string ButtonLabel { get; set; }
+            public int ButtonX { get; set; }
+            public int ButtonY { get; set; }
+            public bool CanDismiss { get; set; }
+            public bool IsRetryButton { get; set; }
+            public string Detail { get; set; }
+        }
 
         public void SetCoroutine(CoroutineExecutor coroutine)
         {
@@ -401,6 +486,48 @@ namespace HearthstonePayload
             });
         }
 
+        public string GetBlockingDialog()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "NO_DIALOG";
+                if (string.Equals(GetSceneInternal(), "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    return "NO_DIALOG";
+
+                var hit = FindBlockingDialogHit();
+                return hit == null
+                    ? "NO_DIALOG"
+                    : "DIALOG:" + hit.DialogType + ":" + (hit.ButtonLabel ?? string.Empty);
+            });
+        }
+
+        public string DismissBlockingDialog()
+        {
+            var hit = OnMain(() =>
+            {
+                if (!Init()) return null;
+                if (string.Equals(GetSceneInternal(), "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    return null;
+                return FindBlockingDialogHit();
+            });
+
+            if (hit == null)
+                return "FAIL:NO_DIALOG:no_dialog";
+            if (!hit.CanDismiss)
+                return "FAIL:" + hit.DialogType + ":unsafe_button:" + (string.IsNullOrWhiteSpace(hit.ButtonLabel) ? "UNKNOWN" : hit.ButtonLabel);
+            if (hit.ButtonX <= 0 || hit.ButtonY <= 0)
+                return "FAIL:" + hit.DialogType + ":button_pos";
+
+            var clickResult = ClickAt(hit.ButtonX, hit.ButtonY, 0.35f);
+            if (!string.IsNullOrWhiteSpace(clickResult)
+                && clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                return "OK:" + hit.DialogType + ":" + (hit.ButtonLabel ?? string.Empty);
+            }
+
+            return "FAIL:" + hit.DialogType + ":" + (string.IsNullOrWhiteSpace(clickResult) ? "click_failed" : clickResult);
+        }
+
         public string Reflect(string typeName)
         {
             return OnMain(() =>
@@ -619,6 +746,385 @@ namespace HearthstonePayload
                 case 5: return "twist";
                 default: return null;
             }
+        }
+
+        private BlockingDialogHit FindBlockingDialogHit()
+        {
+            var roots = GetBlockingDialogRoots().ToArray();
+            if (roots.Length == 0)
+                return null;
+
+            var nodes = EnumerateObjectGraph(roots, 4).ToArray();
+            BlockingDialogHit fallback = null;
+
+            foreach (var knownType in KnownBlockingDialogTypes)
+            {
+                foreach (var node in nodes)
+                {
+                    if (!string.Equals(node.obj.GetType().Name, knownType, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    if (!TryBuildBlockingDialogHit(node.obj, node.path, out var hit))
+                        continue;
+                    if (hit.CanDismiss)
+                        return hit;
+                    if (fallback == null)
+                        fallback = hit;
+                }
+            }
+
+            foreach (var node in nodes)
+            {
+                if (!LooksLikeBlockingDialogObject(node.obj, node.path))
+                    continue;
+                if (!TryBuildBlockingDialogHit(node.obj, node.path, out var hit))
+                    continue;
+                if (hit.CanDismiss)
+                    return hit;
+                if (fallback == null)
+                    fallback = hit;
+            }
+
+            return fallback;
+        }
+
+        private IEnumerable<(object obj, string path)> GetBlockingDialogRoots()
+        {
+            var roots = new List<(object obj, string path)>();
+            var seen = new HashSet<object>();
+
+            void TryAdd(object root, string path)
+            {
+                if (root == null || string.IsNullOrWhiteSpace(path))
+                    return;
+                if (seen.Add(root))
+                    roots.Add((root, path));
+            }
+
+            var sceneMgr = CallStatic(_sceneMgrType, "Get");
+            TryAdd(sceneMgr, "SceneMgr.Get()");
+            TryAdd(sceneMgr != null ? Call(sceneMgr, "GetScene") : null, "SceneMgr.Get().Scene");
+
+            foreach (var typeName in KnownBlockingDialogTypes.Concat(new[] { "DialogManager", "PopupManager" }))
+            {
+                var type = _asm?.GetType(typeName);
+                if (type == null)
+                    continue;
+
+                TryAdd(CallStatic(type, "Get"), typeName + ".Get()");
+                TryAdd(CallStatic(type, "GetInstance"), typeName + ".GetInstance()");
+                TryAdd(GetStaticValue(type, "Instance"), typeName + ".Instance");
+                TryAdd(GetStaticValue(type, "s_instance"), typeName + ".s_instance");
+            }
+
+            return roots;
+        }
+
+        private IEnumerable<(object obj, string path)> EnumerateObjectGraph(IEnumerable<(object obj, string path)> roots, int maxDepth)
+        {
+            var queue = new Queue<(object obj, string path, int depth)>();
+            var visited = new HashSet<object>();
+            foreach (var root in roots)
+            {
+                if (root.obj == null || !visited.Add(root.obj))
+                    continue;
+                queue.Enqueue((root.obj, root.path, 0));
+            }
+
+            var yielded = 0;
+            while (queue.Count > 0 && yielded < 600)
+            {
+                var item = queue.Dequeue();
+                yielded++;
+                yield return (item.obj, item.path);
+
+                if (item.depth >= maxDepth || item.obj == null)
+                    continue;
+
+                var members = item.obj.GetType()
+                    .GetMembers(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    .Where(m => m.MemberType == MemberTypes.Field || m.MemberType == MemberTypes.Property);
+
+                foreach (var member in members)
+                {
+                    object value = null;
+                    try
+                    {
+                        if (member is FieldInfo fi)
+                            value = fi.GetValue(item.obj);
+                        else if (member is PropertyInfo pi && pi.GetIndexParameters().Length == 0)
+                            value = pi.GetValue(item.obj, null);
+                    }
+                    catch
+                    {
+                    }
+
+                    if (value == null || value is string)
+                        continue;
+
+                    var memberName = member.Name ?? string.Empty;
+                    if (memberName.IndexOf("Reference", StringComparison.OrdinalIgnoreCase) >= 0)
+                        value = ResolveAsyncReference(value) ?? value;
+
+                    if (value is IEnumerable enumerable)
+                    {
+                        var idx = 0;
+                        foreach (var element in enumerable)
+                        {
+                            if (idx >= 40)
+                                break;
+                            if (element != null && visited.Add(element))
+                                queue.Enqueue((element, item.path + "." + memberName + "[" + idx + "]", item.depth + 1));
+                            idx++;
+                        }
+                    }
+                    else if (!value.GetType().IsValueType && visited.Add(value))
+                    {
+                        queue.Enqueue((value, item.path + "." + memberName, item.depth + 1));
+                    }
+                }
+            }
+        }
+
+        private bool LooksLikeBlockingDialogObject(object obj, string path)
+        {
+            if (obj == null)
+                return false;
+
+            var typeName = obj.GetType().Name ?? string.Empty;
+            if (LooksLikeButtonObject(typeName, path))
+                return false;
+            if (typeName.IndexOf("Manager", StringComparison.OrdinalIgnoreCase) >= 0
+                || typeName.EndsWith("Mgr", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return ContainsAnyToken(typeName, GenericBlockingDialogTokens)
+                || ContainsAnyToken(path, GenericBlockingDialogTokens);
+        }
+
+        private bool TryBuildBlockingDialogHit(object dialogObj, string path, out BlockingDialogHit hit)
+        {
+            hit = null;
+            if (dialogObj == null || !IsObjectProbablyVisible(dialogObj))
+                return false;
+
+            var candidates = new List<BlockingDialogHit>();
+
+            foreach (var memberName in BlockingDialogButtonMemberNames)
+            {
+                var button = GetProp(dialogObj, memberName);
+                if (button == null)
+                    continue;
+                if (memberName.IndexOf("Reference", StringComparison.OrdinalIgnoreCase) >= 0)
+                    button = ResolveAsyncReference(button) ?? button;
+                TryAddBlockingDialogButtonCandidate(candidates, button, path + "." + memberName, dialogObj.GetType().Name);
+            }
+
+            foreach (var node in EnumerateObjectGraph(new[] { (dialogObj, path) }, 2))
+            {
+                if (ReferenceEquals(node.obj, dialogObj))
+                    continue;
+                if (!LooksLikeButtonObject(node.obj.GetType().Name, node.path))
+                    continue;
+                TryAddBlockingDialogButtonCandidate(candidates, node.obj, node.path, dialogObj.GetType().Name);
+            }
+
+            if (candidates.Count == 0)
+                return false;
+
+            hit = candidates.FirstOrDefault(c => c.CanDismiss)
+                ?? candidates.FirstOrDefault(c => !c.IsRetryButton)
+                ?? candidates[0];
+            return hit != null;
+        }
+
+        private void TryAddBlockingDialogButtonCandidate(List<BlockingDialogHit> candidates, object buttonObj, string path, string dialogType)
+        {
+            if (buttonObj == null || !IsObjectProbablyVisible(buttonObj))
+                return;
+            if (!TryGetScreenPos(buttonObj, out var x, out var y))
+                return;
+
+            var label = TryExtractButtonLabel(buttonObj);
+            if (string.IsNullOrWhiteSpace(label))
+                label = "UNKNOWN";
+
+            candidates.Add(new BlockingDialogHit
+            {
+                DialogType = string.IsNullOrWhiteSpace(dialogType) ? "UnknownDialog" : dialogType,
+                ButtonLabel = label,
+                ButtonX = x,
+                ButtonY = y,
+                CanDismiss = IsSafeBlockingDialogButtonLabel(label),
+                IsRetryButton = IsRetryBlockingDialogButtonLabel(label),
+                Detail = path
+            });
+        }
+
+        private static bool LooksLikeButtonObject(string typeName, string path)
+        {
+            return (!string.IsNullOrWhiteSpace(typeName)
+                    && typeName.IndexOf("button", StringComparison.OrdinalIgnoreCase) >= 0)
+                || (!string.IsNullOrWhiteSpace(path)
+                    && path.IndexOf("button", StringComparison.OrdinalIgnoreCase) >= 0);
+        }
+
+        private static bool ContainsAnyToken(string value, IEnumerable<string> tokens)
+        {
+            if (string.IsNullOrWhiteSpace(value) || tokens == null)
+                return false;
+
+            foreach (var token in tokens)
+            {
+                if (!string.IsNullOrWhiteSpace(token)
+                    && value.IndexOf(token, StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string TryExtractButtonLabel(object obj)
+        {
+            return TryExtractButtonLabel(obj, 0, new HashSet<object>());
+        }
+
+        private static string TryExtractButtonLabel(object obj, int depth, HashSet<object> visited)
+        {
+            if (obj == null || depth > 3 || !visited.Add(obj))
+                return null;
+            if (obj is string s)
+                return NormalizeButtonLabel(s);
+
+            foreach (var memberName in ButtonTextMemberNames)
+            {
+                var value = GetProp(obj, memberName);
+                if (value == null)
+                    continue;
+
+                if (value is string text)
+                {
+                    var normalized = NormalizeButtonLabel(text);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                        return normalized;
+                    continue;
+                }
+
+                var nested = TryExtractButtonLabel(value, depth + 1, visited);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+            }
+
+            foreach (var methodName in new[] { "GetText", "GetLabelText", "GetButtonText" })
+            {
+                var value = Call(obj, methodName);
+                if (value is string text)
+                {
+                    var normalized = NormalizeButtonLabel(text);
+                    if (!string.IsNullOrWhiteSpace(normalized))
+                        return normalized;
+                }
+            }
+
+            return null;
+        }
+
+        private static string NormalizeButtonLabel(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            return string.Join(" ", text
+                .Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
+                .Trim();
+        }
+
+        private static bool IsSafeBlockingDialogButtonLabel(string label)
+        {
+            var normalized = NormalizeDialogButtonToken(label);
+            return normalized == "ok"
+                || normalized == "okay"
+                || normalized == "确认"
+                || normalized == "确定"
+                || normalized == "关闭"
+                || normalized == "返回"
+                || normalized == "取消";
+        }
+
+        private static bool IsRetryBlockingDialogButtonLabel(string label)
+        {
+            var normalized = NormalizeDialogButtonToken(label);
+            return normalized == "重连"
+                || normalized == "重新连接"
+                || normalized == "重试"
+                || normalized == "reconnect"
+                || normalized == "tryagain";
+        }
+
+        private static string NormalizeDialogButtonToken(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label))
+                return string.Empty;
+
+            return new string(label
+                .Trim()
+                .ToLowerInvariant()
+                .Where(c => !char.IsWhiteSpace(c) && c != '_' && c != '-' && c != ':')
+                .ToArray());
+        }
+
+        private static bool IsObjectProbablyVisible(object obj)
+        {
+            if (obj == null)
+                return false;
+
+            foreach (var name in VisibilityMemberNames)
+            {
+                if (TryGetBoolLike(obj, name, out var value) && !value)
+                    return false;
+            }
+
+            var gameObject = GetProp(obj, "gameObject")
+                ?? GetProp(obj, "GameObject")
+                ?? GetProp(obj, "m_gameObject")
+                ?? GetProp(obj, "m_root")
+                ?? GetProp(obj, "m_RootObject");
+            if (gameObject != null)
+            {
+                foreach (var name in new[] { "activeSelf", "activeInHierarchy" })
+                {
+                    if (TryGetBoolLike(gameObject, name, out var active) && !active)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private static bool TryGetBoolLike(object obj, string name, out bool value)
+        {
+            value = false;
+            if (obj == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            var raw = GetProp(obj, name);
+            if (raw is bool b)
+            {
+                value = b;
+                return true;
+            }
+
+            var called = Call(obj, name);
+            if (called is bool cb)
+            {
+                value = cb;
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryFindByNames(object root, IEnumerable<string> names, out int x, out int y, out string detail)
@@ -1050,6 +1556,27 @@ namespace HearthstonePayload
             var mi = type.GetMethod(method, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
             if (mi == null) return null;
             try { return mi.Invoke(null, null); } catch { return null; }
+        }
+
+        private static object GetStaticValue(Type type, string name)
+        {
+            if (type == null || string.IsNullOrWhiteSpace(name))
+                return null;
+
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            var prop = type.GetProperty(name, flags);
+            if (prop != null)
+            {
+                try { return prop.GetValue(null, null); } catch { }
+            }
+
+            var field = type.GetField(name, flags);
+            if (field != null)
+            {
+                try { return field.GetValue(null); } catch { }
+            }
+
+            return null;
         }
     }
 }

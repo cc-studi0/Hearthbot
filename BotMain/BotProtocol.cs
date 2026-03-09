@@ -1,10 +1,12 @@
 using System;
+using System.Linq;
 
 namespace BotMain
 {
     public static class BotProtocol
     {
         public const string EndgamePending = "ENDGAME_PENDING";
+        public const string NoDialog = "NO_DIALOG";
 
         public static bool IsSeedResponse(string resp)
         {
@@ -31,6 +33,12 @@ namespace BotMain
             return resp.StartsWith("SEED:", StringComparison.Ordinal)
                 || string.Equals(resp, "MULLIGAN", StringComparison.Ordinal)
                 || string.Equals(resp, "NOT_OUR_TURN", StringComparison.Ordinal);
+        }
+
+        public static bool IsGameLoadingOrGameplayResponse(string resp)
+        {
+            return IsGameplayProgressResponse(resp)
+                || IsEndgamePendingState(resp);
         }
 
         public static bool ShouldClickPostGameDismiss(string scene, string seedProbe, bool endgameShown)
@@ -94,9 +102,63 @@ namespace BotMain
                 || resp.StartsWith("ERROR:", StringComparison.Ordinal);
         }
 
+        public static bool IsNoDialogResponse(string resp)
+        {
+            return string.Equals(resp, NoDialog, StringComparison.Ordinal);
+        }
+
+        public static bool IsBlockingDialogResponse(string resp)
+        {
+            return IsNoDialogResponse(resp)
+                || (!string.IsNullOrWhiteSpace(resp)
+                    && resp.StartsWith("DIALOG:", StringComparison.Ordinal));
+        }
+
+        public static bool TryParseBlockingDialog(string resp, out string dialogType, out string buttonLabel)
+        {
+            dialogType = null;
+            buttonLabel = string.Empty;
+            if (!IsBlockingDialogResponse(resp) || IsNoDialogResponse(resp))
+                return false;
+
+            var payload = resp.Substring("DIALOG:".Length);
+            var idx = payload.IndexOf(':');
+            if (idx < 0)
+            {
+                dialogType = payload;
+                return !string.IsNullOrWhiteSpace(dialogType);
+            }
+
+            dialogType = payload.Substring(0, idx);
+            buttonLabel = idx + 1 < payload.Length ? payload.Substring(idx + 1) : string.Empty;
+            return !string.IsNullOrWhiteSpace(dialogType);
+        }
+
         public static bool IsYesNoResponse(string resp)
         {
             return resp == "YES" || resp == "NO";
+        }
+
+        public static bool IsSafeBlockingDialogButtonLabel(string label)
+        {
+            var normalized = NormalizeButtonLabel(label);
+            return normalized == "ok"
+                || normalized == "okay"
+                || normalized == "确认"
+                || normalized == "确定"
+                || normalized == "关闭"
+                || normalized == "返回"
+                || normalized == "取消";
+        }
+
+        public static bool IsRetryBlockingDialogButtonLabel(string label)
+        {
+            var normalized = NormalizeButtonLabel(label);
+            return normalized == "重连"
+                || normalized == "重新连接"
+                || normalized == "重试"
+                || normalized == "reconnect"
+                || normalized == "tryagain";
         }
 
         public static bool IsCrossCommandResponse(string resp)
@@ -107,6 +169,8 @@ namespace BotMain
             if (resp == "READY" || resp == "BUSY" || resp == "PONG")
                 return true;
             if (IsYesNoResponse(resp))
+                return true;
+            if (IsBlockingDialogResponse(resp))
                 return true;
             if (IsSeedResponse(resp) || resp == "NO_MULLIGAN")
                 return true;
@@ -145,9 +209,33 @@ namespace BotMain
             return currentCount + 1;
         }
 
+        public static int UpdateMatchmakingLobbyConfirmCount(int currentCount, string scene, string seedProbe, string findingResponse)
+        {
+            if (!IsStableLobbyScene(scene)
+                || !string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal)
+                || !string.Equals(findingResponse, "NO", StringComparison.Ordinal))
+            {
+                return 0;
+            }
+
+            return currentCount + 1;
+        }
+
         public static bool IsPostGameNavigationDelayActive(DateTime? postGameSinceUtc, DateTime nowUtc, TimeSpan minDelay)
         {
             return postGameSinceUtc.HasValue && nowUtc - postGameSinceUtc.Value < minDelay;
+        }
+
+        private static string NormalizeButtonLabel(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label))
+                return string.Empty;
+
+            return new string(label
+                .Trim()
+                .ToLowerInvariant()
+                .Where(c => !char.IsWhiteSpace(c) && c != '_' && c != '-' && c != ':')
+                .ToArray());
         }
     }
 }

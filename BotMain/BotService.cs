@@ -1036,7 +1036,6 @@ namespace BotMain
                             _pluginSystem?.FireOnTurnEnd();
                         lastTurnNumber = turnNumber;
                         currentTurnStartedUtc = DateTime.UtcNow;
-                        lastConsumedHsBoxActionUpdatedAtMs = 0;
                         ClearChoiceStateWatch("turn_changed");
                         resimulationCount = 0;
                         actionFailStreak = 0;
@@ -2725,6 +2724,38 @@ namespace BotMain
                 scope);
         }
 
+        private bool TryGetBlockingDialog(PipeServer pipe, int timeoutMs, out string dialogType, out string buttonLabel, string scope)
+        {
+            dialogType = null;
+            buttonLabel = string.Empty;
+            var got = TrySendAndReceiveExpected(
+                pipe,
+                "GET_BLOCKING_DIALOG",
+                timeoutMs,
+                BotProtocol.IsBlockingDialogResponse,
+                out var response,
+                scope);
+            if (!got || string.IsNullOrWhiteSpace(response))
+                return false;
+            if (BotProtocol.IsNoDialogResponse(response))
+                return true;
+
+            return BotProtocol.TryParseBlockingDialog(response, out dialogType, out buttonLabel);
+        }
+
+        private bool TryDismissBlockingDialog(PipeServer pipe, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendStatusCommand(pipe, "DISMISS_BLOCKING_DIALOG", timeoutMs, out response, scope);
+        }
+
+        private void ResetMatchmakingTracking()
+        {
+            _wasMatchmaking = false;
+            _findingGameSince = null;
+            _matchEndedUtc = null;
+        }
+
         private enum EndgamePendingResolution
         {
             Waiting,
@@ -3170,6 +3201,43 @@ namespace BotMain
                 }
             }
 
+            if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, "AutoQueueDialog"))
+                {
+                    Log("[AutoQueue] GET_BLOCKING_DIALOG 超时/串包，等待重试...");
+                    Thread.Sleep(1000);
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(lobbyDialogType))
+                {
+                    if (!BotProtocol.IsSafeBlockingDialogButtonLabel(lobbyDialogButton))
+                    {
+                        Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton})，按钮不在安全白名单内，等待后续超时/重试处理。");
+                        Thread.Sleep(2000);
+                        return;
+                    }
+
+                    if (!TryDismissBlockingDialog(pipe, 2500, out var dismissDialogResp, "AutoQueueDialog"))
+                    {
+                        Log($"[AutoQueue] 大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) 点击超时，等待重试。");
+                    }
+                    else
+                    {
+                        Log($"[AutoQueue] 关闭大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) -> {dismissDialogResp}");
+                        if (!string.IsNullOrWhiteSpace(dismissDialogResp)
+                            && dismissDialogResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            ResetMatchmakingTracking();
+                        }
+                    }
+
+                    Thread.Sleep(1000);
+                    return;
+                }
+            }
+
             // 检查是否已在匹配中
             if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))
             {
@@ -3214,24 +3282,79 @@ namespace BotMain
                 Log("[AutoQueue] 匹配结束，轮询等待游戏加载...");
 
                 var loadDeadline = DateTime.UtcNow.AddSeconds(60);
+                var stableLobbyConfirmCount = 0;
                 while (_running && DateTime.UtcNow < loadDeadline)
                 {
-                    Thread.Sleep(3000);
-                    if (TryGetSeedProbe(pipe, 3000, out var probe, "AutoQueueLoad"))
+                    Thread.Sleep(1000);
+
+                    var gotProbe = TryGetSeedProbe(pipe, 1500, out var probe, "AutoQueueLoad");
+                    if (gotProbe && BotProtocol.IsGameLoadingOrGameplayResponse(probe))
                     {
-                        if (probe.StartsWith("SEED:", StringComparison.Ordinal)
-                            || string.Equals(probe, "MULLIGAN", StringComparison.Ordinal)
-                            || string.Equals(probe, "NOT_OUR_TURN", StringComparison.Ordinal)
-                            || string.Equals(probe, BotProtocol.EndgamePending, StringComparison.Ordinal))
+                        Log($"[AutoQueue] 游戏已加载完成 (seed={ShortenSeedProbe(probe)})，返回主循环。");
+                        return; // 返回 MainLoop，由主循环正常处理对局
+                    }
+
+                    if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, "AutoQueueLoad")
+                        && !string.IsNullOrWhiteSpace(dialogType))
+                    {
+                        if (!BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton))
                         {
-                            Log($"[AutoQueue] 游戏已加载完成 (seed={ShortenSeedProbe(probe)})，返回主循环。");
-                            return; // 返回 MainLoop，由主循环正常处理对局
+                            stableLobbyConfirmCount = 0;
+                            Log($"[AutoQueue] 检测到阻塞弹窗 {dialogType}({dialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                            continue;
                         }
 
-                        var elapsed = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
-                        if ((int)elapsed % 9 < 4)
-                            Log($"[AutoQueue] 等待游戏加载中... {elapsed:F0}s, probe={ShortenSeedProbe(probe ?? "null")}");
+                        if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "AutoQueueLoad")
+                            && !string.IsNullOrWhiteSpace(dismissResp)
+                            && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log($"[AutoQueue] 匹配失败弹窗 {dialogType}({dialogButton}) -> {dismissResp}，重置匹配状态并准备重新排队。");
+                            ResetMatchmakingTracking();
+                            Thread.Sleep(1000);
+                            return;
+                        }
+
+                        stableLobbyConfirmCount = 0;
+                        Log($"[AutoQueue] 匹配失败弹窗 {dialogType}({dialogButton}) 点击失败/超时 -> {dismissResp ?? "NO_RESPONSE"}，继续等待。");
+                        continue;
                     }
+
+                    var gotScene = TryGetSceneValue(pipe, 1500, out var loadScene, "AutoQueueLoad");
+                    if (gotScene
+                        && gotProbe
+                        && BotProtocol.IsStableLobbyScene(loadScene)
+                        && string.Equals(probe, "NO_GAME", StringComparison.Ordinal))
+                    {
+                        if (TryGetYesNoResponse(pipe, "IS_FINDING", 1500, out var postFinding, "AutoQueueLoad"))
+                        {
+                            stableLobbyConfirmCount = BotProtocol.UpdateMatchmakingLobbyConfirmCount(
+                                stableLobbyConfirmCount,
+                                loadScene,
+                                probe,
+                                postFinding);
+                            if (stableLobbyConfirmCount >= 2)
+                            {
+                                Log($"[AutoQueue] 匹配在进游戏前失败，已确认回到大厅：scene={loadScene}, probe={probe}, finding={postFinding}");
+                                ResetMatchmakingTracking();
+                                Thread.Sleep(1000);
+                                return;
+                            }
+                        }
+                        else
+                        {
+                            stableLobbyConfirmCount = 0;
+                        }
+                    }
+                    else
+                    {
+                        stableLobbyConfirmCount = 0;
+                    }
+
+                    var elapsed = (DateTime.UtcNow - _matchEndedUtc.Value).TotalSeconds;
+                    var sceneText = gotScene ? loadScene : "SCENE_TIMEOUT";
+                    var probeText = gotProbe ? ShortenSeedProbe(probe ?? "null") : "SEED_TIMEOUT";
+                    if ((int)elapsed % 6 < 2)
+                        Log($"[AutoQueue] 等待游戏加载中... {elapsed:F0}s, scene={sceneText}, probe={probeText}, lobbyConfirm={stableLobbyConfirmCount}/2");
                 }
 
                 Log("[AutoQueue] 加载等待超时(60s)，继续正常流程。");
@@ -3255,10 +3378,7 @@ namespace BotMain
                     graceSeed = gotGraceSeed ? graceSeed ?? "NO_RESPONSE" : "NO_RESPONSE";
 
                     // 如果 GET_SEED 返回了有效游戏数据，说明已进入对局，继续保护
-                    var seedIndicatesGame = graceSeed.StartsWith("SEED:", StringComparison.Ordinal)
-                        || string.Equals(graceSeed, "MULLIGAN", StringComparison.Ordinal)
-                        || string.Equals(graceSeed, "NOT_OUR_TURN", StringComparison.Ordinal)
-                        || string.Equals(graceSeed, BotProtocol.EndgamePending, StringComparison.Ordinal);
+                    var seedIndicatesGame = BotProtocol.IsGameLoadingOrGameplayResponse(graceSeed);
 
                     // 只有确认场景是已知的安全大厅场景（白名单）才允许提前结束保护期
                     // 注意：GET_SCENE 可能收到串包响应（如 NO_GAME），不能用排除法判断
@@ -3388,8 +3508,7 @@ namespace BotMain
         }
         private void RestartHearthstone()
         {
-            _findingGameSince = null;
-            _matchEndedUtc = null;
+            ResetMatchmakingTracking();
             try
             {
                 foreach (var proc in System.Diagnostics.Process.GetProcessesByName("Hearthstone"))

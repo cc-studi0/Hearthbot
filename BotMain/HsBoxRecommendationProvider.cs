@@ -155,12 +155,11 @@ namespace BotMain
             out string detail)
         {
             actions = null;
-            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
-            var freshnessDetail = DescribeFreshness(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs);
-            if (!IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs))
+            var freshnessDetail = DescribeActionFreshness(state, lastConsumedUpdatedAtMs);
+            if (!IsActionPayloadFreshEnough(state, lastConsumedUpdatedAtMs))
             {
-                detail = lastConsumedUpdatedAtMs > 0
+                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedUpdatedAtMs)
                     ? $"json=already_consumed({freshnessDetail})"
                     : $"json=stale({freshnessDetail})";
                 return false;
@@ -192,7 +191,7 @@ namespace BotMain
             return true;
         }
 
-        private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
+        private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
         {
             if (state == null || state.UpdatedAtMs <= 0)
                 return false;
@@ -200,7 +199,31 @@ namespace BotMain
             if (lastConsumedUpdatedAtMs > 0)
                 return state.UpdatedAtMs > lastConsumedUpdatedAtMs;
 
-            return IsFreshEnough(state, minimumUpdatedAtMs);
+            return true;
+        }
+
+        private static bool IsActionPayloadAlreadyConsumed(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
+        {
+            return state != null
+                && state.UpdatedAtMs > 0
+                && lastConsumedUpdatedAtMs > 0
+                && state.UpdatedAtMs <= lastConsumedUpdatedAtMs;
+        }
+
+        private static string DescribeActionFreshness(HsBoxRecommendationState state, long lastConsumedUpdatedAtMs)
+        {
+            if (state == null)
+                return $"state=null,lastConsumedUpdatedAt={lastConsumedUpdatedAtMs}";
+
+            var updatedAt = state.UpdatedAtMs;
+            if (lastConsumedUpdatedAtMs > 0)
+            {
+                var freshByConsumption = state.UpdatedAtMs > lastConsumedUpdatedAtMs;
+                var consumedDeltaMs = updatedAt - lastConsumedUpdatedAtMs;
+                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs}";
+            }
+
+            return $"fresh={updatedAt > 0},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt}";
         }
 
         private static string DescribeFreshness(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
@@ -1126,7 +1149,7 @@ namespace BotMain
             return Regex.Replace(bodyText, @"\s+", " ").Trim();
         }
 
-        private static bool TryMapPlayActionFromBodyText(string bodyText, Board board, out string command, out string detail)
+        private static bool TryMapPlayActionFromBodyText_Legacy(string bodyText, Board board, out string command, out string detail)
         {
             command = null;
             detail = "play_text_not_found";
@@ -1154,6 +1177,152 @@ namespace BotMain
             command = $"PLAY|{source}|0|0";
             detail = $"play_text slot={oneBasedIndex}";
             return true;
+        }
+
+        private const string BodyActionBoundaryPattern =
+            @"(?:\u6253\u51fa\s*\d+\s*\u53f7\u4f4d(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)"
+            + @"|(?:\u64cd\u4f5c)?\s*(?:\u82f1\u96c4|\d+\s*\u53f7\u4f4d\u968f\u4ece)\s*\u653b\u51fb"
+            + @"|\u4f7f\u7528\s*\d+\s*\u53f7\u4f4d\u5730\u6807"
+            + @"|\u4f7f\u7528\u82f1\u96c4\u6280\u80fd"
+            + @"|\u7ed3\u675f\u56de\u5408)";
+
+        private static bool TryMapPlayActionFromBodyText(string bodyText, Board board, out string command, out string detail)
+        {
+            command = null;
+            detail = "play_text_not_found";
+
+            if (board?.Hand == null || board.Hand.Count == 0 || string.IsNullOrWhiteSpace(bodyText))
+                return false;
+
+            var match = Regex.Match(
+                bodyText,
+                @"\u6253\u51fa\s*(\d+)\s*\u53f7\u4f4d(?:\u968f\u4ece|\u6cd5\u672f|\u6b66\u5668|\u5730\u6807|\u82f1\u96c4\u724c)",
+                RegexOptions.CultureInvariant);
+            if (!match.Success || match.Groups.Count < 2)
+                return false;
+
+            if (!int.TryParse(match.Groups[1].Value, out var oneBasedIndex))
+            {
+                detail = "play_text_index_invalid";
+                return false;
+            }
+
+            var source = ResolveEntityIdByZonePosition(board.Hand, oneBasedIndex);
+            if (source <= 0)
+            {
+                detail = $"play_text_source_missing:{oneBasedIndex}";
+                return false;
+            }
+
+            var actionBlock = ExtractActionBlock(bodyText, match.Index);
+            var target = 0;
+            if (TryResolvePlayTargetFromActionBlock(actionBlock, board, out var resolvedTarget, out var targetDetail, out var hasExplicitTarget))
+            {
+                target = resolvedTarget;
+                detail = $"play_text slot={oneBasedIndex}, target={targetDetail}";
+            }
+            else if (hasExplicitTarget)
+            {
+                detail = $"play_text_target_unresolved:{targetDetail}";
+                return false;
+            }
+            else
+            {
+                detail = $"play_text slot={oneBasedIndex}";
+            }
+
+            command = $"PLAY|{source}|{target}|0";
+            return true;
+        }
+
+        private static string ExtractActionBlock(string bodyText, int actionStartIndex)
+        {
+            if (string.IsNullOrWhiteSpace(bodyText)
+                || actionStartIndex < 0
+                || actionStartIndex >= bodyText.Length)
+            {
+                return bodyText ?? string.Empty;
+            }
+
+            var boundaryRegex = new Regex(BodyActionBoundaryPattern, RegexOptions.CultureInvariant | RegexOptions.Singleline);
+            var nextMatch = boundaryRegex.Match(bodyText, actionStartIndex + 1);
+            var endIndex = nextMatch.Success ? nextMatch.Index : bodyText.Length;
+            if (endIndex <= actionStartIndex)
+                endIndex = bodyText.Length;
+
+            return bodyText.Substring(actionStartIndex, endIndex - actionStartIndex).Trim();
+        }
+
+        private static bool TryResolvePlayTargetFromActionBlock(
+            string actionBlock,
+            Board board,
+            out int targetEntityId,
+            out string detail,
+            out bool hasExplicitTarget)
+        {
+            targetEntityId = 0;
+            detail = "none";
+            hasExplicitTarget = false;
+
+            if (board == null || string.IsNullOrWhiteSpace(actionBlock))
+                return false;
+
+            const RegexOptions opts = RegexOptions.CultureInvariant | RegexOptions.Singleline;
+            if (!Regex.IsMatch(actionBlock, @"\u76ee\u6807\u662f", opts))
+                return false;
+
+            hasExplicitTarget = true;
+
+            if (Regex.IsMatch(actionBlock, @"\u76ee\u6807\u662f\s*(?:\u5bf9\u65b9|\u654c\u65b9|\u5bf9\u624b|\u5bf9\u9762)\s*\u82f1\u96c4", opts))
+            {
+                targetEntityId = board.HeroEnemy?.Id ?? 0;
+                detail = "enemy_hero";
+                return targetEntityId > 0;
+            }
+
+            if (Regex.IsMatch(actionBlock, @"\u76ee\u6807\u662f\s*(?:\u6211\u65b9|\u5df1\u65b9|\u53cb\u65b9|\u81ea\u5df1)\s*\u82f1\u96c4", opts))
+            {
+                targetEntityId = board.HeroFriend?.Id ?? 0;
+                detail = "friendly_hero";
+                return targetEntityId > 0;
+            }
+
+            var enemySlot = Regex.Match(
+                actionBlock,
+                @"\u76ee\u6807\u662f\s*(?:\u5bf9\u65b9|\u654c\u65b9|\u5bf9\u624b|\u5bf9\u9762)\s*(\d+)\s*\u53f7\u4f4d",
+                opts);
+            if (enemySlot.Success)
+            {
+                if (!int.TryParse(enemySlot.Groups[1].Value, out var enemyIndex))
+                {
+                    detail = "enemy_slot_invalid";
+                    return false;
+                }
+
+                targetEntityId = ResolveEntityIdByZonePosition(board.MinionEnemy, enemyIndex);
+                detail = $"enemy_slot={enemyIndex}";
+                return targetEntityId > 0;
+            }
+
+            var friendlySlot = Regex.Match(
+                actionBlock,
+                @"\u76ee\u6807\u662f\s*(?:\u6211\u65b9|\u5df1\u65b9|\u53cb\u65b9|\u81ea\u5df1)\s*(\d+)\s*\u53f7\u4f4d",
+                opts);
+            if (friendlySlot.Success)
+            {
+                if (!int.TryParse(friendlySlot.Groups[1].Value, out var friendlyIndex))
+                {
+                    detail = "friendly_slot_invalid";
+                    return false;
+                }
+
+                targetEntityId = ResolveEntityIdByZonePosition(board.MinionFriend, friendlyIndex);
+                detail = $"friendly_slot={friendlyIndex}";
+                return targetEntityId > 0;
+            }
+
+            detail = "target_text_unrecognized";
+            return false;
         }
 
         private static bool TryMapAttackActionFromBodyText(string bodyText, Board board, out string command, out string detail)

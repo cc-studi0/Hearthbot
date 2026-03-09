@@ -232,6 +232,14 @@ namespace HearthstonePayload
                     {
                         _pipe.Write("SCENE:" + nav.GetScene());
                     }
+                    else if (cmd == "GET_BLOCKING_DIALOG")
+                    {
+                        _pipe.Write(nav.GetBlockingDialog());
+                    }
+                    else if (cmd == "DISMISS_BLOCKING_DIALOG")
+                    {
+                        _pipe.Write(nav.DismissBlockingDialog());
+                    }
                     else if (cmd.StartsWith("NAV_TO:", StringComparison.Ordinal))
                     {
                         _pipe.Write(nav.NavigateTo(cmd.Substring(7)));

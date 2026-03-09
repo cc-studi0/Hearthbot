@@ -20,6 +20,8 @@ namespace BotCore.Tests
             Assert.True(BotProtocol.IsCrossCommandResponse("OK:center_multi"));
             Assert.True(BotProtocol.IsCrossCommandResponse("ERROR:coroutine_timeout"));
             Assert.True(BotProtocol.IsCrossCommandResponse("ENDGAME:1:Victory"));
+            Assert.True(BotProtocol.IsCrossCommandResponse(BotProtocol.NoDialog));
+            Assert.True(BotProtocol.IsCrossCommandResponse("DIALOG:AlertPopup:OK"));
         }
 
         [Fact]
@@ -75,6 +77,65 @@ namespace BotCore.Tests
             Assert.True(BotProtocol.ShouldAbortPostGameDismiss("NOT_OUR_TURN"));
             Assert.False(BotProtocol.ShouldAbortPostGameDismiss(BotProtocol.EndgamePending));
             Assert.False(BotProtocol.ShouldAbortPostGameDismiss("NO_GAME"));
+        }
+
+        [Fact]
+        public void BlockingDialogResponses_ParseKnownPayload()
+        {
+            Assert.True(BotProtocol.IsBlockingDialogResponse(BotProtocol.NoDialog));
+            Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:AlertPopup:OK"));
+            Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dialogType, out var buttonLabel));
+            Assert.Equal("AlertPopup", dialogType);
+            Assert.Equal("OK", buttonLabel);
+            Assert.False(BotProtocol.TryParseBlockingDialog(BotProtocol.NoDialog, out _, out _));
+        }
+
+        [Fact]
+        public void BlockingDialogButtonLabels_OnlyAllowSafeDismissButtons()
+        {
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("OK"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("确认"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("确定"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("关闭"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("返回"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("取消"));
+
+            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("Reconnect"));
+            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("重试"));
+            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("重新连接"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("Reconnect"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("重试"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("重新连接"));
+        }
+
+        [Fact]
+        public void UpdateMatchmakingLobbyConfirmCount_OnlyCountsStableLobbyNoGameNotFinding()
+        {
+            var count = BotProtocol.UpdateMatchmakingLobbyConfirmCount(0, "TOURNAMENT", "NO_GAME", "NO");
+            Assert.Equal(1, count);
+
+            count = BotProtocol.UpdateMatchmakingLobbyConfirmCount(count, "HUB", "NO_GAME", "NO");
+            Assert.Equal(2, count);
+
+            count = BotProtocol.UpdateMatchmakingLobbyConfirmCount(count, "UNKNOWN", "NO_GAME", "NO");
+            Assert.Equal(0, count);
+
+            count = BotProtocol.UpdateMatchmakingLobbyConfirmCount(1, "TOURNAMENT", "SEED:abc", "NO");
+            Assert.Equal(0, count);
+
+            count = BotProtocol.UpdateMatchmakingLobbyConfirmCount(1, "TOURNAMENT", "NO_GAME", "YES");
+            Assert.Equal(0, count);
+        }
+
+        [Fact]
+        public void IsGameLoadingOrGameplayResponse_RecognizesOnlyInGameSignals()
+        {
+            Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("SEED:abc"));
+            Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("MULLIGAN"));
+            Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("NOT_OUR_TURN"));
+            Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse(BotProtocol.EndgamePending));
+            Assert.False(BotProtocol.IsGameLoadingOrGameplayResponse("NO_GAME"));
+            Assert.False(BotProtocol.IsGameLoadingOrGameplayResponse("UNKNOWN"));
         }
     }
 }
