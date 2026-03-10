@@ -36,6 +36,31 @@ namespace HearthstonePayload
             TryPatch(harmony, inputType, "GetMouseButtonDown", nameof(GetButtonDownPre));
             TryPatch(harmony, inputType, "GetMouseButtonUp", nameof(GetButtonUpPre));
             TryPatch(harmony, applicationType, "isFocused", nameof(IsFocusedPre));
+
+            // 拦截 HearthstoneApplication.OnApplicationFocus，防止窗口失焦时
+            // PegUI.m_hasFocus 被置为 false 从而屏蔽所有鼠标输入
+            TryPatchFocusCallback(harmony);
+        }
+
+        private static void TryPatchFocusCallback(Harmony harmony)
+        {
+            try
+            {
+                var hsAppType = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("Hearthstone.HearthstoneApplication"))
+                    .FirstOrDefault(t => t != null);
+                if (hsAppType == null) return;
+
+                var onFocus = hsAppType.GetMethod("OnApplicationFocus",
+                    BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance,
+                    null, new[] { typeof(bool) }, null);
+                if (onFocus != null)
+                {
+                    harmony.Patch(onFocus,
+                        prefix: new HarmonyMethod(typeof(InputHook), nameof(OnApplicationFocusPre)));
+                }
+            }
+            catch { }
         }
 
         private static void TryPatch(Harmony harmony, Type inputType, string name, string prefixName)
@@ -91,6 +116,16 @@ namespace HearthstonePayload
             if (!Simulating) return true;
             __result = true;
             return false;
+        }
+
+        /// <summary>
+        /// 完全阻止 HearthstoneApplication.OnApplicationFocus 执行，
+        /// 使游戏永远认为自己处于聚焦状态，PegUI.m_hasFocus 始终为 true。
+        /// 参考 HsMod 的实现方式。
+        /// </summary>
+        static bool OnApplicationFocusPre(bool focus)
+        {
+            return false; // 跳过原方法，阻止焦点状态变更
         }
     }
 }

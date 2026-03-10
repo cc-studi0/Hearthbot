@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.WebSockets;
@@ -132,7 +133,7 @@ namespace BotMain
                     IsDiscoverPayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
                     && (HsBoxRecommendationMapper.TryMapDiscover(current, request, out _, out _)
                         || HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(current, request, out _, out _)),
-                timeoutMs: 3200,
+                timeoutMs: 5000,
                 pollIntervalMs: 180,
                 out var waitDetail);
 
@@ -379,6 +380,272 @@ namespace BotMain
         }
     }
 
+    internal static class HsBoxCallbackCapture
+    {
+        private const string TurnUnknownLabel = "turn_unknown";
+        private const string MulliganTurnLabel = "turn_00_mulligan";
+        private static readonly object Sync = new object();
+        private static readonly Func<DateTime> DefaultUtcNowProvider = () => DateTime.UtcNow;
+        private static readonly string DefaultRootDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Logs", "HsBoxCallbacks");
+
+        private static bool _enabled;
+        private static int _matchSequence;
+        private static string _sessionId = string.Empty;
+        private static DateTime? _matchStartedAtUtc;
+        private static string _turnLabel = TurnUnknownLabel;
+        private static int? _turnCount;
+        private static string _rootDirectory = DefaultRootDirectory;
+        private static Func<DateTime> _utcNowProvider = DefaultUtcNowProvider;
+        private static readonly HashSet<string> CapturedKeys = new HashSet<string>(StringComparer.Ordinal);
+
+        internal static void SetEnabled(bool enabled)
+        {
+            lock (Sync)
+                _enabled = enabled;
+        }
+
+        internal static void BeginMatchSession(DateTime? matchStartedAtUtc = null)
+        {
+            lock (Sync)
+            {
+                var startedAtUtc = (matchStartedAtUtc ?? GetUtcNow()).ToUniversalTime();
+                _matchSequence++;
+                _sessionId = BuildSessionId(startedAtUtc, _matchSequence);
+                _matchStartedAtUtc = startedAtUtc;
+                _turnLabel = TurnUnknownLabel;
+                _turnCount = null;
+                CapturedKeys.Clear();
+            }
+        }
+
+        internal static void SetTurnContext(int? turnCount, bool isMulligan)
+        {
+            lock (Sync)
+            {
+                if (string.IsNullOrWhiteSpace(_sessionId))
+                    return;
+
+                _turnLabel = FormatTurnLabel(turnCount, isMulligan);
+                _turnCount = isMulligan ? 0 : turnCount;
+            }
+        }
+
+        internal static void EndMatchSession()
+        {
+            lock (Sync)
+            {
+                _sessionId = string.Empty;
+                _matchStartedAtUtc = null;
+                _turnLabel = TurnUnknownLabel;
+                _turnCount = null;
+                CapturedKeys.Clear();
+            }
+        }
+
+        internal static bool TryCapture(HsBoxRecommendationState state)
+        {
+            return TryCapture(state, out _);
+        }
+
+        internal static bool TryCapture(HsBoxRecommendationState state, out string filePath)
+        {
+            filePath = null;
+
+            string sessionId;
+            DateTime? matchStartedAtUtc;
+            string turnLabel;
+            int? turnCount;
+            string rootDirectory;
+            string dedupeKey;
+            DateTime savedAtUtc;
+
+            lock (Sync)
+            {
+                if (!_enabled
+                    || string.IsNullOrWhiteSpace(_sessionId)
+                    || state == null
+                    || state.UpdatedAtMs <= 0)
+                {
+                    return false;
+                }
+
+                dedupeKey = BuildDedupeKey(_sessionId, state.UpdatedAtMs, state.PayloadSignature);
+                if (!CapturedKeys.Add(dedupeKey))
+                    return false;
+
+                sessionId = _sessionId;
+                matchStartedAtUtc = _matchStartedAtUtc;
+                turnLabel = _turnLabel;
+                turnCount = _turnCount;
+                rootDirectory = _rootDirectory;
+                savedAtUtc = GetUtcNow();
+            }
+
+            try
+            {
+                var category = Classify(state);
+                var savedAtLocal = savedAtUtc.ToLocalTime();
+                var targetDirectory = Path.Combine(rootDirectory, sessionId, turnLabel);
+                Directory.CreateDirectory(targetDirectory);
+
+                var baseFileName = BuildCaptureFileName(savedAtLocal, state.Count, category, state.UpdatedAtMs);
+                filePath = EnsureUniqueFilePath(targetDirectory, baseFileName);
+
+                var parseError = string.Empty;
+                JToken parsedCallback = null;
+                if (!string.IsNullOrWhiteSpace(state.Raw))
+                {
+                    try
+                    {
+                        parsedCallback = JsonConvert.DeserializeObject<JToken>(state.Raw);
+                    }
+                    catch (Exception ex)
+                    {
+                        parseError = ex.Message;
+                    }
+                }
+
+                var wrapper = new JObject
+                {
+                    ["savedAtUtc"] = savedAtUtc.ToString("O"),
+                    ["sessionId"] = sessionId,
+                    ["matchStartedAtUtc"] = matchStartedAtUtc.HasValue ? matchStartedAtUtc.Value.ToString("O") : null,
+                    ["turnLabel"] = turnLabel,
+                    ["turnCount"] = turnCount.HasValue ? JToken.FromObject(turnCount.Value) : JValue.CreateNull(),
+                    ["category"] = category,
+                    ["hsBoxUpdatedAtMs"] = state.UpdatedAtMs,
+                    ["hsBoxCount"] = state.Count,
+                    ["href"] = state.Href ?? string.Empty,
+                    ["reason"] = state.Reason ?? string.Empty,
+                    ["bodyText"] = state.BodyText ?? string.Empty,
+                    ["payloadSignature"] = state.PayloadSignature ?? string.Empty,
+                    ["callbackRaw"] = state.Raw == null ? JValue.CreateNull() : JToken.FromObject(state.Raw),
+                    ["callbackParsed"] = parsedCallback ?? JValue.CreateNull()
+                };
+
+                if (!string.IsNullOrWhiteSpace(parseError))
+                    wrapper["callbackParseError"] = parseError;
+
+                File.WriteAllText(filePath, wrapper.ToString(Formatting.Indented), new UTF8Encoding(false));
+                return true;
+            }
+            catch
+            {
+                lock (Sync)
+                    CapturedKeys.Remove(dedupeKey);
+                return false;
+            }
+        }
+
+        internal static string FormatTurnLabel(int? turnCount, bool isMulligan)
+        {
+            if (isMulligan)
+                return MulliganTurnLabel;
+
+            return turnCount.HasValue && turnCount.Value >= 0
+                ? $"turn_{turnCount.Value:D2}"
+                : TurnUnknownLabel;
+        }
+
+        internal static string BuildCaptureFileName(DateTime savedAtLocalTime, long count, string category, long updatedAtMs)
+        {
+            var normalizedCategory = string.IsNullOrWhiteSpace(category) ? "unknown" : category.Trim().ToLowerInvariant();
+            return $"{savedAtLocalTime:HHmmss_fff}_count{count:D4}_{normalizedCategory}_u{updatedAtMs}.json";
+        }
+
+        internal static string BuildSessionId(DateTime matchStartedAtUtc, int matchSequence)
+        {
+            var localTime = matchStartedAtUtc.Kind == DateTimeKind.Utc
+                ? matchStartedAtUtc.ToLocalTime()
+                : matchStartedAtUtc;
+            return $"{localTime:yyyyMMdd_HHmmss}_match{matchSequence:D2}";
+        }
+
+        internal static string Classify(HsBoxRecommendationState state)
+        {
+            var steps = state?.Envelope?.Data ?? new List<HsBoxActionStep>();
+            if (steps.Any(step => string.Equals(step?.ActionName, "replace", StringComparison.OrdinalIgnoreCase)))
+                return "mulligan";
+
+            if (steps.Any(step =>
+                string.Equals(step?.ActionName, "choose", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(step?.ActionName, "choice", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(step?.ActionName, "discard", StringComparison.OrdinalIgnoreCase)))
+            {
+                return "choice";
+            }
+
+            if (steps.Any(step => !string.IsNullOrWhiteSpace(step?.ActionName))
+                || !string.IsNullOrWhiteSpace(state?.BodyText)
+                || !string.IsNullOrWhiteSpace(state?.Raw))
+            {
+                return "action";
+            }
+
+            return "unknown";
+        }
+
+        internal static void ResetForTests()
+        {
+            lock (Sync)
+            {
+                _enabled = false;
+                _matchSequence = 0;
+                _sessionId = string.Empty;
+                _matchStartedAtUtc = null;
+                _turnLabel = TurnUnknownLabel;
+                _turnCount = null;
+                _rootDirectory = DefaultRootDirectory;
+                _utcNowProvider = DefaultUtcNowProvider;
+                CapturedKeys.Clear();
+            }
+        }
+
+        internal static void SetRootDirectoryForTests(string rootDirectory)
+        {
+            lock (Sync)
+            {
+                _rootDirectory = string.IsNullOrWhiteSpace(rootDirectory)
+                    ? DefaultRootDirectory
+                    : Path.GetFullPath(rootDirectory);
+            }
+        }
+
+        internal static void SetUtcNowProviderForTests(Func<DateTime> utcNowProvider)
+        {
+            lock (Sync)
+                _utcNowProvider = utcNowProvider ?? DefaultUtcNowProvider;
+        }
+
+        private static DateTime GetUtcNow()
+        {
+            return (_utcNowProvider ?? DefaultUtcNowProvider).Invoke().ToUniversalTime();
+        }
+
+        private static string BuildDedupeKey(string sessionId, long updatedAtMs, string payloadSignature)
+        {
+            return $"{sessionId}|{updatedAtMs}|{payloadSignature ?? string.Empty}";
+        }
+
+        private static string EnsureUniqueFilePath(string directory, string baseFileName)
+        {
+            var candidate = Path.Combine(directory, baseFileName);
+            if (!File.Exists(candidate))
+                return candidate;
+
+            var stem = Path.GetFileNameWithoutExtension(baseFileName);
+            var extension = Path.GetExtension(baseFileName);
+            for (var i = 1; i < 1000; i++)
+            {
+                candidate = Path.Combine(directory, $"{stem}_dup{i:D2}{extension}");
+                if (!File.Exists(candidate))
+                    return candidate;
+            }
+
+            return Path.Combine(directory, $"{stem}_{Guid.NewGuid():N}{extension}");
+        }
+    }
+
     internal sealed class HsBoxRecommendationBridge : IHsBoxRecommendationBridge
     {
         private static readonly HttpClient Http = new HttpClient
@@ -428,6 +695,7 @@ namespace BotMain
                     }
 
                     state = HsBoxRecommendationState.FromDto(dto);
+                    HsBoxCallbackCapture.TryCapture(state);
                     detail = state.Detail;
                     return true;
                 }

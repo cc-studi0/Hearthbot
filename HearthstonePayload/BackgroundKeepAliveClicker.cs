@@ -45,6 +45,10 @@ namespace HearthstonePayload
                 if (clientRect.Width < 100 || clientRect.Height < 100)
                     return BuildError("client_rect_invalid");
 
+                // 激活窗口以确保点击生效
+                if (GetForegroundWindow() != windowHandle)
+                    SetForegroundWindow(windowHandle);
+
                 var targetRect = rectSpec.Resolve(clientRect);
                 if (targetRect.Width < 8 || targetRect.Height < 8)
                     return BuildError("target_rect_invalid");
@@ -371,6 +375,12 @@ namespace HearthstonePayload
 
         [DllImport("user32.dll")]
         private static extern bool GetClientRect(IntPtr hWnd, out NativeRect lpRect);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);

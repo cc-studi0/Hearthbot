@@ -52,12 +52,14 @@ namespace BotMain
         public void RecordWin()
         {
             Wins++;
+            _log?.Invoke($"[StatsBridge] RecordWin called - Wins: {Wins}");
             SyncToSbapi();
         }
 
         public void RecordLoss()
         {
             Losses++;
+            _log?.Invoke($"[StatsBridge] RecordLoss called - Losses: {Losses}");
             SyncToSbapi();
         }
 

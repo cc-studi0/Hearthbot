@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -46,7 +46,7 @@ namespace BotMain
         private const int EndTurnPostWaitMaxMs = 3000;
         private const int EndTurnPostWaitPollIntervalMs = 100;
         private const int EndTurnPostWaitGetSeedTimeoutMs = 500;
-        private const int ChoiceStateWatchWindowMs = 3000;
+        private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private static readonly string[] ChoiceStateTextMembers =
         {
@@ -129,6 +129,7 @@ namespace BotMain
         private bool _hoverRoutineEnabled;
         private int _latencySamplingRate = 20000;
         private bool _pendingConcedeLoss;
+        private string _earlyGameResult;
 
         public event Action<string> OnLog;
         public event Action<Board> OnBoardUpdated;
@@ -176,6 +177,7 @@ namespace BotMain
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
         private volatile bool _followHsBoxRecommendations;
+        private volatile bool _saveHsBoxCallbacks;
 
         private sealed class MulliganChoiceState
         {
@@ -262,6 +264,13 @@ namespace BotMain
             Log($"[Settings] FollowHsBoxRecommendations={value}");
         }
 
+        public void SetSaveHsBoxCallbacks(bool value)
+        {
+            _saveHsBoxCallbacks = value;
+            HsBoxCallbackCapture.SetEnabled(value);
+            Log($"[Settings] SaveHsBoxCallbacks={value}");
+        }
+
         public void Prepare()
         {
             lock (_sync)
@@ -307,10 +316,6 @@ namespace BotMain
         public void Start()
         {
             if (State != BotState.Idle) return;
-
-            var pt = _prepareThread;
-            if (pt != null && pt.IsAlive)
-                pt.Join(3000);
 
             State = BotState.Running;
             _running = true;
@@ -491,13 +496,21 @@ namespace BotMain
 
         private void HandleGameResult(string resultResp)
         {
+            Log($"[GameResult] 收到结果响应: {resultResp}");
+
             if (string.IsNullOrWhiteSpace(resultResp) || !resultResp.StartsWith("RESULT:", StringComparison.Ordinal))
+            {
+                Log("[GameResult] 结果响应格式无效");
                 return;
+            }
 
             var result = resultResp.Substring(7);
+            Log($"[GameResult] 解析结果: {result}");
+
             if (result == "WIN")
             {
                 _stats?.RecordWin();
+                Log($"[GameResult] 记录胜利 - 当前战绩: {_stats?.Wins}胜 {_stats?.Losses}负");
                 ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnVictory();
                 Log("[Game] Victory");
@@ -506,6 +519,7 @@ namespace BotMain
             else if (result == "LOSS")
             {
                 _stats?.RecordLoss();
+                Log($"[GameResult] 记录失败 - 当前战绩: {_stats?.Wins}胜 {_stats?.Losses}负");
                 if (_pendingConcedeLoss)
                     _stats?.RecordConcede();
                 ClearPendingConcedeLoss();
@@ -513,8 +527,14 @@ namespace BotMain
                 Log("[Game] Defeat");
                 PublishStatsChanged();
             }
+            else if (result == "TIE")
+            {
+                Log("[GameResult] 平局，不计入胜负");
+                ClearPendingConcedeLoss();
+            }
             else
             {
+                Log($"[GameResult] 未知结果类型: {result}");
                 ClearPendingConcedeLoss();
             }
         }
@@ -720,6 +740,9 @@ namespace BotMain
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
+            int consecutiveSameAlreadyConsumed = 0;
+            string lastAlreadyConsumedSignature = null;
+            const int MaxSameAlreadyConsumed = 5;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -777,7 +800,7 @@ namespace BotMain
                     _nextDeckFetchUtc = DateTime.UtcNow.AddSeconds(DeckRetryIntervalSeconds);
                 }
 
-                if (_followHsBoxRecommendations)
+                if (_followHsBoxRecommendations || _saveHsBoxCallbacks)
                     _hsBoxRecommendationProvider.Prime();
 
                 var seedSw = Stopwatch.StartNew();
@@ -885,8 +908,10 @@ namespace BotMain
                             _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                             _postGameSinceUtc = null;
                             _postGameLobbyConfirmCount = 0;
+                            HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                             _pluginSystem?.FireOnGameBegin();
                         }
+                        HsBoxCallbackCapture.SetTurnContext(null, isMulligan: true);
                         notOurTurnStreak = 0;
                         nextPostGameDismissUtc = DateTime.MinValue;
                         mulliganStreak++;
@@ -1030,6 +1055,7 @@ namespace BotMain
                     _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                     _postGameSinceUtc = null;
                     _postGameLobbyConfirmCount = 0;
+                    HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                     _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
                     _pluginSystem?.FireOnGameBegin();
                 }
@@ -1045,6 +1071,7 @@ namespace BotMain
                     OnBoardUpdated?.Invoke(planningBoard);
 
                     var turnNumber = planningBoard.TurnCount;
+                    HsBoxCallbackCapture.SetTurnContext(turnNumber, isMulligan: false);
                     if (turnNumber != lastTurnNumber)
                     {
                         if (lastTurnNumber >= 0)
@@ -1131,8 +1158,35 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
-                    Thread.Sleep(120);
-                    continue;
+                    var currentSignature = recommendation?.SourceCursor?.PayloadSignature;
+                    if (!string.IsNullOrEmpty(currentSignature) && currentSignature == lastAlreadyConsumedSignature)
+                    {
+                        consecutiveSameAlreadyConsumed++;
+                        if (consecutiveSameAlreadyConsumed >= MaxSameAlreadyConsumed)
+                        {
+                            Log($"[HsBox] Same already_consumed action repeated {MaxSameAlreadyConsumed} times, executing it anyway");
+                            actions = recommendation?.Actions?.ToList() ?? new List<string> { "END_TURN" };
+                            consecutiveSameAlreadyConsumed = 0;
+                            lastAlreadyConsumedSignature = null;
+                        }
+                        else
+                        {
+                            Thread.Sleep(120);
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        lastAlreadyConsumedSignature = currentSignature;
+                        consecutiveSameAlreadyConsumed = 1;
+                        Thread.Sleep(120);
+                        continue;
+                    }
+                }
+                else
+                {
+                    consecutiveSameAlreadyConsumed = 0;
+                    lastAlreadyConsumedSignature = null;
                 }
 
                 actions = NormalizeRecommendedActions(actions);
@@ -2165,6 +2219,8 @@ namespace BotMain
         private bool TryHandleChoice(PipeServer pipe, string seed)
         {
             var rounds = 3;
+            var chainedCount = 0;
+            const int maxChainedChoices = 8;
             for (int retry = 0; retry < rounds; retry++)
             {
                 var maxRetries = retry == 0 ? 4 : 12;
@@ -2251,7 +2307,7 @@ namespace BotMain
                 var pickedEntityId = choiceEntityIds[pickedIndex];
                 var confirmed = TryApplyDiscoverChoice(
                     pipe, payload, pickedEntityId, isRewindChoice,
-                    out var pickResult, out var confirmDetail);
+                    out var pickResult, out var confirmDetail, out var hasChainedChoice);
 
                 if (!confirmed)
                 {
@@ -2278,6 +2334,20 @@ namespace BotMain
 
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
+
+                if (hasChainedChoice)
+                {
+                    chainedCount++;
+                    if (chainedCount >= maxChainedChoices)
+                    {
+                        Log($"[Choice] 链式选择达到上限 ({maxChainedChoices})，停止处理");
+                        return true;
+                    }
+                    Log($"[Choice] 检测到链式选择 ({chainedCount}/{maxChainedChoices})，继续处理下一个发现");
+                    retry = -1; // for循环结束后 retry++ 变为0
+                    continue;
+                }
+
                 return true;
             }
 
@@ -2432,21 +2502,26 @@ namespace BotMain
             string previousPayload,
             int pickedEntityId,
             out string pickResult,
-            out string confirmDetail)
+            out string confirmDetail,
+            out bool hasChainedChoice)
         {
             pickResult = "NO_RESPONSE";
             confirmDetail = "apply_not_ok";
+            hasChainedChoice = false;
 
+            var apiChained = false;
             var apiConfirmDetail = "api_not_confirmed";
             var apiResult = pipe.SendAndReceive("APPLY_CHOICE_API:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
             pickResult = "api=" + apiResult;
             if (apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
-                && TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out apiConfirmDetail))
+                && TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out apiConfirmDetail, out apiChained))
             {
                 confirmDetail = "api:" + apiConfirmDetail;
+                hasChainedChoice = apiChained;
                 return true;
             }
 
+            var mouseChained = false;
             var mouseConfirmDetail = "mouse_not_confirmed";
             var mouseResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
             pickResult = $"api={apiResult},mouse={mouseResult}";
@@ -2455,20 +2530,23 @@ namespace BotMain
                 confirmDetail = apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
                     ? $"api={apiConfirmDetail},mouse_not_ok"
                     : "api_not_ok,mouse_not_ok";
+                hasChainedChoice = apiChained;
                 return false;
             }
 
-            if (TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out mouseConfirmDetail))
+            if (TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out mouseConfirmDetail, out mouseChained))
             {
                 confirmDetail = apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
                     ? $"api={apiConfirmDetail},mouse:{mouseConfirmDetail}"
                     : "mouse:" + mouseConfirmDetail;
+                hasChainedChoice = apiChained || mouseChained;
                 return true;
             }
 
             confirmDetail = apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
                 ? $"api={apiConfirmDetail},mouse={mouseConfirmDetail}"
                 : "mouse=" + mouseConfirmDetail;
+            hasChainedChoice = apiChained || mouseChained;
             return false;
         }
 
@@ -2478,7 +2556,8 @@ namespace BotMain
             int pickedEntityId,
             bool isRewindChoice,
             out string pickResult,
-            out string confirmDetail)
+            out string confirmDetail,
+            out bool hasChainedChoice)
         {
             _ = isRewindChoice;
             return TryApplyChoiceWithFallback(
@@ -2486,19 +2565,21 @@ namespace BotMain
                 previousPayload,
                 pickedEntityId,
                 out pickResult,
-                out confirmDetail);
+                out confirmDetail,
+                out hasChainedChoice);
         }
 
-        private bool TryConfirmDiscoverChoiceApplied(PipeServer pipe, string previousPayload, out string detail)
+        private bool TryConfirmDiscoverChoiceApplied(PipeServer pipe, string previousPayload, out string detail, out bool hasChainedChoice)
         {
             detail = "timeout";
+            hasChainedChoice = false;
             if (pipe == null || !pipe.IsConnected)
             {
                 detail = "pipe_disconnected";
                 return false;
             }
 
-            for (int i = 0; i < 14; i++)
+            for (int i = 0; i < 25; i++)
             {
                 Thread.Sleep(80);
                 var resp = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
@@ -2516,6 +2597,16 @@ namespace BotMain
                     var currentPayload = resp.Substring("CHOICE_STATE:".Length);
                     if (!string.Equals(currentPayload, previousPayload, StringComparison.Ordinal))
                     {
+                        // 最终检查：payload已变化，检查是否有新的链式选择
+                        var finalCheck = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
+                        if (finalCheck.StartsWith("CHOICE_STATE:"))
+                        {
+                            // payload变化且仍有choice → 当前选择已成功，但触发了新的链式选择
+                            Log($"[Choice] 当前选择已确认，检测到链式选择（新choice待处理）");
+                            detail = "changed_chained";
+                            hasChainedChoice = true;
+                            return true;
+                        }
                         detail = "changed";
                         return true;
                     }
@@ -3097,7 +3188,10 @@ namespace BotMain
 
                 sceneAfter = scene;
                 if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                    return EndgamePendingResolution.GameLeftGameplay;
+                {
+                    if (BotProtocol.IsStableLobbyScene(scene))
+                        return EndgamePendingResolution.GameLeftGameplay;
+                }
 
                 if (!TryGetEndgameState(pipe, 2000, out var endgameShown, out var endgameClass, scope))
                 {
@@ -3108,6 +3202,23 @@ namespace BotMain
                 if (BotProtocol.ShouldClickPostGameDismiss(scene, BotProtocol.EndgamePending, endgameShown))
                 {
                     Log($"[{scope}] 检测到结算页显示({endgameClass})，开始连续点击跳过...");
+
+                    // 在点击跳过前尝试获取结果
+                    try
+                    {
+                        var resultResp = pipe.SendAndReceive("GET_RESULT", 1000);
+                        if (!string.IsNullOrWhiteSpace(resultResp) && resultResp.StartsWith("RESULT:"))
+                        {
+                            var result = resultResp.Substring(7);
+                            if (result != "NONE")
+                            {
+                                Log($"[{scope}] 提前获取对局结果: {result}");
+                                _earlyGameResult = result;
+                            }
+                        }
+                    }
+                    catch { }
+
                     return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
                         ? EndgamePendingResolution.GameLeftGameplay
                         : EndgamePendingResolution.Waiting;
@@ -3159,7 +3270,12 @@ namespace BotMain
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
                 lastConsumedHsBoxActionCursor = null;
-                var resultResp = pipe.SendAndReceive("GET_RESULT", 3000);
+
+                var resultResp = _earlyGameResult != null
+                    ? $"RESULT:{_earlyGameResult}"
+                    : pipe.SendAndReceive("GET_RESULT", 3000);
+
+                _earlyGameResult = null;
                 HandleGameResult(resultResp);
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
@@ -3177,6 +3293,7 @@ namespace BotMain
             nextMulliganAttemptUtc = DateTime.MinValue;
             mulliganPhaseStartedUtc = DateTime.MinValue;
             playActionFailStreakByEntity.Clear();
+            HsBoxCallbackCapture.EndMatchSession();
             AutoQueue(pipe);
         }
 
@@ -4290,6 +4407,5 @@ namespace BotMain
         }
     }
 }
-
 
 

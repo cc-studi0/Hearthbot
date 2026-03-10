@@ -1355,10 +1355,19 @@ namespace HearthstonePayload
 
         public string ClickDismiss()
         {
-            if (!TryFindWindow(out var windowHandle, out var clientRect, out var windowError))
-                return "ERROR:bg_dismiss:" + (windowError ?? "window_not_found");
+            // 使用 InputHook 方式实现真正的后台点击，不激活窗口
+            var dims = OnMain(() =>
+            {
+                var sw = MouseSimulator.GetScreenWidth();
+                var sh = MouseSimulator.GetScreenHeight();
+                return new int[] { sw, sh };
+            });
+            var w = dims[0];
+            var h = dims[1];
+            if (w <= 0 || h <= 0) return "ERROR:bg_dismiss:no_screen";
 
-            return ClickDismissByWindowMessage(windowHandle, clientRect);
+            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
+            return result ?? "ERROR:bg_dismiss:click_failed";
         }
 
         private string ClickDismissLegacy()
@@ -1451,6 +1460,10 @@ namespace HearthstonePayload
                 return "ERROR:bg_dismiss:no_window";
             if (clientRect.Width < 100 || clientRect.Height < 100)
                 return "ERROR:bg_dismiss:client_rect_invalid";
+
+            // 激活窗口以确保点击生效
+            if (!IsForegroundWindow(windowHandle))
+                SetForegroundWindow(windowHandle);
 
             foreach (var point in BuildDismissClientPoints(clientRect))
             {
@@ -1629,6 +1642,9 @@ namespace HearthstonePayload
 
         [DllImport("user32.dll")]
         private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);

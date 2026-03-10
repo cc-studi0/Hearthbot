@@ -137,12 +137,26 @@ namespace HearthstonePayload
                         {
                             if (state.IsGameOver || state.Result != GameResult.None)
                             {
-                                _lastGameResult = state.Result != GameResult.None
-                                    ? state.Result.ToString().ToUpper()
-                                    : "NONE";
+                                // 优先使用 GameState 的结果
+                                if (state.Result != GameResult.None)
+                                    _lastGameResult = state.Result.ToString().ToUpper();
+
+                                // 兜底：通过结算页类名判断
+                                if (_lastGameResult == "NONE" || string.IsNullOrWhiteSpace(_lastGameResult))
+                                {
+                                    var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
+                                    if (endScreenShown && !string.IsNullOrWhiteSpace(endClass))
+                                    {
+                                        var lower = endClass.ToLowerInvariant();
+                                        if (lower.Contains("victory")) _lastGameResult = "WIN";
+                                        else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
+                                        else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
+                                    }
+                                }
+
                                 // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
-                                var endScreenShown = reader.IsEndGameScreenShown(out _);
-                                if (endScreenShown)
+                                var endScreenShown2 = reader.IsEndGameScreenShown(out _);
+                                if (endScreenShown2)
                                 {
                                     _pipe.Write("NO_GAME");
                                 }

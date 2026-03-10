@@ -108,6 +108,8 @@
                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
                     <CheckBox Content="Follow HSBox" FontSize="11" IsChecked="{Binding FollowHsBoxOperation}" Margin="0,0,0,2"
                               ToolTip="动作/留牌/发现跟随盒子推荐，不走本地 profile / mulligan / discover"/>
+                    <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}" Margin="0,0,0,2"
+                              ToolTip="淇濆瓨褰撳墠瀵瑰眬鐨勭洅瀛愬洖璋僎son锛屾寜瀵瑰眬/鍥炲悎鍒嗙被鍐欏叆 Logs/HsBoxCallbacks"/>
                     <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,2"/>
                     <CheckBox Content="Overlay" FontSize="11" IsChecked="{Binding OverlayMode}" Margin="0,0,0,2"/>
                     <CheckBox Content="Auto-concede" FontSize="11" IsChecked="{Binding AutoConcede}" Margin="0,0,0,2"/>

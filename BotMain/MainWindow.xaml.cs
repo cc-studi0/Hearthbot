@@ -5,6 +5,15 @@ using System.Windows.Threading;
 
 namespace BotMain
 {
+    internal static class TextBoxExtensions
+    {
+        public static int GetFirstVisibleLineIndex(this TextBox textBox)
+        {
+            var charIndex = textBox.GetCharacterIndexFromPoint(new Point(0, 0), true);
+            return charIndex >= 0 ? textBox.GetLineIndexFromCharacterIndex(charIndex) : 0;
+        }
+    }
+
     public partial class MainWindow : Window
     {
         private GuiRenderer _guiRenderer;
@@ -43,14 +52,8 @@ namespace BotMain
                                 return;
                             }
 
-                            var targetLine = pinnedLine >= 0
-                                ? pinnedLine
-                                : LogBox.GetFirstVisibleLineIndex();
-                            if (targetLine < 0)
-                                targetLine = 0;
-
-                            if (LogBox.LineCount > 0)
-                                LogBox.ScrollToLine(Math.Min(targetLine, LogBox.LineCount - 1));
+                            if (pinnedLine >= 0 && LogBox.LineCount > 0)
+                                LogBox.ScrollToLine(Math.Min(pinnedLine, LogBox.LineCount - 1));
 
                             var textLength = LogBox.Text?.Length ?? 0;
                             var safeStart = Math.Max(0, Math.Min(selectionStart, textLength));

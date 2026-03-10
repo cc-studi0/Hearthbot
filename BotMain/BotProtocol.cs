@@ -192,6 +192,8 @@ namespace BotMain
         {
             return string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "COLLECTIONMANAGER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "GAME_MODE", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(scene, "LOGIN", StringComparison.OrdinalIgnoreCase);
         }
 

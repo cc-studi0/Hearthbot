@@ -219,11 +219,7 @@ namespace HearthstonePayload
                 case "OPTION":
                     {
                         int sourceId = int.Parse(parts[1]);
-                        int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
-                        int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
-                        string subOptionCardId = parts.Length > 4 ? parts[4] : null;
-                        var optionResult = SendOptionForEntity(sourceId, targetId, position, subOptionCardId, false);
-                        return optionResult ?? "OK:OPTION";
+                        return _coroutine.RunAndWait(MouseClickChoice(sourceId));
                     }
                 case "TRADE":
                     return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
@@ -377,7 +373,28 @@ namespace HearthstonePayload
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
-            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var sourceX, out var sourceY))
+
+            // 等待手牌位置稳定（抽牌动画完成）
+            int sourceX = 0, sourceY = 0;
+            bool positionStable = false;
+            for (int retry = 0; retry < 8 && !positionStable; retry++)
+            {
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
+                {
+                    yield return 0.05f;
+                    continue;
+                }
+
+                if (retry > 0 && Math.Abs(cx - sourceX) < 5 && Math.Abs(cy - sourceY) < 5)
+                {
+                    positionStable = true;
+                }
+                sourceX = cx;
+                sourceY = cy;
+                yield return 0.05f;
+            }
+
+            if (!positionStable)
             {
                 _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
                 yield break;
@@ -596,7 +613,27 @@ namespace HearthstonePayload
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
 
-            if (!GameObjectFinder.GetEntityScreenPos(entityId, out var sourceX, out var sourceY))
+            // 等待手牌位置稳定（抽牌动画完成）
+            int sourceX = 0, sourceY = 0;
+            bool positionStable = false;
+            for (int retry = 0; retry < 8 && !positionStable; retry++)
+            {
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
+                {
+                    yield return 0.05f;
+                    continue;
+                }
+
+                if (retry > 0 && Math.Abs(cx - sourceX) < 5 && Math.Abs(cy - sourceY) < 5)
+                {
+                    positionStable = true;
+                }
+                sourceX = cx;
+                sourceY = cy;
+                yield return 0.05f;
+            }
+
+            if (!positionStable)
             {
                 _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
                 yield break;
@@ -1812,7 +1849,9 @@ namespace HearthstonePayload
         private static IEnumerator<float> MouseMulligan(int[] replaceIndices, int totalCards)
         {
             InputHook.Simulating = true;
-            yield return 0.3f;
+            yield return 0.5f;
+
+            var mulliganMgr = TryGetMulliganManager();
 
             // 点击要替换的卡牌
             foreach (var idx in replaceIndices)
@@ -1823,11 +1862,23 @@ namespace HearthstonePayload
                 MouseSimulator.LeftDown();
                 yield return 0.05f;
                 MouseSimulator.LeftUp();
-                yield return 0.4f;
+                yield return 0.6f;
+
+                // 验证点击是否生效
+                if (mulliganMgr != null && TryReadMulliganMarkedState(mulliganMgr, idx, out var marked, out _) && !marked)
+                {
+                    // 点击未生效，重试一次
+                    yield return 0.2f;
+                    MouseSimulator.LeftDown();
+                    yield return 0.05f;
+                    MouseSimulator.LeftUp();
+                    yield return 0.6f;
+                }
             }
 
             // 通过 API 确认留牌（虚拟鼠标点击确认按钮对 PegUI 无效）
-            var mulliganMgr = TryGetMulliganManager();
+            if (mulliganMgr == null)
+                mulliganMgr = TryGetMulliganManager();
             if (mulliganMgr != null)
             {
                 var confirmed = TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out _)
@@ -1891,8 +1942,7 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 留牌替换使用鼠标点击卡牌，并在每次点击后校验标记状态是否与预期一致。
-        /// 确认按钮逻辑保持现有管理器调用方式。
+        /// 简化的留牌逻辑：直接点击卡牌，不验证状态，失败由外层重试。
         /// </summary>
         private static IEnumerator<float> ApplyMulliganByMouseWithVerification(int[] replaceEntityIds)
         {
@@ -1902,185 +1952,93 @@ namespace HearthstonePayload
             var mulliganMgr = TryGetMulliganManager();
             if (mulliganMgr == null)
             {
-                _coroutine.SetResult("WAIT:mulligan_manager:not_available");
-                yield break;
-            }
-
-            if (TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var isMulliganActive) && !isMulliganActive)
-            {
-                _coroutine.SetResult("FAIL:mulligan_manager:mulligan_not_active");
-                yield break;
-            }
-
-            var waitingObj = GetFieldOrProp(mulliganMgr, "m_waitingForUserInput");
-            if (!(waitingObj is bool waitingForUserInput) || !waitingForUserInput)
-            {
-                _coroutine.SetResult("WAIT:mulligan_manager:waiting_for_user_input");
-                yield break;
-            }
-
-            var gameState = GetGameState();
-            if (gameState != null)
-            {
-                if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var responseBlocked) && responseBlocked)
-                {
-                    _coroutine.SetResult("WAIT:mulligan_manager:response_packet_blocked");
-                    yield break;
-                }
-
-                var responseMode = Invoke(gameState, "GetResponseMode");
-                if (!IsChoiceResponseMode(responseMode))
-                {
-                    _coroutine.SetResult("WAIT:mulligan_manager:response_mode_not_choice:" + (responseMode?.ToString() ?? "null"));
-                    yield break;
-                }
-
-                if (Invoke(gameState, "GetFriendlyEntityChoices") == null)
-                {
-                    _coroutine.SetResult("WAIT:mulligan_manager:friendly_choices_not_ready");
-                    yield break;
-                }
-            }
-
-            var inputMgr = GetSingleton(_inputMgrType);
-            if (inputMgr != null && (!TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permitInput) || !permitInput))
-            {
-                _coroutine.SetResult("WAIT:mulligan_manager:input_not_ready");
+                _coroutine.SetResult("FAIL:mulligan_manager:not_available");
                 yield break;
             }
 
             var startingCardsRaw = GetFieldOrProp(mulliganMgr, "m_startingCards") as IEnumerable;
             if (startingCardsRaw == null)
             {
-                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_not_ready");
+                _coroutine.SetResult("FAIL:mulligan_manager:starting_cards_null");
                 yield break;
             }
 
             var startingCards = startingCardsRaw.Cast<object>().Where(c => c != null).ToList();
             if (startingCards.Count == 0)
             {
-                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_empty");
-                yield break;
-            }
-
-            if (!TryGetCollectionCount(GetFieldOrProp(mulliganMgr, "m_handCardsMarkedForReplace"), out var markedCount)
-                || markedCount < startingCards.Count)
-            {
-                _coroutine.SetResult("WAIT:mulligan_manager:marked_state_not_ready");
+                _coroutine.SetResult("FAIL:mulligan_manager:starting_cards_empty");
                 yield break;
             }
 
             var cardIndexByEntityId = new Dictionary<int, int>();
-            for (int cardIndex = 0; cardIndex < startingCards.Count; cardIndex++)
+            for (int i = 0; i < startingCards.Count; i++)
             {
-                var card = startingCards[cardIndex];
-                var entity = Invoke(card, "GetEntity")
-                    ?? GetFieldOrProp(card, "Entity")
-                    ?? GetFieldOrProp(card, "m_entity");
+                var card = startingCards[i];
+                var entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
                 var entityId = ResolveEntityId(entity);
-                if (entityId <= 0) continue;
-                if (!cardIndexByEntityId.ContainsKey(entityId))
-                    cardIndexByEntityId.Add(entityId, cardIndex);
+                if (entityId > 0)
+                    cardIndexByEntityId[entityId] = i;
             }
 
             if (cardIndexByEntityId.Count == 0)
             {
-                _coroutine.SetResult("WAIT:mulligan_manager:starting_cards_entity_not_ready");
+                _coroutine.SetResult("FAIL:mulligan_manager:no_entity_ids");
                 yield break;
             }
 
-            var requestIdSet = new HashSet<int>(replaceEntityIds.Where(id => id > 0).Distinct());
-            foreach (var entityId in requestIdSet)
+            var replaceSet = new HashSet<int>(replaceEntityIds.Where(id => id > 0));
+            var clickedCount = 0;
+
+            foreach (var entityId in replaceSet)
             {
-                if (!cardIndexByEntityId.ContainsKey(entityId))
-                {
-                    _coroutine.SetResult("FAIL:mulligan_manager:entity_not_found:" + entityId);
-                    yield break;
-                }
-            }
-
-            var toggledCount = 0;
-            foreach (var pair in cardIndexByEntityId.OrderBy(p => p.Value))
-            {
-                var entityId = pair.Key;
-                var cardIndex = pair.Value;
-                var shouldReplace = requestIdSet.Contains(entityId);
-
-                if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var currentMarked, out var markedDetail))
-                {
-                    _coroutine.SetResult("FAIL:mulligan_manager:marked_state_read_failed:" + markedDetail);
-                    yield break;
-                }
-
-                if (currentMarked == shouldReplace)
+                if (!cardIndexByEntityId.TryGetValue(entityId, out var cardIndex))
                     continue;
 
-                var toggled = false;
-                string lastToggleDetail = null;
-                for (int attempt = 0; attempt < 3; attempt++)
+                var success = false;
+                for (int attempt = 0; attempt < 2 && !success; attempt++)
                 {
-                    if (!TryGetMulliganCardClickPos(entityId, cardIndex, startingCards.Count, out var cx, out var cy, out var posDetail))
-                    {
-                        lastToggleDetail = "click_pos_failed:" + posDetail;
-                        yield return 0.1f;
-                        continue;
-                    }
+                    if (!TryGetMulliganCardClickPos(entityId, cardIndex, startingCards.Count, out var cx, out var cy, out _))
+                        break;
 
                     foreach (var w in SmoothMove(cx, cy, 8, 0.012f)) yield return w;
                     MouseSimulator.LeftDown();
                     yield return 0.05f;
                     MouseSimulator.LeftUp();
-                    yield return 0.22f;
+                    yield return 0.3f;
 
-                    if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var markedAfter, out markedDetail))
+                    if (TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var marked, out _) && marked)
                     {
-                        lastToggleDetail = "marked_state_verify_failed:" + markedDetail;
-                        continue;
+                        success = true;
+                        clickedCount++;
                     }
-
-                    if (markedAfter == shouldReplace)
-                    {
-                        toggled = true;
-                        break;
-                    }
-
-                    lastToggleDetail = "toggle_state_mismatch:expected="
-                        + (shouldReplace ? "1" : "0")
-                        + ":actual=" + (markedAfter ? "1" : "0");
                 }
-
-                if (!toggled)
-                {
-                    _coroutine.SetResult("FAIL:mulligan_manager:toggle_failed:" + entityId + ":" + (lastToggleDetail ?? "unknown"));
-                    yield break;
-                }
-
-                toggledCount++;
             }
 
-            // 确认逻辑保持现有实现（管理器确认，不改确认按钮路径）
-            string continueMethodUsed = null;
-            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out var continueError))
-            {
-                continueMethodUsed = "OnMulliganButtonReleased";
-            }
-            else if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out continueError))
-            {
-                continueMethodUsed = "AutomaticContinueMulligan";
-            }
-            else if (gameState != null && TryInvokeMethod(gameState, "SendChoices", Array.Empty<object>(), out _, out continueError))
-            {
-                continueMethodUsed = "GameState.SendChoices";
-            }
+            yield return 0.3f;
 
-            if (continueMethodUsed == null)
+            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out _))
             {
-                _coroutine.SetResult("FAIL:mulligan_manager:continue_failed:" + (continueError ?? "unknown"));
+                _coroutine.SetResult("OK:mulligan_manager:api_confirm:clicked=" + clickedCount);
                 yield break;
             }
 
-            yield return 0.08f;
-            _coroutine.SetResult("OK:mulligan_manager:toggle=" + toggledCount + ";request=" + requestIdSet.Count + ";continue=" + continueMethodUsed);
+            if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out _))
+            {
+                _coroutine.SetResult("OK:mulligan_manager:api_confirm_alt:clicked=" + clickedCount);
+                yield break;
+            }
+
+            if (GameObjectFinder.GetMulliganConfirmScreenPos(out var bx, out var by))
+            {
+                foreach (var w in SmoothMove(bx, by, 8, 0.012f)) yield return w;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                _coroutine.SetResult("OK:mulligan_manager:mouse_confirm:clicked=" + clickedCount);
+                yield break;
+            }
+
+            _coroutine.SetResult("FAIL:mulligan_manager:confirm_failed:clicked=" + clickedCount);
         }
 
         private static bool TryGetMulliganCardClickPos(int entityId, int cardIndex, int totalCards, out int x, out int y, out string detail)
@@ -2428,15 +2386,32 @@ namespace HearthstonePayload
                     Invoke(inst, "DoEndTurnButton");
                     return;
                 }
-                // fallback: 通过 EndTurnButton
-                var etbType = _asm.GetType("EndTurnButton");
-                if (etbType != null)
+                // fallback: 直接通过 GameState 发送结束回合选项
+                var gs = GetGameState();
+                if (gs != null)
                 {
-                    var etb = InvokeStatic(etbType, "Get");
-                    if (etb != null)
+                    var optionsPacket = Invoke(gs, "GetOptionsPacket");
+                    if (optionsPacket != null)
                     {
-                        // 模拟点击结束回合按钮
-                        Invoke(etb, "OnEndTurnRequested");
+                        var list = GetFieldOrProp(optionsPacket, "List") as IList;
+                        if (list != null)
+                        {
+                            for (int i = 0; i < list.Count; i++)
+                            {
+                                var option = list[i];
+                                var optionType = GetFieldOrProp(option, "Type");
+                                if (optionType != null)
+                                {
+                                    var typeName = optionType.ToString();
+                                    if (typeName.Contains("END_TURN") || typeName.Contains("PASS"))
+                                    {
+                                        TryInvokeMethod(gs, "SetSelectedOption", new object[] { i }, out _, out _);
+                                        Invoke(gs, "SendOption");
+                                        return;
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -4338,9 +4313,77 @@ namespace HearthstonePayload
                 var pp = GetSingleton(ppType);
                 if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var ppRunning) && ppRunning)
                     return false;
+
+                // 精准抽牌检测：检查任务列表中是否有未完成的抽牌任务
+                if (pp != null)
+                {
+                    var taskList = Invoke(pp, "GetCurrentTaskList");
+                    if (taskList != null)
+                    {
+                        var tasks = Invoke(taskList, "GetTaskList") as IEnumerable;
+                        if (tasks != null)
+                        {
+                            foreach (var task in tasks)
+                            {
+                                if (task == null) continue;
+                                if (TryInvokeBoolMethod(task, "IsCardDraw", out var isCardDraw) && isCardDraw)
+                                {
+                                    if (TryInvokeBoolMethod(task, "IsCompleted", out var isCompleted) && !isCompleted)
+                                        return false;
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
+            // 检查 TurnStartManager 是否有待处理抽牌
+            var tsmType = _asm?.GetType("TurnStartManager");
+            if (tsmType != null)
+            {
+                var tsm = GetSingleton(tsmType);
+                if (tsm != null && TryInvokeBoolMethod(tsm, "IsListeningForTurnEvents", out var listening) && listening)
+                {
+                    if (TryInvokeMethod(tsm, "GetCardDrawCount", Array.Empty<object>(), out var countObj)
+                        && countObj is int count && count > 0)
+                        return false;
+                }
+            }
+
+            // 手牌区域布局检查（抽牌动画、卡牌移动等）
+            if (!IsHandZoneReady(gs))
+                return false;
+
             return true;
+        }
+
+        /// <summary>
+        /// 检查友方手牌区域是否准备好（布局完成，无卡牌移动）
+        /// </summary>
+        private static bool IsHandZoneReady(object gameState)
+        {
+            try
+            {
+                var friendlyPlayer = Invoke(gameState, "GetFriendlySidePlayer");
+                if (friendlyPlayer == null) return true;
+
+                var handZone = Invoke(friendlyPlayer, "GetHandZone");
+                if (handZone == null) return true;
+
+                // 检查手牌区域是否正在更新布局（抽牌动画、卡牌移动等）
+                if (TryInvokeBoolMethod(handZone, "IsUpdatingLayout", out var updating) && updating)
+                    return false;
+
+                // 检查布局是否脏（需要更新但还未开始）
+                if (TryInvokeBoolMethod(handZone, "IsLayoutDirty", out var dirty) && dirty)
+                    return false;
+
+                return true;
+            }
+            catch
+            {
+                return true; // 出错时不阻塞
+            }
         }
 
         #endregion

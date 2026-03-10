@@ -33,6 +33,7 @@ namespace BotMain
         private string _savedSmartBotRoot;
         private bool _settingsLoaded;
         private bool _followHsBoxOperation;
+        private bool _saveHsBoxCallbacks;
 
         public MainViewModel()
         {
@@ -176,6 +177,20 @@ namespace BotMain
                 Notify();
                 Notify(nameof(LocalRecommendationControlsEnabled));
                 Notify(nameof(TopStatusText));
+                AutoSave();
+            }
+        }
+        public bool SaveHsBoxCallbacks
+        {
+            get => _saveHsBoxCallbacks;
+            set
+            {
+                if (_saveHsBoxCallbacks == value)
+                    return;
+
+                _saveHsBoxCallbacks = value;
+                _bot.SetSaveHsBoxCallbacks(value);
+                Notify();
                 AutoSave();
             }
         }
@@ -380,6 +395,7 @@ namespace BotMain
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
+                dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -418,6 +434,7 @@ namespace BotMain
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
+                        if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
@@ -431,6 +448,7 @@ namespace BotMain
 
             _bot.SetExternalPaths(_savedSmartBotRoot);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
+            _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
         }
 
         private static string ReadOptionalString(JsonElement element)
