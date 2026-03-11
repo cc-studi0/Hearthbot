@@ -15,6 +15,8 @@ namespace HearthstonePayload
     public static class ActionExecutor
     {
         private const int ClickScreenTimeoutMs = 1500;
+        private const int DiscoverChoiceReadyTimeoutMs = 2000;
+        private const int DiscoverChoiceReadyPollMs = 40;
         private static Assembly _asm;
         private static Type _gameStateType;
         private static Type _entityType;
@@ -22,6 +24,7 @@ namespace HearthstonePayload
         private static Type _inputMgrType;
         private static Type _connectApiType;
         private static Type _choiceCardMgrType;
+        private static Type _iTweenType;
         private static readonly string[] ChoiceTextMemberNames =
         {
             "TextCN",
@@ -50,6 +53,8 @@ namespace HearthstonePayload
             public bool InChoiceMode;
             public bool PacketReady;
             public bool ChoiceStateActive;
+            public bool ChoiceStateWaitingToStart;
+            public bool ChoiceStateRevealed;
             public bool ChoiceStateConcealed;
             public bool UiShown;
             public string Signature = string.Empty;
@@ -189,6 +194,10 @@ namespace HearthstonePayload
             _inputMgrType = ctx.InputMgrType;
             _connectApiType = ctx.ConnectApiType;
             _choiceCardMgrType = _asm?.GetType("ChoiceCardMgr");
+            _iTweenType = _asm?.GetType("iTween")
+                ?? AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("iTween"))
+                    .FirstOrDefault(t => t != null);
             return _gameStateType != null;
         }
 
@@ -2875,13 +2884,30 @@ namespace HearthstonePayload
         private static bool IsChoiceModeActive(object gameState)
         {
             var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            var rawChoiceState = GetRawFriendlyChoiceState(choiceCardMgr);
+            if (IsMulliganActiveForChoiceSuppression(gameState, out var mulliganDetail))
+            {
+                if (choicePacket != null || GetChoiceUiCardCount(choiceCardMgr, rawChoiceState) > 0)
+                {
+                    AppendChoiceDecisionTrace(
+                        "choice_suppressed_during_mulligan",
+                        gameState,
+                        choicePacket,
+                        rawChoiceState,
+                        choiceCardMgr,
+                        mulliganDetail);
+                }
+
+                return false;
+            }
+
             if (TryGetChoicePacketEntityIds(choicePacket, out var packetEntityIds)
                 && packetEntityIds.Count > 0)
             {
                 return true;
             }
 
-            var choiceCardMgr = TryGetChoiceCardMgr();
             if (TryGetCurrentFriendlyChoiceState(choiceCardMgr) != null)
                 return true;
 
@@ -3234,6 +3260,15 @@ namespace HearthstonePayload
             return rawType.IndexOf("MULLIGAN", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
+        private static bool IsChoicePacketGeneral(object choicePacket)
+        {
+            if (choicePacket == null)
+                return false;
+
+            var rawType = ReadChoiceTypeName(choicePacket);
+            return rawType.IndexOf("GENERAL", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static bool TryGetChoiceCardMgrFriendlyCards(out List<object> cards)
         {
             cards = null;
@@ -3268,10 +3303,58 @@ namespace HearthstonePayload
             if (choiceCardMgr == null)
                 return null;
 
-            if (TryInvokeMethod(choiceCardMgr, "GetFriendlyChoiceState", Array.Empty<object>(), out var currentChoiceState)
-                && IsFriendlyChoiceStateActive(currentChoiceState))
+            var gameState = GetGameState();
+            var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            var hasGeneralPacket = IsChoicePacketGeneral(choicePacket);
+            var currentChoiceState = GetRawFriendlyChoiceState(choiceCardMgr);
+
+            if (IsMulliganActiveForChoiceSuppression(gameState, out var mulliganDetail))
             {
+                if (currentChoiceState != null || GetChoiceUiCardCount(choiceCardMgr, currentChoiceState) > 0)
+                {
+                    AppendChoiceDecisionTrace(
+                        "choice_ui_fallback_rejected_mulligan_active",
+                        gameState,
+                        choicePacket,
+                        currentChoiceState,
+                        choiceCardMgr,
+                        mulliganDetail);
+                }
+
+                return null;
+            }
+
+            if (IsFriendlyChoiceStateActive(currentChoiceState))
+            {
+                if (!hasGeneralPacket)
+                {
+                    AppendChoiceDecisionTrace(
+                        "choice_ui_fallback_rejected_no_general_packet",
+                        gameState,
+                        choicePacket,
+                        currentChoiceState,
+                        choiceCardMgr,
+                        "current_choice_state_active");
+                    return null;
+                }
+
                 return currentChoiceState;
+            }
+
+            if (!hasGeneralPacket)
+            {
+                if (HasFriendlyChoiceUi(choiceCardMgr))
+                {
+                    AppendChoiceDecisionTrace(
+                        "choice_ui_fallback_rejected_no_general_packet",
+                        gameState,
+                        choicePacket,
+                        currentChoiceState,
+                        choiceCardMgr,
+                        "friendly_choice_ui_visible");
+                }
+
+                return null;
             }
 
             if (!HasFriendlyChoiceUi(choiceCardMgr))
@@ -3281,6 +3364,19 @@ namespace HearthstonePayload
                 ?? GetFieldOrProp(choiceCardMgr, "lastShownChoiceState")
                 ?? GetFieldOrProp(choiceCardMgr, "LastShownChoiceState");
             return IsFriendlyChoiceStateActive(choiceState) ? choiceState : null;
+        }
+
+        private static object GetRawFriendlyChoiceState(object choiceCardMgr)
+        {
+            if (choiceCardMgr == null)
+                return null;
+
+            if (TryInvokeMethod(choiceCardMgr, "GetFriendlyChoiceState", Array.Empty<object>(), out var currentChoiceState))
+                return currentChoiceState;
+
+            return GetFieldOrProp(choiceCardMgr, "m_lastShownChoiceState")
+                ?? GetFieldOrProp(choiceCardMgr, "lastShownChoiceState")
+                ?? GetFieldOrProp(choiceCardMgr, "LastShownChoiceState");
         }
 
         private static bool IsFriendlyChoiceState(object choiceState)
@@ -3330,6 +3426,148 @@ namespace HearthstonePayload
             {
                 return false;
             }
+        }
+
+        private static bool IsChoiceStateWaitingToStart(object choiceState)
+        {
+            if (choiceState == null)
+                return false;
+
+            var waiting = GetFieldOrProp(choiceState, "m_waitingToStart")
+                ?? GetFieldOrProp(choiceState, "WaitingToStart")
+                ?? GetFieldOrProp(choiceState, "waitingToStart");
+
+            if (waiting is bool boolFlag)
+                return boolFlag;
+
+            try
+            {
+                return waiting != null && Convert.ToBoolean(waiting);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsChoiceStateRevealed(object choiceState)
+        {
+            if (choiceState == null)
+                return false;
+
+            var revealed = GetFieldOrProp(choiceState, "m_hasBeenRevealed")
+                ?? GetFieldOrProp(choiceState, "HasBeenRevealed")
+                ?? GetFieldOrProp(choiceState, "hasBeenRevealed");
+
+            if (revealed is bool boolFlag)
+                return boolFlag;
+
+            try
+            {
+                return revealed != null && Convert.ToBoolean(revealed);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool IsMulliganActiveForChoiceSuppression(object gameState, out string detail)
+        {
+            detail = "not_active";
+
+            var mulliganMgr = TryGetMulliganManager();
+            if (mulliganMgr != null
+                && TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var mulliganManagerActive)
+                && mulliganManagerActive)
+            {
+                detail = "mulligan_manager_active";
+                return true;
+            }
+
+            if (gameState != null
+                && TryInvokeBoolMethod(gameState, "IsMulliganManagerActive", out var gameStateMulliganActive)
+                && gameStateMulliganActive)
+            {
+                detail = "game_state_mulligan_active";
+                return true;
+            }
+
+            var gameEntity = gameState != null ? Invoke(gameState, "GetGameEntity") : null;
+            if (gameEntity != null
+                && TryInvokeBoolMethod(gameEntity, "IsMulliganActiveRealTime", out var realTimeMulliganActive)
+                && realTimeMulliganActive)
+            {
+                detail = "game_entity_mulligan_realtime";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static int GetChoiceUiCardCount(object choiceCardMgr, object choiceState)
+        {
+            IEnumerable friendlyCards = null;
+            if (choiceCardMgr != null)
+                friendlyCards = Invoke(choiceCardMgr, "GetFriendlyCards") as IEnumerable;
+
+            if (friendlyCards == null)
+            {
+                friendlyCards = GetFieldOrProp(choiceState, "m_cards") as IEnumerable
+                    ?? GetFieldOrProp(choiceState, "Cards") as IEnumerable;
+            }
+
+            if (friendlyCards == null)
+                return 0;
+
+            var count = 0;
+            foreach (var card in friendlyCards)
+            {
+                if (card != null)
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int GetChoiceSourceEntityId(object choicePacket, object choiceState)
+        {
+            var sourceEntityId = GetIntFieldOrProp(choicePacket, "Source");
+            if (sourceEntityId <= 0)
+                sourceEntityId = GetIntFieldOrProp(choicePacket, "m_source");
+            if (sourceEntityId <= 0)
+                sourceEntityId = GetIntFieldOrProp(choicePacket, "SourceEntityId");
+            if (sourceEntityId <= 0)
+                sourceEntityId = GetIntFieldOrProp(choiceState, "m_sourceEntityId");
+            if (sourceEntityId <= 0)
+                sourceEntityId = GetIntFieldOrProp(choiceState, "SourceEntityId");
+            if (sourceEntityId <= 0)
+                sourceEntityId = GetIntFieldOrProp(choiceState, "Source");
+            return sourceEntityId;
+        }
+
+        private static void AppendChoiceDecisionTrace(
+            string label,
+            object gameState,
+            object choicePacket,
+            object choiceState,
+            object choiceCardMgr,
+            string detail)
+        {
+            var responseMode = Invoke(gameState, "GetResponseMode")?.ToString() ?? "null";
+            var choicePacketType = choicePacket == null ? "null" : ReadChoiceTypeName(choicePacket);
+            if (string.IsNullOrWhiteSpace(choicePacketType))
+                choicePacketType = "unknown";
+
+            var uiCardCount = GetChoiceUiCardCount(choiceCardMgr, choiceState);
+            var sourceEntityId = GetChoiceSourceEntityId(choicePacket, choiceState);
+            AppendActionTrace(
+                label
+                + " responseMode=" + responseMode
+                + " choicePacketType=" + choicePacketType
+                + " uiCardCount=" + uiCardCount
+                + " sourceEntityId=" + sourceEntityId
+                + " detail=" + (detail ?? "null"));
         }
 
         private static bool HasFriendlyChoiceUi(object choiceCardMgr)
@@ -3463,6 +3701,26 @@ namespace HearthstonePayload
             if (gameState == null)
                 return false;
 
+            var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            var rawChoiceState = GetRawFriendlyChoiceState(choiceCardMgr);
+
+            if (IsMulliganActiveForChoiceSuppression(gameState, out var mulliganDetail))
+            {
+                if (choicePacket != null || GetChoiceUiCardCount(choiceCardMgr, rawChoiceState) > 0)
+                {
+                    AppendChoiceDecisionTrace(
+                        "choice_suppressed_during_mulligan",
+                        gameState,
+                        choicePacket,
+                        rawChoiceState,
+                        choiceCardMgr,
+                        mulliganDetail);
+                }
+
+                return false;
+            }
+
             var mulliganMgr = TryGetMulliganManager();
             if (mulliganMgr != null
                 && TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var mulliganActive)
@@ -3471,8 +3729,6 @@ namespace HearthstonePayload
                 return false;
             }
 
-            var choiceCardMgr = TryGetChoiceCardMgr();
-            var choicePacket = TryGetFriendlyChoicePacket(gameState);
             var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
 
             // 留牌包的 ChoiceType 为 MULLIGAN，不应被当作发现选择处理。
@@ -3480,10 +3736,15 @@ namespace HearthstonePayload
             if (IsChoicePacketMulligan(choicePacket))
                 return false;
 
+            if (choicePacket != null && !IsChoicePacketGeneral(choicePacket))
+                return false;
+
             var built = new ChoiceSnapshot();
             built.InChoiceMode = IsChoiceModeActive(gameState);
             built.PacketReady = TryGetChoicePacketEntityIds(choicePacket, out _);
             built.ChoiceStateActive = choiceState != null;
+            built.ChoiceStateWaitingToStart = IsChoiceStateWaitingToStart(choiceState);
+            built.ChoiceStateRevealed = IsChoiceStateRevealed(choiceState);
             built.ChoiceStateConcealed = IsChoiceStateConcealed(choiceState);
             built.UiShown = TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
                 && friendlyCards != null
@@ -3611,6 +3872,9 @@ namespace HearthstonePayload
         {
             parts = null;
 
+            if (!IsChoicePacketGeneral(TryGetFriendlyChoicePacket(gameState)))
+                return false;
+
             if (!TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
                 || friendlyCards == null
                 || friendlyCards.Count == 0)
@@ -3680,6 +3944,217 @@ namespace HearthstonePayload
                 ?? GetFieldOrProp(card, "Entity")
                 ?? GetFieldOrProp(card, "m_entity")
                 ?? card;
+        }
+
+        private static bool TryGetFriendlyChoiceCardObject(int entityId, out object card)
+        {
+            card = null;
+            if (entityId <= 0)
+                return false;
+
+            if (!TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
+                || friendlyCards == null
+                || friendlyCards.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var candidate in friendlyCards)
+            {
+                var entity = ResolveChoiceCardEntity(candidate);
+                if (ResolveEntityId(entity) != entityId)
+                    continue;
+
+                card = candidate;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadCardHasActiveTweens(object card, out bool hasActiveTweens)
+        {
+            hasActiveTweens = false;
+            if (card == null)
+                return false;
+
+            if (_iTweenType == null)
+            {
+                _iTweenType = _asm?.GetType("iTween")
+                    ?? AppDomain.CurrentDomain.GetAssemblies()
+                        .Select(a => a.GetType("iTween"))
+                        .FirstOrDefault(t => t != null);
+            }
+
+            if (_iTweenType == null)
+                return false;
+
+            var cardGameObject = GetFieldOrProp(card, "gameObject");
+            if (cardGameObject == null)
+                return false;
+
+            try
+            {
+                var countMethod = _iTweenType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                    .FirstOrDefault(m =>
+                    {
+                        if (!string.Equals(m.Name, "Count", StringComparison.OrdinalIgnoreCase))
+                            return false;
+
+                        var parameters = m.GetParameters();
+                        return parameters.Length == 1
+                            && parameters[0].ParameterType.IsInstanceOfType(cardGameObject);
+                    });
+
+                if (countMethod != null)
+                {
+                    var countValue = countMethod.Invoke(null, new[] { cardGameObject });
+                    hasActiveTweens = Convert.ToInt32(countValue) > 0;
+                    return true;
+                }
+
+                var hasTweenMethod = _iTweenType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                    .FirstOrDefault(m =>
+                    {
+                        if (!string.Equals(m.Name, "HasTween", StringComparison.OrdinalIgnoreCase))
+                            return false;
+
+                        var parameters = m.GetParameters();
+                        return parameters.Length == 1
+                            && parameters[0].ParameterType.IsInstanceOfType(cardGameObject);
+                    });
+
+                if (hasTweenMethod != null)
+                {
+                    hasActiveTweens = Convert.ToBoolean(hasTweenMethod.Invoke(null, new[] { cardGameObject }));
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static bool IsDiscoverChoiceMode()
+        {
+            var gs = GetGameState();
+            return gs != null
+                && TryBuildChoiceSnapshot(gs, out var snapshot)
+                && string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool WaitForDiscoverChoiceReady(int entityId, out string detail)
+        {
+            detail = "discover_wait_timeout";
+            if (entityId <= 0)
+            {
+                detail = "entity_invalid";
+                return false;
+            }
+
+            var deadline = Environment.TickCount + DiscoverChoiceReadyTimeoutMs;
+            var lastDetail = "choice_state_unavailable";
+            while (Environment.TickCount - deadline < 0)
+            {
+                var gs = GetGameState();
+                if (gs == null)
+                {
+                    lastDetail = "game_state_null";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!TryBuildChoiceSnapshot(gs, out var snapshot))
+                {
+                    lastDetail = "choice_state_unavailable";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase))
+                {
+                    lastDetail = "mode_changed:" + (snapshot.Mode ?? "UNKNOWN");
+                    break;
+                }
+
+                if (!snapshot.ChoiceEntityIds.Contains(entityId))
+                {
+                    lastDetail = "entity_missing";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!snapshot.ChoiceStateActive)
+                {
+                    lastDetail = "choice_state_inactive";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (snapshot.ChoiceStateConcealed)
+                {
+                    lastDetail = "choice_state_concealed";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (snapshot.ChoiceStateWaitingToStart)
+                {
+                    lastDetail = "choice_waiting_to_start";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!snapshot.ChoiceStateRevealed)
+                {
+                    lastDetail = "choice_not_revealed";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!TryGetFriendlyChoiceCardObject(entityId, out var card))
+                {
+                    lastDetail = "choice_card_not_found";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!TryReadCardActorReady(card, out var actorReady) || !actorReady)
+                {
+                    lastDetail = "card_actor_not_ready";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!TryReadCardHasActiveTweens(card, out var hasActiveTweens))
+                {
+                    lastDetail = "card_tween_unknown";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (hasActiveTweens)
+                {
+                    lastDetail = "card_tween_active";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out _, out _))
+                {
+                    lastDetail = "pos_not_found";
+                    Thread.Sleep(DiscoverChoiceReadyPollMs);
+                    continue;
+                }
+
+                detail = "ready";
+                return true;
+            }
+
+            detail = lastDetail;
+            return false;
         }
 
         private static string ResolveCardIdFromObject(object source)
@@ -4371,6 +4846,20 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
+            var discoverMouseOnly = IsDiscoverChoiceMode();
+            if (discoverMouseOnly)
+            {
+                AppendActionTrace("discover_mouse_only entityId=" + entityId);
+                if (!WaitForDiscoverChoiceReady(entityId, out var discoverReadyDetail))
+                {
+                    AppendActionTrace("discover_wait_timeout entityId=" + entityId + " detail=" + discoverReadyDetail);
+                    _coroutine.SetResult("FAIL:CHOICE:discover_wait_timeout:" + entityId + ":" + discoverReadyDetail);
+                    yield break;
+                }
+
+                AppendActionTrace("discover_wait_ready entityId=" + entityId + " detail=" + discoverReadyDetail);
+            }
+
             // 记录点击前的选择快照，用于确认是否真的提交成功。
             CaptureChoiceSnapshot(out var beforeChoiceId, out var beforeSignature);
 
@@ -4423,7 +4912,7 @@ namespace HearthstonePayload
             }
 
             // 鼠标点击仍未确认时，回退网络 API 提交一次，提升抉择提交成功率。
-            if (!confirmed)
+            if (!confirmed && !discoverMouseOnly)
             {
                 var apiResult = TrySendChoiceViaNetwork(entityId);
                 if (!string.IsNullOrWhiteSpace(apiResult)
@@ -4462,6 +4951,8 @@ namespace HearthstonePayload
 
             if (!confirmed)
             {
+                if (discoverMouseOnly)
+                    AppendActionTrace("discover_mouse_not_confirmed entityId=" + entityId + " detail=" + confirmDetail);
                 _coroutine.SetResult("FAIL:CHOICE:not_confirmed:" + entityId + ":" + confirmDetail);
                 yield break;
             }

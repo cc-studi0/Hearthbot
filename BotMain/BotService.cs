@@ -2230,6 +2230,39 @@ namespace BotMain
             return false;
         }
 
+        private bool IsMulliganStateActive(PipeServer pipe, string scope, out string detail)
+        {
+            detail = "NO_MULLIGAN";
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            try
+            {
+                var got = TrySendAndReceiveExpected(
+                    pipe,
+                    "GET_MULLIGAN_STATE",
+                    1500,
+                    r => r.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
+                        || string.Equals(r, "NO_MULLIGAN", StringComparison.Ordinal),
+                    out var response,
+                    scope);
+                if (!got)
+                {
+                    detail = "timeout";
+                    return false;
+                }
+
+                detail = response ?? "NO_RESPONSE";
+                return !string.IsNullOrWhiteSpace(response)
+                    && response.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal);
+            }
+            catch (Exception ex)
+            {
+                detail = ex.Message;
+                return false;
+            }
+        }
+
         private static string GetLatestSeedForDiscover(PipeServer pipe, string fallbackSeed)
         {
             try
@@ -2271,6 +2304,13 @@ namespace BotMain
                 || !resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
             {
                 return false;
+            }
+
+            if (IsMulliganStateActive(pipe, "ChoicePrePlan", out var mulliganDetail))
+            {
+                Log($"[Choice] choice_suppressed_during_mulligan detail={mulliganDetail}");
+                ClearChoiceStateWatch("choice_suppressed_during_mulligan");
+                return true;
             }
 
             var watchSource = string.IsNullOrWhiteSpace(_choiceStateWatchSource)
@@ -2320,6 +2360,12 @@ namespace BotMain
 
                     Log($"[Choice] unexpected: {resp}");
                     return false;
+                }
+
+                if (IsMulliganStateActive(pipe, "ChoiceHandle", out var mulliganDetail))
+                {
+                    Log($"[Choice] choice_suppressed_during_mulligan detail={mulliganDetail}");
+                    return true;
                 }
 
                 var payload = resp.Substring("CHOICE_STATE:".Length);
@@ -2378,7 +2424,7 @@ namespace BotMain
                 var pickedCardId = choiceCardIds[pickedIndex];
                 var pickedEntityId = choiceEntityIds[pickedIndex];
                 var confirmed = TryApplyDiscoverChoice(
-                    pipe, payload, pickedEntityId, isRewindChoice,
+                    pipe, payload, choiceMode, pickedEntityId, isRewindChoice,
                     out var pickResult, out var confirmDetail, out var hasChainedChoice);
 
                 if (!confirmed)
@@ -2622,9 +2668,42 @@ namespace BotMain
             return false;
         }
 
+        private bool TryApplyChoiceWithMouseOnly(
+            PipeServer pipe,
+            string previousPayload,
+            int pickedEntityId,
+            out string pickResult,
+            out string confirmDetail,
+            out bool hasChainedChoice)
+        {
+            pickResult = "NO_RESPONSE";
+            confirmDetail = "mouse_not_confirmed";
+            hasChainedChoice = false;
+
+            var mouseResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            pickResult = "mouse=" + mouseResult;
+            if (!mouseResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+            {
+                confirmDetail = "mouse_not_ok";
+                return false;
+            }
+
+            if (TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out var mouseConfirmDetail, out var mouseChained))
+            {
+                confirmDetail = "mouse:" + mouseConfirmDetail;
+                hasChainedChoice = mouseChained;
+                return true;
+            }
+
+            confirmDetail = "mouse=" + mouseConfirmDetail;
+            hasChainedChoice = mouseChained;
+            return false;
+        }
+
         private bool TryApplyDiscoverChoice(
             PipeServer pipe,
             string previousPayload,
+            string choiceMode,
             int pickedEntityId,
             bool isRewindChoice,
             out string pickResult,
@@ -2632,6 +2711,17 @@ namespace BotMain
             out bool hasChainedChoice)
         {
             _ = isRewindChoice;
+            if (string.Equals(choiceMode, "DISCOVER", StringComparison.OrdinalIgnoreCase))
+            {
+                return TryApplyChoiceWithMouseOnly(
+                    pipe,
+                    previousPayload,
+                    pickedEntityId,
+                    out pickResult,
+                    out confirmDetail,
+                    out hasChainedChoice);
+            }
+
             return TryApplyChoiceWithFallback(
                 pipe,
                 previousPayload,
