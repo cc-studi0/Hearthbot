@@ -62,6 +62,22 @@ namespace HearthstonePayload
         /// <summary>
         /// 初始化协程执行器引用
         /// </summary>
+        private sealed class FriendlyDrawGateState
+        {
+            public bool Active;
+            public object Card;
+            public int EntityId;
+            public int FallbackReleaseTick;
+            public int RecentReleasedEntityId;
+            public object RecentReleasedCard;
+            public int RecentReleasedUntilTick;
+        }
+
+        private const int FriendlyDrawFallbackDelayMs = 420;
+        private const int FriendlyDrawRecentGuardWindowMs = 2500;
+        private static readonly object _friendlyDrawGateSync = new object();
+        private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
+
         public static void Init(CoroutineExecutor executor)
         {
             _coroutine = executor;
@@ -373,11 +389,13 @@ namespace HearthstonePayload
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
+            var guardRecentDrawCard = ShouldUseRecentDrawPlayGuard(entityId);
 
             // 等待手牌位置稳定（抽牌动画完成）
             int sourceX = 0, sourceY = 0;
             bool positionStable = false;
-            for (int retry = 0; retry < 8 && !positionStable; retry++)
+            var sourcePosRetryLimit = guardRecentDrawCard ? 12 : 8;
+            for (int retry = 0; retry < sourcePosRetryLimit && !positionStable; retry++)
             {
                 if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
                 {
@@ -385,7 +403,18 @@ namespace HearthstonePayload
                     continue;
                 }
 
-                if (retry > 0 && Math.Abs(cx - sourceX) < 5 && Math.Abs(cy - sourceY) < 5)
+                var recentDrawInteractive = true;
+                if (guardRecentDrawCard)
+                {
+                    var gsCurrent = retry == 0 ? gsBeforePlay : GetGameState();
+                    if (TryReadRecentDrawCardInteractive(entityId, gsCurrent, out var interactive))
+                        recentDrawInteractive = interactive;
+                }
+
+                if (retry > 0
+                    && recentDrawInteractive
+                    && Math.Abs(cx - sourceX) < 5
+                    && Math.Abs(cy - sourceY) < 5)
                 {
                     positionStable = true;
                 }
@@ -396,6 +425,12 @@ namespace HearthstonePayload
 
             if (!positionStable)
             {
+                if (guardRecentDrawCard
+                    && TryReadRecentDrawCardInteractive(entityId, GetGameState(), out var interactive)
+                    && !interactive)
+                {
+                    AppendActionTrace("PLAY(mouse) recent draw card still not interactive entity=" + entityId);
+                }
                 _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
                 yield break;
             }
@@ -612,11 +647,13 @@ namespace HearthstonePayload
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
+            var guardRecentDrawCard = ShouldUseRecentDrawPlayGuard(entityId);
 
             // 等待手牌位置稳定（抽牌动画完成）
             int sourceX = 0, sourceY = 0;
             bool positionStable = false;
-            for (int retry = 0; retry < 8 && !positionStable; retry++)
+            var sourcePosRetryLimit = guardRecentDrawCard ? 12 : 8;
+            for (int retry = 0; retry < sourcePosRetryLimit && !positionStable; retry++)
             {
                 if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
                 {
@@ -624,7 +661,18 @@ namespace HearthstonePayload
                     continue;
                 }
 
-                if (retry > 0 && Math.Abs(cx - sourceX) < 5 && Math.Abs(cy - sourceY) < 5)
+                var recentDrawInteractive = true;
+                if (guardRecentDrawCard)
+                {
+                    var gsCurrent = retry == 0 ? gsBeforePlay : GetGameState();
+                    if (TryReadRecentDrawCardInteractive(entityId, gsCurrent, out var interactive))
+                        recentDrawInteractive = interactive;
+                }
+
+                if (retry > 0
+                    && recentDrawInteractive
+                    && Math.Abs(cx - sourceX) < 5
+                    && Math.Abs(cy - sourceY) < 5)
                 {
                     positionStable = true;
                 }
@@ -635,6 +683,12 @@ namespace HearthstonePayload
 
             if (!positionStable)
             {
+                if (guardRecentDrawCard
+                    && TryReadRecentDrawCardInteractive(entityId, GetGameState(), out var interactive)
+                    && !interactive)
+                {
+                    AppendActionTrace("PLAY(mouse-flow) recent draw card still not interactive entity=" + entityId);
+                }
                 _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
                 yield break;
             }
@@ -1938,51 +1992,38 @@ namespace HearthstonePayload
             if (_coroutine == null) return "ERROR:no_coroutine";
 
             var replaceEntityIds = ParseEntityIds(replaceEntityIdsCsv);
-            return _coroutine.RunAndWait(ApplyMulliganByMouseWithVerification(replaceEntityIds), 20000);
+            MulliganReadySnapshot snapshot;
+            string readyDetail;
+            if (!TryGetMulliganReadySnapshot(out snapshot, out readyDetail))
+                return "FAIL:wait:mulligan_ready:" + (readyDetail ?? "unknown");
+
+            // 始终走鼠标模拟点击卡牌，避免 API 直接操作在动画尾帧导致界面卡住
+            return _coroutine.RunAndWait(
+                ApplyMulliganByMouseWithVerification(
+                    replaceEntityIds,
+                    snapshot.CardIndexByEntityId.Keys.OrderBy(id => id).ToArray()),
+                20000);
         }
 
         /// <summary>
         /// 简化的留牌逻辑：直接点击卡牌，不验证状态，失败由外层重试。
         /// </summary>
-        private static IEnumerator<float> ApplyMulliganByMouseWithVerification(int[] replaceEntityIds)
+        private static IEnumerator<float> ApplyMulliganByMouseWithVerification(int[] replaceEntityIds, int[] expectedEntityIds)
         {
             InputHook.Simulating = true;
             yield return 0.06f;
 
-            var mulliganMgr = TryGetMulliganManager();
-            if (mulliganMgr == null)
+            MulliganReadySnapshot snapshot;
+            string readyDetail;
+            if (!TryGetMulliganReadySnapshot(out snapshot, out readyDetail))
             {
-                _coroutine.SetResult("FAIL:mulligan_manager:not_available");
+                _coroutine.SetResult("FAIL:wait:mouse_fallback:" + (readyDetail ?? "unknown"));
                 yield break;
             }
 
-            var startingCardsRaw = GetFieldOrProp(mulliganMgr, "m_startingCards") as IEnumerable;
-            if (startingCardsRaw == null)
+            if (!DoEntitySetsMatch(expectedEntityIds, snapshot.CardIndexByEntityId.Keys))
             {
-                _coroutine.SetResult("FAIL:mulligan_manager:starting_cards_null");
-                yield break;
-            }
-
-            var startingCards = startingCardsRaw.Cast<object>().Where(c => c != null).ToList();
-            if (startingCards.Count == 0)
-            {
-                _coroutine.SetResult("FAIL:mulligan_manager:starting_cards_empty");
-                yield break;
-            }
-
-            var cardIndexByEntityId = new Dictionary<int, int>();
-            for (int i = 0; i < startingCards.Count; i++)
-            {
-                var card = startingCards[i];
-                var entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
-                var entityId = ResolveEntityId(entity);
-                if (entityId > 0)
-                    cardIndexByEntityId[entityId] = i;
-            }
-
-            if (cardIndexByEntityId.Count == 0)
-            {
-                _coroutine.SetResult("FAIL:mulligan_manager:no_entity_ids");
+                _coroutine.SetResult("FAIL:wait:mouse_fallback:entity_set_changed");
                 yield break;
             }
 
@@ -1991,13 +2032,17 @@ namespace HearthstonePayload
 
             foreach (var entityId in replaceSet)
             {
-                if (!cardIndexByEntityId.TryGetValue(entityId, out var cardIndex))
-                    continue;
+                int cardIndex;
+                if (!snapshot.CardIndexByEntityId.TryGetValue(entityId, out cardIndex))
+                {
+                    _coroutine.SetResult("FAIL:wait:mouse_fallback:entity_not_found:" + entityId);
+                    yield break;
+                }
 
                 var success = false;
                 for (int attempt = 0; attempt < 2 && !success; attempt++)
                 {
-                    if (!TryGetMulliganCardClickPos(entityId, cardIndex, startingCards.Count, out var cx, out var cy, out _))
+                    if (!TryGetMulliganCardClickPos(entityId, cardIndex, snapshot.StartingCards.Count, out var cx, out var cy, out _))
                         break;
 
                     foreach (var w in SmoothMove(cx, cy, 8, 0.012f)) yield return w;
@@ -2006,7 +2051,7 @@ namespace HearthstonePayload
                     MouseSimulator.LeftUp();
                     yield return 0.3f;
 
-                    if (TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var marked, out _) && marked)
+                    if (TryReadMulliganMarkedState(snapshot.MulliganManager, cardIndex, out var marked, out _) && marked)
                     {
                         success = true;
                         clickedCount++;
@@ -2016,15 +2061,15 @@ namespace HearthstonePayload
 
             yield return 0.3f;
 
-            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out _))
+            if (TryInvokeMethod(snapshot.MulliganManager, "OnMulliganButtonReleased", new object[] { null }, out _, out _))
             {
-                _coroutine.SetResult("OK:mulligan_manager:api_confirm:clicked=" + clickedCount);
+                _coroutine.SetResult("OK:mouse_fallback:api_confirm:clicked=" + clickedCount);
                 yield break;
             }
 
-            if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out _))
+            if (TryInvokeMethod(snapshot.MulliganManager, "AutomaticContinueMulligan", new object[] { false }, out _, out _))
             {
-                _coroutine.SetResult("OK:mulligan_manager:api_confirm_alt:clicked=" + clickedCount);
+                _coroutine.SetResult("OK:mouse_fallback:api_confirm_alt:clicked=" + clickedCount);
                 yield break;
             }
 
@@ -2034,11 +2079,11 @@ namespace HearthstonePayload
                 MouseSimulator.LeftDown();
                 yield return 0.05f;
                 MouseSimulator.LeftUp();
-                _coroutine.SetResult("OK:mulligan_manager:mouse_confirm:clicked=" + clickedCount);
+                _coroutine.SetResult("OK:mouse_fallback:mouse_confirm:clicked=" + clickedCount);
                 yield break;
             }
 
-            _coroutine.SetResult("FAIL:mulligan_manager:confirm_failed:clicked=" + clickedCount);
+            _coroutine.SetResult("FAIL:mouse_fallback:confirm_failed:clicked=" + clickedCount);
         }
 
         private static bool TryGetMulliganCardClickPos(int entityId, int cardIndex, int totalCards, out int x, out int y, out string detail)
@@ -2096,34 +2141,12 @@ namespace HearthstonePayload
             if (TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var isMulliganActive) && !isMulliganActive)
                 return null;
 
-            var startingCardsRaw = GetFieldOrProp(mulliganMgr, "m_startingCards") as IEnumerable;
-            if (startingCardsRaw == null)
+            MulliganReadySnapshot snapshot;
+            string detail;
+            if (!TryGetMulliganReadySnapshot(out snapshot, out detail))
                 return string.Empty;
 
-            var parts = new List<string>();
-            foreach (var card in startingCardsRaw)
-            {
-                if (card == null) continue;
-
-                var entity = Invoke(card, "GetEntity")
-                    ?? GetFieldOrProp(card, "Entity")
-                    ?? GetFieldOrProp(card, "m_entity");
-                if (entity == null) continue;
-
-                var entityId = ResolveEntityId(entity);
-                if (entityId <= 0) continue;
-
-                var cardIdObj = Invoke(entity, "GetCardId")
-                    ?? GetFieldOrProp(entity, "CardId")
-                    ?? Invoke(card, "GetCardId")
-                    ?? GetFieldOrProp(card, "CardId");
-                var cardId = cardIdObj?.ToString();
-                if (string.IsNullOrWhiteSpace(cardId)) continue;
-
-                parts.Add(cardId + "," + entityId);
-            }
-
-            return string.Join(";", parts);
+            return string.Join(";", snapshot.ChoiceParts);
         }
 
         private static List<int> GetMulliganStartingHandEntityIds()
@@ -2188,11 +2211,29 @@ namespace HearthstonePayload
             return result;
         }
 
-        private static bool TryApplyMulliganViaManager(int[] replaceEntityIds, out string detail, out bool managerAvailable)
+        private sealed class MulliganReadySnapshot
         {
+            public object GameState { get; set; }
+            public object MulliganManager { get; set; }
+            public object FriendlyChoices { get; set; }
+            public List<object> StartingCards { get; } = new List<object>();
+            public List<string> ChoiceParts { get; } = new List<string>();
+            public Dictionary<int, object> CardByEntityId { get; } = new Dictionary<int, object>();
+            public Dictionary<int, int> CardIndexByEntityId { get; } = new Dictionary<int, int>();
+            public HashSet<int> ChoiceEntityIds { get; } = new HashSet<int>();
+        }
+
+        private static bool TryGetMulliganReadySnapshot(out MulliganReadySnapshot snapshot, out string detail)
+        {
+            snapshot = null;
             detail = null;
-            managerAvailable = false;
-            replaceEntityIds = replaceEntityIds ?? Array.Empty<int>();
+
+            var gameState = GetGameState();
+            if (gameState == null)
+            {
+                detail = "game_state_not_available";
+                return false;
+            }
 
             var mulliganMgr = TryGetMulliganManager();
             if (mulliganMgr == null)
@@ -2200,8 +2241,6 @@ namespace HearthstonePayload
                 detail = "mulligan_manager_not_found";
                 return false;
             }
-
-            managerAvailable = true;
 
             if (TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var isMulliganActive) && !isMulliganActive)
             {
@@ -2216,27 +2255,24 @@ namespace HearthstonePayload
                 return false;
             }
 
-            var gameState = GetGameState();
-            if (gameState != null)
+            if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var responseBlocked) && responseBlocked)
             {
-                if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var responseBlocked) && responseBlocked)
-                {
-                    detail = "response_packet_blocked";
-                    return false;
-                }
+                detail = "response_packet_blocked";
+                return false;
+            }
 
-                var responseMode = Invoke(gameState, "GetResponseMode");
-                if (!IsChoiceResponseMode(responseMode))
-                {
-                    detail = "response_mode_not_choice:" + (responseMode?.ToString() ?? "null");
-                    return false;
-                }
+            var responseMode = Invoke(gameState, "GetResponseMode");
+            if (!IsChoiceResponseMode(responseMode))
+            {
+                detail = "response_mode_not_choice:" + (responseMode?.ToString() ?? "null");
+                return false;
+            }
 
-                if (Invoke(gameState, "GetFriendlyEntityChoices") == null)
-                {
-                    detail = "friendly_choices_not_ready";
-                    return false;
-                }
+            var friendlyChoices = Invoke(gameState, "GetFriendlyEntityChoices");
+            if (friendlyChoices == null)
+            {
+                detail = "friendly_choices_not_ready";
+                return false;
             }
 
             var inputMgr = GetSingleton(_inputMgrType);
@@ -2253,7 +2289,7 @@ namespace HearthstonePayload
                 return false;
             }
 
-            var startingCards = startingCardsRaw.Cast<object>().ToList();
+            var startingCards = startingCardsRaw.Cast<object>().Where(card => card != null).ToList();
             if (startingCards.Count == 0)
             {
                 detail = "starting_cards_empty";
@@ -2267,27 +2303,117 @@ namespace HearthstonePayload
                 return false;
             }
 
-            var cardByEntityId = new Dictionary<int, object>();
-            var cardIndexByEntityId = new Dictionary<int, int>();
+            var builtSnapshot = new MulliganReadySnapshot
+            {
+                GameState = gameState,
+                MulliganManager = mulliganMgr,
+                FriendlyChoices = friendlyChoices
+            };
+
+            AppendChoiceEntityIds(friendlyChoices, builtSnapshot.ChoiceEntityIds);
+
             for (int cardIndex = 0; cardIndex < startingCards.Count; cardIndex++)
             {
                 var card = startingCards[cardIndex];
-                if (card == null) continue;
+                int entityId;
+                string cardId;
+                if (!TryGetMulliganCardDescriptor(card, out entityId, out cardId))
+                {
+                    detail = entityId > 0 ? "starting_cards_cardid_not_ready" : "starting_cards_entity_not_ready";
+                    return false;
+                }
 
-                var entity = Invoke(card, "GetEntity");
-                if (entity == null) continue;
+                if (builtSnapshot.CardByEntityId.ContainsKey(entityId))
+                {
+                    detail = "starting_cards_entity_duplicate:" + entityId;
+                    return false;
+                }
 
-                var entityId = ResolveEntityId(entity);
-                if (entityId <= 0) continue;
-                if (cardByEntityId.ContainsKey(entityId)) continue;
-
-                cardByEntityId.Add(entityId, card);
-                cardIndexByEntityId.Add(entityId, cardIndex);
+                builtSnapshot.StartingCards.Add(card);
+                builtSnapshot.CardByEntityId.Add(entityId, card);
+                builtSnapshot.CardIndexByEntityId.Add(entityId, cardIndex);
+                builtSnapshot.ChoiceParts.Add(cardId + "," + entityId);
             }
 
-            if (cardByEntityId.Count == 0)
+            if (builtSnapshot.ChoiceEntityIds.Count > 0
+                && builtSnapshot.CardIndexByEntityId.Keys.Any(entityId => !builtSnapshot.ChoiceEntityIds.Contains(entityId)))
             {
-                detail = "starting_cards_entity_not_ready";
+                detail = "choice_entities_not_ready";
+                return false;
+            }
+
+            snapshot = builtSnapshot;
+            return true;
+        }
+
+        private static bool TryGetMulliganCardDescriptor(object card, out int entityId, out string cardId)
+        {
+            entityId = 0;
+            cardId = null;
+            if (card == null)
+                return false;
+
+            var entity = Invoke(card, "GetEntity")
+                ?? GetFieldOrProp(card, "Entity")
+                ?? GetFieldOrProp(card, "m_entity");
+            if (entity == null)
+                return false;
+
+            entityId = ResolveEntityId(entity);
+            if (entityId <= 0)
+                return false;
+
+            var cardIdObj = Invoke(entity, "GetCardId")
+                ?? GetFieldOrProp(entity, "CardId")
+                ?? Invoke(card, "GetCardId")
+                ?? GetFieldOrProp(card, "CardId");
+            cardId = cardIdObj?.ToString();
+            return !string.IsNullOrWhiteSpace(cardId);
+        }
+
+        private static void AppendChoiceEntityIds(object friendlyChoices, ISet<int> entityIds)
+        {
+            if (friendlyChoices == null || entityIds == null)
+                return;
+
+            var entities = GetFieldOrProp(friendlyChoices, "Entities") as IEnumerable
+                ?? Invoke(friendlyChoices, "GetEntities") as IEnumerable;
+            if (entities == null)
+                return;
+
+            foreach (var entity in entities)
+            {
+                var entityId = 0;
+                try
+                {
+                    entityId = Convert.ToInt32(entity);
+                }
+                catch
+                {
+                }
+
+                if (entityId <= 0)
+                    entityId = ResolveEntityId(entity);
+
+                if (entityId > 0)
+                    entityIds.Add(entityId);
+            }
+        }
+
+        private static bool DoEntitySetsMatch(IEnumerable<int> expectedEntityIds, IEnumerable<int> actualEntityIds)
+        {
+            var expected = new HashSet<int>((expectedEntityIds ?? Array.Empty<int>()).Where(id => id > 0));
+            var actual = new HashSet<int>((actualEntityIds ?? Array.Empty<int>()).Where(id => id > 0));
+            return expected.SetEquals(actual);
+        }
+
+        private static bool TryApplyMulliganViaManager(int[] replaceEntityIds, MulliganReadySnapshot snapshot, out string detail)
+        {
+            detail = null;
+            replaceEntityIds = replaceEntityIds ?? Array.Empty<int>();
+            if (snapshot == null)
+            {
+                detail = "mulligan_snapshot_not_ready";
                 return false;
             }
 
@@ -2297,7 +2423,7 @@ namespace HearthstonePayload
 
             foreach (var entityId in requestIdSet)
             {
-                if (!cardByEntityId.ContainsKey(entityId))
+                if (!snapshot.CardByEntityId.ContainsKey(entityId))
                 {
                     detail = "entity_not_found:" + entityId;
                     return false;
@@ -2305,13 +2431,13 @@ namespace HearthstonePayload
             }
 
             var toggledCount = 0;
-            foreach (var pair in cardIndexByEntityId.OrderBy(p => p.Value))
+            foreach (var pair in snapshot.CardIndexByEntityId.OrderBy(p => p.Value))
             {
                 var entityId = pair.Key;
                 var cardIndex = pair.Value;
                 var shouldReplace = requestIdSet.Contains(entityId);
 
-                if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var currentMarked, out var markedDetail))
+                if (!TryReadMulliganMarkedState(snapshot.MulliganManager, cardIndex, out var currentMarked, out var markedDetail))
                 {
                     detail = "marked_state_read_failed:" + markedDetail;
                     return false;
@@ -2320,19 +2446,20 @@ namespace HearthstonePayload
                 if (currentMarked == shouldReplace)
                     continue;
 
-                if (!cardByEntityId.TryGetValue(entityId, out var card) || card == null)
+                object card;
+                if (!snapshot.CardByEntityId.TryGetValue(entityId, out card) || card == null)
                 {
                     detail = "card_not_found:" + entityId;
                     return false;
                 }
 
-                if (!TryToggleMulliganCardViaManager(mulliganMgr, card, cardIndex, out var toggleDetail))
+                if (!TryToggleMulliganCardViaManager(snapshot.MulliganManager, card, cardIndex, out var toggleDetail))
                 {
                     detail = "toggle_failed:" + entityId + ":" + toggleDetail;
                     return false;
                 }
 
-                if (!TryReadMulliganMarkedState(mulliganMgr, cardIndex, out var markedAfter, out markedDetail))
+                if (!TryReadMulliganMarkedState(snapshot.MulliganManager, cardIndex, out var markedAfter, out markedDetail))
                 {
                     detail = "marked_state_verify_failed:" + markedDetail;
                     return false;
@@ -2350,15 +2477,15 @@ namespace HearthstonePayload
             }
 
             string continueMethodUsed = null;
-            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out var continueError))
+            if (TryInvokeMethod(snapshot.MulliganManager, "OnMulliganButtonReleased", new object[] { null }, out _, out var continueError))
             {
                 continueMethodUsed = "OnMulliganButtonReleased";
             }
-            else if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out continueError))
+            else if (TryInvokeMethod(snapshot.MulliganManager, "AutomaticContinueMulligan", new object[] { false }, out _, out continueError))
             {
                 continueMethodUsed = "AutomaticContinueMulligan";
             }
-            else if (gameState != null && TryInvokeMethod(gameState, "SendChoices", Array.Empty<object>(), out _, out continueError))
+            else if (snapshot.GameState != null && TryInvokeMethod(snapshot.GameState, "SendChoices", Array.Empty<object>(), out _, out continueError))
             {
                 continueMethodUsed = "GameState.SendChoices";
             }
@@ -2462,23 +2589,35 @@ namespace HearthstonePayload
 
             var normalized = detail.ToLowerInvariant();
             return normalized.Contains("waiting_for_user_input")
+                || normalized.Contains("game_state_not_available")
                 || normalized.Contains("response_packet_blocked")
+                || normalized.Contains("response_mode_not_choice")
                 || normalized.Contains("friendly_choices_not_ready")
+                || normalized.Contains("choice_entities_not_ready")
+                || normalized.Contains("choice_id_not_ready")
                 || normalized.Contains("input_not_ready")
                 || normalized.Contains("starting_cards_not_ready")
                 || normalized.Contains("starting_cards_empty")
                 || normalized.Contains("starting_cards_entity_not_ready")
+                || normalized.Contains("starting_cards_cardid_not_ready")
                 || normalized.Contains("marked_state_not_ready")
                 || normalized.Contains("mulligan_not_active")
-                || normalized.Contains("mulligan_manager_not_found");
+                || normalized.Contains("mulligan_manager_not_found")
+                || normalized.Contains("entity_not_found")
+                || normalized.Contains("entity_set_changed");
         }
 
-        private static bool TrySendMulliganChoices(int[] replaceEntityIds, out string detail)
+        private static bool TrySendMulliganChoices(int[] replaceEntityIds, MulliganReadySnapshot snapshot, out string detail)
         {
             detail = null;
             replaceEntityIds = replaceEntityIds ?? Array.Empty<int>();
+            if (snapshot == null)
+            {
+                detail = "mulligan_snapshot_not_ready";
+                return false;
+            }
 
-            if (TrySendMulliganChoicesByChoicePacket(replaceEntityIds, out detail))
+            if (TrySendMulliganChoicesByChoicePacket(replaceEntityIds, snapshot, out detail))
                 return true;
 
             var methodNames = new[]
@@ -2489,7 +2628,7 @@ namespace HearthstonePayload
                 "DoMulligan"
             };
 
-            var gameState = GetGameState();
+            var gameState = snapshot.GameState;
             var entityChoices = new object[0];
             if (gameState != null && replaceEntityIds.Length > 0)
             {
@@ -2509,48 +2648,54 @@ namespace HearthstonePayload
             if (network != null && TryInvokeMulliganSender(network, methodNames, replaceEntityIds, entityChoices, out detail))
                 return true;
 
-            var mulliganMgr = TryGetMulliganManager();
-            if (mulliganMgr != null && TryInvokeMulliganSender(mulliganMgr, methodNames, replaceEntityIds, entityChoices, out detail))
+            if (snapshot.MulliganManager != null && TryInvokeMulliganSender(snapshot.MulliganManager, methodNames, replaceEntityIds, entityChoices, out detail))
                 return true;
 
+            detail = detail ?? "choice_sender_not_found";
             return false;
         }
 
-        private static bool TrySendMulliganChoicesByChoicePacket(int[] replaceEntityIds, out string detail)
+        private static bool TrySendMulliganChoicesByChoicePacket(int[] replaceEntityIds, MulliganReadySnapshot snapshot, out string detail)
         {
             detail = null;
+            if (snapshot == null)
+            {
+                detail = "mulligan_snapshot_not_ready";
+                return false;
+            }
 
             var network = GetSingleton(_networkType);
             if (network == null) return false;
 
-            var gameState = GetGameState();
-            var friendlyChoices = gameState != null ? Invoke(gameState, "GetFriendlyEntityChoices") : null;
+            var gameState = snapshot.GameState;
+            var friendlyChoices = snapshot.FriendlyChoices;
             if (friendlyChoices == null)
                 friendlyChoices = Invoke(network, "GetEntityChoices");
             if (friendlyChoices == null)
+            {
+                detail = "friendly_choices_not_ready";
                 return false;
+            }
 
             var choiceId = GetIntFieldOrProp(friendlyChoices, "ID");
             if (choiceId <= 0)
                 choiceId = GetIntFieldOrProp(friendlyChoices, "Id");
             if (choiceId <= 0)
+            {
+                detail = "choice_id_not_ready";
                 return false;
+            }
 
             var allowedEntityIds = new HashSet<int>();
-            var entities = GetFieldOrProp(friendlyChoices, "Entities") as IEnumerable;
-            if (entities != null)
+            AppendChoiceEntityIds(friendlyChoices, allowedEntityIds);
+
+            var missingEntityId = replaceEntityIds
+                .Where(id => id > 0)
+                .FirstOrDefault(id => allowedEntityIds.Count > 0 && !allowedEntityIds.Contains(id));
+            if (missingEntityId > 0)
             {
-                foreach (var entity in entities)
-                {
-                    try
-                    {
-                        var id = Convert.ToInt32(entity);
-                        if (id > 0) allowedEntityIds.Add(id);
-                    }
-                    catch
-                    {
-                    }
-                }
+                detail = "entity_not_found:" + missingEntityId;
+                return false;
             }
 
             var picks = replaceEntityIds
@@ -2585,6 +2730,7 @@ namespace HearthstonePayload
                 }
             }
 
+            detail = "choice_packet_sender_not_found";
             return false;
         }
 
@@ -4290,6 +4436,13 @@ namespace HearthstonePayload
             var gs = GetGameState();
             if (gs == null) return false;
 
+            var observedFriendlyDraw = TryGetFriendlyCardBeingDrawn(gs, out var currentFriendlyDraw, out var currentFriendlyDrawEntityId);
+            if (observedFriendlyDraw && currentFriendlyDraw != null)
+            {
+                UpdateFriendlyDrawGate(currentFriendlyDraw, currentFriendlyDrawEntityId);
+                return false;
+            }
+
             // 网络包阻塞检查
             if (TryInvokeBoolMethod(gs, "IsResponsePacketBlocked", out var blocked) && blocked)
                 return false;
@@ -4354,12 +4507,245 @@ namespace HearthstonePayload
             if (!IsHandZoneReady(gs))
                 return false;
 
+            if (IsFriendlyDrawGateBlocking(gs, observedFriendlyDraw))
+                return false;
+
             return true;
         }
 
         /// <summary>
         /// 检查友方手牌区域是否准备好（布局完成，无卡牌移动）
         /// </summary>
+        private static bool TryGetFriendlyCardBeingDrawn(object gameState, out object card, out int entityId)
+        {
+            card = null;
+            entityId = 0;
+            if (gameState == null)
+                return false;
+
+            if (!TryInvokeMethod(gameState, "GetFriendlyCardBeingDrawn", Array.Empty<object>(), out var currentDrawCard))
+                return false;
+
+            card = currentDrawCard;
+            entityId = ResolveCardEntityId(card);
+            return true;
+        }
+
+        private static bool IsFriendlyDrawGateBlocking(object gameState, bool drawObservationSucceeded)
+        {
+            object cachedCard;
+            int cachedEntityId;
+            lock (_friendlyDrawGateSync)
+            {
+                TrimExpiredRecentDrawGuard_NoLock();
+                if (!_friendlyDrawGate.Active)
+                    return false;
+
+                cachedCard = _friendlyDrawGate.Card;
+                cachedEntityId = _friendlyDrawGate.EntityId;
+            }
+
+            var actorReadyKnown = TryReadCardActorReady(cachedCard, out var actorReady);
+            if (actorReadyKnown && !actorReady)
+            {
+                ResetFriendlyDrawFallbackTimer();
+                return true;
+            }
+
+            var interactiveKnown = TryReadCardStandInIsInteractive(cachedCard, out var interactive);
+            if (actorReadyKnown && interactiveKnown && actorReady && interactive)
+            {
+                ReleaseFriendlyDrawGate(cachedEntityId, cachedCard, viaFallback: false);
+                return false;
+            }
+
+            if (interactiveKnown && !interactive)
+            {
+                if (cachedEntityId > 0
+                    && TryIsEntityInFriendlyHand(gameState, cachedEntityId, out var stillInHand))
+                {
+                    if (stillInHand)
+                    {
+                        ResetFriendlyDrawFallbackTimer();
+                        return true;
+                    }
+
+                    return WaitForFriendlyDrawFallback(gameState, cachedEntityId, cachedCard);
+                }
+
+                return true;
+            }
+
+            if (!drawObservationSucceeded)
+                return true;
+
+            return WaitForFriendlyDrawFallback(gameState, cachedEntityId, cachedCard);
+        }
+
+        private static bool WaitForFriendlyDrawFallback(object gameState, int entityId, object card)
+        {
+            var shouldLog = false;
+            int releaseTick;
+            lock (_friendlyDrawGateSync)
+            {
+                if (!_friendlyDrawGate.Active)
+                    return false;
+
+                if (_friendlyDrawGate.FallbackReleaseTick == 0)
+                {
+                    _friendlyDrawGate.FallbackReleaseTick = Environment.TickCount + FriendlyDrawFallbackDelayMs;
+                    shouldLog = true;
+                }
+
+                releaseTick = _friendlyDrawGate.FallbackReleaseTick;
+            }
+
+            if (shouldLog)
+            {
+                AppendActionTrace(
+                    "DrawGate fallback armed entity="
+                    + entityId
+                    + " delayMs="
+                    + FriendlyDrawFallbackDelayMs);
+            }
+
+            if (Environment.TickCount - releaseTick < 0)
+                return true;
+
+            if (!IsHandZoneReady(gameState))
+                return true;
+
+            ReleaseFriendlyDrawGate(entityId, card, viaFallback: true);
+            return false;
+        }
+
+        private static void ResetFriendlyDrawFallbackTimer()
+        {
+            lock (_friendlyDrawGateSync)
+            {
+                if (_friendlyDrawGate.Active)
+                    _friendlyDrawGate.FallbackReleaseTick = 0;
+            }
+        }
+
+        private static void UpdateFriendlyDrawGate(object card, int entityId)
+        {
+            var shouldLog = false;
+            lock (_friendlyDrawGateSync)
+            {
+                TrimExpiredRecentDrawGuard_NoLock();
+                shouldLog = !_friendlyDrawGate.Active || _friendlyDrawGate.EntityId != entityId || !ReferenceEquals(_friendlyDrawGate.Card, card);
+                _friendlyDrawGate.Active = true;
+                _friendlyDrawGate.Card = card;
+                _friendlyDrawGate.EntityId = entityId;
+                _friendlyDrawGate.FallbackReleaseTick = 0;
+                _friendlyDrawGate.RecentReleasedEntityId = 0;
+                _friendlyDrawGate.RecentReleasedCard = null;
+                _friendlyDrawGate.RecentReleasedUntilTick = 0;
+            }
+
+            if (shouldLog)
+                AppendActionTrace("DrawGate engaged entity=" + entityId);
+        }
+
+        private static void ReleaseFriendlyDrawGate(int entityId, object card, bool viaFallback)
+        {
+            int releasedEntityId;
+            lock (_friendlyDrawGateSync)
+            {
+                if (!_friendlyDrawGate.Active)
+                    return;
+
+                releasedEntityId = entityId > 0 ? entityId : _friendlyDrawGate.EntityId;
+                _friendlyDrawGate.Active = false;
+                _friendlyDrawGate.Card = null;
+                _friendlyDrawGate.EntityId = 0;
+                _friendlyDrawGate.FallbackReleaseTick = 0;
+                _friendlyDrawGate.RecentReleasedEntityId = releasedEntityId;
+                _friendlyDrawGate.RecentReleasedCard = card;
+                _friendlyDrawGate.RecentReleasedUntilTick = Environment.TickCount + FriendlyDrawRecentGuardWindowMs;
+            }
+
+            AppendActionTrace(
+                "DrawGate released entity="
+                + releasedEntityId
+                + (viaFallback ? " via=fallback" : " via=interactive"));
+        }
+
+        private static bool ShouldUseRecentDrawPlayGuard(int entityId)
+        {
+            if (entityId <= 0)
+                return false;
+
+            lock (_friendlyDrawGateSync)
+            {
+                TrimExpiredRecentDrawGuard_NoLock();
+                if (_friendlyDrawGate.Active && _friendlyDrawGate.EntityId == entityId)
+                    return true;
+                return _friendlyDrawGate.RecentReleasedEntityId == entityId;
+            }
+        }
+
+        private static bool TryReadRecentDrawCardInteractive(int entityId, object gameState, out bool interactive)
+        {
+            interactive = true;
+            if (entityId <= 0)
+                return false;
+
+            object card = null;
+            lock (_friendlyDrawGateSync)
+            {
+                TrimExpiredRecentDrawGuard_NoLock();
+                if (_friendlyDrawGate.Active && _friendlyDrawGate.EntityId == entityId)
+                    card = _friendlyDrawGate.Card;
+                else if (_friendlyDrawGate.RecentReleasedEntityId == entityId)
+                    card = _friendlyDrawGate.RecentReleasedCard;
+            }
+
+            if (TryReadCardStandInIsInteractive(card, out interactive))
+                return true;
+
+            var resolvedCard = ResolveFriendlyHandCardObject(gameState ?? GetGameState(), entityId);
+            return TryReadCardStandInIsInteractive(resolvedCard, out interactive);
+        }
+
+        private static bool TryReadCardActorReady(object card, out bool actorReady)
+        {
+            actorReady = false;
+            return card != null && TryInvokeBoolMethod(card, "IsActorReady", out actorReady);
+        }
+
+        private static bool TryReadCardStandInIsInteractive(object card, out bool interactive)
+        {
+            interactive = false;
+            return card != null && TryInvokeBoolMethod(card, "CardStandInIsInteractive", out interactive);
+        }
+
+        private static int ResolveCardEntityId(object card)
+        {
+            if (card == null)
+                return 0;
+
+            var entity = Invoke(card, "GetEntity")
+                ?? GetFieldOrProp(card, "Entity")
+                ?? GetFieldOrProp(card, "m_entity")
+                ?? card;
+            return ResolveEntityId(entity);
+        }
+
+        private static void TrimExpiredRecentDrawGuard_NoLock()
+        {
+            if (_friendlyDrawGate.RecentReleasedUntilTick == 0)
+                return;
+
+            if (Environment.TickCount - _friendlyDrawGate.RecentReleasedUntilTick < 0)
+                return;
+
+            _friendlyDrawGate.RecentReleasedEntityId = 0;
+            _friendlyDrawGate.RecentReleasedCard = null;
+            _friendlyDrawGate.RecentReleasedUntilTick = 0;
+        }
+
         private static bool IsHandZoneReady(object gameState)
         {
             try

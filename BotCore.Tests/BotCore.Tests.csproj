@@ -23,6 +23,7 @@
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
+    <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
   </ItemGroup>
   <ItemGroup>

@@ -247,6 +247,18 @@ namespace HearthstonePayload
                     {
                         _pipe.Write("SCENE:" + nav.GetScene());
                     }
+                    else if (cmd == "GET_HUB_BUTTONS")
+                    {
+                        _pipe.Write(nav.GetHubButtons());
+                    }
+                    else if (cmd.StartsWith("CLICK_HUB_BUTTON:", StringComparison.Ordinal))
+                    {
+                        _pipe.Write(nav.ClickHubButton(cmd.Substring("CLICK_HUB_BUTTON:".Length)));
+                    }
+                    else if (cmd == "GET_OTHER_MODE_BUTTONS")
+                    {
+                        _pipe.Write(nav.GetOtherModeButtons());
+                    }
                     else if (cmd == "GET_BLOCKING_DIALOG")
                     {
                         _pipe.Write(nav.GetBlockingDialog());

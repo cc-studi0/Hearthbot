@@ -18,6 +18,7 @@ namespace HearthstonePayload
         public int Step;
         public int FriendlyPlayerId;
         public int CurrentPlayerId;
+        public int FriendlyMulliganState;
         public bool IsMulliganPhase;
         public int FriendDeckCount;
         public int EnemyDeckCount;

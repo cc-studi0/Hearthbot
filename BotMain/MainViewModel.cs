@@ -34,6 +34,8 @@ namespace BotMain
         private bool _settingsLoaded;
         private bool _followHsBoxOperation;
         private bool _saveHsBoxCallbacks;
+        private string _hearthstoneExecutablePath;
+        private int _matchmakingTimeoutSeconds = 60;
 
         public MainViewModel()
         {
@@ -120,6 +122,7 @@ namespace BotMain
             ResetStatsCmd = new RelayCommand(_ => _bot.ResetStats());
             SaveLogCmd = new RelayCommand(_ => SaveLog());
             SettingsCmd = new RelayCommand(_ => { });
+            BrowseHearthstonePathCmd = new RelayCommand(_ => BrowseHearthstonePath());
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());
             RefreshDecksCmd = new RelayCommand(_ => _bot.RefreshDecks());
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
@@ -164,6 +167,36 @@ namespace BotMain
         public bool FpsLock { get => _fpsLock; set { _fpsLock = value; AutoSave(); } }
         public int FpsValue { get => _fpsValue; set { _fpsValue = value; AutoSave(); } }
         public int ModeIndex { get => _modeIndex; set { _modeIndex = value; AutoSave(); } }
+        public int MatchmakingTimeoutSeconds
+        {
+            get => _matchmakingTimeoutSeconds;
+            set
+            {
+                var normalized = Math.Max(10, value);
+                if (_matchmakingTimeoutSeconds == normalized)
+                    return;
+
+                _matchmakingTimeoutSeconds = normalized;
+                _bot.SetMatchmakingTimeoutSeconds(normalized);
+                Notify();
+                AutoSave();
+            }
+        }
+        public string HearthstoneExecutablePath
+        {
+            get => _hearthstoneExecutablePath;
+            set
+            {
+                var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+                if (string.Equals(_hearthstoneExecutablePath, normalized, StringComparison.Ordinal))
+                    return;
+
+                _hearthstoneExecutablePath = normalized;
+                _bot.SetHearthstoneExecutablePath(normalized);
+                Notify();
+                AutoSave();
+            }
+        }
         public bool FollowHsBoxOperation
         {
             get => _followHsBoxOperation;
@@ -251,6 +284,7 @@ namespace BotMain
         public ICommand SettingsCmd { get; }
         public ICommand ResetStatsCmd { get; }
         public ICommand SaveLogCmd { get; }
+        public ICommand BrowseHearthstonePathCmd { get; }
         public ICommand RefreshProfilesCmd { get; }
         public ICommand RefreshDecksCmd { get; }
         public ICommand RefreshMulliganCmd { get; }
@@ -327,6 +361,39 @@ namespace BotMain
                 File.WriteAllText(dlg.FileName, LogText);
         }
 
+        private void BrowseHearthstonePath()
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Select Hearthstone.exe",
+                Filter = "Hearthstone.exe|Hearthstone.exe|Executable files|*.exe|All files|*.*",
+                CheckFileExists = true
+            };
+
+            try
+            {
+                var currentPath = HearthstoneExecutablePath;
+                if (!string.IsNullOrWhiteSpace(currentPath))
+                {
+                    if (Directory.Exists(currentPath))
+                    {
+                        dlg.InitialDirectory = currentPath;
+                    }
+                    else if (File.Exists(currentPath))
+                    {
+                        dlg.InitialDirectory = Path.GetDirectoryName(currentPath);
+                        dlg.FileName = Path.GetFileName(currentPath);
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            if (dlg.ShowDialog() == true)
+                HearthstoneExecutablePath = dlg.FileName;
+        }
+
         private string SelectedDeckName => SelectedDeckIndex >= 0 && SelectedDeckIndex < DeckNames.Count
             ? DeckNames[SelectedDeckIndex]
             : "(auto)";
@@ -394,6 +461,8 @@ namespace BotMain
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
+                dict["MatchmakingTimeoutSeconds"] = JsonSerializer.SerializeToElement(MatchmakingTimeoutSeconds);
+                dict["HearthstoneExecutablePath"] = JsonSerializer.SerializeToElement(HearthstoneExecutablePath);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
 
@@ -433,6 +502,8 @@ namespace BotMain
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
+                        if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) MatchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
+                        if (dict.TryGetValue("HearthstoneExecutablePath", out v)) HearthstoneExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
 
@@ -447,6 +518,8 @@ namespace BotMain
             catch { }
 
             _bot.SetExternalPaths(_savedSmartBotRoot);
+            _bot.SetMatchmakingTimeoutSeconds(MatchmakingTimeoutSeconds);
+            _bot.SetHearthstoneExecutablePath(HearthstoneExecutablePath);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
         }
@@ -456,6 +529,26 @@ namespace BotMain
             if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined)
                 return null;
             return element.GetString();
+        }
+
+        private static int ReadOptionalInt32(JsonElement element, int fallback)
+        {
+            try
+            {
+                if (element.ValueKind == JsonValueKind.Number && element.TryGetInt32(out var number))
+                    return number;
+
+                if (element.ValueKind == JsonValueKind.String
+                    && int.TryParse(element.GetString(), out number))
+                {
+                    return number;
+                }
+            }
+            catch
+            {
+            }
+
+            return fallback;
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

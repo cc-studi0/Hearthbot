@@ -564,6 +564,7 @@ namespace HearthstonePayload
         {
             data.IsOurTurn = false;
             data.IsMulliganPhase = false;
+            data.FriendlyMulliganState = 0;
 
             try
             {
@@ -575,6 +576,14 @@ namespace HearthstonePayload
                     data.CurrentPlayerId = _ctx.GetTagValue(gameEntity, "CURRENT_PLAYER");
                     data.FriendlyPlayerId = ResolvePlayerId(friendlyPlayer);
                     data.IsMulliganPhase = IsMulliganStep(data.Step);
+                }
+
+                var friendlyEntity = GetPlayerEntity(friendlyPlayer);
+                if (friendlyEntity != null && _ctx.GameTagType != null)
+                {
+                    data.FriendlyMulliganState = _ctx.GetTagValue(friendlyEntity, "MULLIGAN_STATE");
+                    if (IsMulliganStateActive(data.FriendlyMulliganState))
+                        data.IsMulliganPhase = true;
                 }
 
                 var currentPlayer = GetCurrentPlayer(gameState);
@@ -727,6 +736,36 @@ namespace HearthstonePayload
 
             // fallback: on most clients BEGIN_MULLIGAN is 4.
             return step == 4;
+        }
+
+        private bool IsMulliganStateActive(int state)
+        {
+            if (state <= 0) return false;
+
+            var mulliganType = _ctx.AsmCSharp.GetType("TAG_MULLIGAN")
+                ?? _ctx.AsmCSharp.GetType("MulliganState");
+
+            var done = GetEnumValue(mulliganType, "DONE");
+            var input = GetEnumValue(mulliganType, "INPUT");
+            var dealing = GetEnumValue(mulliganType, "DEALING");
+            var waiting = GetEnumValue(mulliganType, "WAITING");
+            var refreshing = GetEnumValue(mulliganType, "REFRESHING");
+            var preRefreshing = GetEnumValue(mulliganType, "PREREFRESHING");
+
+            if (done.HasValue && state == done.Value)
+                return false;
+
+            if (state == (input ?? 1)
+                || state == (dealing ?? 2)
+                || state == (waiting ?? 3)
+                || state == (refreshing ?? 5)
+                || state == (preRefreshing ?? 6))
+            {
+                return true;
+            }
+
+            // fallback: TAG_MULLIGAN.DONE is 4 on current clients.
+            return state > 0 && state != 4;
         }
 
         private int? GetEnumValue(Type enumType, string name)

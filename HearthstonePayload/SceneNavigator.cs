@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -20,6 +20,13 @@ namespace HearthstonePayload
         private const uint WM_LBUTTONUP = 0x0202;
         private const int MK_LBUTTON = 0x0001;
         private const int DismissClickTimeoutMs = 2500;
+        private const string StartupRatingsDialogType = "StartupRatings";
+        private const string StartupRatingsButtonLabel = "\u70b9\u51fb\u5f00\u59cb";
+        private const string StartupRatingsStartPressedEvent = "USER_START_PRESSED";
+        private const float StartupRatingsFallbackClickX = 0.50f;
+        private const float StartupRatingsFallbackClickY = 0.78f;
+        private const int StartupRatingsDismissPollIntervalMs = 100;
+        private const int StartupRatingsDismissPollAttempts = 8;
         private Assembly _asm;
         private Type _sceneMgrType;
         private Type _gameMgrType;
@@ -113,6 +120,83 @@ namespace HearthstonePayload
             public string Detail { get; set; }
         }
 
+        private sealed class HubButtonDescriptor
+        {
+            public string ButtonKey { get; set; }
+            public string TargetScene { get; set; }
+            public string MemberName { get; set; }
+            public string DefaultLabel { get; set; }
+        }
+
+        private sealed class HubButtonSnapshot
+        {
+            public string Scene { get; set; }
+            public string ButtonKey { get; set; }
+            public string Label { get; set; }
+            public bool Enabled { get; set; }
+            public int ScreenX { get; set; }
+            public int ScreenY { get; set; }
+            public string Detail { get; set; }
+            public string TargetScene { get; set; }
+        }
+
+        private sealed class HubButtonActionResult
+        {
+            public string ImmediateResult { get; set; }
+            public HubButtonSnapshot FallbackButton { get; set; }
+        }
+
+        private sealed class OtherModeSnapshot
+        {
+            public int GameModeRecordId { get; set; }
+            public string Name { get; set; }
+            public string Description { get; set; }
+            public string LinkedScene { get; set; }
+            public string ModeKey { get; set; }
+            public bool IsDownloadRequired { get; set; }
+            public bool IsDownloading { get; set; }
+        }
+
+        private sealed class CommandResult
+        {
+            public string ImmediateResult { get; set; }
+            public bool ShouldVerify { get; set; }
+            public long ExpectedDeckId { get; set; }
+            public int ExpectedFormat { get; set; }
+        }
+
+        private static readonly HubButtonDescriptor[] HubButtonDescriptors =
+        {
+            new HubButtonDescriptor
+            {
+                ButtonKey = "traditional",
+                TargetScene = "TOURNAMENT",
+                MemberName = "m_PlayButton",
+                DefaultLabel = "\u4f20\u7edf\u5bf9\u6218"
+            },
+            new HubButtonDescriptor
+            {
+                ButtonKey = "battlegrounds",
+                TargetScene = "BACON",
+                MemberName = "m_BattleGroundsButton",
+                DefaultLabel = "\u9152\u9986\u6218\u68cb"
+            },
+            new HubButtonDescriptor
+            {
+                ButtonKey = "arena",
+                TargetScene = "DRAFT",
+                MemberName = "m_ArenaButton",
+                DefaultLabel = "\u7ade\u6280\u6a21\u5f0f"
+            },
+            new HubButtonDescriptor
+            {
+                ButtonKey = "other_modes",
+                TargetScene = "GAME_MODE",
+                MemberName = "m_GameModesButton",
+                DefaultLabel = "\u5176\u4ed6\u6a21\u5f0f"
+            }
+        };
+
         public void SetCoroutine(CoroutineExecutor coroutine)
         {
             _coroutine = coroutine;
@@ -177,63 +261,135 @@ namespace HearthstonePayload
             return OnMain(() => GetSceneInternal());
         }
 
+        public string GetHubButtons()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase))
+                    return "ERROR:not_hub:" + scene;
+
+                var box = GetBox();
+                if (box == null)
+                    return "ERROR:no_box";
+
+                var buttons = new List<string>();
+                foreach (var descriptor in HubButtonDescriptors)
+                {
+                    var snapshot = BuildHubButtonSnapshot(box, scene, descriptor);
+                    buttons.Add(FormatHubButtonSnapshot(snapshot));
+                }
+
+                return "HUB_BUTTONS:" + string.Join(";", buttons);
+            });
+        }
+
+        public string ClickHubButton(string buttonKey)
+        {
+            if (string.IsNullOrWhiteSpace(buttonKey))
+                return "ERROR:invalid_button";
+
+            var action = OnMain(() =>
+            {
+                if (!Init())
+                    return new HubButtonActionResult { ImmediateResult = "ERROR:not_initialized" };
+
+                var descriptor = FindHubButtonDescriptor(buttonKey);
+                if (descriptor == null)
+                    return new HubButtonActionResult { ImmediateResult = "ERROR:unknown_button:" + buttonKey };
+
+                var scene = GetSceneInternal();
+                if (string.Equals(scene, descriptor.TargetScene, StringComparison.OrdinalIgnoreCase))
+                    return new HubButtonActionResult { ImmediateResult = "OK:already:" + descriptor.TargetScene };
+                if (!string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase))
+                    return new HubButtonActionResult { ImmediateResult = "ERROR:not_hub:" + scene };
+
+                var box = GetBox();
+                if (box == null)
+                    return new HubButtonActionResult { ImmediateResult = "ERROR:no_box" };
+
+                var snapshot = BuildHubButtonSnapshot(box, scene, descriptor);
+                if (!snapshot.Enabled)
+                    return new HubButtonActionResult { ImmediateResult = "ERROR:button_disabled:" + descriptor.ButtonKey };
+
+                var navResult = NavigateToSceneModeInternal(descriptor.TargetScene);
+                if (!string.IsNullOrWhiteSpace(navResult)
+                    && navResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+                {
+                    return new HubButtonActionResult
+                    {
+                        ImmediateResult = navResult + ":button=" + descriptor.ButtonKey
+                    };
+                }
+
+                return new HubButtonActionResult
+                {
+                    ImmediateResult = navResult ?? ("ERROR:navigate_failed:" + descriptor.TargetScene),
+                    FallbackButton = snapshot
+                };
+            });
+
+            if (action == null)
+                return "ERROR:null_action";
+            if (action.FallbackButton == null)
+                return action.ImmediateResult ?? "ERROR:unknown";
+            if (action.FallbackButton.ScreenX <= 0 || action.FallbackButton.ScreenY <= 0)
+                return action.ImmediateResult ?? "ERROR:button_pos";
+
+            var clickResult = ClickAt(action.FallbackButton.ScreenX, action.FallbackButton.ScreenY, 0.35f);
+            if (!string.IsNullOrWhiteSpace(clickResult)
+                && clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                return "OK:click:" + action.FallbackButton.ButtonKey + ":" + action.FallbackButton.Detail;
+            }
+
+            return string.IsNullOrWhiteSpace(action.ImmediateResult)
+                ? (clickResult ?? "ERROR:click_failed")
+                : action.ImmediateResult;
+        }
+
+        public string GetOtherModeButtons()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "GAME_MODE", StringComparison.OrdinalIgnoreCase))
+                    return "ERROR:not_other_modes:" + scene;
+
+                var display = GetGameModeDisplay();
+                if (display == null)
+                    return "ERROR:no_gamemode_display";
+
+                var dataModel = Call(display, "GetGameModeSceneDataModel")
+                    ?? GetProp(display, "GameModeSceneDataModel")
+                    ?? GetProp(display, "m_gameModeSceneDataModel");
+                if (dataModel == null)
+                    return "ERROR:no_gamemode_data_model";
+
+                var records = new List<string>();
+                foreach (var buttonModel in AsEnumerable(GetProp(dataModel, "GameModeButtons")))
+                {
+                    var snapshot = BuildOtherModeSnapshot(buttonModel);
+                    if (snapshot == null)
+                        continue;
+                    records.Add(FormatOtherModeSnapshot(snapshot));
+                }
+
+                return "OTHER_MODE_BUTTONS:" + string.Join(";", records);
+            });
+        }
+
         public string NavigateTo(string sceneName)
         {
             sceneName = (sceneName ?? string.Empty).Trim();
             if (!string.Equals(sceneName, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
                 return "ERROR:unsupported_scene:" + sceneName;
 
-            return OnMain(() =>
-            {
-                if (!Init()) return "ERROR:not_initialized";
-                if (string.Equals(GetSceneInternal(), "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
-                    return "OK:already";
-
-                try
-                {
-                    var mgr = CallStatic(_sceneMgrType, "Get");
-                    if (mgr == null) return "ERROR:no_scenemgr";
-
-                    // 解析 SceneMgr.Mode.TOURNAMENT 枚举值
-                    var modeType = _sceneMgrType.GetNestedType("Mode")
-                        ?? _asm.GetType("SceneMgr+Mode")
-                        ?? _asm.GetType("SceneMode");
-                    if (modeType == null) return "ERROR:no_mode_type";
-
-                    object tournamentMode = null;
-                    foreach (var name in new[] { "TOURNAMENT", "Tournament" })
-                    {
-                        try { tournamentMode = Enum.Parse(modeType, name); break; } catch { }
-                    }
-                    if (tournamentMode == null) return "ERROR:no_tournament_enum";
-
-                    // 调用 SetNextMode(mode, ...)
-                    var methods = _sceneMgrType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
-                        .Where(m => m.Name == "SetNextMode")
-                        .OrderBy(m => m.GetParameters().Length)
-                        .ToArray();
-
-                    foreach (var method in methods)
-                    {
-                        var pars = method.GetParameters();
-                        if (pars.Length >= 1 && pars[0].ParameterType == modeType)
-                        {
-                            var args = new object[pars.Length];
-                            args[0] = tournamentMode;
-                            for (int i = 1; i < pars.Length; i++)
-                                args[i] = pars[i].HasDefaultValue ? pars[i].DefaultValue : GetDefault(pars[i].ParameterType);
-                            method.Invoke(mgr, args);
-                            return "OK:api";
-                        }
-                    }
-
-                    return "ERROR:no_setNextMode";
-                }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.GetBaseException().Message;
-                }
-            });
+            return OnMain(() => NavigateToSceneModeInternal(sceneName));
         }
 
         public string GetDeckId(string deckName)
@@ -262,7 +418,7 @@ namespace HearthstonePayload
                 {
                     var mgr = CallStatic(_gameMgrType, "Get");
                     if (mgr == null) return false;
-                    var method = mgr.GetType().GetMethod("IsFindingGame",
+                    var method = FindZeroArgMethod(mgr.GetType(), "IsFindingGame",
                         BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
                     return method != null && Convert.ToBoolean(method.Invoke(mgr, null));
                 }
@@ -275,9 +431,12 @@ namespace HearthstonePayload
 
         public string SetFormat(int vft)
         {
-            return OnMain(() =>
+            var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                    return "ERROR:scene:" + scene;
                 if (IsFormatSelected(vft)) return "OK:already";
 
                 try
@@ -287,193 +446,258 @@ namespace HearthstonePayload
                     var options = CallStatic(optionsType, "Get");
                     if (options == null) return "ERROR:no_options";
 
+                    object formatArg = null;
+                    var optFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
                     // vft=4 是休闲模式，其他是天梯模式
                     if (vft == 4)
                     {
                         CallMethod(options, "SetInRankedPlayMode", false);
-                        return "OK:casual";
-                    }
-
-                    // 确保在天梯模式
-                    CallMethod(options, "SetInRankedPlayMode", true);
-
-                    // 找到 SetFormatType 方法，判断参数类型
-                    var optFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
-                    var setFmt = options.GetType().GetMethods(optFlags)
-                        .FirstOrDefault(m => m.Name == "SetFormatType" && m.GetParameters().Length >= 1);
-                    // 回退：无参版本（可能参数通过其他方式传递）
-                    if (setFmt == null)
-                        setFmt = options.GetType().GetMethods(optFlags)
-                            .FirstOrDefault(m => m.Name == "SetFormatType");
-                    if (setFmt == null)
-                    {
-                        // 诊断：列出所有含 Format 的方法签名
-                        var diag = options.GetType().GetMethods(optFlags)
-                            .Where(m => m.Name.IndexOf("Format", StringComparison.OrdinalIgnoreCase) >= 0)
-                            .Select(m => (m.IsStatic ? "S:" : "") + m.Name + "(" +
-                                string.Join(",", m.GetParameters().Select(p => p.ParameterType.Name)) + ")")
-                            .Distinct().ToArray();
-                        return "ERROR:no_SetFormatType|" + string.Join(";", diag);
-                    }
-
-                    var paramType = setFmt.GetParameters()[0].ParameterType;
-                    object formatArg;
-
-                    if (paramType.IsEnum)
-                    {
-                        // 枚举类型：尝试多种名称，最后按整数值兜底
-                        formatArg = null;
-                        string[] candidates;
-                        switch (vft)
-                        {
-                            case 1: candidates = new[] { "FT_WILD", "WILD", "Wild" }; break;
-                            case 2: candidates = new[] { "FT_STANDARD", "STANDARD", "Standard" }; break;
-                            case 3: candidates = new[] { "FT_CLASSIC", "CLASSIC", "Classic" }; break;
-                            case 5: candidates = new[] { "FT_TWIST", "TWIST", "Twist" }; break;
-                            default: return "ERROR:unknown_vft:" + vft;
-                        }
-                        foreach (var name in candidates)
-                        {
-                            try { formatArg = Enum.Parse(paramType, name); break; } catch { }
-                        }
-                        if (formatArg == null)
-                        {
-                            try { formatArg = Enum.ToObject(paramType, vft); } catch { }
-                        }
-                        if (formatArg == null) return "ERROR:no_enum:" + string.Join("/", candidates);
                     }
                     else
                     {
-                        // int 或其他数值类型：直接传 vft
-                        formatArg = Convert.ChangeType(vft, paramType);
-                    }
+                        CallMethod(options, "SetInRankedPlayMode", true);
 
-                    CallMethod(options, "SetFormatType", formatArg);
+                        var setFmt = options.GetType().GetMethods(optFlags)
+                            .FirstOrDefault(m => m.Name == "SetFormatType" && m.GetParameters().Length >= 1);
+                        if (setFmt == null)
+                            setFmt = options.GetType().GetMethods(optFlags)
+                                .FirstOrDefault(m => m.Name == "SetFormatType");
+                        if (setFmt == null)
+                        {
+                            var diag = options.GetType().GetMethods(optFlags)
+                                .Where(m => m.Name.IndexOf("Format", StringComparison.OrdinalIgnoreCase) >= 0)
+                                .Select(m => (m.IsStatic ? "S:" : "") + m.Name + "(" +
+                                    string.Join(",", m.GetParameters().Select(p => p.ParameterType.Name)) + ")")
+                                .Distinct().ToArray();
+                            return "ERROR:no_SetFormatType|" + string.Join(";", diag);
+                        }
+
+                        var paramType = setFmt.GetParameters()[0].ParameterType;
+                        if (paramType.IsEnum)
+                        {
+                            string[] candidates;
+                            switch (vft)
+                            {
+                                case 1: candidates = new[] { "FT_WILD", "WILD", "Wild" }; break;
+                                case 2: candidates = new[] { "FT_STANDARD", "STANDARD", "Standard" }; break;
+                                case 3: candidates = new[] { "FT_CLASSIC", "CLASSIC", "Classic" }; break;
+                                case 5: candidates = new[] { "FT_TWIST", "TWIST", "Twist" }; break;
+                                default: return "ERROR:unknown_vft:" + vft;
+                            }
+                            foreach (var name in candidates)
+                            {
+                                try { formatArg = Enum.Parse(paramType, name); break; } catch { }
+                            }
+                            if (formatArg == null)
+                            {
+                                try { formatArg = Enum.ToObject(paramType, vft); } catch { }
+                            }
+                            if (formatArg == null) return "ERROR:no_enum:" + string.Join("/", candidates);
+                        }
+                        else
+                        {
+                            formatArg = Convert.ChangeType(vft, paramType);
+                        }
+
+                        CallMethod(options, "SetFormatType", formatArg);
+                    }
 
                     // 通过 DeckPickerTrayDisplay 触发实际 UI 切换
                     var dpt = GetDeckPickerTray();
-                    if (dpt != null)
+                    if (dpt == null)
+                        return "ERROR:no_dpt";
+
+                    var vftType = _asm.GetType("VisualsFormatType");
+                    object vftEnum = null;
+                    if (vftType != null && vftType.IsEnum)
                     {
-                        // 解析 VisualsFormatType 枚举（vft 整数值直接对应）
-                        var vftType = _asm.GetType("VisualsFormatType");
-                        object vftEnum = null;
-                        if (vftType != null && vftType.IsEnum)
-                        {
-                            try { vftEnum = Enum.ToObject(vftType, vft); } catch { }
-                        }
-
-                        if (vftEnum != null)
-                        {
-                            // 最佳方法：切换模式并更新天梯显示
-                            var r = CallMethod(dpt, "SwitchFormatTypeAndRankedPlayMode", vftEnum);
-                            if (r != null) return "OK:switch:" + vftEnum;
-
-                            r = CallMethod(dpt, "UpdateFormat_Tournament", vftEnum);
-                            if (r != null) return "OK:update:" + vftEnum;
-                        }
-
-                        // 回退：TransitionToFormatType(FormatType, bool, float)
-                        var r2 = CallMethod(dpt, "TransitionToFormatType", formatArg, true, 0f);
-                        if (r2 != null) return "OK:transition";
-
-                        // 回退：无参 SwitchFormatButtonPress
-                        r2 = CallMethod(dpt, "SwitchFormatButtonPress");
-                        if (r2 != null) return "OK:switchBtn";
-
-                        return "OK:options_only|vftType=" + (vftType?.Name ?? "null")
-                            + "|vftEnum=" + (vftEnum?.ToString() ?? "null");
+                        try { vftEnum = Enum.ToObject(vftType, vft); } catch { }
                     }
 
-                    return "OK:options_only|no_dpt";
+                    if (vftEnum != null)
+                    {
+                        var r = CallMethod(dpt, "SwitchFormatTypeAndRankedPlayMode", vftEnum);
+                        if (r != null) return "PENDING:switch:" + vftEnum;
+
+                        r = CallMethod(dpt, "UpdateFormat_Tournament", vftEnum);
+                        if (r != null) return "PENDING:update:" + vftEnum;
+                    }
+
+                    if (formatArg != null)
+                    {
+                        var r2 = CallMethod(dpt, "TransitionToFormatType", formatArg, vft != 4, 0f);
+                        if (r2 != null) return "PENDING:transition";
+                    }
+
+                    var fallbackResult = CallMethod(dpt, "SwitchFormatButtonPress");
+                    if (fallbackResult != null) return "PENDING:switchBtn";
+                    if (IsFormatSelected(vft)) return "OK:options_only";
+
+                    return "ERROR:format_not_set:" + vft;
                 }
                 catch (Exception ex)
                 {
                     return "ERROR:" + ex.GetBaseException().Message;
                 }
             });
+
+            if (string.IsNullOrWhiteSpace(result)
+                || !result.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+            {
+                return result ?? "ERROR:unknown";
+            }
+
+            for (var i = 0; i < 25; i++)
+            {
+                Thread.Sleep(150);
+                var selected = OnMain(() =>
+                {
+                    if (!Init()) return false;
+                    return IsFormatSelected(vft);
+                });
+                if (selected)
+                    return "OK:" + result.Substring("PENDING:".Length);
+            }
+
+            return "ERROR:format_not_set:" + vft;
         }
 
         public string SelectDeck(long deckId)
         {
             if (deckId <= 0) return "ERROR:invalid_deck_id";
 
-            return OnMain(() =>
+            var result = OnMain(() =>
             {
-                if (!Init()) return "ERROR:not_initialized";
+                if (!Init()) return new CommandResult { ImmediateResult = "ERROR:not_initialized" };
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                    return new CommandResult { ImmediateResult = "ERROR:scene:" + scene };
+
                 try
                 {
                     var dpt = GetDeckPickerTray();
-                    if (dpt == null) return "ERROR:no_dpt";
+                    if (dpt == null) return new CommandResult { ImmediateResult = "ERROR:no_dpt" };
 
-                    // 尝试直接调用 SelectDeck 系列方法
-                    foreach (var name in new[] { "SelectDeckById", "SelectDeck", "SetSelectedDeck" })
+                    if (GetSelectedDeckId(dpt) == deckId)
                     {
-                        var result = CallMethod(dpt, name, deckId);
-                        if (result != null) return "OK:api:" + name;
+                        return new CommandResult { ImmediateResult = "OK:already:" + deckId };
                     }
 
-                    // 遍历 m_customPages 找到目标卡组并触发选择
-                    foreach (var page in AsEnumerable(GetProp(dpt, "m_customPages")))
+                    object targetDeckBox;
+                    int pageIndex;
+                    int deckIndex;
+                    var foundDeckBox = TryFindDeckBoxById(dpt, deckId, out targetDeckBox, out pageIndex, out deckIndex);
+                    if (foundDeckBox && !CanSelectDeckBox(targetDeckBox))
+                        return new CommandResult { ImmediateResult = "ERROR:deck_not_selectable:" + deckId };
+
+                    if (foundDeckBox && pageIndex >= 0)
+                        CallMethod(dpt, "ShowPage", pageIndex);
+
+                    foreach (var name in new[] { "SelectDeckById", "SelectDeck", "SetSelectedDeck" })
                     {
-                        foreach (var deckBox in AsEnumerable(GetProp(page, "m_customDecks")))
+                        var direct = CallMethod(dpt, name, deckId);
+                        if (direct != null)
                         {
-                            var id = ToLong(GetProp(deckBox, "m_deckID")
-                                ?? GetProp(deckBox, "m_deckId")
-                                ?? GetProp(deckBox, "DeckID")
-                                ?? GetProp(deckBox, "DeckId")
-                                ?? GetProp(deckBox, "m_preconDeckID"));
-                            if (id != deckId) continue;
-
-                            // 找到了目标卡组，尝试触发选择事件
-                            var selectResult = CallMethod(deckBox, "SelectDeck")
-                                ?? CallMethod(deckBox, "OnSelected")
-                                ?? CallMethod(deckBox, "Select");
-                            if (selectResult != null) return "OK:deckbox_select";
-
-                            // 尝试通过 DeckPickerTrayDisplay 选择这个 deckBox
-                            var r2 = CallMethod(dpt, "SelectCustomDeck", deckBox);
-                            if (r2 != null) return "OK:select_custom";
-
-                            return "OK:found_no_method";
+                            return new CommandResult
+                            {
+                                ImmediateResult = "PENDING:api:" + name,
+                                ShouldVerify = true,
+                                ExpectedDeckId = deckId
+                            };
                         }
                     }
 
-                    return "ERROR:deck_not_found:" + deckId;
+                    if (!foundDeckBox)
+                        return new CommandResult { ImmediateResult = "ERROR:deck_not_found:" + deckId };
+
+                    var selectResult = CallMethod(targetDeckBox, "SelectDeck")
+                        ?? CallMethod(targetDeckBox, "OnSelected")
+                        ?? CallMethod(targetDeckBox, "Select");
+                    if (selectResult != null)
+                    {
+                        return new CommandResult
+                        {
+                            ImmediateResult = "PENDING:deckbox_select:" + pageIndex + ":" + deckIndex,
+                            ShouldVerify = true,
+                            ExpectedDeckId = deckId
+                        };
+                    }
+
+                    var fromTray = CallMethod(dpt, "SelectCustomDeck", targetDeckBox);
+                    if (fromTray != null)
+                    {
+                        return new CommandResult
+                        {
+                            ImmediateResult = "PENDING:select_custom:" + pageIndex + ":" + deckIndex,
+                            ShouldVerify = true,
+                            ExpectedDeckId = deckId
+                        };
+                    }
+
+                    return new CommandResult { ImmediateResult = "ERROR:deck_select_method_missing:" + deckId };
                 }
                 catch (Exception ex)
                 {
-                    return "ERROR:" + ex.GetBaseException().Message;
+                    return new CommandResult { ImmediateResult = "ERROR:" + ex.GetBaseException().Message };
                 }
             });
+
+            if (result == null)
+                return "ERROR:null_result";
+            if (!result.ShouldVerify)
+                return result.ImmediateResult ?? "ERROR:unknown";
+
+            for (var i = 0; i < 10; i++)
+            {
+                Thread.Sleep(100);
+                var selectedDeckId = OnMain(() =>
+                {
+                    if (!Init()) return 0L;
+                    var dpt = GetDeckPickerTray();
+                    return GetSelectedDeckId(dpt);
+                });
+                if (selectedDeckId == result.ExpectedDeckId)
+                    return "OK:selected:" + result.ExpectedDeckId;
+            }
+
+            return "ERROR:deck_not_selected:" + result.ExpectedDeckId;
         }
 
         public string ClickPlay()
         {
-            return OnMain(() =>
+            var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                    return "ERROR:scene:" + scene;
+
                 try
                 {
                     var dpt = GetDeckPickerTray();
                     if (dpt == null) return "ERROR:no_dpt";
 
-                    // 尝试通过 play button 触发（必须 Press + Release 配对）
                     var playBtn = GetProp(dpt, "m_playButton");
-                    if (playBtn != null)
+                    if (playBtn == null) return "ERROR:no_play_button";
+                    if (!IsButtonEnabled(playBtn))
                     {
-                        var rPress = CallMethod(playBtn, "TriggerPress");
-                        var rRelease = CallMethod(playBtn, "TriggerRelease");
-                        if (rPress != null || rRelease != null) return "OK:playButton";
+                        var buttonText = TryExtractButtonLabel(playBtn);
+                        if (string.IsNullOrWhiteSpace(buttonText))
+                            buttonText = "UNKNOWN";
+                        return "ERROR:play_disabled:" + buttonText;
                     }
 
-                    // 尝试直接调用 DeckPickerTrayDisplay 的 play 方法
+                    var rPress = CallMethod(playBtn, "TriggerPress");
+                    var rRelease = CallMethod(playBtn, "TriggerRelease");
+                    if (rPress != null || rRelease != null) return "PENDING:playButton";
+
                     foreach (var name in new[] { "OnPlayButtonPressed", "PlayButtonPress", "Play" })
                     {
                         var r = CallMethod(dpt, name);
-                        if (r != null) return "OK:api:" + name;
+                        if (r != null) return "PENDING:api:" + name;
                     }
 
-                    // 尝试通过 GameMgr.FindGame
                     if (_gameMgrType != null)
                     {
                         var gameMgr = CallStatic(_gameMgrType, "Get");
@@ -481,7 +705,7 @@ namespace HearthstonePayload
                         {
                             var r = CallMethod(gameMgr, "FindGame",
                                 (int)1 /*GameType.GT_RANKED*/, (int)2 /*FormatType*/, (long)0, (long)0);
-                            if (r != null) return "OK:findgame";
+                            if (r != null) return "PENDING:findgame";
                         }
                     }
 
@@ -492,6 +716,21 @@ namespace HearthstonePayload
                     return "ERROR:" + ex.GetBaseException().Message;
                 }
             });
+
+            if (string.IsNullOrWhiteSpace(result)
+                || !result.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+            {
+                return result ?? "ERROR:unknown";
+            }
+
+            for (var i = 0; i < 6; i++)
+            {
+                Thread.Sleep(150);
+                if (IsFindingGame())
+                    return "OK:" + result.Substring("PENDING:".Length) + ":finding";
+            }
+
+            return "OK:" + result.Substring("PENDING:".Length);
         }
 
         public string GetBlockingDialog()
@@ -521,6 +760,8 @@ namespace HearthstonePayload
 
             if (hit == null)
                 return "FAIL:NO_DIALOG:no_dialog";
+            if (string.Equals(hit.DialogType, StartupRatingsDialogType, StringComparison.OrdinalIgnoreCase))
+                return DismissStartupRatings();
             if (!hit.CanDismiss)
                 return "FAIL:" + hit.DialogType + ":unsafe_button:" + (string.IsNullOrWhiteSpace(hit.ButtonLabel) ? "UNKNOWN" : hit.ButtonLabel);
             if (hit.ButtonX <= 0 || hit.ButtonY <= 0)
@@ -588,6 +829,18 @@ namespace HearthstonePayload
             return type != null ? CallStatic(type, "Get") : null;
         }
 
+        private object GetBox()
+        {
+            var type = _asm?.GetType("Box");
+            return type != null ? (CallStatic(type, "Get") ?? GetStaticValue(type, "s_instance")) : null;
+        }
+
+        private object GetGameModeDisplay()
+        {
+            var type = _asm?.GetType("GameModeDisplay");
+            return type != null ? (CallStatic(type, "Get") ?? GetStaticValue(type, "m_instance")) : null;
+        }
+
         private long FindDeckId(string deckName)
         {
             if (_collMgrType == null || string.IsNullOrWhiteSpace(deckName)) return -1;
@@ -614,6 +867,314 @@ namespace HearthstonePayload
             }
 
             return -1;
+        }
+
+        private string NavigateToSceneModeInternal(string sceneName)
+        {
+            if (!Init()) return "ERROR:not_initialized";
+
+            try
+            {
+                var mgr = CallStatic(_sceneMgrType, "Get");
+                if (mgr == null) return "ERROR:no_scenemgr";
+
+                var currentScene = GetSceneInternal();
+                if (string.Equals(currentScene, sceneName, StringComparison.OrdinalIgnoreCase))
+                    return "OK:already";
+
+                var modeType = _sceneMgrType.GetNestedType("Mode")
+                    ?? _asm.GetType("SceneMgr+Mode")
+                    ?? _asm.GetType("SceneMode");
+                if (modeType == null) return "ERROR:no_mode_type";
+
+                object sceneMode;
+                string resolvedName;
+                if (!TryResolveEnumValue(modeType, sceneName, out sceneMode, out resolvedName))
+                    return "ERROR:no_scene_enum:" + sceneName;
+
+                if (!TrySetNextMode(mgr, modeType, sceneMode))
+                    return "ERROR:no_setNextMode";
+
+                return "OK:api:" + resolvedName;
+            }
+            catch (Exception ex)
+            {
+                return "ERROR:" + ex.GetBaseException().Message;
+            }
+        }
+
+        private HubButtonSnapshot BuildHubButtonSnapshot(object box, string scene, HubButtonDescriptor descriptor)
+        {
+            var button = box != null ? GetProp(box, descriptor.MemberName) : null;
+            var label = button != null ? TryExtractButtonLabel(button) : null;
+            if (string.IsNullOrWhiteSpace(label))
+                label = descriptor.DefaultLabel;
+
+            var enabled = button != null && IsButtonEnabled(button);
+            int x;
+            int y;
+            if (button == null || !TryGetScreenPos(button, out x, out y))
+            {
+                x = 0;
+                y = 0;
+            }
+
+            return new HubButtonSnapshot
+            {
+                Scene = scene,
+                ButtonKey = descriptor.ButtonKey,
+                Label = label,
+                Enabled = enabled,
+                ScreenX = x,
+                ScreenY = y,
+                Detail = "Box." + descriptor.MemberName + (button == null ? ":missing" : string.Empty),
+                TargetScene = descriptor.TargetScene
+            };
+        }
+
+        private OtherModeSnapshot BuildOtherModeSnapshot(object buttonModel)
+        {
+            if (buttonModel == null)
+                return null;
+
+            var id = (int)ToLong(GetProp(buttonModel, "GameModeRecordId"));
+            if (id <= 0)
+                return null;
+
+            var record = GetGameModeRecord(id);
+            return new OtherModeSnapshot
+            {
+                GameModeRecordId = id,
+                Name = (GetProp(buttonModel, "Name") ?? string.Empty).ToString(),
+                Description = (GetProp(buttonModel, "Description") ?? string.Empty).ToString(),
+                LinkedScene = (record != null ? GetProp(record, "LinkedScene") : null)?.ToString() ?? string.Empty,
+                ModeKey = (record != null ? GetProp(record, "ModeKey") : null)?.ToString() ?? string.Empty,
+                IsDownloadRequired = ToBool(GetProp(buttonModel, "IsDownloadRequired")),
+                IsDownloading = ToBool(GetProp(buttonModel, "IsDownloading"))
+            };
+        }
+
+        private object GetGameModeRecord(int recordId)
+        {
+            if (_asm == null || recordId <= 0)
+                return null;
+
+            var gameDbfType = _asm.GetType("GameDbf");
+            if (gameDbfType == null)
+                return null;
+
+            var table = GetStaticValue(gameDbfType, "GameMode");
+            if (table == null)
+                return null;
+
+            return CallMethod(table, "GetRecord", recordId);
+        }
+
+        private static string FormatHubButtonSnapshot(HubButtonSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return string.Empty;
+
+            return string.Join("|", new[]
+            {
+                "scene=" + EncodeProtocolValue(snapshot.Scene),
+                "buttonKey=" + EncodeProtocolValue(snapshot.ButtonKey),
+                "label=" + EncodeProtocolValue(snapshot.Label),
+                "enabled=" + (snapshot.Enabled ? "1" : "0"),
+                "screenX=" + snapshot.ScreenX,
+                "screenY=" + snapshot.ScreenY,
+                "detail=" + EncodeProtocolValue(snapshot.Detail)
+            });
+        }
+
+        private static string FormatOtherModeSnapshot(OtherModeSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return string.Empty;
+
+            return string.Join("|", new[]
+            {
+                "gameModeRecordId=" + snapshot.GameModeRecordId,
+                "name=" + EncodeProtocolValue(snapshot.Name),
+                "description=" + EncodeProtocolValue(snapshot.Description),
+                "linkedScene=" + EncodeProtocolValue(snapshot.LinkedScene),
+                "modeKey=" + EncodeProtocolValue(snapshot.ModeKey),
+                "isDownloadRequired=" + (snapshot.IsDownloadRequired ? "1" : "0"),
+                "isDownloading=" + (snapshot.IsDownloading ? "1" : "0")
+            });
+        }
+
+        private static string EncodeProtocolValue(string value)
+        {
+            return Uri.EscapeDataString(value ?? string.Empty);
+        }
+
+        private static bool TryResolveEnumValue(Type enumType, string requestedName, out object value, out string resolvedName)
+        {
+            value = null;
+            resolvedName = null;
+            if (enumType == null || !enumType.IsEnum || string.IsNullOrWhiteSpace(requestedName))
+                return false;
+
+            var expected = NormalizeToken(requestedName);
+            foreach (var name in Enum.GetNames(enumType))
+            {
+                if (!string.Equals(NormalizeToken(name), expected, StringComparison.Ordinal))
+                    continue;
+
+                try
+                {
+                    value = Enum.Parse(enumType, name);
+                    resolvedName = name;
+                    return true;
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private static string NormalizeToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            return new string(value
+                .Trim()
+                .ToUpperInvariant()
+                .Where(char.IsLetterOrDigit)
+                .ToArray());
+        }
+
+        private static bool TrySetNextMode(object sceneMgr, Type modeType, object sceneMode)
+        {
+            if (sceneMgr == null || modeType == null || sceneMode == null)
+                return false;
+
+            var methods = sceneMgr.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                .Where(m => m.Name == "SetNextMode")
+                .OrderBy(m => m.GetParameters().Length)
+                .ToArray();
+
+            foreach (var method in methods)
+            {
+                var pars = method.GetParameters();
+                if (pars.Length < 1 || pars[0].ParameterType != modeType)
+                    continue;
+
+                var args = new object[pars.Length];
+                args[0] = sceneMode;
+                for (var i = 1; i < pars.Length; i++)
+                    args[i] = pars[i].HasDefaultValue ? pars[i].DefaultValue : GetDefault(pars[i].ParameterType);
+
+                try
+                {
+                    method.Invoke(sceneMgr, args);
+                    return true;
+                }
+                catch
+                {
+                }
+            }
+
+            return false;
+        }
+
+        private static HubButtonDescriptor FindHubButtonDescriptor(string buttonKey)
+        {
+            var expected = NormalizeToken(buttonKey);
+            return HubButtonDescriptors.FirstOrDefault(d =>
+                string.Equals(NormalizeToken(d.ButtonKey), expected, StringComparison.Ordinal));
+        }
+
+        private static bool IsButtonEnabled(object buttonObj)
+        {
+            if (buttonObj == null)
+                return false;
+
+            bool enabled;
+            foreach (var memberName in new[] { "IsEnabled", "Enabled", "enabled", "m_isEnabled", "m_enabled" })
+            {
+                if (TryGetBoolLike(buttonObj, memberName, out enabled))
+                    return enabled;
+            }
+
+            return true;
+        }
+
+        private static bool ToBool(object value)
+        {
+            if (value == null)
+                return false;
+            if (value is bool b)
+                return b;
+
+            var text = value.ToString();
+            return string.Equals(text, "1", StringComparison.Ordinal)
+                || string.Equals(text, "true", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(text, "yes", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private long GetSelectedDeckId(object dpt)
+        {
+            return ToLong(Call(dpt, "GetSelectedDeckID")
+                ?? Call(dpt, "GetSelectedDeckId")
+                ?? GetProp(dpt, "SelectedDeckID")
+                ?? GetProp(dpt, "SelectedDeckId"));
+        }
+
+        private bool TryFindDeckBoxById(object dpt, long deckId, out object deckBox, out int pageIndex, out int deckIndex)
+        {
+            deckBox = null;
+            pageIndex = -1;
+            deckIndex = -1;
+            if (dpt == null || deckId <= 0)
+                return false;
+
+            var currentPageIndex = 0;
+            foreach (var page in AsEnumerable(GetProp(dpt, "m_customPages")))
+            {
+                var currentDeckIndex = 0;
+                foreach (var candidate in AsEnumerable(GetProp(page, "m_customDecks")))
+                {
+                    var id = ToLong(GetProp(candidate, "m_deckID")
+                        ?? GetProp(candidate, "m_deckId")
+                        ?? GetProp(candidate, "DeckID")
+                        ?? GetProp(candidate, "DeckId")
+                        ?? GetProp(candidate, "m_preconDeckID"));
+                    if (id == deckId)
+                    {
+                        deckBox = candidate;
+                        pageIndex = currentPageIndex;
+                        deckIndex = currentDeckIndex;
+                        return true;
+                    }
+
+                    currentDeckIndex++;
+                }
+
+                currentPageIndex++;
+            }
+
+            return false;
+        }
+
+        private static bool CanSelectDeckBox(object deckBox)
+        {
+            if (deckBox == null)
+                return false;
+
+            var canSelect = Call(deckBox, "CanSelectDeck");
+            if (canSelect is bool b)
+                return b;
+
+            if (TryGetBoolLike(deckBox, "IsLocked", out var isLocked) && isLocked)
+                return false;
+
+            return true;
         }
 
         private bool TryFindTournamentEntryPos(out int x, out int y, out string detail)
@@ -780,6 +1341,10 @@ namespace HearthstonePayload
                 }
             }
 
+            var startupRatingsHit = FindStartupRatingsHit();
+            if (startupRatingsHit != null)
+                return startupRatingsHit;
+
             foreach (var node in nodes)
             {
                 if (!LooksLikeBlockingDialogObject(node.obj, node.path))
@@ -793,6 +1358,144 @@ namespace HearthstonePayload
             }
 
             return fallback;
+        }
+
+        private BlockingDialogHit FindStartupRatingsHit()
+        {
+            var popup = FindStartupRatingsPopup();
+            if (popup == null)
+                return null;
+
+            return new BlockingDialogHit
+            {
+                DialogType = StartupRatingsDialogType,
+                ButtonLabel = StartupRatingsButtonLabel,
+                CanDismiss = true,
+                IsRetryButton = false,
+                Detail = popup.GetType().FullName ?? popup.GetType().Name
+            };
+        }
+
+        private object FindStartupRatingsPopup()
+        {
+            if (_asm == null || !IsStartupOrLoginScene(GetSceneInternal()))
+                return null;
+
+            var splashScreenType = _asm.GetType("SplashScreen");
+            if (splashScreenType == null)
+                return null;
+
+            var splashScreen = CallStatic(splashScreenType, "Get")
+                ?? GetStaticValue(splashScreenType, "s_instance");
+            if (splashScreen == null || !IsObjectProbablyVisible(splashScreen))
+                return null;
+
+            var ratingsPopupType = _asm.GetType("RatingsPopupControl");
+            if (ratingsPopupType == null)
+                return null;
+
+            UnityEngine.Object[] popups;
+            try
+            {
+                popups = UnityEngine.Object.FindObjectsOfType(ratingsPopupType, true);
+            }
+            catch
+            {
+                try
+                {
+                    popups = UnityEngine.Object.FindObjectsOfType(ratingsPopupType);
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            if (popups == null || popups.Length == 0)
+                return null;
+
+            object fallback = null;
+            foreach (var popupObj in popups)
+            {
+                var popup = (object)popupObj;
+                if (popup == null || !IsObjectProbablyVisible(popup))
+                    continue;
+                if (!TryGetBoolLike(popup, "WaitForUserToStart", out var waitForUserToStart) || !waitForUserToStart)
+                    continue;
+
+                var widget = GetProp(popup, "m_widget") ?? GetProp(popup, "Widget");
+                if (widget != null && IsObjectProbablyVisible(widget))
+                    return popup;
+
+                if (fallback == null)
+                    fallback = popup;
+            }
+
+            return fallback;
+        }
+
+        private string DismissStartupRatings()
+        {
+            var eventTriggered = OnMain(() =>
+            {
+                if (!Init())
+                    return false;
+
+                var popup = FindStartupRatingsPopup();
+                if (popup == null)
+                    return false;
+
+                var widget = GetProp(popup, "m_widget") ?? GetProp(popup, "Widget");
+                if (widget == null || !IsObjectProbablyVisible(widget))
+                    return false;
+
+                var eventName = (GetProp(popup, "m_startPressedEvent") as string) ?? StartupRatingsStartPressedEvent;
+                var triggerResult = CallMethod(widget, "TriggerEvent", eventName);
+                return triggerResult != null;
+            });
+
+            if (eventTriggered && WaitForStartupRatingsDismissed())
+                return "OK:" + StartupRatingsDialogType + ":" + StartupRatingsButtonLabel;
+
+            var clickResult = ClickAtRatio(StartupRatingsFallbackClickX, StartupRatingsFallbackClickY, 0.25f);
+            if (string.IsNullOrWhiteSpace(clickResult)
+                || !clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                return "FAIL:" + StartupRatingsDialogType + ":" + (string.IsNullOrWhiteSpace(clickResult) ? "click_failed" : clickResult);
+            }
+
+            return WaitForStartupRatingsDismissed()
+                ? "OK:" + StartupRatingsDialogType + ":" + StartupRatingsButtonLabel
+                : "FAIL:" + StartupRatingsDialogType + ":still_present";
+        }
+
+        private bool WaitForStartupRatingsDismissed()
+        {
+            for (var i = 0; i < StartupRatingsDismissPollAttempts; i++)
+            {
+                Thread.Sleep(StartupRatingsDismissPollIntervalMs);
+                var stillPresent = OnMain(() =>
+                {
+                    if (!Init())
+                        return false;
+                    return FindStartupRatingsPopup() != null;
+                });
+                if (!stillPresent)
+                    return true;
+            }
+
+            return OnMain(() =>
+            {
+                if (!Init())
+                    return true;
+                return FindStartupRatingsPopup() == null;
+            });
+        }
+
+        private static bool IsStartupOrLoginScene(string scene)
+        {
+            return string.Equals(scene, "STARTUP", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "LOGIN", StringComparison.OrdinalIgnoreCase);
         }
 
         private IEnumerable<(object obj, string path)> GetBlockingDialogRoots()
@@ -1055,6 +1758,7 @@ namespace HearthstonePayload
             var normalized = NormalizeDialogButtonToken(label);
             return normalized == "ok"
                 || normalized == "okay"
+                || normalized == NormalizeDialogButtonToken(StartupRatingsButtonLabel)
                 || normalized == "确认"
                 || normalized == "确定"
                 || normalized == "关闭"
@@ -1393,6 +2097,24 @@ namespace HearthstonePayload
             return _coroutine.RunAndWait(MouseClick(x, y, delayAfter));
         }
 
+        private string ClickAtRatio(float ratioX, float ratioY, float delayAfter)
+        {
+            var dims = OnMain(() =>
+            {
+                var sw = MouseSimulator.GetScreenWidth();
+                var sh = MouseSimulator.GetScreenHeight();
+                return new[] { sw, sh };
+            });
+            var w = dims[0];
+            var h = dims[1];
+            if (w <= 0 || h <= 0)
+                return "ERROR:no_screen";
+
+            var x = Math.Max(6, Math.Min(w - 6, (int)(w * ratioX)));
+            var y = Math.Max(6, Math.Min(h - 6, (int)(h * ratioY)));
+            return ClickAt(x, y, delayAfter);
+        }
+
         private IEnumerable<float> SmoothMove(int tx, int ty, int steps = 12)
         {
             var sx = MouseSimulator.CurX;
@@ -1416,42 +2138,22 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 对局结束页通常“任意位置可点击继续”，
-        /// 这里采用中心+底部中间+左右偏移多点，兼容不同结算/奖励弹窗。
+        /// 对局结束页点击右下角位置继续（避开手牌区）
         /// </summary>
         private IEnumerator<float> MouseDismissClickSequence(int w, int h)
         {
             InputHook.Simulating = true;
-            var cx = w / 2;
-            var cy = h / 2;
-            var lowerY = (int)(h * 0.70f);
-            var bottomY = (int)(h * 0.82f);
-            var continueY = (int)(h * 0.93f);
-            var sideOffset = Math.Max(14, w / 12);
-            var points = new[]
-            {
-                (x: cx, y: cy),
-                (x: cx, y: lowerY),
-                (x: cx, y: bottomY),
-                (x: cx, y: continueY),
-                (x: cx - sideOffset, y: continueY),
-                (x: cx + sideOffset, y: continueY),
-                (x: cx - sideOffset, y: lowerY),
-                (x: cx + sideOffset, y: lowerY),
-                (x: cx, y: cy),
-            };
+            var clickX = (int)(w * 0.85f);
+            var clickY = (int)(h * 0.75f);
 
-            foreach (var p in points)
-            {
-                MouseSimulator.MoveTo(p.x, p.y);
-                yield return 0.03f;
-                MouseSimulator.LeftDown();
-                yield return 0.03f;
-                MouseSimulator.LeftUp();
-                yield return 0.10f;
-            }
+            MouseSimulator.MoveTo(clickX, clickY);
+            yield return 0.03f;
+            MouseSimulator.LeftDown();
+            yield return 0.03f;
+            MouseSimulator.LeftUp();
+            yield return 0.10f;
 
-            _coroutine.SetResult("OK:center_multi");
+            _coroutine.SetResult("OK:bottom_right");
         }
 
         private string ClickDismissByWindowMessage(IntPtr windowHandle, NativeRect clientRect)
@@ -1720,7 +2422,7 @@ namespace HearthstonePayload
         private static object Call(object obj, string method)
         {
             if (obj == null || string.IsNullOrWhiteSpace(method)) return null;
-            var mi = obj.GetType().GetMethod(method,
+            var mi = FindZeroArgMethod(obj.GetType(), method,
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             if (mi == null) return null;
             try { return mi.Invoke(obj, null); } catch { return null; }
@@ -1766,9 +2468,19 @@ namespace HearthstonePayload
         private static object CallStatic(Type type, string method)
         {
             if (type == null || string.IsNullOrWhiteSpace(method)) return null;
-            var mi = type.GetMethod(method, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            var mi = FindZeroArgMethod(type, method, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
             if (mi == null) return null;
             try { return mi.Invoke(null, null); } catch { return null; }
+        }
+
+        private static MethodInfo FindZeroArgMethod(Type type, string method, BindingFlags flags)
+        {
+            if (type == null || string.IsNullOrWhiteSpace(method))
+                return null;
+
+            return type.GetMethods(flags)
+                .FirstOrDefault(m => string.Equals(m.Name, method, StringComparison.Ordinal)
+                    && m.GetParameters().Length == 0);
         }
 
         private static object GetStaticValue(Type type, string name)

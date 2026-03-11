@@ -9,12 +9,10 @@
         <local:MainViewModel/>
     </Window.DataContext>
     <DockPanel>
-        <!-- 顶部状态栏 -->
         <Border DockPanel.Dock="Top" Background="#007ACC" Padding="8,5">
             <TextBlock Foreground="White" FontSize="11" Text="{Binding TopStatusText}"/>
         </Border>
 
-        <!-- 控制区第1行: Stop + Mode + Profile + 设置齿轮 -->
         <Grid DockPanel.Dock="Top" Margin="4,6,4,1">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -29,7 +27,7 @@
                 <ComboBox Width="100" Height="23" SelectedIndex="{Binding ModeIndex}" FontSize="11">
                     <ComboBoxItem Content="Standard"/>
                     <ComboBoxItem Content="Wild"/>
-                    <ComboBoxItem Content="Test(测试)"/>
+                    <ComboBoxItem Content="Test"/>
                 </ComboBox>
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
@@ -43,7 +41,6 @@
                     FontSize="13" ToolTip="Settings"/>
         </Grid>
 
-        <!-- 控制区第2行: Start + Deck + Mulligan -->
         <Grid DockPanel.Dock="Top" Margin="4,1,4,4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
@@ -60,7 +57,7 @@
                         Command="{Binding RefreshDecksCmd}" ToolTip="刷新卡组"/>
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
-                <TextBlock Text="✿ Mulligan:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
+                <TextBlock Text="Mulligan:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
                 <ComboBox Width="180" Height="23" ItemsSource="{Binding MulliganNames}"
                           SelectedIndex="{Binding MulliganProfileIndex}" FontSize="11"/>
                 <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
@@ -68,30 +65,27 @@
             </StackPanel>
         </Grid>
 
-        <!-- 控制区第3行: Discover -->
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,1,4,4" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
-            <TextBlock Text="✦ Discover:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
+            <TextBlock Text="Discover:" VerticalAlignment="Center" Margin="4,0,3,0" FontSize="11"/>
             <ComboBox Width="180" Height="23" ItemsSource="{Binding DiscoverNames}"
                       SelectedIndex="{Binding DiscoverProfileIndex}" FontSize="11"/>
             <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
                     Command="{Binding RefreshDiscoverCmd}" ToolTip="刷新发现策略"/>
         </StackPanel>
 
-        <!-- 统计区 + 设置区 -->
         <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,1,0,1" Padding="6,4">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
-                <!-- 左侧统计 -->
                 <StackPanel>
                     <TextBlock Text="Statistics:" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,2"/>
                     <TextBlock FontSize="11" Foreground="#333">
                         <Run Text="Runtime: "/><Run Text="{Binding RuntimeText, Mode=OneWay}"/>
-                        <Run Text="  -  胜: "/><Run Text="{Binding Wins, Mode=OneWay}"/>
-                        <Run Text="  负: "/><Run Text="{Binding Losses, Mode=OneWay}"/>
-                        <Run Text="  投: "/><Run Text="{Binding Concedes, Mode=OneWay}"/>
+                        <Run Text="  -  W: "/><Run Text="{Binding Wins, Mode=OneWay}"/>
+                        <Run Text="  L: "/><Run Text="{Binding Losses, Mode=OneWay}"/>
+                        <Run Text="  C: "/><Run Text="{Binding Concedes, Mode=OneWay}"/>
                     </TextBlock>
                     <TextBlock FontSize="11" Foreground="#333">
                         <Run Text="WR: "/><Run Text="{Binding WinRate, Mode=OneWay}"/><Run Text="%"/>
@@ -104,12 +98,11 @@
                                 Command="{Binding SaveLogCmd}"/>
                     </StackPanel>
                 </StackPanel>
-                <!-- 右侧设置 -->
                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
                     <CheckBox Content="Follow HSBox" FontSize="11" IsChecked="{Binding FollowHsBoxOperation}" Margin="0,0,0,2"
-                              ToolTip="动作/留牌/发现跟随盒子推荐，不走本地 profile / mulligan / discover"/>
+                              ToolTip="动作、留牌、发现跟随 HSBox 推荐，不走本地 profile / mulligan / discover"/>
                     <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}" Margin="0,0,0,2"
-                              ToolTip="淇濆瓨褰撳墠瀵瑰眬鐨勭洅瀛愬洖璋僎son锛屾寜瀵瑰眬/鍥炲悎鍒嗙被鍐欏叆 Logs/HsBoxCallbacks"/>
+                              ToolTip="保存 HSBox 回调到 Logs/HsBoxCallbacks"/>
                     <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,2"/>
                     <CheckBox Content="Overlay" FontSize="11" IsChecked="{Binding OverlayMode}" Margin="0,0,0,2"/>
                     <CheckBox Content="Auto-concede" FontSize="11" IsChecked="{Binding AutoConcede}" Margin="0,0,0,2"/>
@@ -119,11 +112,28 @@
                         <TextBox Width="30" Height="20" Text="{Binding FpsValue}" FontSize="11"
                                  VerticalContentAlignment="Center"/>
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0">
+                        <TextBlock Text="Queue timeout:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <TextBox Width="36" Height="20" Text="{Binding MatchmakingTimeoutSeconds}" FontSize="11"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text="s" FontSize="11" VerticalAlignment="Center" Margin="3,0,0,0"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,2,0,0">
+                        <TextBlock Text="Hearthstone.exe:" FontSize="11" Margin="0,0,0,2"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="155" Height="20"
+                                     Text="{Binding HearthstoneExecutablePath, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="11" VerticalContentAlignment="Center"
+                                     ToolTip="Leave empty to auto-use the current Hearthstone path"/>
+                            <Button Content="..." Width="24" Height="20" Margin="3,0,0,0"
+                                    Command="{Binding BrowseHearthstonePathCmd}"
+                                    ToolTip="选择 Hearthstone.exe"/>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>
 
-        <!-- Tab区域 -->
         <TabControl Margin="4,4,4,4">
             <TabItem Header="Logs">
                 <TextBox Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"

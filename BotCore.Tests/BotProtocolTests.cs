@@ -19,7 +19,7 @@ namespace BotCore.Tests
         {
             Assert.True(BotProtocol.IsCrossCommandResponse("OK:center_multi"));
             Assert.True(BotProtocol.IsCrossCommandResponse("ERROR:coroutine_timeout"));
-            Assert.True(BotProtocol.IsCrossCommandResponse("ENDGAME:1:Victory"));
+            Assert.True(BotProtocol.IsCrossCommandResponse("ENDGAME:1:VictoryScreen"));
             Assert.True(BotProtocol.IsCrossCommandResponse(BotProtocol.NoDialog));
             Assert.True(BotProtocol.IsCrossCommandResponse("DIALOG:AlertPopup:OK"));
         }
@@ -29,6 +29,57 @@ namespace BotCore.Tests
         {
             Assert.False(BotProtocol.TryParseScene("OK:center_multi", out var scene));
             Assert.Null(scene);
+        }
+
+        [Fact]
+        public void HubButtonsResponse_ParsesStructuredLobbyButtons()
+        {
+            var resp = "HUB_BUTTONS:"
+                + "scene=HUB|buttonKey=traditional|label=%E4%BC%A0%E7%BB%9F%E5%AF%B9%E6%88%98|enabled=1|screenX=120|screenY=340|detail=Box.m_PlayButton"
+                + ";scene=HUB|buttonKey=arena|label=%E7%AB%9E%E6%8A%80%E6%A8%A1%E5%BC%8F|enabled=0|screenX=0|screenY=0|detail=Box.m_ArenaButton%3Amissing";
+
+            Assert.True(BotProtocol.IsHubButtonsResponse(resp));
+            Assert.True(BotProtocol.IsCrossCommandResponse(resp));
+            Assert.True(BotProtocol.TryParseHubButtons(resp, out var buttons));
+            Assert.Equal(2, buttons.Count);
+
+            Assert.Equal("HUB", buttons[0].Scene);
+            Assert.Equal("traditional", buttons[0].ButtonKey);
+            Assert.Equal("传统对战", buttons[0].Label);
+            Assert.True(buttons[0].Enabled);
+            Assert.Equal(120, buttons[0].ScreenX);
+            Assert.Equal(340, buttons[0].ScreenY);
+            Assert.Equal("Box.m_PlayButton", buttons[0].Detail);
+
+            Assert.Equal("arena", buttons[1].ButtonKey);
+            Assert.False(buttons[1].Enabled);
+            Assert.Equal("Box.m_ArenaButton:missing", buttons[1].Detail);
+        }
+
+        [Fact]
+        public void OtherModeButtonsResponse_ParsesStructuredModeList()
+        {
+            var resp = "OTHER_MODE_BUTTONS:"
+                + "gameModeRecordId=101|name=%E4%B9%B1%E6%96%97%E6%A8%A1%E5%BC%8F|description=%E6%AF%8F%E5%91%A8%E4%B8%80%E4%B9%B1%E6%96%97|linkedScene=TAVERN_BRAWL|modeKey=TAVERN_BRAWL|isDownloadRequired=0|isDownloading=0"
+                + ";gameModeRecordId=202|name=%E4%BD%A3%E5%85%B5%E6%88%98%E7%BA%AA|description=%E7%BB%A7%E7%BB%AD%E5%89%8D%E8%BF%9B|linkedScene=LETTUCE_VILLAGE|modeKey=MERCENARIES|isDownloadRequired=1|isDownloading=1";
+
+            Assert.True(BotProtocol.IsOtherModeButtonsResponse(resp));
+            Assert.True(BotProtocol.IsCrossCommandResponse(resp));
+            Assert.True(BotProtocol.TryParseOtherModeButtons(resp, out var buttons));
+            Assert.Equal(2, buttons.Count);
+
+            Assert.Equal(101, buttons[0].GameModeRecordId);
+            Assert.Equal("乱斗模式", buttons[0].Name);
+            Assert.Equal("每周一乱斗", buttons[0].Description);
+            Assert.Equal("TAVERN_BRAWL", buttons[0].LinkedScene);
+            Assert.Equal("TAVERN_BRAWL", buttons[0].ModeKey);
+            Assert.False(buttons[0].IsDownloadRequired);
+            Assert.False(buttons[0].IsDownloading);
+
+            Assert.Equal(202, buttons[1].GameModeRecordId);
+            Assert.Equal("佣兵战纪", buttons[1].Name);
+            Assert.True(buttons[1].IsDownloadRequired);
+            Assert.True(buttons[1].IsDownloading);
         }
 
         [Fact]
@@ -87,6 +138,14 @@ namespace BotCore.Tests
             Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dialogType, out var buttonLabel));
             Assert.Equal("AlertPopup", dialogType);
             Assert.Equal("OK", buttonLabel);
+
+            Assert.True(BotProtocol.TryParseBlockingDialog(
+                $"DIALOG:{BotProtocol.StartupRatingsDialogType}:{BotProtocol.StartupRatingsButtonLabel}",
+                out dialogType,
+                out buttonLabel));
+            Assert.Equal(BotProtocol.StartupRatingsDialogType, dialogType);
+            Assert.Equal(BotProtocol.StartupRatingsButtonLabel, buttonLabel);
+
             Assert.False(BotProtocol.TryParseBlockingDialog(BotProtocol.NoDialog, out _, out _));
         }
 
@@ -94,18 +153,28 @@ namespace BotCore.Tests
         public void BlockingDialogButtonLabels_OnlyAllowSafeDismissButtons()
         {
             Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("OK"));
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("确认"));
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("确定"));
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("关闭"));
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("返回"));
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("取消"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("\u786e\u8ba4"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("\u786e\u5b9a"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("\u5173\u95ed"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("\u8fd4\u56de"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("\u53d6\u6d88"));
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel(BotProtocol.StartupRatingsButtonLabel));
 
             Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("Reconnect"));
-            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("重试"));
-            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("重新连接"));
+            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("\u91cd\u8bd5"));
+            Assert.True(BotProtocol.IsRetryBlockingDialogButtonLabel("\u91cd\u65b0\u8fde\u63a5"));
             Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("Reconnect"));
-            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("重试"));
-            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("重新连接"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("\u91cd\u8bd5"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("\u91cd\u65b0\u8fde\u63a5"));
+        }
+
+        [Fact]
+        public void NavigationBlockedScenes_BlockStartupAndLoginUntilLobbyReady()
+        {
+            Assert.True(BotProtocol.IsNavigationBlockedScene("STARTUP"));
+            Assert.True(BotProtocol.IsNavigationBlockedScene("LOGIN"));
+            Assert.False(BotProtocol.IsNavigationBlockedScene("HUB"));
+            Assert.False(BotProtocol.IsStableLobbyScene("LOGIN"));
         }
 
         [Fact]

@@ -94,7 +94,8 @@ namespace BotMain
         // 匹配超时跟踪
         private DateTime? _findingGameSince;
         private bool _wasMatchmaking;
-        private const int MatchmakingTimeoutSeconds = 60;
+        private const int DefaultMatchmakingTimeoutSeconds = 60;
+        private int _matchmakingTimeoutSeconds = DefaultMatchmakingTimeoutSeconds;
         private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
         private static readonly TimeSpan KeepAliveMinInterval = TimeSpan.FromSeconds(45);
         private const int PostGameLobbyConfirmationsRequired = 2;
@@ -166,6 +167,8 @@ namespace BotMain
         private string _localDataDir;
         private string _pluginDir;
         private string _smartBotRootOverride;
+        private string _hearthstoneExecutablePathOverride;
+        private string _lastKnownHearthstoneExecutablePath;
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
@@ -240,6 +243,58 @@ namespace BotMain
             });
         }
 
+        public bool TryFetchHubButtons(out List<BotProtocol.HubButtonInfo> buttons)
+        {
+            buttons = new List<BotProtocol.HubButtonInfo>();
+            lock (_sync)
+            {
+                if (State == BotState.Running)
+                {
+                    Log("TryFetchHubButtons skipped: bot is running.");
+                    return false;
+                }
+
+                if (!EnsurePreparedAndConnected())
+                    return false;
+
+                return TryGetHubButtons(_pipe, 4000, out buttons, "FetchHubButtons");
+            }
+        }
+
+        public bool TryFetchOtherModeButtons(out List<BotProtocol.OtherModeButtonInfo> buttons)
+        {
+            buttons = new List<BotProtocol.OtherModeButtonInfo>();
+            lock (_sync)
+            {
+                if (State == BotState.Running)
+                {
+                    Log("TryFetchOtherModeButtons skipped: bot is running.");
+                    return false;
+                }
+
+                if (!EnsurePreparedAndConnected())
+                    return false;
+
+                return TryGetOtherModeButtons(_pipe, 4000, out buttons, "FetchOtherModeButtons");
+            }
+        }
+
+        public string TryClickHubButton(string buttonKey)
+        {
+            if (string.IsNullOrWhiteSpace(buttonKey))
+                return "ERROR:invalid_button";
+
+            lock (_sync)
+            {
+                if (State == BotState.Running)
+                    return "ERROR:bot_running";
+                if (!EnsurePreparedAndConnected())
+                    return "ERROR:not_connected";
+
+                return _pipe?.SendAndReceive("CLICK_HUB_BUTTON:" + buttonKey, 5000) ?? "ERROR:no_response";
+            }
+        }
+
         public void SelectProfile(int index)
         {
             _selectedProfile = index >= 0 && index < _profiles.Count ? _profiles[index] : null;
@@ -256,6 +311,23 @@ namespace BotMain
         public void SetExternalPaths(string smartBotRoot)
         {
             _smartBotRootOverride = NormalizeExternalPath(smartBotRoot);
+        }
+
+        public void SetHearthstoneExecutablePath(string hearthstoneExecutablePath)
+        {
+            var normalized = NormalizeExternalPath(hearthstoneExecutablePath);
+            _hearthstoneExecutablePathOverride = normalized;
+            if (!string.IsNullOrWhiteSpace(normalized))
+                _lastKnownHearthstoneExecutablePath = NormalizeHearthstoneLaunchPath(normalized);
+
+            Log($"[Settings] HearthstonePath={(string.IsNullOrWhiteSpace(normalized) ? "(auto)" : normalized)}");
+        }
+
+        public void SetMatchmakingTimeoutSeconds(int seconds)
+        {
+            var normalized = Math.Max(10, seconds);
+            _matchmakingTimeoutSeconds = normalized;
+            Log($"[Settings] MatchmakingTimeoutSeconds={normalized}");
         }
 
         public void SetFollowHsBoxRecommendations(bool value)
@@ -2839,21 +2911,7 @@ namespace BotMain
 
         private static bool IsMulliganTransientFailure(string result)
         {
-            if (string.IsNullOrWhiteSpace(result))
-                return true;
-
-            var normalized = result.ToLowerInvariant();
-            return normalized.Contains("waiting_for_cards")
-                || normalized.Contains("waiting_for_ready")
-                || normalized.Contains("waiting_for_user_input")
-                || normalized.Contains("friendly_choices_not_ready")
-                || normalized.Contains("response_packet_blocked")
-                || normalized.Contains("input_not_ready")
-                || normalized.Contains("mulligan_not_active")
-                || normalized.Contains("starting_cards_not_ready")
-                || normalized.Contains("marked_state_not_ready")
-                || normalized.Contains("entity_not_found")
-                || normalized.Contains("wait:mulligan_manager");
+            return MulliganProtocol.IsTransientFailure(result);
         }
 
         private string SendActionCommand(PipeServer pipe, string action, int timeoutMs)
@@ -3008,6 +3066,38 @@ namespace BotMain
                 out var resp,
                 scope);
             return got && BotProtocol.TryParseScene(resp, out scene);
+        }
+
+        private bool TryGetHubButtons(PipeServer pipe, int timeoutMs, out List<BotProtocol.HubButtonInfo> buttons, string scope)
+        {
+            buttons = new List<BotProtocol.HubButtonInfo>();
+            var got = TrySendAndReceiveExpected(
+                pipe,
+                "GET_HUB_BUTTONS",
+                timeoutMs,
+                r => BotProtocol.IsHubButtonsResponse(r) || BotProtocol.IsStatusResponse(r),
+                out var resp,
+                scope);
+            if (!got || string.IsNullOrWhiteSpace(resp) || BotProtocol.IsStatusResponse(resp))
+                return false;
+
+            return BotProtocol.TryParseHubButtons(resp, out buttons);
+        }
+
+        private bool TryGetOtherModeButtons(PipeServer pipe, int timeoutMs, out List<BotProtocol.OtherModeButtonInfo> buttons, string scope)
+        {
+            buttons = new List<BotProtocol.OtherModeButtonInfo>();
+            var got = TrySendAndReceiveExpected(
+                pipe,
+                "GET_OTHER_MODE_BUTTONS",
+                timeoutMs,
+                r => BotProtocol.IsOtherModeButtonsResponse(r) || BotProtocol.IsStatusResponse(r),
+                out var resp,
+                scope);
+            if (!got || string.IsNullOrWhiteSpace(resp) || BotProtocol.IsStatusResponse(resp))
+                return false;
+
+            return BotProtocol.TryParseOtherModeButtons(resp, out buttons);
         }
 
         private bool TryGetSeedProbe(PipeServer pipe, int timeoutMs, out string probe, string scope)
@@ -3465,47 +3555,22 @@ namespace BotMain
         private static bool TryParseMulliganState(string payload, out MulliganStateSnapshot snapshot, out string error)
         {
             snapshot = null;
-            error = null;
-
-            if (string.IsNullOrWhiteSpace(payload))
-            {
-                error = "mulligan payload empty";
+            MulliganProtocolSnapshot parsed;
+            if (!MulliganProtocol.TryParseState(payload, out parsed, out error))
                 return false;
-            }
-
-            var parts = payload.Split('|');
-            if (parts.Length < 2)
-            {
-                error = "mulligan payload format invalid";
-                return false;
-            }
-
-            if (!int.TryParse(parts[0], out var ownClass) || !int.TryParse(parts[1], out var enemyClass))
-            {
-                error = "mulligan class parse failed";
-                return false;
-            }
 
             snapshot = new MulliganStateSnapshot
             {
-                OwnClass = ownClass,
-                EnemyClass = enemyClass
+                OwnClass = parsed.OwnClass,
+                EnemyClass = parsed.EnemyClass
             };
 
-            if (parts.Length < 3 || string.IsNullOrWhiteSpace(parts[2]))
-                return true;
-
-            var cardEntries = parts[2].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
-            foreach (var cardEntry in cardEntries)
+            foreach (var choice in parsed.Choices)
             {
-                var pair = cardEntry.Split(',');
-                if (pair.Length != 2) continue;
-                if (!int.TryParse(pair[1], out var entityId) || entityId <= 0) continue;
-
                 snapshot.Choices.Add(new MulliganChoiceState
                 {
-                    CardId = pair[0],
-                    EntityId = entityId
+                    CardId = choice.CardId,
+                    EntityId = choice.EntityId
                 });
             }
 
@@ -3638,9 +3703,9 @@ namespace BotMain
                 }
 
                 var elapsed = (DateTime.UtcNow - _findingGameSince.Value).TotalSeconds;
-                if (elapsed >= MatchmakingTimeoutSeconds)
+                if (elapsed >= _matchmakingTimeoutSeconds)
                 {
-                    Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {MatchmakingTimeoutSeconds}s)，重启游戏...");
+                    Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {_matchmakingTimeoutSeconds}s)，重启游戏...");
                     _wasMatchmaking = false;
                     _matchEndedUtc = null;
                     RestartHearthstone();
@@ -3864,6 +3929,13 @@ namespace BotMain
             Thread.Sleep(1000);
 
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
+            if (string.IsNullOrWhiteSpace(playResp)
+                || !playResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+            {
+                Log("[AutoQueue] 点击开始未成功，保持在卡组页等待下一轮重试。");
+                Thread.Sleep(2000);
+                return;
+            }
             Log($"[AutoQueue] 点击开始 {playResp}");
             // 点击开始后立即标记为匹配中，防止匹配瞬间完成时保护机制来不及生效
             _wasMatchmaking = true;
@@ -3889,9 +3961,11 @@ namespace BotMain
         private void RestartHearthstone()
         {
             ResetMatchmakingTracking();
+            var hearthstoneProcesses = System.Diagnostics.Process.GetProcessesByName("Hearthstone");
+            var launchPath = ResolveHearthstoneLaunchPath(hearthstoneProcesses);
             try
             {
-                foreach (var proc in System.Diagnostics.Process.GetProcessesByName("Hearthstone"))
+                foreach (var proc in hearthstoneProcesses)
                 {
                     Log($"[Restart] 关闭炉石进程 PID={proc.Id}");
                     proc.Kill();
@@ -3907,7 +3981,80 @@ namespace BotMain
             _pipe = null;
             _prepared = false;
             _decksLoaded = false;
-            Log("[Restart] 已重置连接状态，等待炉石重新启动并重新连接...");
+            _nextDeckFetchUtc = DateTime.UtcNow;
+
+            if (TryLaunchHearthstone(launchPath))
+                Log("[Restart] 已重置连接状态并重新拉起炉石，等待重新连接...");
+            else
+                Log("[Restart] 已重置连接状态，但未能自动拉起炉石，等待外部启动后重新连接...");
+        }
+
+        private string ResolveHearthstoneLaunchPath(IEnumerable<Process> hearthstoneProcesses = null)
+        {
+            if (hearthstoneProcesses != null)
+            {
+                foreach (var proc in hearthstoneProcesses)
+                {
+                    try
+                    {
+                        var processPath = NormalizeHearthstoneLaunchPath(proc.MainModule?.FileName);
+                        if (!string.IsNullOrWhiteSpace(processPath))
+                        {
+                            _lastKnownHearthstoneExecutablePath = processPath;
+                            return processPath;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[Restart] 读取炉石路径失败 PID={proc.Id}: {ex.Message}");
+                    }
+                }
+            }
+
+            var configuredPath = NormalizeHearthstoneLaunchPath(_hearthstoneExecutablePathOverride);
+            if (!string.IsNullOrWhiteSpace(configuredPath))
+                return configuredPath;
+
+            return NormalizeHearthstoneLaunchPath(_lastKnownHearthstoneExecutablePath);
+        }
+
+        private bool TryLaunchHearthstone(string launchPath)
+        {
+            launchPath = NormalizeHearthstoneLaunchPath(launchPath);
+            if (string.IsNullOrWhiteSpace(launchPath))
+            {
+                Log("[Restart] 未配置 Hearthstone.exe 路径，且当前进程也无法推断启动路径。");
+                return false;
+            }
+
+            if (!File.Exists(launchPath))
+            {
+                Log($"[Restart] Hearthstone.exe 不存在: {launchPath}");
+                return false;
+            }
+
+            try
+            {
+                Thread.Sleep(1500);
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = launchPath,
+                    WorkingDirectory = Path.GetDirectoryName(launchPath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = true
+                };
+
+                var proc = Process.Start(startInfo);
+                _lastKnownHearthstoneExecutablePath = launchPath;
+                Log(proc != null
+                    ? $"[Restart] 已启动炉石 PID={proc.Id} Path={launchPath}"
+                    : $"[Restart] 已请求启动炉石 Path={launchPath}");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"[Restart] 启动炉石失败: {ex.Message}");
+                return false;
+            }
         }
 
         private static string StripClassSuffix(string name)
@@ -4329,6 +4476,18 @@ namespace BotMain
             }
         }
 
+        private static string NormalizeHearthstoneLaunchPath(string value)
+        {
+            var normalized = NormalizeExternalPath(value);
+            if (string.IsNullOrWhiteSpace(normalized))
+                return null;
+
+            if (Directory.Exists(normalized))
+                normalized = Path.Combine(normalized, "Hearthstone.exe");
+
+            return NormalizeExternalPath(normalized);
+        }
+
         private static bool TryConvertWslMountPathToWindows(string path, out string windowsPath)
         {
             windowsPath = null;
@@ -4407,5 +4566,3 @@ namespace BotMain
         }
     }
 }
-
-
