@@ -83,6 +83,99 @@ namespace HearthstonePayload
             _coroutine = executor;
         }
 
+        private static string ExecuteOption(int sourceId, int targetId, int position, string subOptionCardId)
+        {
+            if (sourceId <= 0)
+                return "FAIL:OPTION:source_invalid";
+
+            var needsStructuredOption =
+                targetId > 0
+                || position > 0
+                || !string.IsNullOrWhiteSpace(subOptionCardId);
+
+            if (!needsStructuredOption)
+                return _coroutine.RunAndWait(MouseClickChoice(sourceId));
+
+            var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
+            if (submitDetail == null)
+                return "OK:OPTION:network:" + sourceId;
+
+            var openResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
+            if (!openResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return openResult;
+
+            if (!WaitForChoicePacketReady(700))
+                return openResult;
+
+            submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
+            if (submitDetail == null)
+                return "OK:OPTION:open_then_network:" + sourceId;
+
+            if (targetId <= 0
+                && position <= 0
+                && !string.IsNullOrWhiteSpace(subOptionCardId)
+                && TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
+            {
+                return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
+            }
+
+            return openResult;
+        }
+
+        private static string TrySubmitStructuredOption(int sourceId, int targetId, int position, string desiredSubOptionCardId)
+        {
+            try
+            {
+                return SendOptionForEntity(sourceId, targetId, position, desiredSubOptionCardId, requireSourceLeaveHand: false);
+            }
+            catch (Exception ex)
+            {
+                return "ex:" + SimplifyException(ex);
+            }
+        }
+
+        private static bool WaitForChoicePacketReady(int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                var gs = GetGameState();
+                if (gs != null)
+                {
+                    var choicePacket = TryGetFriendlyChoicePacket(gs);
+                    if (TryGetChoicePacketEntityIds(choicePacket, out var entityIds) && entityIds.Count > 0)
+                        return true;
+                }
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveChoiceEntityIdByCardId(object gameState, string cardId, out int entityId)
+        {
+            entityId = 0;
+            if (gameState == null || string.IsNullOrWhiteSpace(cardId))
+                return false;
+
+            var choicePacket = TryGetFriendlyChoicePacket(gameState);
+            if (!TryGetChoicePacketEntityIds(choicePacket, out var entityIds))
+                return false;
+
+            foreach (var candidateEntityId in entityIds)
+            {
+                var resolvedCardId = ResolveEntityCardId(gameState, candidateEntityId);
+                if (!string.Equals(resolvedCardId, cardId, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                entityId = candidateEntityId;
+                return true;
+            }
+
+            return false;
+        }
+
         private static bool EnsureTypes()
         {
             if (_asm != null) return true;
@@ -235,7 +328,10 @@ namespace HearthstonePayload
                 case "OPTION":
                     {
                         int sourceId = int.Parse(parts[1]);
-                        return _coroutine.RunAndWait(MouseClickChoice(sourceId));
+                        int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string subOptionCardId = parts.Length > 4 ? parts[4] : null;
+                        return ExecuteOption(sourceId, targetId, position, subOptionCardId);
                     }
                 case "TRADE":
                     return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
@@ -3126,6 +3222,18 @@ namespace HearthstonePayload
             }
         }
 
+        /// <summary>
+        /// 检查 choice packet 的 ChoiceType 是否为 MULLIGAN。
+        /// CHOICE_TYPE 枚举: INVALID=0, MULLIGAN=1, GENERAL=2, TARGET=3
+        /// 留牌包的 ChoiceType 为 MULLIGAN，不应被当作发现选择处理。
+        /// </summary>
+        private static bool IsChoicePacketMulligan(object choicePacket)
+        {
+            if (choicePacket == null) return false;
+            var rawType = ReadChoiceTypeName(choicePacket);
+            return rawType.IndexOf("MULLIGAN", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
         private static bool TryGetChoiceCardMgrFriendlyCards(out List<object> cards)
         {
             cards = null;
@@ -3366,6 +3474,11 @@ namespace HearthstonePayload
             var choiceCardMgr = TryGetChoiceCardMgr();
             var choicePacket = TryGetFriendlyChoicePacket(gameState);
             var choiceState = TryGetCurrentFriendlyChoiceState(choiceCardMgr);
+
+            // 留牌包的 ChoiceType 为 MULLIGAN，不应被当作发现选择处理。
+            // 这是最精准的过滤：ChoiceType 来自服务器网络包，不依赖 UI 单例初始化。
+            if (IsChoicePacketMulligan(choicePacket))
+                return false;
 
             var built = new ChoiceSnapshot();
             built.InChoiceMode = IsChoiceModeActive(gameState);
@@ -4818,42 +4931,48 @@ namespace HearthstonePayload
                     var subOptionIndex = ResolveSubOptionIndex(option, main, desiredSubOptionCardId);
                     if (!string.IsNullOrWhiteSpace(desiredSubOptionCardId) && subOptionIndex < 0)
                         continue;
+                    var resolvedTargetEntityId = targetEntityId;
                     var targetIndex = -1;
                     var hasTargets = false;
+                    var targetEntityIds = new List<int>();
+                    var targets = GetFieldOrProp(main, "Targets") as IEnumerable
+                        ?? Invoke(main, "GetTargets") as IEnumerable
+                        ?? GetFieldOrProp(option, "Targets") as IEnumerable
+                        ?? Invoke(option, "GetTargets") as IEnumerable;
 
-                    if (targetEntityId > 0)
+                    if (targets != null)
                     {
-                        var targets = GetFieldOrProp(main, "Targets") as IEnumerable
-                            ?? Invoke(main, "GetTargets") as IEnumerable
-                            ?? GetFieldOrProp(option, "Targets") as IEnumerable
-                            ?? Invoke(option, "GetTargets") as IEnumerable;
-
-                        if (targets != null)
+                        hasTargets = true;
+                        var tIdx = 0;
+                        foreach (var t in targets)
                         {
-                            hasTargets = true;
-                            var tIdx = 0;
-                            foreach (var t in targets)
-                            {
-                                var tId = ResolveOptionEntityId(t);
-                                if (tId == targetEntityId)
-                                {
-                                    targetIndex = tIdx;
-                                    break;
-                                }
-                                tIdx++;
-                            }
-                        }
+                            var tId = ResolveOptionEntityId(t);
+                            if (tId > 0)
+                                targetEntityIds.Add(tId);
 
-                        if (hasTargets && targetIndex < 0)
-                            continue;
+                            if (tId == resolvedTargetEntityId)
+                                targetIndex = tIdx;
+
+                            tIdx++;
+                        }
                     }
+
+                    if (hasTargets && resolvedTargetEntityId <= 0)
+                    {
+                        resolvedTargetEntityId = PickPreferredOptionTarget(targetEntityIds);
+                        if (resolvedTargetEntityId > 0)
+                            targetIndex = targetEntityIds.IndexOf(resolvedTargetEntityId);
+                    }
+
+                    if (hasTargets && targetIndex < 0)
+                        continue;
 
                     return TrySendOption(
                         optionIndexByOrder,
                         optionIndexByField,
                         subOptionIndex,
                         targetIndex,
-                        targetEntityId,
+                        resolvedTargetEntityId,
                         position,
                         option,
                         entityId,
@@ -4863,6 +4982,66 @@ namespace HearthstonePayload
                 return "no_match:count=" + optionCount + ";ids=" + string.Join(",", mainIds);
             }
             catch (Exception ex) { return "ex:" + SimplifyException(ex); }
+        }
+
+        private static int PickPreferredOptionTarget(IReadOnlyList<int> candidateEntityIds)
+        {
+            if (candidateEntityIds == null || candidateEntityIds.Count == 0)
+                return 0;
+
+            var enemyHero = candidateEntityIds.FirstOrDefault(IsEnemyHeroEntityId);
+            if (enemyHero > 0)
+                return enemyHero;
+
+            var bestEntityId = 0;
+            var bestScore = int.MinValue;
+            foreach (var candidateEntityId in candidateEntityIds)
+            {
+                if (candidateEntityId <= 0 || IsFriendlyHeroEntityId(candidateEntityId) || IsEnemyHeroEntityId(candidateEntityId))
+                    continue;
+
+                var score = ReadOptionTargetPriority(candidateEntityId);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestEntityId = candidateEntityId;
+                }
+            }
+
+            if (bestEntityId > 0)
+                return bestEntityId;
+
+            var friendlyHero = candidateEntityIds.FirstOrDefault(IsFriendlyHeroEntityId);
+            if (friendlyHero > 0)
+                return friendlyHero;
+
+            return candidateEntityIds[0];
+        }
+
+        private static int ReadOptionTargetPriority(int entityId)
+        {
+            if (entityId <= 0)
+                return int.MinValue;
+
+            try
+            {
+                var gs = GetGameState();
+                var entity = GetEntity(gs, entityId);
+                if (entity == null)
+                    return int.MinValue;
+
+                var ctx = ReflectionContext.Instance;
+                if (!ctx.Init())
+                    return int.MinValue;
+
+                var atk = ctx.GetTagValue(entity, "ATK");
+                var health = ctx.GetTagValue(entity, "HEALTH");
+                return atk * 100 + health;
+            }
+            catch
+            {
+                return int.MinValue;
+            }
         }
 
 

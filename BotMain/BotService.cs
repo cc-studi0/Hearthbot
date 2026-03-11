@@ -2758,7 +2758,81 @@ namespace BotMain
             var decision = _ai.DecideActionPlan(request.Seed, request.SelectedProfile, request.DeckCards?.ToList());
             var actions = decision?.Actions?.ToList() ?? new List<string>();
             var detail = request.SelectedProfile?.GetType().Name ?? "no_profile";
+
+            if (TryInjectLocalTitanAction(actions, request?.PlanningBoard, out var titanDetail))
+                detail += $", titan={titanDetail}";
+
             return new ActionRecommendationResult(decision, actions, $"local_ai profile={detail}, actions={actions.Count}");
+        }
+
+        private bool TryInjectLocalTitanAction(List<string> actions, Board board, out string detail)
+        {
+            detail = "no_usable_titan";
+            if (actions == null || board?.MinionFriend == null || board.MinionFriend.Count == 0)
+                return false;
+
+            foreach (var minion in board.MinionFriend)
+            {
+                if (!IsTitanUsable(minion))
+                    continue;
+
+                var optionAction = $"OPTION|{minion.Id}|0|0";
+                if (actions.Any(action => string.Equals(action?.Trim(), optionAction, StringComparison.OrdinalIgnoreCase)))
+                {
+                    detail = $"existing:{GetTemplateDebugCardId(minion.Template)}:{minion.Id}";
+                    return false;
+                }
+
+                var endTurnIndex = actions.FindIndex(action => !string.IsNullOrWhiteSpace(action)
+                    && action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase));
+                if (endTurnIndex >= 0)
+                    actions.Insert(endTurnIndex, optionAction);
+                else
+                {
+                    actions.Add(optionAction);
+                    actions.Add("END_TURN");
+                }
+
+                detail = $"{GetTemplateDebugCardId(minion.Template)}:{minion.Id}";
+                return true;
+            }
+
+            return false;
+        }
+
+        private bool IsTitanUsable(Card card)
+        {
+            if (card?.Template == null || card.IsSilenced)
+                return false;
+
+            var cardId = GetTemplateDebugCardId(card.Template);
+            if (!TryGetCardMechanics(cardId, out var mechanics)
+                || mechanics == null
+                || !mechanics.Contains("TITAN"))
+            {
+                return false;
+            }
+
+            return !(GetCardTagValue(card, "TITAN_ABILITY_USED_1") > 0
+                && GetCardTagValue(card, "TITAN_ABILITY_USED_2") > 0
+                && GetCardTagValue(card, "TITAN_ABILITY_USED_3") > 0);
+        }
+
+        private static int GetCardTagValue(Card card, string tagName)
+        {
+            if (card == null || string.IsNullOrWhiteSpace(tagName))
+                return 0;
+
+            try
+            {
+                if (Enum.TryParse(tagName, true, out Card.GAME_TAG tag))
+                    return card.GetTag(tag);
+            }
+            catch
+            {
+            }
+
+            return 0;
         }
 
         private MulliganRecommendationResult RecommendLocalMulligan(MulliganRecommendationRequest request)
