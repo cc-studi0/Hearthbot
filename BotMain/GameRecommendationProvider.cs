@@ -48,17 +48,6 @@ namespace BotMain
         }
     }
 
-    internal sealed class HsBoxActionCursor
-    {
-        public HsBoxActionCursor(long updatedAtMs, string payloadSignature)
-        {
-            UpdatedAtMs = updatedAtMs;
-            PayloadSignature = payloadSignature ?? string.Empty;
-        }
-
-        public long UpdatedAtMs { get; }
-        public string PayloadSignature { get; }
-    }
 
     internal sealed class RecommendationChoiceState
     {
@@ -93,15 +82,13 @@ namespace BotMain
             Board planningBoard,
             Profile selectedProfile,
             IReadOnlyList<ApiCard.Cards> deckCards,
-            long minimumUpdatedAtMs = 0,
-            HsBoxActionCursor lastConsumedCursor = null)
+            long minimumUpdatedAtMs = 0)
         {
             Seed = seed ?? string.Empty;
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
-            LastConsumedCursor = lastConsumedCursor;
         }
 
         public string Seed { get; }
@@ -109,8 +96,6 @@ namespace BotMain
         public Profile SelectedProfile { get; }
         public IReadOnlyList<ApiCard.Cards> DeckCards { get; }
         public long MinimumUpdatedAtMs { get; }
-        public HsBoxActionCursor LastConsumedCursor { get; }
-        public long LastConsumedUpdatedAtMs => LastConsumedCursor?.UpdatedAtMs ?? 0;
     }
 
     internal sealed class ActionRecommendationResult
@@ -119,21 +104,17 @@ namespace BotMain
             AIDecisionPlan decisionPlan,
             IReadOnlyList<string> actions,
             string detail,
-            HsBoxActionCursor sourceCursor = null,
             bool shouldRetryWithoutAction = false)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
             Detail = detail ?? string.Empty;
-            SourceCursor = sourceCursor;
             ShouldRetryWithoutAction = shouldRetryWithoutAction;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
         public IReadOnlyList<string> Actions { get; }
         public string Detail { get; }
-        public HsBoxActionCursor SourceCursor { get; }
-        public long SourceUpdatedAtMs => SourceCursor?.UpdatedAtMs ?? 0;
         public bool ShouldRetryWithoutAction { get; }
     }
 

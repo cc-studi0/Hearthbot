@@ -13,38 +13,9 @@ namespace BotCore.Tests
     [Collection("HsBoxCallbackCapture")]
     public class HsBoxRecommendationProviderTests
     {
-        [Fact]
-        public void IsActionPayloadFreshEnough_TreatsSameTimestampDifferentSignatureAsFresh()
-        {
-            var state = CreateState(100, raw: "payload-b", actionName: "end_turn");
-            var lastConsumedCursor = new HsBoxActionCursor(100, "payload-a-signature");
-
-            Assert.True(HsBoxGameRecommendationProvider.IsActionPayloadFreshEnough(state, lastConsumedCursor));
-            Assert.False(HsBoxGameRecommendationProvider.IsActionPayloadAlreadyConsumed(state, lastConsumedCursor));
-        }
 
         [Fact]
-        public void IsActionPayloadFreshEnough_TreatsSameTimestampSameSignatureAsConsumed()
-        {
-            var state = CreateState(100, raw: "payload-a", actionName: "end_turn");
-            var lastConsumedCursor = HsBoxGameRecommendationProvider.BuildActionCursor(state);
-
-            Assert.False(HsBoxGameRecommendationProvider.IsActionPayloadFreshEnough(state, lastConsumedCursor));
-            Assert.True(HsBoxGameRecommendationProvider.IsActionPayloadAlreadyConsumed(state, lastConsumedCursor));
-        }
-
-        [Fact]
-        public void IsActionPayloadFreshEnough_TreatsHigherTimestampAsFresh()
-        {
-            var state = CreateState(101, raw: "payload-a", actionName: "end_turn");
-            var lastConsumedCursor = new HsBoxActionCursor(100, HsBoxGameRecommendationProvider.BuildActionCursor(state).PayloadSignature);
-
-            Assert.True(HsBoxGameRecommendationProvider.IsActionPayloadFreshEnough(state, lastConsumedCursor));
-            Assert.False(HsBoxGameRecommendationProvider.IsActionPayloadAlreadyConsumed(state, lastConsumedCursor));
-        }
-
-        [Fact]
-        public void RecommendActions_ReturnsWaitRetry_WhenFreshStateCannotBeMapped()
+        public void RecommendActions_ReturnsWaitRetry_WhenStateCannotBeMapped()
         {
             var state = CreateState(
                 200,
@@ -65,20 +36,6 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_ReturnsWaitRetry_WhenPayloadAlreadyConsumed()
-        {
-            var state = CreateState(300, raw: "already-consumed", actionName: "end_turn");
-            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
-            var lastConsumedCursor = HsBoxGameRecommendationProvider.BuildActionCursor(state);
-
-            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null, 0, lastConsumedCursor));
-
-            Assert.True(result.ShouldRetryWithoutAction);
-            Assert.Empty(result.Actions);
-            Assert.Contains("already_consumed", result.Detail);
-        }
-
-        [Fact]
         public void RecommendActions_ReturnsExplicitEndTurn_WhenHsBoxRequestsIt()
         {
             var state = CreateState(400, raw: "explicit-end-turn", actionName: "end_turn");
@@ -88,8 +45,6 @@ namespace BotCore.Tests
 
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "END_TURN" }, result.Actions);
-            Assert.NotNull(result.SourceCursor);
-            Assert.Equal(400, result.SourceCursor.UpdatedAtMs);
         }
 
         [Fact]
@@ -152,6 +107,56 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MapsPlaySpecialWithEmbeddedSubOption()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 113,
+                        IsFriend = true,
+                        Template = CreateTemplate(Card.Cards.EX1_164, "滋养", "Nourish")
+                    }
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "EX1_164",
+                    cardName = "滋养",
+                    ZONE_POSITION = 7
+                })
+            };
+            step.SubOption = new HsBoxCardRef { CardId = "EX1_164a", CardName = "快速生长" };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 17,
+                UpdatedAtMs = 500,
+                Raw = "play-special-with-suboption",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出7号位法术 滋养 选择卡牌 快速生长",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|113|0|0", "OPTION|113|0|0|EX1_164a" }, result.Actions);
+        }
+
+        [Fact]
         public void TryMapChoice_ReturnsMultipleEntityIds_ForMultiCardChoiceStep()
         {
             var state = new HsBoxRecommendationState
@@ -199,6 +204,56 @@ namespace BotCore.Tests
 
             Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
             Assert.Equal(new[] { 201, 202 }, selectedEntityIds);
+        }
+
+        [Fact]
+        public void TryMapChoice_MatchesOppTargetAsChoiceCard()
+        {
+            var step = new HsBoxActionStep
+            {
+                ActionName = "choice",
+                OppTarget = new HsBoxCardRef
+                {
+                    CardId = "RLK_539",
+                    CardName = "达尔坎·德拉希尔",
+                    ZonePosition = 1
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 46,
+                UpdatedAtMs = 600,
+                Raw = "choice-opp-target",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "选择对方1号位卡牌 达尔坎·德拉希尔",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-opp",
+                13,
+                "GENERAL",
+                "SRC_100",
+                100,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(501, "RLK_539"),
+                    new ChoiceRecommendationOption(502, "CARD_OTHER"),
+                    new ChoiceRecommendationOption(503, "CARD_THIRD")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 501 }, selectedEntityIds);
         }
 
         [Fact]

@@ -76,6 +76,7 @@ namespace HearthstonePayload
         public bool IsGameOver;
         public string EndGameScreenClass = "";
         public GameResult Result;
+        public bool FriendlyConceded;
 
         public EntityData HeroFriend;
         public EntityData HeroEnemy;

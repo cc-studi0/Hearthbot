@@ -632,8 +632,13 @@ namespace BotMain
                 return;
             }
 
-            var result = resultResp.Substring(7);
-            Log($"[GameResult] 解析结果: {result}");
+            var payload = resultResp.Substring(7);
+            var parts = payload.Split(new[] { ':' }, 2);
+            var result = parts[0];
+            var concedeFromGame = parts.Length > 1
+                && string.Equals(parts[1], "CONCEDED", StringComparison.OrdinalIgnoreCase);
+
+            Log($"[GameResult] 解析结果: {result}{(concedeFromGame ? " (投降)" : "")}");
 
             if (result == "WIN")
             {
@@ -648,8 +653,11 @@ namespace BotMain
             {
                 _stats?.RecordLoss();
                 Log($"[GameResult] 记录失败 - 当前战绩: {_stats?.Wins}胜 {_stats?.Losses}负");
-                if (_pendingConcedeLoss)
+                if (_pendingConcedeLoss || concedeFromGame)
+                {
                     _stats?.RecordConcede();
+                    Log("[GameResult] 记录投降");
+                }
                 ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnDefeat();
                 Log("[Game] Defeat");
@@ -862,15 +870,11 @@ namespace BotMain
             bool wasInGame = false;
             int lastTurnNumber = -1;
             DateTime currentTurnStartedUtc = DateTime.MinValue;
-            HsBoxActionCursor lastConsumedHsBoxActionCursor = null;
             int resimulationCount = 0;
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
-            int consecutiveSameAlreadyConsumed = 0;
-            string lastAlreadyConsumedSignature = null;
-            const int MaxSameAlreadyConsumed = 5;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -995,7 +999,6 @@ namespace BotMain
                                 ref wasInGame,
                                 ref lastTurnNumber,
                                 ref currentTurnStartedUtc,
-                                ref lastConsumedHsBoxActionCursor,
                                 ref notOurTurnStreak,
                                 ref nextPostGameDismissUtc,
                                 ref mulliganStreak,
@@ -1017,7 +1020,6 @@ namespace BotMain
                             ref wasInGame,
                             ref lastTurnNumber,
                             ref currentTurnStartedUtc,
-                            ref lastConsumedHsBoxActionCursor,
                             ref notOurTurnStreak,
                             ref nextPostGameDismissUtc,
                             ref mulliganStreak,
@@ -1112,8 +1114,7 @@ namespace BotMain
                                     ref wasInGame,
                                     ref lastTurnNumber,
                                     ref currentTurnStartedUtc,
-                                    ref lastConsumedHsBoxActionCursor,
-                                    ref notOurTurnStreak,
+                                            ref notOurTurnStreak,
                                     ref nextPostGameDismissUtc,
                                     ref mulliganStreak,
                                     ref mulliganHandled,
@@ -1162,7 +1163,6 @@ namespace BotMain
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         mulliganPhaseStartedUtc = DateTime.MinValue;
-                        lastConsumedHsBoxActionCursor = null;
                         Log($"[MainLoop] GET_SEED -> {resp}");
                         Thread.Sleep(1000);
                     }
@@ -1276,8 +1276,7 @@ namespace BotMain
                         deckCards,
                         currentTurnStartedUtc == DateTime.MinValue
                             ? 0
-                            : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
-                        _followHsBoxRecommendations ? lastConsumedHsBoxActionCursor : null));
+                            : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds()));
                 var decision = recommendation?.DecisionPlan;
                 var actions = recommendation?.Actions?.ToList();
 
@@ -1289,35 +1288,8 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
-                    var currentSignature = recommendation?.SourceCursor?.PayloadSignature;
-                    if (!string.IsNullOrEmpty(currentSignature) && currentSignature == lastAlreadyConsumedSignature)
-                    {
-                        consecutiveSameAlreadyConsumed++;
-                        if (consecutiveSameAlreadyConsumed >= MaxSameAlreadyConsumed)
-                        {
-                            Log($"[HsBox] Same already_consumed action repeated {MaxSameAlreadyConsumed} times, executing it anyway");
-                            actions = recommendation?.Actions?.ToList() ?? new List<string> { "END_TURN" };
-                            consecutiveSameAlreadyConsumed = 0;
-                            lastAlreadyConsumedSignature = null;
-                        }
-                        else
-                        {
-                            Thread.Sleep(120);
-                            continue;
-                        }
-                    }
-                    else
-                    {
-                        lastAlreadyConsumedSignature = currentSignature;
-                        consecutiveSameAlreadyConsumed = 1;
-                        Thread.Sleep(120);
-                        continue;
-                    }
-                }
-                else
-                {
-                    consecutiveSameAlreadyConsumed = 0;
-                    lastAlreadyConsumedSignature = null;
+                    Thread.Sleep(120);
+                    continue;
                 }
 
                 actions = NormalizeRecommendedActions(actions);
@@ -1544,8 +1516,6 @@ namespace BotMain
                     _executingActionPlan = false;
                 }
 
-                if (_followHsBoxRecommendations && recommendation?.SourceCursor != null)
-                    lastConsumedHsBoxActionCursor = recommendation.SourceCursor;
 
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
                 if (_followHsBoxRecommendations
@@ -4271,7 +4241,6 @@ namespace BotMain
             ref bool wasInGame,
             ref int lastTurnNumber,
             ref DateTime currentTurnStartedUtc,
-            ref HsBoxActionCursor lastConsumedHsBoxActionCursor,
             ref int notOurTurnStreak,
             ref DateTime nextPostGameDismissUtc,
             ref int mulliganStreak,
@@ -4293,7 +4262,6 @@ namespace BotMain
                 wasInGame = false;
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
-                lastConsumedHsBoxActionCursor = null;
 
                 var resultResp = _earlyGameResult != null
                     ? $"RESULT:{_earlyGameResult}"
@@ -4306,7 +4274,6 @@ namespace BotMain
             }
 
             currentTurnStartedUtc = DateTime.MinValue;
-            lastConsumedHsBoxActionCursor = null;
             lastTurnNumber = -1;
 
             _botApiHandler?.SetCurrentScene(Bot.Scene.HUB);

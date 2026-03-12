@@ -87,8 +87,7 @@ namespace BotMain
                 return new ActionRecommendationResult(
                     null,
                     actions,
-                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}",
-                    BuildActionCursor(state));
+                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}");
             }
 
             if (state != null
@@ -97,8 +96,7 @@ namespace BotMain
                 return new ActionRecommendationResult(
                     null,
                     bodyActions,
-                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}",
-                    BuildActionCursor(state));
+                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}");
             }
 
             return new ActionRecommendationResult(
@@ -293,23 +291,19 @@ namespace BotMain
             out string detail)
         {
             actions = null;
-            var lastConsumedCursor = request?.LastConsumedCursor;
-            var freshnessDetail = DescribeActionFreshness(state, lastConsumedCursor);
-            if (!IsActionPayloadFreshEnough(state, lastConsumedCursor))
+            if (state == null || state.UpdatedAtMs <= 0)
             {
-                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedCursor)
-                    ? $"json=already_consumed({freshnessDetail})"
-                    : $"json=stale({freshnessDetail})";
+                detail = "json=state_invalid";
                 return false;
             }
 
             if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, out actions, out var mapDetail))
             {
-                detail = $"json=map_failed({freshnessDetail}; {mapDetail})";
+                detail = $"json=map_failed({mapDetail})";
                 return false;
             }
 
-            detail = $"json=ok({freshnessDetail}; {mapDetail})";
+            detail = $"json=ok({mapDetail})";
             return true;
         }
 
@@ -320,13 +314,9 @@ namespace BotMain
             out string detail)
         {
             actions = null;
-            var lastConsumedCursor = request?.LastConsumedCursor;
-            var freshnessDetail = DescribeActionFreshness(state, lastConsumedCursor);
-            if (!IsActionPayloadFreshEnough(state, lastConsumedCursor))
+            if (state == null || state.UpdatedAtMs <= 0)
             {
-                detail = IsActionPayloadAlreadyConsumed(state, lastConsumedCursor)
-                    ? $"body=already_consumed({freshnessDetail})"
-                    : $"body=stale({freshnessDetail})";
+                detail = "body=state_invalid";
                 return false;
             }
 
@@ -340,65 +330,7 @@ namespace BotMain
             return true;
         }
 
-        internal static HsBoxActionCursor BuildActionCursor(HsBoxRecommendationState state)
-        {
-            if (state == null || state.UpdatedAtMs <= 0)
-                return null;
 
-            return new HsBoxActionCursor(state.UpdatedAtMs, state.PayloadSignature);
-        }
-
-        internal static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
-        {
-            if (state == null || state.UpdatedAtMs <= 0)
-                return false;
-
-            if (lastConsumedCursor == null)
-                return true;
-
-            if (state.UpdatedAtMs > lastConsumedCursor.UpdatedAtMs)
-                return true;
-
-            return state.UpdatedAtMs == lastConsumedCursor.UpdatedAtMs
-                && HasActionPayloadChanged(state, lastConsumedCursor);
-        }
-
-        internal static bool IsActionPayloadAlreadyConsumed(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
-        {
-            return state != null
-                && state.UpdatedAtMs > 0
-                && lastConsumedCursor != null
-                && !IsActionPayloadFreshEnough(state, lastConsumedCursor)
-                && state.UpdatedAtMs <= lastConsumedCursor.UpdatedAtMs;
-        }
-
-        private static bool HasActionPayloadChanged(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
-        {
-            if (state == null || lastConsumedCursor == null)
-                return false;
-
-            return !string.Equals(
-                state.PayloadSignature,
-                lastConsumedCursor.PayloadSignature,
-                StringComparison.Ordinal);
-        }
-
-        private static string DescribeActionFreshness(HsBoxRecommendationState state, HsBoxActionCursor lastConsumedCursor)
-        {
-            if (state == null)
-                return $"state=null,lastConsumedUpdatedAt={lastConsumedCursor?.UpdatedAtMs ?? 0}";
-
-            var updatedAt = state.UpdatedAtMs;
-            if (lastConsumedCursor != null)
-            {
-                var payloadChanged = HasActionPayloadChanged(state, lastConsumedCursor);
-                var freshByConsumption = IsActionPayloadFreshEnough(state, lastConsumedCursor);
-                var consumedDeltaMs = updatedAt - lastConsumedCursor.UpdatedAtMs;
-                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedCursor.UpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs},payloadChanged={payloadChanged},count={state.Count}";
-            }
-
-            return $"fresh={updatedAt > 0},lastConsumedUpdatedAt=0,updatedAt={updatedAt},payloadChanged=true,count={state.Count}";
-        }
 
         private static string DescribeFreshness(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
         {
@@ -1059,6 +991,16 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(command))
                 {
                     actions.Add(command);
+
+                    // play_special 带 subOption 时（如滋养的抉择），自动追加 OPTION 命令
+                    if (command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                        && step.SubOption != null
+                        && !string.IsNullOrWhiteSpace(step.SubOption.CardId)
+                        && TryGetCommandSourceEntityId(command, out var playSourceId))
+                    {
+                        actions.Add($"OPTION|{playSourceId}|0|0|{step.SubOption.CardId}");
+                    }
+
                     if (TryGetCommandSourceEntityId(command, out var sourceEntityId)
                         && IsChoiceCapableCommand(command))
                     {
@@ -1303,6 +1245,19 @@ namespace BotMain
         {
             var result = new List<HsBoxCardRef>();
             AddDistinctChoiceCards(result, step?.GetCards());
+
+            // choice 动作可能把推荐卡牌放在 opp-target / target 等字段而非 card 字段
+            if (step != null)
+            {
+                if (step.OppTarget != null && !string.IsNullOrWhiteSpace(step.OppTarget.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.OppTarget });
+                if (step.Target != null && !string.IsNullOrWhiteSpace(step.Target.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.Target });
+                if (step.OppTargetHero != null && !string.IsNullOrWhiteSpace(step.OppTargetHero.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.OppTargetHero });
+                if (step.TargetHero != null && !string.IsNullOrWhiteSpace(step.TargetHero.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.TargetHero });
+            }
 
             if (step?.ExtraData != null)
             {

@@ -15,6 +15,7 @@ namespace HearthstonePayload
         private static PipeClient _pipe;
         private static CoroutineExecutor _coroutine;
         private static string _lastGameResult = "NONE";
+        private static bool _lastGameConceded;
 
         private static Func<object> _pendingAction;
         private static object _pendingResult;
@@ -141,6 +142,10 @@ namespace HearthstonePayload
                                 if (state.Result != GameResult.None)
                                     _lastGameResult = state.Result.ToString().ToUpper();
 
+                                // 记录投降状态
+                                if (state.FriendlyConceded)
+                                    _lastGameConceded = true;
+
                                 // 兜底：通过结算页类名判断
                                 if (_lastGameResult == "NONE" || string.IsNullOrWhiteSpace(_lastGameResult))
                                 {
@@ -187,23 +192,40 @@ namespace HearthstonePayload
                     {
                         if (_lastGameResult == "NONE")
                         {
-                            for (var i = 0; i < 15; i++)
+                            for (var i = 0; i < 20; i++)
                             {
                                 var state = reader.ReadGameState();
                                 if (state != null && state.Result != GameResult.None)
                                 {
                                     _lastGameResult = state.Result.ToString().ToUpper();
+                                    if (state.FriendlyConceded)
+                                        _lastGameConceded = true;
                                     break;
                                 }
 
-                                if (state == null || !state.IsGameOver)
+                                // state 存在且确认未 GameOver —— 可能已经是新对局，不再重试
+                                if (state != null && !state.IsGameOver)
                                     break;
+
+                                // 通过 EndGameScreen 类名兜底判断
+                                if (reader.IsEndGameScreenShown(out var endClass)
+                                    && !string.IsNullOrWhiteSpace(endClass))
+                                {
+                                    var lower = endClass.ToLowerInvariant();
+                                    if (lower.Contains("victory")) { _lastGameResult = "WIN"; break; }
+                                    else if (lower.Contains("defeat")) { _lastGameResult = "LOSS"; break; }
+                                    else if (lower.Contains("tie") || lower.Contains("draw")) { _lastGameResult = "TIE"; break; }
+                                }
 
                                 Thread.Sleep(100);
                             }
                         }
-                        _pipe.Write("RESULT:" + _lastGameResult);
+                        var resultPayload = _lastGameConceded
+                            ? "RESULT:" + _lastGameResult + ":CONCEDED"
+                            : "RESULT:" + _lastGameResult;
+                        _pipe.Write(resultPayload);
                         _lastGameResult = "NONE";
+                        _lastGameConceded = false;
                     }
                     else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
                     {

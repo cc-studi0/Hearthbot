@@ -549,9 +549,11 @@ namespace HearthstonePayload
         {
             switch (playstate)
             {
-                case 4: return GameResult.Win;
-                case 5: return GameResult.Loss;
-                case 6: return GameResult.Tie;
+                case 4: return GameResult.Win;   // WON
+                case 5: return GameResult.Loss;  // LOST
+                case 6: return GameResult.Tie;   // TIED
+                case 7: return GameResult.Loss;  // DISCONNECTED
+                case 8: return GameResult.Loss;  // CONCEDED
                 default: return GameResult.None;
             }
         }
@@ -560,9 +562,11 @@ namespace HearthstonePayload
         {
             switch (playstate)
             {
-                case 4: return GameResult.Loss;
-                case 5: return GameResult.Win;
-                case 6: return GameResult.Tie;
+                case 4: return GameResult.Loss;  // WON (opponent won = we lost)
+                case 5: return GameResult.Win;   // LOST (opponent lost = we won)
+                case 6: return GameResult.Tie;   // TIED
+                case 7: return GameResult.Win;   // DISCONNECTED (opponent DC = we won)
+                case 8: return GameResult.Win;   // CONCEDED (opponent conceded = we won)
                 default: return GameResult.None;
             }
         }
@@ -678,6 +682,15 @@ namespace HearthstonePayload
                 data.IsGameOver = DetectGameOver(gameState, friendly, opposing, out var endScreenClass);
                 data.EndGameScreenClass = endScreenClass ?? string.Empty;
                 data.Result = ResolveGameResult(friendly, opposing, data.EndGameScreenClass);
+
+                // 检测我方是否主动投降（PLAYSTATE == CONCEDED(8)）
+                try
+                {
+                    var friendlyHero = _ctx.CallAny(friendly, "GetHero");
+                    var friendlyPlaystate = _ctx.GetTagValue(friendlyHero, "PLAYSTATE");
+                    data.FriendlyConceded = friendlyPlaystate == 8; // TAG_PLAYSTATE.CONCEDED
+                }
+                catch { }
 
                 // 统计数据
                 ReadGameStats(friendlyEntity, opposingEntity, data);

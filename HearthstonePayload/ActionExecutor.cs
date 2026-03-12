@@ -117,6 +117,36 @@ namespace HearthstonePayload
             if (submitDetail == null)
                 return "OK:OPTION:network:" + sourceId;
 
+            // Choose One / sub-option path: wait for the EntityChoices packet first,
+            // then resolve the sub-option card and click it directly — instead of
+            // blindly clicking the source entity which has already left the hand.
+            if (targetId <= 0
+                && position <= 0
+                && !string.IsNullOrWhiteSpace(subOptionCardId))
+            {
+                // Wait up to 5s for the choice packet to appear after playing a Choose One card
+                if (!WaitForChoicePacketReady(5000))
+                {
+                    // Last resort: retry network option after waiting
+                    submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
+                    if (submitDetail == null)
+                        return "OK:OPTION:network_retry:" + sourceId;
+                    return "FAIL:OPTION:choice_not_ready:" + sourceId + ":" + submitDetail;
+                }
+
+                // Retry structured option now that choice packet is ready
+                submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
+                if (submitDetail == null)
+                    return "OK:OPTION:open_then_network:" + sourceId;
+
+                // Resolve and click the choice entity by card ID
+                if (TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
+                    return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
+
+                return "FAIL:OPTION:suboption_not_found:" + sourceId + ":" + subOptionCardId;
+            }
+
+            // Targeted option (has targetId or position): use original mouse-open + retry flow
             var openResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
             if (!openResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                 return openResult;
@@ -127,14 +157,6 @@ namespace HearthstonePayload
             submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
             if (submitDetail == null)
                 return "OK:OPTION:open_then_network:" + sourceId;
-
-            if (targetId <= 0
-                && position <= 0
-                && !string.IsNullOrWhiteSpace(subOptionCardId)
-                && TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
-            {
-                return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
-            }
 
             return openResult;
         }
