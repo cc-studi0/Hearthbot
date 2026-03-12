@@ -112,6 +112,7 @@ namespace BotMain
         private DateTime _lastKeepAliveSuccessUtc = DateTime.MinValue;
         private string _lastObservedSeedResponse = string.Empty;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
+        private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _keepAliveFailureStreak;
         private bool _executingActionPlan;
 
@@ -1209,6 +1210,7 @@ namespace BotMain
                         ResetDiscoverLogState();
                         ResetChoiceLogState();
                         _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
+                        _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
                         resimulationCount = 0;
                         actionFailStreak = 0;
                         playActionFailStreakByEntity.Clear();
@@ -2832,11 +2834,17 @@ namespace BotMain
                         currentState.SelectedEntityIds.ToList(),
                         strategySeed,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
-                        _lastConsumedHsBoxChoiceUpdatedAtMs));
+                        _lastConsumedHsBoxChoiceUpdatedAtMs,
+                        _lastConsumedHsBoxChoicePayloadSignature));
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs)
+                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
+                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
+                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
+                {
                     _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+                }
 
                 var selectedEntityIds = NormalizeChoiceSelection(currentState, recommendation?.SelectedEntityIds);
                 if ((currentState.CountMin > 0 && selectedEntityIds.Count < currentState.CountMin)
@@ -2955,14 +2963,20 @@ namespace BotMain
                         isRewindChoice,
                         maintainIdx,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
-                        _lastConsumedHsBoxChoiceUpdatedAtMs));
+                        _lastConsumedHsBoxChoiceUpdatedAtMs,
+                        _lastConsumedHsBoxChoicePayloadSignature));
                 var pickedIndex = recommendation?.PickedIndex ?? -1;
                 if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
                     pickedIndex = 0;
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs)
+                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
+                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
+                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
+                {
                     _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+                }
 
                 var pickedCardId = choiceCardIds[pickedIndex];
                 var pickedEntityId = choiceEntityIds[pickedIndex];
@@ -3087,13 +3101,19 @@ namespace BotMain
                         isRewindChoice,
                         maintainIdx,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
-                        _lastConsumedHsBoxChoiceUpdatedAtMs));
+                        _lastConsumedHsBoxChoiceUpdatedAtMs,
+                        _lastConsumedHsBoxChoicePayloadSignature));
                 var pickedIndex = recommendation?.PickedIndex ?? -1;
                 if (pickedIndex < 0 || pickedIndex >= currentState.ChoiceEntityIds.Count)
                     pickedIndex = 0;
 
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs)
+                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
+                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
+                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
+                {
                     _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+                }
 
                 var pickedCardId = currentState.ChoiceCardIds[pickedIndex];
                 var pickedEntityId = currentState.ChoiceEntityIds[pickedIndex];

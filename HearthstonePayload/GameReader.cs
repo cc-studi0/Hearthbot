@@ -118,15 +118,22 @@ namespace HearthstonePayload
 
             if (isFriendly)
             {
-                var hand = _ctx.CallAny(player,
-                    "GetHandZone",
-                    "GetHand",
-                    "HandZone",
-                    "m_handZone");
-                if (hand != null)
+                // 优先通过 EntityMap + Tag 过滤读取手牌（线程安全，不依赖 ZoneMgr UI 单例）
+                data.Hand = ReadHandFromEntityMap(data.FriendlyPlayerId);
+
+                // 回退：如果 EntityMap 方式返回空，尝试旧的 ZoneMgr 方式
+                if (data.Hand == null || data.Hand.Count == 0)
                 {
-                    var cards = _ctx.CallGetCards(hand);
-                    data.Hand = cards.Select(c => ReadEntity(GetEntity(c))).Where(e => e != null).ToList();
+                    var hand = _ctx.CallAny(player,
+                        "GetHandZone",
+                        "GetHand",
+                        "HandZone",
+                        "m_handZone");
+                    if (hand != null)
+                    {
+                        var cards = _ctx.CallGetCards(hand);
+                        data.Hand = cards.Select(c => ReadEntity(GetEntity(c))).Where(e => e != null).ToList();
+                    }
                 }
             }
 
@@ -1030,6 +1037,49 @@ namespace HearthstonePayload
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// 通过 GameState.m_entityMap 遍历所有 Entity，
+        /// 按 ZONE==HAND、CONTROLLER==friendlyPlayerId 过滤出友方手牌。
+        /// 该方式不依赖 ZoneMgr / ZoneHand 等 Unity UI 对象，
+        /// 从后台线程调用时更稳定。
+        /// </summary>
+        private List<EntityData> ReadHandFromEntityMap(int friendlyPlayerId)
+        {
+            var result = new List<EntityData>();
+            if (friendlyPlayerId <= 0) return result;
+
+            try
+            {
+                var gameState = _ctx.CallStaticAny(_ctx.GameStateType, "Get");
+                if (gameState == null) return result;
+
+                var entities = _ctx.GetEntityMapEntries(gameState);
+                foreach (var entity in entities)
+                {
+                    if (entity == null) continue;
+
+                    // TAG_ZONE.HAND == 3
+                    var zone = _ctx.GetTagValue(entity, "ZONE");
+                    if (zone != 3) continue;
+
+                    var controller = _ctx.GetTagValue(entity, "CONTROLLER");
+                    if (controller != friendlyPlayerId) continue;
+
+                    var data = ReadEntity(entity);
+                    if (data != null)
+                        result.Add(data);
+                }
+
+                // 按 ZonePosition 排序（手牌顺序）
+                result.Sort((a, b) => a.ZonePosition.CompareTo(b.ZonePosition));
+            }
+            catch
+            {
+            }
+
+            return result;
         }
 
         private object GetEntity(object card)

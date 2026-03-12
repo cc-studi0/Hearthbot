@@ -292,6 +292,60 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendChoice_RecognizesNewPayload_WhenUpdatedAtUnchanged()
+        {
+            // First state: recommends slot 2
+            var firstState = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 10,
+                UpdatedAtMs = 500,
+                Raw = "first-choice",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 选择我方2号位卡牌 卡牌A",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            // Second state: same updatedAt, but recommends slot 3  
+            var secondState = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 12,
+                UpdatedAtMs = 500,
+                Raw = "second-choice",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 选择我方3号位卡牌 卡牌B",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var options = new List<ChoiceRecommendationOption>
+            {
+                new ChoiceRecommendationOption(401, "CARD_001"),
+                new ChoiceRecommendationOption(402, "CARD_002"),
+                new ChoiceRecommendationOption(403, "CARD_003")
+            };
+
+            // First call: no prior consumption
+            var provider1 = new HsBoxGameRecommendationProvider(new FakeBridge(firstState), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var result1 = provider1.RecommendChoice(new ChoiceRecommendationRequest(
+                "snap-1", 1, "DISCOVER", "SRC", 100, 1, 1, options, Array.Empty<int>(), "seed"));
+            Assert.Equal(new[] { 402 }, result1.SelectedEntityIds);
+            Assert.Contains("text_choice", result1.Detail);
+
+            // Second call: same updatedAt as consumed, but different payload
+            var provider2 = new HsBoxGameRecommendationProvider(new FakeBridge(secondState), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var result2 = provider2.RecommendChoice(new ChoiceRecommendationRequest(
+                "snap-2", 2, "DISCOVER", "SRC", 100, 1, 1, options, Array.Empty<int>(), "seed",
+                lastConsumedUpdatedAtMs: result1.SourceUpdatedAtMs,
+                lastConsumedPayloadSignature: result1.SourcePayloadSignature));
+            Assert.Equal(new[] { 403 }, result2.SelectedEntityIds);
+            Assert.Contains("text_choice", result2.Detail);
+            Assert.DoesNotContain("fallback", result2.Detail);
+        }
+
+        [Fact]
         public void CallbackCapture_WritesSingleFileForSameUpdatedAtAndSignature()
         {
             using var tempDir = new TempDirectory();

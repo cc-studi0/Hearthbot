@@ -183,7 +183,8 @@ namespace BotMain
             IReadOnlyList<int> selectedEntityIds,
             string seed,
             long minimumUpdatedAtMs = 0,
-            long lastConsumedUpdatedAtMs = 0)
+            long lastConsumedUpdatedAtMs = 0,
+            string lastConsumedPayloadSignature = null)
         {
             SnapshotId = snapshotId ?? string.Empty;
             ChoiceId = choiceId;
@@ -197,6 +198,7 @@ namespace BotMain
             Seed = seed ?? string.Empty;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
+            LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
         }
 
         public string SnapshotId { get; }
@@ -211,6 +213,7 @@ namespace BotMain
         public string Seed { get; }
         public long MinimumUpdatedAtMs { get; }
         public long LastConsumedUpdatedAtMs { get; }
+        public string LastConsumedPayloadSignature { get; }
 
         public IReadOnlyList<string> ChoiceCardIds => Options.Select(option => option?.CardId ?? string.Empty).ToList();
         public IReadOnlyList<int> ChoiceEntityIds => Options.Select(option => option?.EntityId ?? 0).ToList();
@@ -224,16 +227,19 @@ namespace BotMain
         public ChoiceRecommendationResult(
             IReadOnlyList<int> selectedEntityIds,
             string detail,
-            long sourceUpdatedAtMs = 0)
+            long sourceUpdatedAtMs = 0,
+            string sourcePayloadSignature = null)
         {
             SelectedEntityIds = selectedEntityIds ?? Array.Empty<int>();
             Detail = detail ?? string.Empty;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
+            SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
         }
 
         public IReadOnlyList<int> SelectedEntityIds { get; }
         public string Detail { get; }
         public long SourceUpdatedAtMs { get; }
+        public string SourcePayloadSignature { get; }
     }
 
     internal sealed class DiscoverRecommendationRequest
@@ -246,7 +252,8 @@ namespace BotMain
             bool isRewindChoice,
             int maintainIndex,
             long minimumUpdatedAtMs = 0,
-            long lastConsumedUpdatedAtMs = 0)
+            long lastConsumedUpdatedAtMs = 0,
+            string lastConsumedPayloadSignature = null)
         {
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
@@ -256,6 +263,7 @@ namespace BotMain
             MaintainIndex = maintainIndex;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
+            LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
         }
 
         public string OriginCardId { get; }
@@ -266,6 +274,7 @@ namespace BotMain
         public int MaintainIndex { get; }
         public long MinimumUpdatedAtMs { get; }
         public long LastConsumedUpdatedAtMs { get; }
+        public string LastConsumedPayloadSignature { get; }
 
         public ChoiceRecommendationRequest ToChoiceRecommendationRequest()
         {
@@ -286,22 +295,25 @@ namespace BotMain
                 Array.Empty<int>(),
                 Seed,
                 MinimumUpdatedAtMs,
-                LastConsumedUpdatedAtMs);
+                LastConsumedUpdatedAtMs,
+                LastConsumedPayloadSignature);
         }
     }
 
     internal sealed class DiscoverRecommendationResult
     {
-        public DiscoverRecommendationResult(int pickedIndex, string detail, long sourceUpdatedAtMs = 0)
+        public DiscoverRecommendationResult(int pickedIndex, string detail, long sourceUpdatedAtMs = 0, string sourcePayloadSignature = null)
         {
             PickedIndex = pickedIndex;
             Detail = detail ?? string.Empty;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
+            SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
         }
 
         public int PickedIndex { get; }
         public string Detail { get; }
         public long SourceUpdatedAtMs { get; }
+        public string SourcePayloadSignature { get; }
 
         public static DiscoverRecommendationResult FromChoiceResult(
             ChoiceRecommendationRequest request,
@@ -316,7 +328,7 @@ namespace BotMain
                     pickedIndex = matchIndex;
             }
 
-            return new DiscoverRecommendationResult(pickedIndex, result?.Detail ?? string.Empty, result?.SourceUpdatedAtMs ?? 0);
+            return new DiscoverRecommendationResult(pickedIndex, result?.Detail ?? string.Empty, result?.SourceUpdatedAtMs ?? 0, result?.SourcePayloadSignature);
         }
     }
 }

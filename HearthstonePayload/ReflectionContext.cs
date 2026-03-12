@@ -239,6 +239,38 @@ namespace HearthstonePayload
             return result;
         }
 
+        /// <summary>
+        /// 从 GameState.m_entityMap 读取所有 Entity 对象。
+        /// 绕过 ZoneMgr UI 单例，直接访问纯数据层，线程安全性更好。
+        /// </summary>
+        public List<object> GetEntityMapEntries(object gameState)
+        {
+            var result = new List<object>();
+            if (gameState == null) return result;
+
+            try
+            {
+                var mapObj = GetFieldOrPropertyAny(gameState,
+                    "m_entityMap",
+                    "EntityMap",
+                    "m_entities");
+                if (mapObj == null) return result;
+
+                // Map<int, Entity> 实现了 IEnumerable<KeyValuePair<int, Entity>>
+                if (mapObj is IEnumerable enumerable)
+                {
+                    foreach (var kv in enumerable)
+                    {
+                        var value = GetFieldOrPropertyAny(kv, "Value", "value");
+                        if (value != null)
+                            result.Add(value);
+                    }
+                }
+            }
+            catch { }
+            return result;
+        }
+
         public int ToInt(object value)
         {
             if (value == null) return 0;

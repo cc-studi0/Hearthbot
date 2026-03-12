@@ -139,28 +139,61 @@ namespace BotMain
         {
             var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
+            var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
+            HsBoxRecommendationState lastObservedState = null;
+
             var state = WaitForState(
                 current =>
-                    IsChoicePayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
-                    && (HsBoxRecommendationMapper.TryMapChoice(current, request, out _, out _)
-                        || HsBoxRecommendationMapper.TryMapChoiceFromBodyText(current, request, out _, out _)),
+                {
+                    lastObservedState = current;
+                    return IsChoicePayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
+                        && (HsBoxRecommendationMapper.TryMapChoice(current, request, out _, out _)
+                            || HsBoxRecommendationMapper.TryMapChoiceFromBodyText(current, request, out _, out _));
+                },
                 timeoutMs: 5000,
                 pollIntervalMs: 180,
                 out var waitDetail);
 
             if (state != null
-                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
                 && HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out var mapDetail))
             {
-                return new ChoiceRecommendationResult(selectedEntityIds, $"hsbox_choice {mapDetail}", state.UpdatedAtMs);
+                return new ChoiceRecommendationResult(selectedEntityIds, $"hsbox_choice {mapDetail}", state.UpdatedAtMs, state.PayloadSignature);
             }
 
             if (state != null
-                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
                 && HsBoxRecommendationMapper.TryMapChoiceFromBodyText(state, request, out var bodySelectedEntityIds, out var bodyDetail))
             {
-                return new ChoiceRecommendationResult(bodySelectedEntityIds, $"hsbox_choice {bodyDetail}", state.UpdatedAtMs);
+                return new ChoiceRecommendationResult(bodySelectedEntityIds, $"hsbox_choice {bodyDetail}", state.UpdatedAtMs, state.PayloadSignature);
             }
+
+            // Diagnostics: determine exactly what failed
+            var diagState = state ?? lastObservedState;
+            var diagParts = new List<string>();
+            if (diagState != null)
+            {
+                var freshResult = IsChoicePayloadFreshEnough(diagState, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature);
+                diagParts.Add($"fresh={freshResult}");
+                diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
+                diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
+                diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
+                diagParts.Add($"hasLastSig={!string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)}");
+                diagParts.Add($"sigMatch={string.Equals(diagState.PayloadSignature, lastConsumedPayloadSignature ?? string.Empty, StringComparison.Ordinal)}");
+
+                if (freshResult)
+                {
+                    var mapOk = HsBoxRecommendationMapper.TryMapChoice(diagState, request, out _, out var mapDiag);
+                    diagParts.Add($"structMap={mapOk}({mapDiag})");
+                    var bodyOk = HsBoxRecommendationMapper.TryMapChoiceFromBodyText(diagState, request, out _, out var bodyDiag);
+                    diagParts.Add($"bodyMap={bodyOk}({bodyDiag})");
+                }
+            }
+            else
+            {
+                diagParts.Add("diagState=null");
+            }
+            var diag = string.Join("; ", diagParts);
 
             var fallbackEntityIds = Array.Empty<int>();
             if (request != null)
@@ -194,7 +227,7 @@ namespace BotMain
 
             return new ChoiceRecommendationResult(
                 fallbackEntityIds,
-                $"hsbox_choice fallback:entities={(fallbackEntityIds.Length == 0 ? "none" : string.Join(",", fallbackEntityIds))} ({waitDetail})");
+                $"hsbox_choice fallback:entities={(fallbackEntityIds.Length == 0 ? "none" : string.Join(",", fallbackEntityIds))} ({waitDetail}) [diag: {diag}]");
         }
 
         public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
@@ -212,15 +245,32 @@ namespace BotMain
             return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
         }
 
-        private static bool IsChoicePayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
+        private static bool IsChoicePayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
         {
             if (state == null || state.UpdatedAtMs <= 0)
                 return false;
 
             if (lastConsumedUpdatedAtMs > 0)
-                return state.UpdatedAtMs > lastConsumedUpdatedAtMs;
+            {
+                if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
+                    return true;
 
-            return IsFreshEnough(state, minimumUpdatedAtMs);
+                if (state.UpdatedAtMs == lastConsumedUpdatedAtMs
+                    && !string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)
+                    && !string.Equals(state.PayloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
+                    return true;
+
+                return false;
+            }
+
+            // Use a generous slack for choices: HsBox typically updates its state
+            // when the card is played (~3-5s before the bot processes the discover choice
+            // due to game animations), so 3000ms is too tight.
+            const int ChoiceFreshnessSlackMs = 8000;
+            if (minimumUpdatedAtMs <= 0)
+                return true;
+
+            return state.UpdatedAtMs > 0 && state.UpdatedAtMs + ChoiceFreshnessSlackMs >= minimumUpdatedAtMs;
         }
 
         private static bool TryEvaluateActionState(
