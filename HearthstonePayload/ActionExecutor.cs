@@ -86,6 +86,7 @@ namespace HearthstonePayload
         public static void Init(CoroutineExecutor executor)
         {
             _coroutine = executor;
+            DiscoverController.Init(executor);
         }
 
         private static string ExecuteOption(int sourceId, int targetId, int position, string subOptionCardId)
@@ -3868,6 +3869,70 @@ namespace HearthstonePayload
             return payload;
         }
 
+        private static string EscapeDiscoverStateValue(string value)
+        {
+            return string.IsNullOrWhiteSpace(value)
+                ? string.Empty
+                : value.Replace("|", "/").Replace(";", ",");
+        }
+
+        private static bool IsDiscoverSnapshotReady(ChoiceSnapshot snapshot, out string detail)
+        {
+            detail = "ready";
+            if (snapshot == null)
+            {
+                detail = "choice_state_unavailable";
+                return false;
+            }
+
+            if (snapshot.ChoiceStateWaitingToStart)
+            {
+                detail = "waiting_to_start";
+                return false;
+            }
+
+            if (!snapshot.ChoiceStateRevealed)
+            {
+                detail = "not_revealed";
+                return false;
+            }
+
+            if (snapshot.ChoiceStateConcealed)
+            {
+                detail = "concealed";
+                return false;
+            }
+
+            foreach (var entityId in snapshot.ChoiceEntityIds)
+            {
+                if (!TryGetFriendlyChoiceCardObject(entityId, out var card) || card == null)
+                {
+                    detail = "card_missing:" + entityId;
+                    return false;
+                }
+
+                if (!TryReadCardActorReady(card, out var actorReady) || !actorReady)
+                {
+                    detail = "actor_not_ready:" + entityId;
+                    return false;
+                }
+
+                if (TryReadCardHasActiveTweens(card, out var hasActiveTweens) && hasActiveTweens)
+                {
+                    detail = "card_tween_active:" + entityId;
+                    return false;
+                }
+
+                if (!TryGetFriendlyChoiceCardScreenPos(entityId, out _, out _))
+                {
+                    detail = "pos_not_found:" + entityId;
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private static bool TryBuildChoicePartsFromChoiceCardMgr(object gameState, out List<string> parts)
         {
             parts = null;
@@ -3970,6 +4035,15 @@ namespace HearthstonePayload
             }
 
             return false;
+        }
+
+        private static bool TryGetFriendlyChoiceCardScreenPos(int entityId, out int x, out int y)
+        {
+            x = y = 0;
+            if (!TryGetFriendlyChoiceCardObject(entityId, out var card) || card == null)
+                return false;
+
+            return GameObjectFinder.GetObjectScreenPos(card, out x, out y);
         }
 
         private static bool TryReadCardHasActiveTweens(object card, out bool hasActiveTweens)
@@ -4142,7 +4216,7 @@ namespace HearthstonePayload
                     continue;
                 }
 
-                if (!GameObjectFinder.GetEntityScreenPos(entityId, out _, out _))
+                if (!TryGetFriendlyChoiceCardScreenPos(entityId, out _, out _))
                 {
                     lastDetail = "pos_not_found";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
@@ -4761,6 +4835,35 @@ namespace HearthstonePayload
 
         }
 
+        public static string GetDiscoverState()
+        {
+            if (!EnsureTypes())
+                return null;
+
+            var gs = GetGameState();
+            if (gs == null || !TryBuildChoiceSnapshot(gs, out var snapshot))
+                return null;
+
+            if (!string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase)
+                || snapshot.ChoiceId <= 0
+                || snapshot.ChoiceEntityIds == null
+                || snapshot.ChoiceEntityIds.Count == 0)
+            {
+                return null;
+            }
+
+            var ready = IsDiscoverSnapshotReady(snapshot, out var detail);
+            return string.Join(
+                "|",
+                snapshot.ChoiceId.ToString(),
+                snapshot.SourceEntityId.ToString(),
+                EscapeDiscoverStateValue(snapshot.SourceCardId),
+                ready ? "READY" : "WAITING",
+                string.Join(";", snapshot.ChoiceEntityIds.Select((entityId, index) =>
+                    entityId + "," + EscapeDiscoverStateValue(index < snapshot.ChoiceCardIds.Count ? snapshot.ChoiceCardIds[index] : string.Empty))),
+                EscapeDiscoverStateValue(detail));
+        }
+
         /// <summary>
         /// 按屏幕比例坐标点击（用于 Rewind 等 UI 按钮）
         /// ratioX/ratioY 取值 0.0~1.0
@@ -4869,7 +4972,11 @@ namespace HearthstonePayload
             // 鼠标点击做两次尝试：第一次常规点击，第二次作为“界面刚亮起时序抖动”补偿。
             for (int attempt = 1; attempt <= 2 && !confirmed; attempt++)
             {
-                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y))
+                int x, y;
+                var gotChoicePos = discoverMouseOnly
+                    ? TryGetFriendlyChoiceCardScreenPos(entityId, out x, out y)
+                    : GameObjectFinder.GetEntityScreenPos(entityId, out x, out y);
+                if (!gotChoicePos)
                 {
                     confirmDetail = "pos_not_found";
                     if (attempt < 2)

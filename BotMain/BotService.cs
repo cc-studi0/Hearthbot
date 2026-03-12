@@ -176,6 +176,12 @@ namespace BotMain
         private readonly HsBoxGameRecommendationProvider _hsBoxRecommendationProvider;
         private DateTime _choiceStateWatchUntilUtc = DateTime.MinValue;
         private string _choiceStateWatchSource = string.Empty;
+        private string _lastDiscoverDetectedKey = string.Empty;
+        private string _lastDiscoverReadyKey = string.Empty;
+        private int _pendingDiscoverChoiceId;
+        private string _pendingDiscoverSourceCardId = string.Empty;
+        private DateTime _pendingDiscoverUntilUtc = DateTime.MinValue;
+        private DateTime _lastPendingDiscoverLogUtc = DateTime.MinValue;
         private readonly object _cardMechanicsLock = new object();
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
@@ -193,6 +199,17 @@ namespace BotMain
             public int OwnClass { get; set; }
             public int EnemyClass { get; set; }
             public List<MulliganChoiceState> Choices { get; } = new();
+        }
+
+        private sealed class DiscoverStateSnapshot
+        {
+            public int ChoiceId { get; set; }
+            public int SourceEntityId { get; set; }
+            public string SourceCardId { get; set; } = string.Empty;
+            public string Status { get; set; } = string.Empty;
+            public string Detail { get; set; } = string.Empty;
+            public List<int> ChoiceEntityIds { get; } = new();
+            public List<string> ChoiceCardIds { get; } = new();
         }
 
         public BotService()
@@ -905,7 +922,7 @@ namespace BotMain
                     || resp.StartsWith("SCENE:", StringComparison.Ordinal)
                     || resp.StartsWith("DECKS:", StringComparison.Ordinal)
                     || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
-                    || resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal)
+                    || resp.StartsWith("DISCOVER:", StringComparison.Ordinal)
                     || resp == "PONG" || resp == "READY" || resp == "BUSY")
                 {
                     Log($"[MainLoop] GET_SEED 收到错位响应，丢弃  {resp.Substring(0, Math.Min(resp.Length, 40))}");
@@ -1151,6 +1168,7 @@ namespace BotMain
                         lastTurnNumber = turnNumber;
                         currentTurnStartedUtc = DateTime.UtcNow;
                         ClearChoiceStateWatch("turn_changed");
+                        ResetDiscoverLogState();
                         _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                         resimulationCount = 0;
                         actionFailStreak = 0;
@@ -1165,8 +1183,8 @@ namespace BotMain
 
                 var swTurn = Stopwatch.StartNew();
 
-                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState)
-                    || waitingForChoiceState)
+                if (TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState)
+                    || waitingForDiscoverState)
                 {
                     Thread.Sleep(120);
                     continue;
@@ -1292,10 +1310,6 @@ namespace BotMain
                         var nextAction = ai + 1 < actions.Count ? actions[ai + 1] : null;
                         bool nextIsAttack = nextAction != null
                             && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                        var deferChoiceProbeToInlineOption = ShouldDeferChoiceProbeToInlineOption(
-                            action,
-                            nextAction,
-                            out var inlineOptionSourceEntityId);
                         const int preReadyRetries = 30;
                         const int preReadyIntervalMs = 300;
                         const int postReadyRetries = 30;
@@ -1345,11 +1359,11 @@ namespace BotMain
                                     Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing choice state.");
                                     playActionFailStreakByEntity[failedPlayEntityId] = 0;
 
-                                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed))
+                                    if (TryHandlePendingDiscoverBeforePlanning(pipe, seed, out _))
                                     {
                                         requestResimulation = true;
-                                        resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
-                                        Log($"[Choice] detected and resolved after repeated PLAY failure, entity={failedPlayEntityId}. Replanning...");
+                                        resimulationReason = $"discover_after_play_fail:{failedPlayEntityId}";
+                                        Log($"[Discover] discover_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
                                         break;
                                     }
                                 }
@@ -1364,8 +1378,6 @@ namespace BotMain
                         {
                             playActionFailStreakByEntity.Remove(playedEntityId);
                         }
-
-                        TryArmChoiceStateWatchForAction(action, planningBoard);
 
                         // 出牌/攻击详细日志
                         try
@@ -1411,14 +1423,10 @@ namespace BotMain
                         else
                         {
                             Thread.Sleep(actionDelayMs);
-                            if (deferChoiceProbeToInlineOption)
-                            {
-                                Log($"[Choice] defer probe for hsbox inline OPTION source={inlineOptionSourceEntityId} current={action} next={nextAction}");
-                            }
-                            else if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimulationReason))
+                            if (TryProbePendingDiscoverAfterAction(pipe, seed, action, out var discoverResimulationReason))
                             {
                                 requestResimulation = true;
-                                resimulationReason = choiceResimulationReason;
+                                resimulationReason = discoverResimulationReason;
                                 break;
                             }
                             WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
@@ -1743,6 +1751,78 @@ namespace BotMain
             return true;
         }
 
+        private void ResetDiscoverLogState()
+        {
+            _lastDiscoverDetectedKey = string.Empty;
+            _lastDiscoverReadyKey = string.Empty;
+            _pendingDiscoverChoiceId = 0;
+            _pendingDiscoverSourceCardId = string.Empty;
+            _pendingDiscoverUntilUtc = DateTime.MinValue;
+            _lastPendingDiscoverLogUtc = DateTime.MinValue;
+        }
+
+        private void TrackDiscoverObservation(DiscoverStateSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return;
+
+            var detectedKey = snapshot.ChoiceId + ":" + snapshot.Status;
+            if (!string.Equals(_lastDiscoverDetectedKey, detectedKey, StringComparison.Ordinal))
+            {
+                _lastDiscoverDetectedKey = detectedKey;
+                Log($"[Discover] discover_detected choiceId={snapshot.ChoiceId} source={snapshot.SourceCardId} status={snapshot.Status} detail={snapshot.Detail}");
+            }
+
+            if (string.Equals(snapshot.Status, "READY", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(_lastDiscoverReadyKey, snapshot.ChoiceId.ToString(), StringComparison.Ordinal))
+            {
+                _lastDiscoverReadyKey = snapshot.ChoiceId.ToString();
+                Log($"[Discover] discover_ready choiceId={snapshot.ChoiceId} detail={snapshot.Detail}");
+            }
+        }
+
+        private void ArmPendingDiscover(DiscoverStateSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.ChoiceId <= 0)
+                return;
+
+            _pendingDiscoverChoiceId = snapshot.ChoiceId;
+            _pendingDiscoverSourceCardId = snapshot.SourceCardId ?? string.Empty;
+            _pendingDiscoverUntilUtc = DateTime.UtcNow.AddSeconds(45);
+        }
+
+        private bool HasPendingDiscover()
+        {
+            if (_pendingDiscoverChoiceId <= 0)
+                return false;
+
+            if (_pendingDiscoverUntilUtc <= DateTime.UtcNow)
+            {
+                Log($"[Discover] pending_timeout choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId}");
+                _pendingDiscoverChoiceId = 0;
+                _pendingDiscoverSourceCardId = string.Empty;
+                _pendingDiscoverUntilUtc = DateTime.MinValue;
+                _lastPendingDiscoverLogUtc = DateTime.MinValue;
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ClearPendingDiscover(string reason)
+        {
+            if (_pendingDiscoverChoiceId <= 0)
+                return;
+
+            if (!string.IsNullOrWhiteSpace(reason))
+                Log($"[Discover] pending_cleared choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} reason={reason}");
+
+            _pendingDiscoverChoiceId = 0;
+            _pendingDiscoverSourceCardId = string.Empty;
+            _pendingDiscoverUntilUtc = DateTime.MinValue;
+            _lastPendingDiscoverLogUtc = DateTime.MinValue;
+        }
+
         private void ClearChoiceStateWatch(string reason)
         {
             if (_choiceStateWatchUntilUtc == DateTime.MinValue
@@ -1806,6 +1886,34 @@ namespace BotMain
                 return false;
 
             reason = $"choice_after_action:{action.Split('|')[0].ToLowerInvariant()}";
+            return true;
+        }
+
+        private bool TryProbePendingDiscoverAfterAction(
+            PipeServer pipe,
+            string seed,
+            string action,
+            out string reason)
+        {
+            reason = null;
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            if (!action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                && !action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                && !action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                && !action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            var handled = TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState);
+            if (!handled && !waitingForDiscoverState)
+                return false;
+
+            reason = handled
+                ? $"discover_after_action:{action.Split('|')[0].ToLowerInvariant()}"
+                : $"discover_after_action_waiting:{action.Split('|')[0].ToLowerInvariant()}";
             return true;
         }
 
@@ -2199,19 +2307,19 @@ namespace BotMain
             return null;
         }
 
-        private static bool TryGetChoiceState(
+        private static bool TryGetDiscoverStateResponse(
             PipeServer pipe,
             int maxRetries,
             int retryDelayMs,
             out string response,
             int commandTimeoutMs = 5000)
         {
-            response = null;
+            response = "NO_DISCOVER";
             for (var i = 0; i < maxRetries; i++)
             {
                 try
                 {
-                    response = pipe.SendAndReceive("GET_CHOICE_STATE", Math.Max(120, commandTimeoutMs));
+                    response = pipe.SendAndReceive("GET_DISCOVER_STATE", Math.Max(200, commandTimeoutMs));
                 }
                 catch
                 {
@@ -2219,15 +2327,27 @@ namespace BotMain
                 }
 
                 if (!string.IsNullOrWhiteSpace(response)
-                    && !string.Equals(response, "NO_CHOICE", StringComparison.Ordinal))
+                    && response.StartsWith("DISCOVER:", StringComparison.Ordinal))
+                {
                     return true;
+                }
 
                 if (i < maxRetries - 1 && retryDelayMs > 0)
                     Thread.Sleep(retryDelayMs);
             }
 
-            response = "NO_CHOICE";
+            response = string.IsNullOrWhiteSpace(response) ? "NO_DISCOVER" : response;
             return false;
+        }
+
+        private static bool TryGetChoiceState(
+            PipeServer pipe,
+            int maxRetries,
+            int retryDelayMs,
+            out string response,
+            int commandTimeoutMs = 5000)
+        {
+            return TryGetDiscoverStateResponse(pipe, maxRetries, retryDelayMs, out response, commandTimeoutMs);
         }
 
         private bool IsMulliganStateActive(PipeServer pipe, string scope, out string detail)
@@ -2279,53 +2399,79 @@ namespace BotMain
             return fallbackSeed;
         }
 
-        private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed)
-            => TryHandlePendingChoiceBeforePlanning(pipe, seed, out _);
+        private bool TryHandlePendingDiscoverBeforePlanning(PipeServer pipe, string seed)
+            => TryHandlePendingDiscoverBeforePlanning(pipe, seed, out _);
 
-        private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
+        private bool TryHandlePendingDiscoverBeforePlanning(PipeServer pipe, string seed, out bool waitingForDiscoverState)
         {
-            waitingForChoiceState = false;
+            waitingForDiscoverState = false;
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            var watchActive = IsChoiceStateWatchActive();
-
-            if (!TryGetChoiceState(
+            var pendingDiscoverActive = HasPendingDiscover();
+            if (!TryGetDiscoverStateResponse(
                 pipe,
-                maxRetries: watchActive ? 4 : 1,
-                retryDelayMs: watchActive ? 120 : 0,
-                out var resp,
-                commandTimeoutMs: watchActive ? 900 : 700))
+                maxRetries: pendingDiscoverActive ? 4 : 1,
+                retryDelayMs: pendingDiscoverActive ? 80 : 0,
+                out var response,
+                commandTimeoutMs: pendingDiscoverActive ? 1200 : 900))
             {
+                if (pendingDiscoverActive)
+                {
+                    waitingForDiscoverState = true;
+                    if (_lastPendingDiscoverLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    {
+                        _lastPendingDiscoverLogUtc = DateTime.UtcNow;
+                        var detail = string.Equals(response, "NO_DISCOVER", StringComparison.Ordinal)
+                            ? "no_discover"
+                            : "response_missing";
+                        Log($"[Discover] pending_wait choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} detail={detail}");
+                    }
+                }
                 return false;
             }
 
-            if (string.IsNullOrWhiteSpace(resp)
-                || !resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
+            if (!TryParseDiscoverStateResponse(response, out var snapshot))
             {
+                if (HasPendingDiscover())
+                {
+                    waitingForDiscoverState = true;
+                    if (_lastPendingDiscoverLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    {
+                        _lastPendingDiscoverLogUtc = DateTime.UtcNow;
+                        Log($"[Discover] pending_wait choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} detail=state_unparsed");
+                    }
+                }
                 return false;
             }
 
-            if (IsMulliganStateActive(pipe, "ChoicePrePlan", out var mulliganDetail))
+            TrackDiscoverObservation(snapshot);
+            ArmPendingDiscover(snapshot);
+
+            if (!string.Equals(snapshot.Status, "READY", StringComparison.OrdinalIgnoreCase))
             {
-                Log($"[Choice] choice_suppressed_during_mulligan detail={mulliganDetail}");
-                ClearChoiceStateWatch("choice_suppressed_during_mulligan");
+                waitingForDiscoverState = true;
+                return false;
+            }
+
+            if (TryHandleDiscover(pipe, seed, snapshot))
+            {
+                ClearPendingDiscover("handled");
                 return true;
             }
 
-            var watchSource = string.IsNullOrWhiteSpace(_choiceStateWatchSource)
-                ? "poll"
-                : _choiceStateWatchSource;
-            Log($"[Choice] pending choice detected ({watchSource}), resolve before planning.");
-            var handled = TryHandleChoice(pipe, seed);
-            if (handled)
-            {
-                ClearChoiceStateWatch("choice_handled");
-                return true;
-            }
-
-            waitingForChoiceState = true;
+            waitingForDiscoverState = true;
             return false;
+        }
+
+        private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed)
+            => TryHandlePendingDiscoverBeforePlanning(pipe, seed, out _);
+
+        private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
+        {
+            var handled = TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState);
+            waitingForChoiceState = waitingForDiscoverState;
+            return handled;
         }
 
         private bool TryHandleChoice(PipeServer pipe, string seed)
@@ -2345,7 +2491,7 @@ namespace BotMain
                     out var resp,
                     commandTimeoutMs: commandTimeoutMs))
                 {
-                    if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                    if (string.Equals(resp, "NO_DISCOVER", StringComparison.Ordinal))
                         return true;
 
                     if (retry < rounds - 1)
@@ -2353,7 +2499,7 @@ namespace BotMain
                     return false;
                 }
 
-                if (!resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
+                if (!resp.StartsWith("DISCOVER:", StringComparison.Ordinal))
                 {
                     if (retry < rounds - 1)
                         continue;
@@ -2368,30 +2514,25 @@ namespace BotMain
                     return true;
                 }
 
-                var payload = resp.Substring("CHOICE_STATE:".Length);
-                var parts = payload.Split('|');
-                if (parts.Length < 2)
+                if (!TryParseDiscoverStateResponse(resp, out var currentState))
                 {
                     if (retry < rounds - 1)
                         continue;
                     return false;
                 }
 
-                var originCardId = parts[0];
-                var choiceEntries = parts[1].Split(';');
-                var choiceMode = parts.Length >= 3 && !string.IsNullOrWhiteSpace(parts[2])
-                    ? parts[2]
-                    : "UNKNOWN";
-
-                var choiceCardIds = new List<string>();
-                var choiceEntityIds = new List<int>();
-                foreach (var entry in choiceEntries)
+                if (!string.Equals(currentState.Status, "READY", StringComparison.OrdinalIgnoreCase))
                 {
-                    var kv = entry.Split(',');
-                    if (kv.Length != 2 || !int.TryParse(kv[1], out var eid)) continue;
-                    choiceCardIds.Add(kv[0]);
-                    choiceEntityIds.Add(eid);
+                    if (retry < rounds - 1)
+                        continue;
+                    return false;
                 }
+
+                var payload = resp.Substring("DISCOVER:".Length);
+                var originCardId = currentState.SourceCardId;
+                var choiceMode = "DISCOVER";
+                var choiceCardIds = currentState.ChoiceCardIds.ToList();
+                var choiceEntityIds = currentState.ChoiceEntityIds.ToList();
 
                 if (choiceEntityIds.Count == 0)
                 {
@@ -2424,7 +2565,7 @@ namespace BotMain
                 var pickedCardId = choiceCardIds[pickedIndex];
                 var pickedEntityId = choiceEntityIds[pickedIndex];
                 var confirmed = TryApplyDiscoverChoice(
-                    pipe, payload, choiceMode, pickedEntityId, isRewindChoice,
+                    pipe, payload, choiceMode, currentState.ChoiceId, pickedEntityId, isRewindChoice,
                     out var pickResult, out var confirmDetail, out var hasChainedChoice);
 
                 if (!confirmed)
@@ -2470,6 +2611,145 @@ namespace BotMain
             }
 
             return IsChoiceStateClosed(pipe);
+        }
+
+        private static bool TryParseDiscoverStateResponse(string response, out DiscoverStateSnapshot snapshot)
+        {
+            snapshot = null;
+            if (string.IsNullOrWhiteSpace(response)
+                || !response.StartsWith("DISCOVER:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var payload = response.Substring("DISCOVER:".Length);
+            var parts = payload.Split(new[] { '|' }, 6);
+            if (parts.Length < 6
+                || !int.TryParse(parts[0], out var choiceId)
+                || !int.TryParse(parts[1], out var sourceEntityId))
+            {
+                return false;
+            }
+
+            var parsed = new DiscoverStateSnapshot
+            {
+                ChoiceId = choiceId,
+                SourceEntityId = sourceEntityId,
+                SourceCardId = parts[2] ?? string.Empty,
+                Status = parts[3] ?? string.Empty,
+                Detail = parts[5] ?? string.Empty
+            };
+
+            if (!string.IsNullOrWhiteSpace(parts[4]))
+            {
+                foreach (var entry in parts[4].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                {
+                    var kv = entry.Split(new[] { ',' }, 2);
+                    if (kv.Length != 2 || !int.TryParse(kv[0], out var entityId) || entityId <= 0)
+                        continue;
+
+                    parsed.ChoiceEntityIds.Add(entityId);
+                    parsed.ChoiceCardIds.Add(kv[1] ?? string.Empty);
+                }
+            }
+
+            snapshot = parsed;
+            return parsed.ChoiceEntityIds.Count > 0;
+        }
+
+        private bool TryHandleDiscover(PipeServer pipe, string seed, DiscoverStateSnapshot initialState)
+        {
+            if (pipe == null || !pipe.IsConnected || initialState == null)
+                return false;
+
+            const int maxChainedChoices = 8;
+            var currentState = initialState;
+            Log($"[Discover] handling_begin choiceId={currentState.ChoiceId} source={currentState.SourceCardId} count={currentState.ChoiceEntityIds.Count}");
+
+            for (var chainedCount = 0; chainedCount < maxChainedChoices; chainedCount++)
+            {
+                if (!string.Equals(currentState.Status, "READY", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                TrackDiscoverObservation(currentState);
+
+                var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                var maintainIdx = currentState.ChoiceCardIds.IndexOf("TIME_000ta");
+                var isRewindChoice = maintainIdx >= 0 && currentState.ChoiceCardIds.Contains("TIME_000tb");
+                var recommendation = GetRecommendationProvider().RecommendDiscover(
+                    new DiscoverRecommendationRequest(
+                        currentState.SourceCardId,
+                        currentState.ChoiceCardIds,
+                        currentState.ChoiceEntityIds,
+                        strategySeed,
+                        isRewindChoice,
+                        maintainIdx,
+                        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
+                        _lastConsumedHsBoxChoiceUpdatedAtMs));
+                var pickedIndex = recommendation?.PickedIndex ?? -1;
+                if (pickedIndex < 0 || pickedIndex >= currentState.ChoiceEntityIds.Count)
+                    pickedIndex = 0;
+
+                if ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs)
+                    _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+
+                var pickedCardId = currentState.ChoiceCardIds[pickedIndex];
+                var pickedEntityId = currentState.ChoiceEntityIds[pickedIndex];
+                var pickResponse = pipe.SendAndReceive(
+                    $"PICK_DISCOVER:{currentState.ChoiceId}:{pickedEntityId}",
+                    8000) ?? "NO_RESPONSE";
+                Log($"[Discover] discover_pick_result choiceId={currentState.ChoiceId} picked={pickedCardId}:{pickedEntityId} result={pickResponse}");
+
+                if (!pickResponse.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (string.Equals(pickResponse, "OK:CLOSED", StringComparison.OrdinalIgnoreCase))
+                {
+                    ResetDiscoverLogState();
+                    return true;
+                }
+
+                if (!pickResponse.StartsWith("OK:CHAINED:", StringComparison.OrdinalIgnoreCase))
+                    return false;
+
+                if (!TryGetChainedDiscoverState(pipe, currentState.ChoiceId, out currentState))
+                {
+                    ResetDiscoverLogState();
+                    return true;
+                }
+
+                TrackDiscoverObservation(currentState);
+                ArmPendingDiscover(currentState);
+                if (!string.Equals(currentState.Status, "READY", StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+
+            return false;
+        }
+
+        private static bool TryGetChainedDiscoverState(
+            PipeServer pipe,
+            int previousChoiceId,
+            out DiscoverStateSnapshot snapshot)
+        {
+            snapshot = null;
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            for (var i = 0; i < 12; i++)
+            {
+                if (TryGetDiscoverStateResponse(pipe, 1, 0, out var response, 1200)
+                    && TryParseDiscoverStateResponse(response, out var parsed)
+                    && parsed.ChoiceId != previousChoiceId)
+                {
+                    snapshot = parsed;
+                    return true;
+                }
+
+                Thread.Sleep(80);
+            }
+
+            return false;
         }
 
         private bool TryPickDiscoverByChoicesModifiers(
@@ -2618,6 +2898,7 @@ namespace BotMain
         private bool TryApplyChoiceWithFallback(
             PipeServer pipe,
             string previousPayload,
+            int choiceId,
             int pickedEntityId,
             out string pickResult,
             out string confirmDetail,
@@ -2629,7 +2910,7 @@ namespace BotMain
 
             var apiChained = false;
             var apiConfirmDetail = "api_not_confirmed";
-            var apiResult = pipe.SendAndReceive("APPLY_CHOICE_API:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            var apiResult = pipe.SendAndReceive($"PICK_DISCOVER:{choiceId}:{pickedEntityId}", 5000) ?? "NO_RESPONSE";
             pickResult = "api=" + apiResult;
             if (apiResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
                 && TryConfirmDiscoverChoiceApplied(pipe, previousPayload, out apiConfirmDetail, out apiChained))
@@ -2641,7 +2922,7 @@ namespace BotMain
 
             var mouseChained = false;
             var mouseConfirmDetail = "mouse_not_confirmed";
-            var mouseResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            var mouseResult = pipe.SendAndReceive($"PICK_DISCOVER:{choiceId}:{pickedEntityId}", 5000) ?? "NO_RESPONSE";
             pickResult = $"api={apiResult},mouse={mouseResult}";
             if (!mouseResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
             {
@@ -2671,6 +2952,7 @@ namespace BotMain
         private bool TryApplyChoiceWithMouseOnly(
             PipeServer pipe,
             string previousPayload,
+            int choiceId,
             int pickedEntityId,
             out string pickResult,
             out string confirmDetail,
@@ -2680,7 +2962,7 @@ namespace BotMain
             confirmDetail = "mouse_not_confirmed";
             hasChainedChoice = false;
 
-            var mouseResult = pipe.SendAndReceive("APPLY_CHOICE:" + pickedEntityId, 5000) ?? "NO_RESPONSE";
+            var mouseResult = pipe.SendAndReceive($"PICK_DISCOVER:{choiceId}:{pickedEntityId}", 5000) ?? "NO_RESPONSE";
             pickResult = "mouse=" + mouseResult;
             if (!mouseResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
             {
@@ -2704,6 +2986,7 @@ namespace BotMain
             PipeServer pipe,
             string previousPayload,
             string choiceMode,
+            int choiceId,
             int pickedEntityId,
             bool isRewindChoice,
             out string pickResult,
@@ -2711,11 +2994,20 @@ namespace BotMain
             out bool hasChainedChoice)
         {
             _ = isRewindChoice;
+            if (choiceId <= 0)
+            {
+                pickResult = "choice_id_invalid";
+                confirmDetail = "choice_id_invalid";
+                hasChainedChoice = false;
+                return false;
+            }
+
             if (string.Equals(choiceMode, "DISCOVER", StringComparison.OrdinalIgnoreCase))
             {
                 return TryApplyChoiceWithMouseOnly(
                     pipe,
                     previousPayload,
+                    choiceId,
                     pickedEntityId,
                     out pickResult,
                     out confirmDetail,
@@ -2725,6 +3017,7 @@ namespace BotMain
             return TryApplyChoiceWithFallback(
                 pipe,
                 previousPayload,
+                choiceId,
                 pickedEntityId,
                 out pickResult,
                 out confirmDetail,
@@ -2744,24 +3037,24 @@ namespace BotMain
             for (int i = 0; i < 25; i++)
             {
                 Thread.Sleep(80);
-                var resp = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
+                var resp = pipe.SendAndReceive("GET_DISCOVER_STATE", 5000);
                 if (string.IsNullOrWhiteSpace(resp))
                     continue;
 
-                if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                if (string.Equals(resp, "NO_DISCOVER", StringComparison.Ordinal))
                 {
                     detail = "closed";
                     return true;
                 }
 
-                if (resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal))
+                if (resp.StartsWith("DISCOVER:", StringComparison.Ordinal))
                 {
-                    var currentPayload = resp.Substring("CHOICE_STATE:".Length);
+                    var currentPayload = resp.Substring("DISCOVER:".Length);
                     if (!string.Equals(currentPayload, previousPayload, StringComparison.Ordinal))
                     {
                         // 最终检查：payload已变化，检查是否有新的链式选择
-                        var finalCheck = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
-                        if (finalCheck.StartsWith("CHOICE_STATE:"))
+                        var finalCheck = pipe.SendAndReceive("GET_DISCOVER_STATE", 5000);
+                        if (finalCheck.StartsWith("DISCOVER:"))
                         {
                             // payload变化且仍有choice → 当前选择已成功，但触发了新的链式选择
                             Log($"[Choice] 当前选择已确认，检测到链式选择（新choice待处理）");
@@ -2792,8 +3085,8 @@ namespace BotMain
             {
                 try
                 {
-                    var resp = pipe.SendAndReceive("GET_CHOICE_STATE", 5000);
-                    if (string.Equals(resp, "NO_CHOICE", StringComparison.Ordinal))
+                    var resp = pipe.SendAndReceive("GET_DISCOVER_STATE", 5000);
+                    if (string.Equals(resp, "NO_DISCOVER", StringComparison.Ordinal))
                         return true;
                 }
                 catch
@@ -2810,11 +3103,7 @@ namespace BotMain
         private int RunDiscoverStrategy(string originCardId, List<string> choiceCardIds, string seed)
         {
             if (_discoverProfile == "None" || !_discoverProfileTypes.TryGetValue(_discoverProfile, out var discoverType))
-            {
-                Log("[Discover] no discover profile selected, picking first.");
                 return 0;
-            }
-
             try
             {
                 if (!(Activator.CreateInstance(discoverType) is DiscoverPickHandler handler))
@@ -2836,9 +3125,8 @@ namespace BotMain
                 var idx = choices.IndexOf(picked);
                 return idx >= 0 ? idx : 0;
             }
-            catch (Exception ex)
+            catch
             {
-                Log($"[Discover] strategy error: {ex.Message}");
                 return 0;
             }
         }

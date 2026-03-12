@@ -296,7 +296,7 @@ namespace BotMain
                 || resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
                 || resp.StartsWith("DECKS:", StringComparison.Ordinal)
                 || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
-                || resp.StartsWith("CHOICE_STATE:", StringComparison.Ordinal)
+                || resp.StartsWith("DISCOVER:", StringComparison.Ordinal)
                 || resp.StartsWith("RESULT:", StringComparison.Ordinal)
                 || IsStatusResponse(resp))
                 return true;

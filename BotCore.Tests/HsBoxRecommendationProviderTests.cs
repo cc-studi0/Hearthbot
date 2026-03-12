@@ -1,8 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Linq;
 using BotMain;
+using SmartBot.Database;
+using SmartBot.Plugins.API;
 using Xunit;
 
 namespace BotCore.Tests
@@ -87,6 +90,65 @@ namespace BotCore.Tests
             Assert.Equal(new[] { "END_TURN" }, result.Actions);
             Assert.NotNull(result.SourceCursor);
             Assert.Equal(400, result.SourceCursor.UpdatedAtMs);
+        }
+
+        [Fact]
+        public void RecommendActions_MapsChooseStepUsingPreviousPlaySource()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 101,
+                        IsFriend = true,
+                        Template = CreateTemplate(Card.Cards.AT_037, "活体根须", "Living Roots")
+                    }
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 2,
+                UpdatedAtMs = 450,
+                Raw = "play-then-choose",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出1号位法术 活体根须 选择卡牌 并蒂树苗",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037",
+                                cardName = "活体根须",
+                                position = 1
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "choose",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037b",
+                                cardName = "并蒂树苗"
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|101|0|0", "OPTION|101|0|0|AT_037b" }, result.Actions);
         }
 
         [Fact]
@@ -228,6 +290,15 @@ namespace BotCore.Tests
                 Reason = "ready",
                 Envelope = envelope
             };
+        }
+
+        private static CardTemplate CreateTemplate(Card.Cards id, string nameCn, string name)
+        {
+            var template = (CardTemplate)RuntimeHelpers.GetUninitializedObject(typeof(CardTemplate));
+            template.Id = id;
+            template.NameCN = nameCn;
+            template.Name = name;
+            return template;
         }
 
         private sealed class FakeBridge : IHsBoxRecommendationBridge

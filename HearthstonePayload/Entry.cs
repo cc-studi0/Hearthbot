@@ -299,10 +299,12 @@ namespace HearthstonePayload
                     {
                         _pipe.Write(nav.IsFindingGame() ? "YES" : "NO");
                     }
-                    else if (cmd == "GET_CHOICE_STATE")
+                    else if (cmd == "GET_DISCOVER_STATE")
                     {
-                        var state = ActionExecutor.GetChoiceState();
-                        _pipe.Write(state != null ? "CHOICE_STATE:" + state : "NO_CHOICE");
+                        var stateResult = RunOnMainThread(() =>
+                            (object)(ActionExecutor.GetDiscoverState() ?? string.Empty));
+                        var state = stateResult as string ?? string.Empty;
+                        _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_DISCOVER" : "DISCOVER:" + state);
                     }
                     else if (cmd == "GET_DECK_STATE")
                     {
@@ -313,13 +315,19 @@ namespace HearthstonePayload
                         else
                             _pipe.Write("DECK_STATE:" + string.Join("|", state.FriendDeck));
                     }
-                    else if (cmd.StartsWith("APPLY_CHOICE:", StringComparison.Ordinal))
+                    else if (cmd.StartsWith("PICK_DISCOVER:", StringComparison.Ordinal))
                     {
-                        _pipe.Write(ActionExecutor.ApplyChoice(int.Parse(cmd.Substring("APPLY_CHOICE:".Length))));
-                    }
-                    else if (cmd.StartsWith("APPLY_CHOICE_API:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(ActionExecutor.ApplyChoiceApi(int.Parse(cmd.Substring("APPLY_CHOICE_API:".Length))));
+                        var payload = cmd.Substring("PICK_DISCOVER:".Length).Split(':');
+                        if (payload.Length == 2
+                            && int.TryParse(payload[0], out var choiceId)
+                            && int.TryParse(payload[1], out var entityId))
+                        {
+                            _pipe.Write(DiscoverController.PickDiscover(choiceId, entityId));
+                        }
+                        else
+                        {
+                            _pipe.Write("FAIL:bad_args");
+                        }
                     }
                     else if (cmd.StartsWith("CLICK_SCREEN:", StringComparison.Ordinal))
                     {

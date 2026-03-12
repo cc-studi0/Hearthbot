@@ -51,6 +51,22 @@ namespace HearthstonePayload
         /// <summary>
         /// 获取Entity的世界坐标（反射链）
         /// </summary>
+        public static bool GetObjectScreenPos(object obj, out int x, out int y)
+        {
+            x = y = 0;
+            if (!EnsureTypes() || obj == null) return false;
+
+            var pos = GetTransformPos(obj);
+            if (pos == null) return false;
+
+            return MouseSimulator.WorldToScreen(
+                GetFloat(pos, "x"),
+                GetFloat(pos, "y"),
+                GetFloat(pos, "z"),
+                out x,
+                out y);
+        }
+
         public static object GetEntityWorldPos(int entityId)
         {
             if (!EnsureTypes()) return null;

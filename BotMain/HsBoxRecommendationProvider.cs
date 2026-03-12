@@ -64,11 +64,22 @@ namespace BotMain
                     out _,
                     out _,
                     out lastStructuredDetail,
-                    out lastBodyDetail),
+                    out lastBodyDetail)
+                    || HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(current),
                 timeoutMs: _actionWaitTimeoutMs,
                 pollIntervalMs: _actionPollIntervalMs,
                 out var waitDetail,
                 out var lastObservedState);
+
+            if (state != null
+                && HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(state))
+            {
+                return new ActionRecommendationResult(
+                    null,
+                    Array.Empty<string>(),
+                    $"hsbox_actions discover_deferred ({state.Detail})",
+                    shouldRetryWithoutAction: true);
+            }
 
             if (state != null
                 && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
@@ -563,6 +574,9 @@ namespace BotMain
 
         internal static string Classify(HsBoxRecommendationState state)
         {
+            if (HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(state))
+                return "discover";
+
             var steps = state?.Envelope?.Data ?? new List<HsBoxActionStep>();
             if (steps.Any(step => string.Equals(step?.ActionName, "replace", StringComparison.OrdinalIgnoreCase)))
                 return "mulligan";
@@ -890,6 +904,25 @@ namespace BotMain
 
     internal static class HsBoxRecommendationMapper
     {
+        public static bool LooksLikeDiscoverRecommendation(HsBoxRecommendationState state)
+        {
+            var bodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
+            if (!string.IsNullOrWhiteSpace(bodyText))
+            {
+                if (Regex.IsMatch(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant)
+                    || Regex.IsMatch(bodyText, @"选择第\s*(\d+)\s*张卡牌", RegexOptions.CultureInvariant))
+                {
+                    return true;
+                }
+            }
+
+            var steps = state?.Envelope?.Data ?? new List<HsBoxActionStep>();
+            return steps.Any(step =>
+                string.Equals(step?.ActionName, "choose", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(step?.ActionName, "choice", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(step?.ActionName, "discard", StringComparison.OrdinalIgnoreCase));
+        }
+
         public static bool TryMapActions(HsBoxRecommendationState state, Board board, out List<string> actions, out string detail)
         {
             actions = new List<string>();
@@ -903,6 +936,7 @@ namespace BotMain
             }
 
             var skipped = new List<string>();
+            var lastChoiceCapableSourceEntityId = 0;
             foreach (var step in steps)
             {
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
@@ -914,14 +948,21 @@ namespace BotMain
                     continue;
                 }
 
-                if (!TryMapSingleAction(step, board, out var command, out var reason))
+                if (!TryMapSingleAction(step, board, lastChoiceCapableSourceEntityId, out var command, out var reason))
                 {
                     detail = $"map_failed:{step.ActionName}:{reason}; {DescribeStepFailureContext(step, board)}; {state.Detail}";
                     return false;
                 }
 
                 if (!string.IsNullOrWhiteSpace(command))
+                {
                     actions.Add(command);
+                    if (TryGetCommandSourceEntityId(command, out var sourceEntityId)
+                        && IsChoiceCapableCommand(command))
+                    {
+                        lastChoiceCapableSourceEntityId = sourceEntityId;
+                    }
+                }
             }
 
             if (actions.Count == 0)
@@ -1186,7 +1227,12 @@ namespace BotMain
             return false;
         }
 
-        private static bool TryMapSingleAction(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapSingleAction(
+            HsBoxActionStep step,
+            Board board,
+            int fallbackChoiceSourceEntityId,
+            out string command,
+            out string reason)
         {
             command = null;
             reason = "unsupported";
@@ -1212,8 +1258,10 @@ namespace BotMain
                     return TryMapHeroPower(step, board, out command, out reason);
                 case "location_power":
                     return TryMapUseLocation(step, board, out command, out reason);
+                case "choose":
                 case "choice":
-                    return TryMapChoiceAction(step, board, out command, out reason);
+                case "discard":
+                    return TryMapChoiceAction(step, board, fallbackChoiceSourceEntityId, out command, out reason);
                 case "forge":
                 case "titan_power":
                 case "launch_starship":
@@ -1331,11 +1379,23 @@ namespace BotMain
             return true;
         }
 
-        private static bool TryMapChoiceAction(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapChoiceAction(
+            HsBoxActionStep step,
+            Board board,
+            int fallbackChoiceSourceEntityId,
+            out string command,
+            out string reason)
         {
             if (TryMapOptionAction(step, board, out command, out reason))
             {
                 reason = "choice_as_option";
+                return true;
+            }
+
+            if (fallbackChoiceSourceEntityId > 0
+                && TryMapOptionActionWithFallbackSource(step, board, fallbackChoiceSourceEntityId, out command, out reason))
+            {
+                reason = "choice_as_option_with_previous_source";
                 return true;
             }
 
@@ -1362,11 +1422,57 @@ namespace BotMain
             return true;
         }
 
+        private static bool TryMapOptionActionWithFallbackSource(
+            HsBoxActionStep step,
+            Board board,
+            int fallbackSourceEntityId,
+            out string command,
+            out string reason)
+        {
+            command = null;
+            reason = "option_fallback_source_missing";
+            if (step == null || fallbackSourceEntityId <= 0)
+                return false;
+
+            var target = ResolveTargetEntityId(board, step);
+            var position = step.Position > 0 ? step.Position : 0;
+            var subOptionCardId = step.SubOption?.CardId;
+            if (string.IsNullOrWhiteSpace(subOptionCardId))
+                subOptionCardId = step.GetPrimaryCard()?.CardId;
+
+            command = string.IsNullOrWhiteSpace(subOptionCardId)
+                ? $"OPTION|{fallbackSourceEntityId}|{target}|{position}"
+                : $"OPTION|{fallbackSourceEntityId}|{target}|{position}|{subOptionCardId}";
+            reason = "ok";
+            return true;
+        }
+
         private static bool ShouldIgnoreForTurnAction(string actionName)
         {
-            return string.Equals(actionName, "replace", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(actionName, "choose", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(actionName, "discard", StringComparison.OrdinalIgnoreCase);
+            return string.Equals(actionName, "replace", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetCommandSourceEntityId(string command, out int sourceEntityId)
+        {
+            sourceEntityId = 0;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 2
+                && int.TryParse(parts[1], out sourceEntityId)
+                && sourceEntityId > 0;
+        }
+
+        private static bool IsChoiceCapableCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            return command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
         }
 
         private static List<HsBoxActionStep> GetSteps(HsBoxRecommendationState state, out string detail)
