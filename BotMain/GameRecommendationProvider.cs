@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using SmartBot.Plugins.API;
 using SmartBotProfiles;
 using ApiCard = SmartBot.Plugins.API.Card;
@@ -10,6 +11,7 @@ namespace BotMain
     {
         ActionRecommendationResult RecommendActions(ActionRecommendationRequest request);
         MulliganRecommendationResult RecommendMulligan(MulliganRecommendationRequest request);
+        ChoiceRecommendationResult RecommendChoice(ChoiceRecommendationRequest request);
         DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request);
     }
 
@@ -17,16 +19,16 @@ namespace BotMain
     {
         private readonly Func<ActionRecommendationRequest, ActionRecommendationResult> _actionRecommendation;
         private readonly Func<MulliganRecommendationRequest, MulliganRecommendationResult> _mulliganRecommendation;
-        private readonly Func<DiscoverRecommendationRequest, DiscoverRecommendationResult> _discoverRecommendation;
+        private readonly Func<ChoiceRecommendationRequest, ChoiceRecommendationResult> _choiceRecommendation;
 
         public LocalGameRecommendationProvider(
             Func<ActionRecommendationRequest, ActionRecommendationResult> actionRecommendation,
             Func<MulliganRecommendationRequest, MulliganRecommendationResult> mulliganRecommendation,
-            Func<DiscoverRecommendationRequest, DiscoverRecommendationResult> discoverRecommendation)
+            Func<ChoiceRecommendationRequest, ChoiceRecommendationResult> choiceRecommendation)
         {
             _actionRecommendation = actionRecommendation ?? throw new ArgumentNullException(nameof(actionRecommendation));
             _mulliganRecommendation = mulliganRecommendation ?? throw new ArgumentNullException(nameof(mulliganRecommendation));
-            _discoverRecommendation = discoverRecommendation ?? throw new ArgumentNullException(nameof(discoverRecommendation));
+            _choiceRecommendation = choiceRecommendation ?? throw new ArgumentNullException(nameof(choiceRecommendation));
         }
 
         public ActionRecommendationResult RecommendActions(ActionRecommendationRequest request)
@@ -35,8 +37,15 @@ namespace BotMain
         public MulliganRecommendationResult RecommendMulligan(MulliganRecommendationRequest request)
             => _mulliganRecommendation(request);
 
+        public ChoiceRecommendationResult RecommendChoice(ChoiceRecommendationRequest request)
+            => _choiceRecommendation(request);
+
         public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
-            => _discoverRecommendation(request);
+        {
+            var choiceRequest = request?.ToChoiceRecommendationRequest();
+            var result = RecommendChoice(choiceRequest);
+            return DiscoverRecommendationResult.FromChoiceResult(choiceRequest, result);
+        }
     }
 
     internal sealed class HsBoxActionCursor
@@ -61,6 +70,20 @@ namespace BotMain
 
         public string CardId { get; }
         public int EntityId { get; }
+    }
+
+    internal sealed class ChoiceRecommendationOption
+    {
+        public ChoiceRecommendationOption(int entityId, string cardId, bool selected = false)
+        {
+            EntityId = entityId;
+            CardId = cardId ?? string.Empty;
+            Selected = selected;
+        }
+
+        public int EntityId { get; }
+        public string CardId { get; }
+        public bool Selected { get; }
     }
 
     internal sealed class ActionRecommendationRequest
@@ -146,6 +169,73 @@ namespace BotMain
         public string Detail { get; }
     }
 
+    internal sealed class ChoiceRecommendationRequest
+    {
+        public ChoiceRecommendationRequest(
+            string snapshotId,
+            int choiceId,
+            string mode,
+            string originCardId,
+            int sourceEntityId,
+            int countMin,
+            int countMax,
+            IReadOnlyList<ChoiceRecommendationOption> options,
+            IReadOnlyList<int> selectedEntityIds,
+            string seed,
+            long minimumUpdatedAtMs = 0,
+            long lastConsumedUpdatedAtMs = 0)
+        {
+            SnapshotId = snapshotId ?? string.Empty;
+            ChoiceId = choiceId;
+            Mode = mode ?? string.Empty;
+            SourceCardId = originCardId ?? string.Empty;
+            SourceEntityId = sourceEntityId;
+            CountMin = countMin;
+            CountMax = countMax;
+            Options = options ?? Array.Empty<ChoiceRecommendationOption>();
+            SelectedEntityIds = selectedEntityIds ?? Array.Empty<int>();
+            Seed = seed ?? string.Empty;
+            MinimumUpdatedAtMs = minimumUpdatedAtMs;
+            LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
+        }
+
+        public string SnapshotId { get; }
+        public int ChoiceId { get; }
+        public string Mode { get; }
+        public string SourceCardId { get; }
+        public int SourceEntityId { get; }
+        public int CountMin { get; }
+        public int CountMax { get; }
+        public IReadOnlyList<ChoiceRecommendationOption> Options { get; }
+        public IReadOnlyList<int> SelectedEntityIds { get; }
+        public string Seed { get; }
+        public long MinimumUpdatedAtMs { get; }
+        public long LastConsumedUpdatedAtMs { get; }
+
+        public IReadOnlyList<string> ChoiceCardIds => Options.Select(option => option?.CardId ?? string.Empty).ToList();
+        public IReadOnlyList<int> ChoiceEntityIds => Options.Select(option => option?.EntityId ?? 0).ToList();
+        public bool IsRewindChoice => string.Equals(Mode, "TIMELINE", StringComparison.OrdinalIgnoreCase);
+        public int MaintainIndex => Options.ToList().FindIndex(option =>
+            string.Equals(option?.CardId, "TIME_000ta", StringComparison.OrdinalIgnoreCase));
+    }
+
+    internal sealed class ChoiceRecommendationResult
+    {
+        public ChoiceRecommendationResult(
+            IReadOnlyList<int> selectedEntityIds,
+            string detail,
+            long sourceUpdatedAtMs = 0)
+        {
+            SelectedEntityIds = selectedEntityIds ?? Array.Empty<int>();
+            Detail = detail ?? string.Empty;
+            SourceUpdatedAtMs = sourceUpdatedAtMs;
+        }
+
+        public IReadOnlyList<int> SelectedEntityIds { get; }
+        public string Detail { get; }
+        public long SourceUpdatedAtMs { get; }
+    }
+
     internal sealed class DiscoverRecommendationRequest
     {
         public DiscoverRecommendationRequest(
@@ -176,6 +266,28 @@ namespace BotMain
         public int MaintainIndex { get; }
         public long MinimumUpdatedAtMs { get; }
         public long LastConsumedUpdatedAtMs { get; }
+
+        public ChoiceRecommendationRequest ToChoiceRecommendationRequest()
+        {
+            var options = new List<ChoiceRecommendationOption>();
+            for (var i = 0; i < Math.Min(ChoiceCardIds.Count, ChoiceEntityIds.Count); i++)
+                options.Add(new ChoiceRecommendationOption(ChoiceEntityIds[i], ChoiceCardIds[i]));
+
+            var mode = IsRewindChoice ? "TIMELINE" : "DISCOVER";
+            return new ChoiceRecommendationRequest(
+                string.Empty,
+                0,
+                mode,
+                OriginCardId,
+                0,
+                1,
+                1,
+                options,
+                Array.Empty<int>(),
+                Seed,
+                MinimumUpdatedAtMs,
+                LastConsumedUpdatedAtMs);
+        }
     }
 
     internal sealed class DiscoverRecommendationResult
@@ -190,5 +302,21 @@ namespace BotMain
         public int PickedIndex { get; }
         public string Detail { get; }
         public long SourceUpdatedAtMs { get; }
+
+        public static DiscoverRecommendationResult FromChoiceResult(
+            ChoiceRecommendationRequest request,
+            ChoiceRecommendationResult result)
+        {
+            var pickedIndex = 0;
+            var selectedEntityId = result?.SelectedEntityIds?.FirstOrDefault() ?? 0;
+            if (request?.Options != null && request.Options.Count > 0 && selectedEntityId > 0)
+            {
+                var matchIndex = request.Options.ToList().FindIndex(option => option != null && option.EntityId == selectedEntityId);
+                if (matchIndex >= 0)
+                    pickedIndex = matchIndex;
+            }
+
+            return new DiscoverRecommendationResult(pickedIndex, result?.Detail ?? string.Empty, result?.SourceUpdatedAtMs ?? 0);
+        }
     }
 }

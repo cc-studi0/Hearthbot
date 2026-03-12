@@ -152,6 +152,146 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TryMapChoice_ReturnsMultipleEntityIds_ForMultiCardChoiceStep()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 451,
+                Raw = "multi-choice",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = string.Empty,
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "choice",
+                            CardToken = JToken.FromObject(new object[]
+                            {
+                                new { cardId = "CARD_001", cardName = "One", position = 1 },
+                                new { cardId = "CARD_002", cardName = "Two", position = 2 }
+                            })
+                        }
+                    }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-1",
+                77,
+                "GENERAL",
+                "SRC_001",
+                100,
+                1,
+                2,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(201, "CARD_001"),
+                    new ChoiceRecommendationOption(202, "CARD_002"),
+                    new ChoiceRecommendationOption(203, "CARD_003")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 201, 202 }, selectedEntityIds);
+        }
+
+        [Fact]
+        public void TryMapChoice_UsesStructuredChoiceCardList_WhenTypedCardFieldIsMissing()
+        {
+            var step = new HsBoxActionStep
+            {
+                ActionName = "choice"
+            };
+            step.ExtraData["select_detail"] = JToken.FromObject(new
+            {
+                choice_card_id = "CARD_002",
+                choice_card_list = new object[]
+                {
+                    new { card_id = "CARD_001", position = 1 },
+                    new { card_id = "CARD_002", position = 2 },
+                    new { card_id = "CARD_003", position = 3 }
+                }
+            });
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 451,
+                Raw = "{\"select_detail\":{\"choice_card_id\":\"CARD_002\",\"choice_card_list\":[{\"card_id\":\"CARD_001\"},{\"card_id\":\"CARD_002\"}]}}",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = string.Empty,
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-structured",
+                79,
+                "DISCOVER",
+                "SRC_003",
+                102,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(401, "CARD_001"),
+                    new ChoiceRecommendationOption(402, "CARD_002"),
+                    new ChoiceRecommendationOption(403, "CARD_003")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 402, 401, 403 }, selectedEntityIds);
+        }
+
+        [Fact]
+        public void TryMapChoiceFromBodyText_ParsesChineseSlotText()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 452,
+                Raw = "choice-body",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 选择我方2号位卡牌 污染者玛法里奥",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-2",
+                78,
+                "DISCOVER",
+                "SRC_002",
+                101,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(301, "CARD_LEFT"),
+                    new ChoiceRecommendationOption(302, "CARD_MID"),
+                    new ChoiceRecommendationOption(303, "CARD_RIGHT")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoiceFromBodyText(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 302 }, selectedEntityIds);
+        }
+
+        [Fact]
         public void CallbackCapture_WritesSingleFileForSameUpdatedAtAndSignature()
         {
             using var tempDir = new TempDirectory();

@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 
 namespace HearthstonePayload
@@ -45,11 +47,14 @@ namespace HearthstonePayload
 
         private sealed class ChoiceSnapshot
         {
+            public string SnapshotId = string.Empty;
             public int ChoiceId;
             public int SourceEntityId;
             public string SourceCardId = string.Empty;
             public string RawChoiceType = string.Empty;
             public string Mode = "GENERAL";
+            public int CountMin;
+            public int CountMax;
             public bool InChoiceMode;
             public bool PacketReady;
             public bool ChoiceStateActive;
@@ -57,6 +62,12 @@ namespace HearthstonePayload
             public bool ChoiceStateRevealed;
             public bool ChoiceStateConcealed;
             public bool UiShown;
+            public bool IsSubOptionChoice;
+            public bool IsTitanAbility;
+            public bool IsRewindChoice;
+            public bool IsMagicItemDiscover;
+            public bool IsShopChoice;
+            public bool IsLaunchpadAbility;
             public string Signature = string.Empty;
             public List<string> ChoiceParts = new List<string>();
             public List<int> ChoiceEntityIds = new List<int>();
@@ -86,7 +97,7 @@ namespace HearthstonePayload
         public static void Init(CoroutineExecutor executor)
         {
             _coroutine = executor;
-            DiscoverController.Init(executor);
+            ChoiceController.Init(executor);
         }
 
         private static string ExecuteOption(int sourceId, int targetId, int position, string subOptionCardId)
@@ -2932,11 +2943,21 @@ namespace HearthstonePayload
                     return "TIMELINE";
             }
 
+            if (snapshot != null)
+            {
+                if (snapshot.IsSubOptionChoice && snapshot.IsTitanAbility)
+                    return "TITAN_ABILITY";
+                if (snapshot.IsLaunchpadAbility)
+                    return "STARSHIP_LAUNCH";
+                if (snapshot.IsMagicItemDiscover)
+                    return "TRINKET_DISCOVER";
+                if (snapshot.IsShopChoice)
+                    return "SHOP_CHOICE";
+            }
+
             var choiceType = GetChoiceTypeToken(snapshot?.RawChoiceType);
             if (string.Equals(choiceType, "DISCOVER", StringComparison.OrdinalIgnoreCase))
                 return "DISCOVER";
-            if (string.Equals(choiceType, "TITAN", StringComparison.OrdinalIgnoreCase))
-                return "TITAN";
             if (string.Equals(choiceType, "DREDGE", StringComparison.OrdinalIgnoreCase))
                 return "DREDGE";
             if (string.Equals(choiceType, "ADAPT", StringComparison.OrdinalIgnoreCase))
@@ -2946,7 +2967,6 @@ namespace HearthstonePayload
             if (HasSourceEntityTag(sourceEntity, "DISCOVER")) return "DISCOVER";
             if (HasSourceEntityTag(sourceEntity, "ADAPT")) return "ADAPT";
             if (HasSourceEntityTag(sourceEntity, "DREDGE")) return "DREDGE";
-            if (HasSourceEntityTag(sourceEntity, "TITAN")) return "TITAN";
 
             if (string.Equals(choiceType, "CHOOSE_ONE", StringComparison.OrdinalIgnoreCase))
                 return "CHOOSE_ONE";
@@ -3747,6 +3767,12 @@ namespace HearthstonePayload
             built.ChoiceStateWaitingToStart = IsChoiceStateWaitingToStart(choiceState);
             built.ChoiceStateRevealed = IsChoiceStateRevealed(choiceState);
             built.ChoiceStateConcealed = IsChoiceStateConcealed(choiceState);
+            built.IsSubOptionChoice = ReadBoolValue(GetFieldOrProp(choiceState, "m_isSubOptionChoice"));
+            built.IsTitanAbility = ReadBoolValue(GetFieldOrProp(choiceState, "m_isTitanAbility"));
+            built.IsRewindChoice = ReadBoolValue(GetFieldOrProp(choiceState, "m_isRewindChoice"));
+            built.IsMagicItemDiscover = ReadBoolValue(GetFieldOrProp(choiceState, "m_isMagicItemDiscover"));
+            built.IsShopChoice = ReadBoolValue(GetFieldOrProp(choiceState, "m_isShopChoice"));
+            built.IsLaunchpadAbility = ReadBoolValue(GetFieldOrProp(choiceState, "m_isLaunchpadAbility"));
             built.UiShown = TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
                 && friendlyCards != null
                 && friendlyCards.Count > 0;
@@ -3758,6 +3784,8 @@ namespace HearthstonePayload
             {
                 built.ChoiceId = GetIntFieldOrProp(choicePacket, "ID");
                 if (built.ChoiceId <= 0) built.ChoiceId = GetIntFieldOrProp(choicePacket, "Id");
+                built.CountMin = GetIntFieldOrProp(choicePacket, "CountMin");
+                built.CountMax = GetIntFieldOrProp(choicePacket, "CountMax");
                 built.RawChoiceType = ReadChoiceTypeName(choicePacket);
             }
 
@@ -3784,7 +3812,14 @@ namespace HearthstonePayload
                 .OrderBy(id => id)
                 .ToList();
             built.Mode = GetChoiceModeBySourceTags(sourceEntity, built);
+            if (built.CountMax <= 0)
+                built.CountMax = 1;
+            if (built.CountMin < 0)
+                built.CountMin = 0;
+            if (built.CountMin > built.CountMax)
+                built.CountMax = built.CountMin;
             built.Signature = BuildChoiceSignature(built);
+            built.SnapshotId = BuildChoiceSnapshotId(built.Signature);
             snapshot = built;
             return true;
         }
@@ -3852,6 +3887,19 @@ namespace HearthstonePayload
                 + string.Join(",", snapshot.ChosenEntityIds ?? new List<int>());
         }
 
+        private static string BuildChoiceSnapshotId(string signature)
+        {
+            signature = signature ?? string.Empty;
+            using (var sha1 = SHA1.Create())
+            {
+                var bytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(signature));
+                var builder = new StringBuilder(bytes.Length * 2);
+                foreach (var value in bytes)
+                    builder.Append(value.ToString("x2"));
+                return builder.ToString();
+            }
+        }
+
         private static string SerializeChoiceSnapshot(ChoiceSnapshot snapshot)
         {
             if (snapshot == null || snapshot.ChoiceParts == null || snapshot.ChoiceParts.Count == 0)
@@ -3869,6 +3917,128 @@ namespace HearthstonePayload
             return payload;
         }
 
+        private static string EscapeJson(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            var builder = new StringBuilder(value.Length + 16);
+            foreach (var ch in value)
+            {
+                switch (ch)
+                {
+                    case '\\':
+                        builder.Append("\\\\");
+                        break;
+                    case '"':
+                        builder.Append("\\\"");
+                        break;
+                    case '\r':
+                        builder.Append("\\r");
+                        break;
+                    case '\n':
+                        builder.Append("\\n");
+                        break;
+                    case '\t':
+                        builder.Append("\\t");
+                        break;
+                    default:
+                        if (ch < 32)
+                            builder.Append("\\u").Append(((int)ch).ToString("x4"));
+                        else
+                            builder.Append(ch);
+                        break;
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        private static string SerializeChoiceSnapshotJson(ChoiceSnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.ChoiceEntityIds == null || snapshot.ChoiceEntityIds.Count == 0)
+                return null;
+
+            var isReady = IsChoiceSnapshotReady(snapshot, out var readyReason);
+            var builder = new StringBuilder(512);
+            builder.Append('{');
+            AppendJsonProperty(builder, "snapshotId", snapshot.SnapshotId, isFirst: true);
+            AppendJsonProperty(builder, "choiceId", snapshot.ChoiceId);
+            AppendJsonProperty(builder, "mode", snapshot.Mode ?? "GENERAL");
+            AppendJsonProperty(builder, "rawChoiceType", snapshot.RawChoiceType ?? string.Empty);
+            AppendJsonProperty(builder, "sourceEntityId", snapshot.SourceEntityId);
+            AppendJsonProperty(builder, "sourceCardId", snapshot.SourceCardId ?? string.Empty);
+            AppendJsonProperty(builder, "countMin", snapshot.CountMin);
+            AppendJsonProperty(builder, "countMax", snapshot.CountMax);
+            AppendJsonProperty(builder, "isReady", isReady);
+            AppendJsonProperty(builder, "readyReason", readyReason ?? string.Empty);
+            AppendJsonProperty(builder, "isSubOption", snapshot.IsSubOptionChoice);
+            AppendJsonProperty(builder, "isTitanAbility", snapshot.IsTitanAbility);
+            AppendJsonProperty(builder, "isRewindChoice", snapshot.IsRewindChoice);
+            AppendJsonProperty(builder, "isMagicItemDiscover", snapshot.IsMagicItemDiscover);
+            AppendJsonProperty(builder, "isShopChoice", snapshot.IsShopChoice);
+            AppendJsonProperty(builder, "isLaunchpadAbility", snapshot.IsLaunchpadAbility);
+            AppendJsonProperty(builder, "uiShown", snapshot.UiShown);
+            AppendJsonIntArray(builder, "selectedEntityIds", snapshot.ChosenEntityIds);
+            builder.Append(",\"options\":[");
+            for (var i = 0; i < snapshot.ChoiceEntityIds.Count; i++)
+            {
+                if (i > 0)
+                    builder.Append(',');
+
+                var entityId = snapshot.ChoiceEntityIds[i];
+                var cardId = i < snapshot.ChoiceCardIds.Count ? snapshot.ChoiceCardIds[i] : string.Empty;
+                var selected = snapshot.ChosenEntityIds != null && snapshot.ChosenEntityIds.Contains(entityId);
+                builder.Append('{');
+                AppendJsonProperty(builder, "entityId", entityId, isFirst: true);
+                AppendJsonProperty(builder, "cardId", cardId ?? string.Empty);
+                AppendJsonProperty(builder, "selected", selected);
+                builder.Append('}');
+            }
+
+            builder.Append("]}");
+            return builder.ToString();
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, string value, bool isFirst = false)
+        {
+            if (!isFirst)
+                builder.Append(',');
+
+            builder.Append('"').Append(name).Append("\":\"").Append(EscapeJson(value)).Append('"');
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, int value, bool isFirst = false)
+        {
+            if (!isFirst)
+                builder.Append(',');
+
+            builder.Append('"').Append(name).Append("\":").Append(value);
+        }
+
+        private static void AppendJsonProperty(StringBuilder builder, string name, bool value, bool isFirst = false)
+        {
+            if (!isFirst)
+                builder.Append(',');
+
+            builder.Append('"').Append(name).Append("\":").Append(value ? "true" : "false");
+        }
+
+        private static void AppendJsonIntArray(StringBuilder builder, string name, IEnumerable<int> values)
+        {
+            builder.Append(",\"").Append(name).Append("\":[");
+            var first = true;
+            foreach (var value in values ?? Enumerable.Empty<int>())
+            {
+                if (!first)
+                    builder.Append(',');
+                builder.Append(value);
+                first = false;
+            }
+
+            builder.Append(']');
+        }
+
         private static string EscapeDiscoverStateValue(string value)
         {
             return string.IsNullOrWhiteSpace(value)
@@ -3876,7 +4046,7 @@ namespace HearthstonePayload
                 : value.Replace("|", "/").Replace(";", ",");
         }
 
-        private static bool IsDiscoverSnapshotReady(ChoiceSnapshot snapshot, out string detail)
+        private static bool IsChoiceSnapshotReady(ChoiceSnapshot snapshot, out string detail)
         {
             detail = "ready";
             if (snapshot == null)
@@ -3931,6 +4101,11 @@ namespace HearthstonePayload
             }
 
             return true;
+        }
+
+        private static bool IsDiscoverSnapshotReady(ChoiceSnapshot snapshot, out string detail)
+        {
+            return IsChoiceSnapshotReady(snapshot, out detail);
         }
 
         private static bool TryBuildChoicePartsFromChoiceCardMgr(object gameState, out List<string> parts)
@@ -4792,7 +4967,7 @@ namespace HearthstonePayload
             if (gs == null) return null;
 
             if (TryBuildChoiceSnapshot(gs, out var snapshot))
-                return SerializeChoiceSnapshot(snapshot);
+                return SerializeChoiceSnapshotJson(snapshot);
 
             return null;
 
@@ -4893,6 +5068,126 @@ namespace HearthstonePayload
         /// <summary>
         /// 通过鼠标点击执行发现选择
         /// </summary>
+        public static string ApplyChoice(string snapshotId, int[] entityIds)
+        {
+            if (!EnsureTypes()) return "ERROR:not_initialized";
+            if (_coroutine == null) return "ERROR:no_coroutine";
+
+            var gs = GetGameState();
+            if (gs == null) return "FAIL:no_game_state";
+            if (!TryBuildChoiceSnapshot(gs, out var snapshot) || snapshot == null)
+                return "FAIL:no_choice";
+
+            if (!string.Equals(snapshot.SnapshotId, snapshotId ?? string.Empty, StringComparison.Ordinal))
+                return "FAIL:snapshot_mismatch:" + snapshot.SnapshotId;
+
+            var picks = NormalizeChoiceEntityIds(snapshot, entityIds, out var normalizeDetail);
+            if (picks == null)
+                return "FAIL:" + normalizeDetail;
+
+            if (ShouldUseMouseForChoice(snapshot, picks) && picks.Count == 1)
+                return _coroutine.RunAndWait(MouseClickChoice(picks[0]));
+
+            var sendResult = TrySendChoiceViaNetwork(picks.ToArray());
+            if (string.IsNullOrWhiteSpace(sendResult) || !sendResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return string.IsNullOrWhiteSpace(sendResult) ? "FAIL:choice_sender_not_found" : sendResult;
+
+            return ConfirmChoiceSubmission(snapshot, picks);
+        }
+
+        private static List<int> NormalizeChoiceEntityIds(ChoiceSnapshot snapshot, int[] entityIds, out string detail)
+        {
+            detail = "choice_entities_invalid";
+            if (snapshot == null)
+            {
+                detail = "choice_snapshot_null";
+                return null;
+            }
+
+            var allowed = new HashSet<int>((snapshot.ChoiceEntityIds ?? new List<int>()).Where(id => id > 0));
+            var picks = (entityIds ?? Array.Empty<int>())
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            if (picks.Any(id => allowed.Count > 0 && !allowed.Contains(id)))
+            {
+                detail = "entity_not_found";
+                return null;
+            }
+
+            if (snapshot.CountMax > 0 && picks.Count > snapshot.CountMax)
+            {
+                detail = "count_exceeds_max";
+                return null;
+            }
+
+            if (picks.Count < snapshot.CountMin)
+            {
+                detail = "count_below_min";
+                return null;
+            }
+
+            if (picks.Count == 0 && snapshot.CountMin > 0)
+            {
+                detail = "choice_entities_empty";
+                return null;
+            }
+
+            detail = "ok";
+            return picks;
+        }
+
+        private static bool ShouldUseMouseForChoice(ChoiceSnapshot snapshot, List<int> entityIds)
+        {
+            if (snapshot == null || entityIds == null || entityIds.Count != 1)
+                return false;
+
+            if (snapshot.CountMax > 1
+                || snapshot.IsSubOptionChoice
+                || snapshot.IsRewindChoice
+                || snapshot.IsMagicItemDiscover
+                || snapshot.IsShopChoice
+                || snapshot.IsLaunchpadAbility)
+            {
+                return false;
+            }
+
+            switch ((snapshot.Mode ?? string.Empty).ToUpperInvariant())
+            {
+                case "DISCOVER":
+                case "DREDGE":
+                case "ADAPT":
+                case "GENERAL":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static string ConfirmChoiceSubmission(ChoiceSnapshot previousSnapshot, List<int> picks)
+        {
+            var previousSnapshotId = previousSnapshot?.SnapshotId ?? string.Empty;
+            var previousSignature = previousSnapshot?.Signature ?? string.Empty;
+            var picksJoined = picks == null || picks.Count == 0 ? "none" : string.Join(",", picks);
+
+            for (var i = 0; i < 25; i++)
+            {
+                Thread.Sleep(80);
+                var gs = GetGameState();
+                if (gs == null || !TryBuildChoiceSnapshot(gs, out var current) || current == null)
+                    return "OK:CLOSED:" + picksJoined;
+
+                if (!string.Equals(current.SnapshotId, previousSnapshotId, StringComparison.Ordinal)
+                    || !string.Equals(current.Signature, previousSignature, StringComparison.Ordinal))
+                {
+                    return "OK:CHANGED:" + current.SnapshotId;
+                }
+            }
+
+            return "FAIL:choice_not_confirmed:" + picksJoined;
+        }
+
         public static string ApplyChoice(int entityId)
         {
             if (!EnsureTypes()) return "ERROR:not_initialized";
@@ -4914,6 +5209,11 @@ namespace HearthstonePayload
 
         private static string TrySendChoiceViaNetwork(int entityId)
         {
+            return TrySendChoiceViaNetwork(new[] { entityId });
+        }
+
+        private static string TrySendChoiceViaNetwork(int[] entityIds)
+        {
             var gs = GetGameState();
             if (gs == null) return null;
             var choices = TryGetFriendlyChoicePacket(gs);
@@ -4926,6 +5226,14 @@ namespace HearthstonePayload
             var network = GetSingleton(_networkType);
             if (network == null) return null;
 
+            var allowedEntityIds = new HashSet<int>();
+            AppendChoiceEntityIds(choices, allowedEntityIds);
+            var picks = (entityIds ?? Array.Empty<int>())
+                .Where(id => id > 0)
+                .Where(id => allowedEntityIds.Count == 0 || allowedEntityIds.Contains(id))
+                .Distinct()
+                .ToArray();
+
             var methods = _networkType.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
                 .Where(m => string.Equals(m.Name, "SendChoices", StringComparison.OrdinalIgnoreCase) && m.GetParameters().Length == 2)
                 .ToArray();
@@ -4934,11 +5242,11 @@ namespace HearthstonePayload
             {
                 var pars = method.GetParameters();
                 if (pars[0].ParameterType != typeof(int)) continue;
-                if (!TryBuildIntCollectionArg(pars[1].ParameterType, new[] { entityId }, out var pickArg)) continue;
+                if (!TryBuildIntCollectionArg(pars[1].ParameterType, picks, out var pickArg)) continue;
                 try
                 {
                     method.Invoke(network, new[] { (object)choiceId, pickArg });
-                    return "OK:CHOICE:network:" + entityId;
+                    return "OK:CHOICE:network:" + (picks.Length == 0 ? "none" : string.Join(",", picks));
                 }
                 catch { }
             }
@@ -6996,6 +7304,21 @@ namespace HearthstonePayload
             {
                 value = Convert.ToBoolean(result);
                 return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool ReadBoolValue(object value)
+        {
+            if (value == null)
+                return false;
+
+            try
+            {
+                return Convert.ToBoolean(value);
             }
             catch
             {

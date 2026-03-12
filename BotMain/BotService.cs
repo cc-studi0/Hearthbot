@@ -182,6 +182,14 @@ namespace BotMain
         private string _pendingDiscoverSourceCardId = string.Empty;
         private DateTime _pendingDiscoverUntilUtc = DateTime.MinValue;
         private DateTime _lastPendingDiscoverLogUtc = DateTime.MinValue;
+        private string _lastChoiceDetectedKey = string.Empty;
+        private string _lastChoiceReadyKey = string.Empty;
+        private string _pendingChoiceSnapshotId = string.Empty;
+        private int _pendingChoiceId;
+        private string _pendingChoiceSourceCardId = string.Empty;
+        private string _pendingChoiceMode = string.Empty;
+        private DateTime _pendingChoiceUntilUtc = DateTime.MinValue;
+        private DateTime _lastPendingChoiceLogUtc = DateTime.MinValue;
         private readonly object _cardMechanicsLock = new object();
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
@@ -212,12 +220,42 @@ namespace BotMain
             public List<string> ChoiceCardIds { get; } = new();
         }
 
+        private sealed class ChoiceStateOptionSnapshot
+        {
+            public int EntityId { get; set; }
+            public string CardId { get; set; } = string.Empty;
+            public bool Selected { get; set; }
+        }
+
+        private sealed class ChoiceStateSnapshot
+        {
+            public string SnapshotId { get; set; } = string.Empty;
+            public int ChoiceId { get; set; }
+            public string Mode { get; set; } = string.Empty;
+            public string RawChoiceType { get; set; } = string.Empty;
+            public int SourceEntityId { get; set; }
+            public string SourceCardId { get; set; } = string.Empty;
+            public int CountMin { get; set; }
+            public int CountMax { get; set; }
+            public bool IsReady { get; set; }
+            public string ReadyReason { get; set; } = string.Empty;
+            public bool IsSubOption { get; set; }
+            public bool IsTitanAbility { get; set; }
+            public bool IsRewindChoice { get; set; }
+            public bool IsMagicItemDiscover { get; set; }
+            public bool IsShopChoice { get; set; }
+            public bool IsLaunchpadAbility { get; set; }
+            public bool UiShown { get; set; }
+            public List<int> SelectedEntityIds { get; } = new();
+            public List<ChoiceStateOptionSnapshot> Options { get; } = new();
+        }
+
         public BotService()
         {
             _localRecommendationProvider = new LocalGameRecommendationProvider(
                 RecommendLocalActions,
                 RecommendLocalMulligan,
-                RecommendLocalDiscover);
+                RecommendLocalChoice);
             _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
         }
 
@@ -922,7 +960,7 @@ namespace BotMain
                     || resp.StartsWith("SCENE:", StringComparison.Ordinal)
                     || resp.StartsWith("DECKS:", StringComparison.Ordinal)
                     || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
-                    || resp.StartsWith("DISCOVER:", StringComparison.Ordinal)
+                    || resp.StartsWith("CHOICE:", StringComparison.Ordinal)
                     || resp == "PONG" || resp == "READY" || resp == "BUSY")
                 {
                     Log($"[MainLoop] GET_SEED 收到错位响应，丢弃  {resp.Substring(0, Math.Min(resp.Length, 40))}");
@@ -1169,6 +1207,7 @@ namespace BotMain
                         currentTurnStartedUtc = DateTime.UtcNow;
                         ClearChoiceStateWatch("turn_changed");
                         ResetDiscoverLogState();
+                        ResetChoiceLogState();
                         _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                         resimulationCount = 0;
                         actionFailStreak = 0;
@@ -1183,8 +1222,8 @@ namespace BotMain
 
                 var swTurn = Stopwatch.StartNew();
 
-                if (TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState)
-                    || waitingForDiscoverState)
+                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState)
+                    || waitingForChoiceState)
                 {
                     Thread.Sleep(120);
                     continue;
@@ -1761,6 +1800,73 @@ namespace BotMain
             _lastPendingDiscoverLogUtc = DateTime.MinValue;
         }
 
+        private void ResetChoiceLogState()
+        {
+            _lastChoiceDetectedKey = string.Empty;
+            _lastChoiceReadyKey = string.Empty;
+            _pendingChoiceSnapshotId = string.Empty;
+            _pendingChoiceId = 0;
+            _pendingChoiceSourceCardId = string.Empty;
+            _pendingChoiceMode = string.Empty;
+            _pendingChoiceUntilUtc = DateTime.MinValue;
+            _lastPendingChoiceLogUtc = DateTime.MinValue;
+        }
+
+        private void TrackChoiceObservation(ChoiceStateSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return;
+
+            var detectedKey = (snapshot.SnapshotId ?? string.Empty) + ":" + (snapshot.IsReady ? "READY" : snapshot.ReadyReason);
+            if (!string.Equals(_lastChoiceDetectedKey, detectedKey, StringComparison.Ordinal))
+            {
+                _lastChoiceDetectedKey = detectedKey;
+                Log($"[Choice] choice_detected snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mode={snapshot.Mode} source={snapshot.SourceCardId} ready={snapshot.IsReady} detail={snapshot.ReadyReason}");
+            }
+
+            if (snapshot.IsReady
+                && !string.Equals(_lastChoiceReadyKey, snapshot.SnapshotId ?? string.Empty, StringComparison.Ordinal))
+            {
+                _lastChoiceReadyKey = snapshot.SnapshotId ?? string.Empty;
+                Log($"[Choice] choice_ready snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mode={snapshot.Mode} detail={snapshot.ReadyReason}");
+            }
+        }
+
+        private void ArmPendingChoice(ChoiceStateSnapshot snapshot)
+        {
+            if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.SnapshotId))
+                return;
+
+            _pendingChoiceSnapshotId = snapshot.SnapshotId;
+            _pendingChoiceId = snapshot.ChoiceId;
+            _pendingChoiceSourceCardId = snapshot.SourceCardId ?? string.Empty;
+            _pendingChoiceMode = snapshot.Mode ?? string.Empty;
+            _pendingChoiceUntilUtc = DateTime.UtcNow.AddSeconds(45);
+        }
+
+        private bool HasPendingChoice()
+        {
+            if (string.IsNullOrWhiteSpace(_pendingChoiceSnapshotId))
+                return false;
+
+            if (_pendingChoiceUntilUtc <= DateTime.UtcNow)
+            {
+                Log($"[Choice] pending_timeout snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId}");
+                ResetChoiceLogState();
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ClearPendingChoice(string reason)
+        {
+            if (!string.IsNullOrWhiteSpace(_pendingChoiceSnapshotId))
+                Log($"[Choice] pending_cleared snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} reason={reason}");
+
+            ResetChoiceLogState();
+        }
+
         private void TrackDiscoverObservation(DiscoverStateSnapshot snapshot)
         {
             if (snapshot == null)
@@ -2314,12 +2420,12 @@ namespace BotMain
             out string response,
             int commandTimeoutMs = 5000)
         {
-            response = "NO_DISCOVER";
+            response = "NO_CHOICE";
             for (var i = 0; i < maxRetries; i++)
             {
                 try
                 {
-                    response = pipe.SendAndReceive("GET_DISCOVER_STATE", Math.Max(200, commandTimeoutMs));
+                    response = pipe.SendAndReceive("GET_CHOICE_STATE", Math.Max(200, commandTimeoutMs));
                 }
                 catch
                 {
@@ -2327,7 +2433,7 @@ namespace BotMain
                 }
 
                 if (!string.IsNullOrWhiteSpace(response)
-                    && response.StartsWith("DISCOVER:", StringComparison.Ordinal))
+                    && response.StartsWith("CHOICE:", StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -2336,8 +2442,18 @@ namespace BotMain
                     Thread.Sleep(retryDelayMs);
             }
 
-            response = string.IsNullOrWhiteSpace(response) ? "NO_DISCOVER" : response;
+            response = string.IsNullOrWhiteSpace(response) ? "NO_CHOICE" : response;
             return false;
+        }
+
+        private static bool TryGetChoiceStateResponse(
+            PipeServer pipe,
+            int maxRetries,
+            int retryDelayMs,
+            out string response,
+            int commandTimeoutMs = 5000)
+        {
+            return TryGetDiscoverStateResponse(pipe, maxRetries, retryDelayMs, out response, commandTimeoutMs);
         }
 
         private static bool TryGetChoiceState(
@@ -2465,13 +2581,299 @@ namespace BotMain
         }
 
         private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed)
-            => TryHandlePendingDiscoverBeforePlanning(pipe, seed, out _);
+            => TryHandlePendingChoiceBeforePlanning(pipe, seed, out _);
 
         private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
         {
-            var handled = TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState);
-            waitingForChoiceState = waitingForDiscoverState;
-            return handled;
+            waitingForChoiceState = false;
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var pendingChoiceActive = HasPendingChoice();
+            if (!TryGetChoiceStateResponse(
+                pipe,
+                maxRetries: pendingChoiceActive ? 4 : 1,
+                retryDelayMs: pendingChoiceActive ? 80 : 0,
+                out var response,
+                commandTimeoutMs: pendingChoiceActive ? 1200 : 900))
+            {
+                if (pendingChoiceActive
+                    && string.Equals(response, "NO_CHOICE", StringComparison.Ordinal))
+                {
+                    ClearPendingChoice("closed");
+                    return false;
+                }
+
+                if (pendingChoiceActive)
+                {
+                    waitingForChoiceState = true;
+                    if (_lastPendingChoiceLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    {
+                        _lastPendingChoiceLogUtc = DateTime.UtcNow;
+                        var detail = string.Equals(response, "NO_CHOICE", StringComparison.Ordinal)
+                            ? "no_choice"
+                            : "response_missing";
+                        Log($"[Choice] pending_wait snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} detail={detail}");
+                    }
+                }
+
+                return false;
+            }
+
+            if (!TryParseChoiceStateResponse(response, out var snapshot))
+            {
+                if (HasPendingChoice())
+                {
+                    waitingForChoiceState = true;
+                    if (_lastPendingChoiceLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    {
+                        _lastPendingChoiceLogUtc = DateTime.UtcNow;
+                        Log($"[Choice] pending_wait snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} detail=state_unparsed");
+                    }
+                }
+
+                return false;
+            }
+
+            TrackChoiceObservation(snapshot);
+            ArmPendingChoice(snapshot);
+
+            if (!snapshot.IsReady)
+            {
+                waitingForChoiceState = true;
+                return false;
+            }
+
+            if (TryHandleChoice(pipe, seed, snapshot))
+            {
+                ClearPendingChoice("handled");
+                return true;
+            }
+
+            waitingForChoiceState = true;
+            return false;
+        }
+
+        private static bool TryParseChoiceStateResponse(string response, out ChoiceStateSnapshot snapshot)
+        {
+            snapshot = null;
+            if (string.IsNullOrWhiteSpace(response)
+                || !response.StartsWith("CHOICE:", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            try
+            {
+                var payload = response.Substring("CHOICE:".Length);
+                var json = JObject.Parse(payload);
+                var parsed = new ChoiceStateSnapshot
+                {
+                    SnapshotId = json.Value<string>("snapshotId") ?? string.Empty,
+                    ChoiceId = json.Value<int?>("choiceId") ?? 0,
+                    Mode = json.Value<string>("mode") ?? string.Empty,
+                    RawChoiceType = json.Value<string>("rawChoiceType") ?? string.Empty,
+                    SourceEntityId = json.Value<int?>("sourceEntityId") ?? 0,
+                    SourceCardId = json.Value<string>("sourceCardId") ?? string.Empty,
+                    CountMin = json.Value<int?>("countMin") ?? 0,
+                    CountMax = json.Value<int?>("countMax") ?? 0,
+                    IsReady = json.Value<bool?>("isReady") ?? false,
+                    ReadyReason = json.Value<string>("readyReason") ?? string.Empty,
+                    IsSubOption = json.Value<bool?>("isSubOption") ?? false,
+                    IsTitanAbility = json.Value<bool?>("isTitanAbility") ?? false,
+                    IsRewindChoice = json.Value<bool?>("isRewindChoice") ?? false,
+                    IsMagicItemDiscover = json.Value<bool?>("isMagicItemDiscover") ?? false,
+                    IsShopChoice = json.Value<bool?>("isShopChoice") ?? false,
+                    IsLaunchpadAbility = json.Value<bool?>("isLaunchpadAbility") ?? false,
+                    UiShown = json.Value<bool?>("uiShown") ?? false
+                };
+
+                foreach (var token in json["selectedEntityIds"] as JArray ?? new JArray())
+                {
+                    if (token?.Type != JTokenType.Integer)
+                        continue;
+
+                    var entityId = token.Value<int>();
+                    if (entityId > 0)
+                        parsed.SelectedEntityIds.Add(entityId);
+                }
+
+                foreach (var optionToken in json["options"] as JArray ?? new JArray())
+                {
+                    if (!(optionToken is JObject optionObject))
+                        continue;
+
+                    var entityId = optionObject.Value<int?>("entityId") ?? 0;
+                    if (entityId <= 0)
+                        continue;
+
+                    parsed.Options.Add(new ChoiceStateOptionSnapshot
+                    {
+                        EntityId = entityId,
+                        CardId = optionObject.Value<string>("cardId") ?? string.Empty,
+                        Selected = optionObject.Value<bool?>("selected") ?? false
+                    });
+                }
+
+                if (string.IsNullOrWhiteSpace(parsed.SnapshotId) || parsed.Options.Count == 0)
+                    return false;
+
+                if (parsed.CountMax <= 0)
+                    parsed.CountMax = 1;
+
+                snapshot = parsed;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private List<int> NormalizeChoiceSelection(ChoiceStateSnapshot snapshot, IReadOnlyList<int> requestedEntityIds)
+        {
+            if (snapshot?.Options == null || snapshot.Options.Count == 0)
+                return new List<int>();
+
+            var validOptionIds = snapshot.Options
+                .Where(option => option != null && option.EntityId > 0)
+                .Select(option => option.EntityId)
+                .ToList();
+            var normalized = (requestedEntityIds ?? Array.Empty<int>())
+                .Where(validOptionIds.Contains)
+                .Distinct()
+                .ToList();
+
+            if (normalized.Count == 0
+                && snapshot.SelectedEntityIds.Count > 0
+                && snapshot.SelectedEntityIds.All(validOptionIds.Contains))
+            {
+                normalized = snapshot.SelectedEntityIds.Distinct().ToList();
+            }
+
+            if (normalized.Count == 0 && snapshot.IsRewindChoice)
+            {
+                var maintain = snapshot.Options.FirstOrDefault(option =>
+                    string.Equals(option.CardId, "TIME_000ta", StringComparison.OrdinalIgnoreCase));
+                if (maintain != null && maintain.EntityId > 0)
+                    normalized.Add(maintain.EntityId);
+            }
+
+            if (normalized.Count == 0 && snapshot.CountMin <= 1)
+            {
+                var first = validOptionIds.FirstOrDefault();
+                if (first > 0)
+                    normalized.Add(first);
+            }
+
+            if (snapshot.CountMin > 0 && normalized.Count < snapshot.CountMin)
+            {
+                foreach (var entityId in validOptionIds)
+                {
+                    if (normalized.Contains(entityId))
+                        continue;
+
+                    normalized.Add(entityId);
+                    if (normalized.Count >= snapshot.CountMin)
+                        break;
+                }
+            }
+
+            if (snapshot.CountMax > 0 && normalized.Count > snapshot.CountMax)
+                normalized = normalized.Take(snapshot.CountMax).ToList();
+
+            return normalized;
+        }
+
+        private bool TryApplyChoice(
+            PipeServer pipe,
+            ChoiceStateSnapshot snapshot,
+            IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            detail = "NO_RESPONSE";
+            if (pipe == null || !pipe.IsConnected || snapshot == null || string.IsNullOrWhiteSpace(snapshot.SnapshotId))
+                return false;
+
+            var payload = selectedEntityIds == null || selectedEntityIds.Count == 0
+                ? string.Empty
+                : string.Join(",", selectedEntityIds);
+            detail = pipe.SendAndReceive($"APPLY_CHOICE:{snapshot.SnapshotId}:{payload}", 8000) ?? "NO_RESPONSE";
+            return detail.StartsWith("OK:", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private bool TryHandleChoice(PipeServer pipe, string seed, ChoiceStateSnapshot initialState)
+        {
+            if (pipe == null || !pipe.IsConnected || initialState == null)
+                return false;
+
+            const int maxChainedChoices = 8;
+            var currentState = initialState;
+            Log($"[Choice] handling_begin snapshotId={currentState.SnapshotId} choiceId={currentState.ChoiceId} mode={currentState.Mode} count={currentState.Options.Count}");
+
+            for (var chainedCount = 0; chainedCount < maxChainedChoices; chainedCount++)
+            {
+                if (!currentState.IsReady)
+                    return false;
+
+                var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                var recommendation = GetRecommendationProvider().RecommendChoice(
+                    new ChoiceRecommendationRequest(
+                        currentState.SnapshotId,
+                        currentState.ChoiceId,
+                        currentState.Mode,
+                        currentState.SourceCardId,
+                        currentState.SourceEntityId,
+                        currentState.CountMin,
+                        currentState.CountMax,
+                        currentState.Options
+                            .Select(option => new ChoiceRecommendationOption(option.EntityId, option.CardId, option.Selected))
+                            .ToList(),
+                        currentState.SelectedEntityIds.ToList(),
+                        strategySeed,
+                        new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
+                        _lastConsumedHsBoxChoiceUpdatedAtMs));
+                if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
+                    Log($"[Choice] {recommendation.Detail}");
+                if ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs)
+                    _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+
+                var selectedEntityIds = NormalizeChoiceSelection(currentState, recommendation?.SelectedEntityIds);
+                if ((currentState.CountMin > 0 && selectedEntityIds.Count < currentState.CountMin)
+                    || (currentState.CountMax > 0 && selectedEntityIds.Count > currentState.CountMax))
+                {
+                    Log($"[Choice] selection_invalid snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}]");
+                    return false;
+                }
+
+                if (!TryApplyChoice(pipe, currentState, selectedEntityIds, out var applyDetail))
+                {
+                    Log($"[Choice] apply_failed snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
+                    return false;
+                }
+
+                Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
+
+                if (!TryGetChoiceStateResponse(pipe, 2, 80, out var response, 1200)
+                    || string.Equals(response, "NO_CHOICE", StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (!TryParseChoiceStateResponse(response, out var nextState))
+                    return true;
+
+                if (string.Equals(nextState.SnapshotId, currentState.SnapshotId, StringComparison.Ordinal))
+                    return true;
+
+                currentState = nextState;
+                TrackChoiceObservation(currentState);
+                ArmPendingChoice(currentState);
+                if (!currentState.IsReady)
+                    return false;
+            }
+
+            return false;
         }
 
         private bool TryHandleChoice(PipeServer pipe, string seed)
@@ -3252,6 +3654,66 @@ namespace BotMain
 
             var strategyIndex = RunDiscoverStrategy(request.OriginCardId, choiceCardIds, request.Seed);
             return new DiscoverRecommendationResult(strategyIndex, $"profile strategy index={strategyIndex}");
+        }
+
+        private ChoiceRecommendationResult RecommendLocalChoice(ChoiceRecommendationRequest request)
+        {
+            if (request == null || request.Options == null || request.Options.Count == 0)
+                return new ChoiceRecommendationResult(Array.Empty<int>(), "choice fallback:none");
+
+            var discoverLikeMode =
+                string.Equals(request.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Mode, "DREDGE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Mode, "ADAPT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Mode, "TIMELINE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Mode, "TRINKET_DISCOVER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(request.Mode, "SHOP_CHOICE", StringComparison.OrdinalIgnoreCase);
+
+            if (discoverLikeMode)
+            {
+                var discoverResult = RecommendLocalDiscover(new DiscoverRecommendationRequest(
+                    request.SourceCardId,
+                    request.ChoiceCardIds,
+                    request.ChoiceEntityIds,
+                    request.Seed,
+                    request.IsRewindChoice,
+                    request.MaintainIndex,
+                    request.MinimumUpdatedAtMs,
+                    request.LastConsumedUpdatedAtMs));
+                var pickedIndex = discoverResult?.PickedIndex ?? 0;
+                if (pickedIndex < 0 || pickedIndex >= request.Options.Count)
+                    pickedIndex = 0;
+
+                var pickedEntityId = request.Options[pickedIndex]?.EntityId ?? 0;
+                return new ChoiceRecommendationResult(
+                    pickedEntityId > 0 ? new[] { pickedEntityId } : Array.Empty<int>(),
+                    discoverResult?.Detail ?? "discover fallback:first choice",
+                    discoverResult?.SourceUpdatedAtMs ?? 0);
+            }
+
+            var validOptionIds = request.Options
+                .Where(option => option != null && option.EntityId > 0)
+                .Select(option => option.EntityId)
+                .ToList();
+            if (validOptionIds.Count == 0)
+                return new ChoiceRecommendationResult(Array.Empty<int>(), $"choice fallback:none mode={request.Mode}");
+
+            var selectedEntityIds = request.SelectedEntityIds
+                .Where(validOptionIds.Contains)
+                .Distinct()
+                .ToList();
+            if (selectedEntityIds.Count == 0)
+            {
+                var pickCount = Math.Max(1, request.CountMin);
+                selectedEntityIds = validOptionIds.Take(pickCount).ToList();
+            }
+
+            if (request.CountMax > 0 && selectedEntityIds.Count > request.CountMax)
+                selectedEntityIds = selectedEntityIds.Take(request.CountMax).ToList();
+
+            return new ChoiceRecommendationResult(
+                selectedEntityIds,
+                $"choice fallback:mode={request.Mode}, count={selectedEntityIds.Count}");
         }
 
         private static bool IsActionFailure(string result)

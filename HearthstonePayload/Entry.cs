@@ -299,12 +299,12 @@ namespace HearthstonePayload
                     {
                         _pipe.Write(nav.IsFindingGame() ? "YES" : "NO");
                     }
-                    else if (cmd == "GET_DISCOVER_STATE")
+                    else if (cmd == "GET_CHOICE_STATE")
                     {
                         var stateResult = RunOnMainThread(() =>
-                            (object)(ActionExecutor.GetDiscoverState() ?? string.Empty));
+                            (object)(ChoiceController.GetChoiceState() ?? string.Empty));
                         var state = stateResult as string ?? string.Empty;
-                        _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_DISCOVER" : "DISCOVER:" + state);
+                        _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_CHOICE" : "CHOICE:" + state);
                     }
                     else if (cmd == "GET_DECK_STATE")
                     {
@@ -315,14 +315,12 @@ namespace HearthstonePayload
                         else
                             _pipe.Write("DECK_STATE:" + string.Join("|", state.FriendDeck));
                     }
-                    else if (cmd.StartsWith("PICK_DISCOVER:", StringComparison.Ordinal))
+                    else if (cmd.StartsWith("APPLY_CHOICE:", StringComparison.Ordinal))
                     {
-                        var payload = cmd.Substring("PICK_DISCOVER:".Length).Split(':');
-                        if (payload.Length == 2
-                            && int.TryParse(payload[0], out var choiceId)
-                            && int.TryParse(payload[1], out var entityId))
+                        var payload = cmd.Substring("APPLY_CHOICE:".Length).Split(new[] { ':' }, 2);
+                        if (payload.Length == 2)
                         {
-                            _pipe.Write(DiscoverController.PickDiscover(choiceId, entityId));
+                            _pipe.Write(ChoiceController.ApplyChoice(payload[0], payload[1]));
                         }
                         else
                         {

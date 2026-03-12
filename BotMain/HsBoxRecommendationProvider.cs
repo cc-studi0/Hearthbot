@@ -65,19 +65,19 @@ namespace BotMain
                     out _,
                     out lastStructuredDetail,
                     out lastBodyDetail)
-                    || HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(current),
+                    || HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(current),
                 timeoutMs: _actionWaitTimeoutMs,
                 pollIntervalMs: _actionPollIntervalMs,
                 out var waitDetail,
                 out var lastObservedState);
 
             if (state != null
-                && HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(state))
+                && HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(state))
             {
                 return new ActionRecommendationResult(
                     null,
                     Array.Empty<string>(),
-                    $"hsbox_actions discover_deferred ({state.Detail})",
+                    $"hsbox_actions choice_deferred ({state.Detail})",
                     shouldRetryWithoutAction: true);
             }
 
@@ -135,43 +135,73 @@ namespace BotMain
             return new MulliganRecommendationResult(Array.Empty<int>(), $"hsbox_mulligan fallback:keep_all ({waitDetail})");
         }
 
-        public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
+        public ChoiceRecommendationResult RecommendChoice(ChoiceRecommendationRequest request)
         {
             var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var state = WaitForState(
                 current =>
-                    IsDiscoverPayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
-                    && (HsBoxRecommendationMapper.TryMapDiscover(current, request, out _, out _)
-                        || HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(current, request, out _, out _)),
+                    IsChoicePayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                    && (HsBoxRecommendationMapper.TryMapChoice(current, request, out _, out _)
+                        || HsBoxRecommendationMapper.TryMapChoiceFromBodyText(current, request, out _, out _)),
                 timeoutMs: 5000,
                 pollIntervalMs: 180,
                 out var waitDetail);
 
             if (state != null
-                && IsDiscoverPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
-                && HsBoxRecommendationMapper.TryMapDiscover(state, request, out var pickedIndex, out var mapDetail))
+                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                && HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out var mapDetail))
             {
-                return new DiscoverRecommendationResult(pickedIndex, $"hsbox_discover {mapDetail}", state.UpdatedAtMs);
+                return new ChoiceRecommendationResult(selectedEntityIds, $"hsbox_choice {mapDetail}", state.UpdatedAtMs);
             }
 
             if (state != null
-                && IsDiscoverPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
-                && HsBoxRecommendationMapper.TryMapDiscoverFromBodyText(state, request, out var bodyPickedIndex, out var bodyDetail))
+                && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs)
+                && HsBoxRecommendationMapper.TryMapChoiceFromBodyText(state, request, out var bodySelectedEntityIds, out var bodyDetail))
             {
-                return new DiscoverRecommendationResult(bodyPickedIndex, $"hsbox_discover {bodyDetail}", state.UpdatedAtMs);
+                return new ChoiceRecommendationResult(bodySelectedEntityIds, $"hsbox_choice {bodyDetail}", state.UpdatedAtMs);
             }
 
-            var fallbackIndex = 0;
-            if (request != null
-                && request.IsRewindChoice
-                && request.MaintainIndex >= 0
-                && request.MaintainIndex < request.ChoiceCardIds.Count)
+            var fallbackEntityIds = Array.Empty<int>();
+            if (request != null)
             {
-                fallbackIndex = request.MaintainIndex;
+                var validOptionIds = (request.Options ?? Array.Empty<ChoiceRecommendationOption>())
+                    .Where(option => option != null && option.EntityId > 0)
+                    .Select(option => option.EntityId)
+                    .ToList();
+
+                if (request.IsRewindChoice
+                    && request.MaintainIndex >= 0
+                    && request.MaintainIndex < request.Options.Count)
+                {
+                    fallbackEntityIds = new[] { request.Options[request.MaintainIndex].EntityId };
+                }
+                else if (request.SelectedEntityIds != null
+                    && request.SelectedEntityIds.Count > 0
+                    && request.SelectedEntityIds.All(validOptionIds.Contains))
+                {
+                    fallbackEntityIds = request.SelectedEntityIds.Distinct().ToArray();
+                }
+                else if (request.CountMin > 0)
+                {
+                    fallbackEntityIds = validOptionIds.Take(Math.Max(1, request.CountMin)).ToArray();
+                }
+                else if (validOptionIds.Count > 0)
+                {
+                    fallbackEntityIds = new[] { validOptionIds[0] };
+                }
             }
 
-            return new DiscoverRecommendationResult(fallbackIndex, $"hsbox_discover fallback:index={fallbackIndex} ({waitDetail})");
+            return new ChoiceRecommendationResult(
+                fallbackEntityIds,
+                $"hsbox_choice fallback:entities={(fallbackEntityIds.Length == 0 ? "none" : string.Join(",", fallbackEntityIds))} ({waitDetail})");
+        }
+
+        public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
+        {
+            var choiceRequest = request?.ToChoiceRecommendationRequest();
+            var result = RecommendChoice(choiceRequest);
+            return DiscoverRecommendationResult.FromChoiceResult(choiceRequest, result);
         }
 
         private static bool IsFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs)
@@ -182,7 +212,7 @@ namespace BotMain
             return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
         }
 
-        private static bool IsDiscoverPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
+        private static bool IsChoicePayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
         {
             if (state == null || state.UpdatedAtMs <= 0)
                 return false;
@@ -574,8 +604,8 @@ namespace BotMain
 
         internal static string Classify(HsBoxRecommendationState state)
         {
-            if (HsBoxRecommendationMapper.LooksLikeDiscoverRecommendation(state))
-                return "discover";
+            if (HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(state))
+                return "choice";
 
             var steps = state?.Envelope?.Data ?? new List<HsBoxActionStep>();
             if (steps.Any(step => string.Equals(step?.ActionName, "replace", StringComparison.OrdinalIgnoreCase)))
@@ -904,9 +934,10 @@ namespace BotMain
 
     internal static class HsBoxRecommendationMapper
     {
-        public static bool LooksLikeDiscoverRecommendation(HsBoxRecommendationState state)
+        public static bool LooksLikeChoiceRecommendation(HsBoxRecommendationState state)
         {
             var bodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
+            var hasChoiceText = false;
             if (!string.IsNullOrWhiteSpace(bodyText))
             {
                 if (Regex.IsMatch(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant)
@@ -916,11 +947,32 @@ namespace BotMain
                 }
             }
 
-            var steps = state?.Envelope?.Data ?? new List<HsBoxActionStep>();
-            return steps.Any(step =>
-                string.Equals(step?.ActionName, "choose", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(step?.ActionName, "choice", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(step?.ActionName, "discard", StringComparison.OrdinalIgnoreCase));
+            var steps = (state?.Envelope?.Data ?? new List<HsBoxActionStep>())
+                .Where(step => step != null && !string.IsNullOrWhiteSpace(step.ActionName))
+                .ToList();
+            if (steps.Count > 0)
+            {
+                return steps.Any(step => IsChoiceRecommendationAction(step.ActionName))
+                    && steps.All(step => IsChoiceRecommendationAction(step.ActionName));
+            }
+
+            return hasChoiceText;
+        }
+
+        private static bool IsChoiceRecommendationAction(string actionName)
+        {
+            switch ((actionName ?? string.Empty).ToLowerInvariant())
+            {
+                case "choose":
+                case "choice":
+                case "discard":
+                case "titan_power":
+                case "launch_starship":
+                case "common_action":
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         public static bool TryMapActions(HsBoxRecommendationState state, Board board, out List<string> actions, out string detail)
@@ -1139,14 +1191,14 @@ namespace BotMain
             return true;
         }
 
-        public static bool TryMapDiscover(HsBoxRecommendationState state, DiscoverRecommendationRequest request, out int pickedIndex, out string detail)
+        public static bool TryMapChoice(HsBoxRecommendationState state, ChoiceRecommendationRequest request, out IReadOnlyList<int> selectedEntityIds, out string detail)
         {
-            pickedIndex = 0;
-            detail = "hsbox_discover_state_invalid";
+            selectedEntityIds = Array.Empty<int>();
+            detail = "hsbox_choice_state_invalid";
 
-            if (request == null || request.ChoiceCardIds == null || request.ChoiceCardIds.Count == 0)
+            if (request == null || request.Options == null || request.Options.Count == 0)
             {
-                detail = "discover_request_empty";
+                detail = "choice_request_empty";
                 return false;
             }
 
@@ -1157,73 +1209,264 @@ namespace BotMain
                 return false;
             }
 
-            var step = steps.FirstOrDefault(s =>
-                string.Equals(s?.ActionName, "choose", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(s?.ActionName, "discard", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(s?.ActionName, "choice", StringComparison.OrdinalIgnoreCase));
+            var step = steps.FirstOrDefault(s => IsChoiceRecommendationAction(s?.ActionName));
             if (step == null)
             {
-                detail = $"hsbox_discover_step_missing; {state.Detail}";
+                detail = $"hsbox_choice_step_missing; {state.Detail}";
                 return false;
             }
 
-            var desiredCards = step.GetCards();
+            var desiredCards = GetChoiceCardsFromStructuredData(state, step);
             if (desiredCards.Count == 0)
             {
-                detail = $"hsbox_discover_cards_empty; {state.Detail}";
+                detail = $"hsbox_choice_cards_empty; {state.Detail}";
                 return false;
             }
 
+            var matchedEntityIds = new List<int>();
             foreach (var desiredCard in desiredCards)
             {
                 var matchIndex = FindChoiceIndex(request.ChoiceCardIds, desiredCard);
-                if (matchIndex >= 0)
-                {
-                    pickedIndex = matchIndex;
-                    detail = $"picked={desiredCard.CardId}@{pickedIndex}; {state.Detail}";
-                    return true;
-                }
+                if (matchIndex < 0)
+                    continue;
+
+                var entityId = request.Options[matchIndex]?.EntityId ?? 0;
+                if (entityId <= 0)
+                    continue;
+
+                if (!matchedEntityIds.Contains(entityId))
+                    matchedEntityIds.Add(entityId);
             }
 
-            detail = $"discover_card_not_found:{string.Join(",", desiredCards.Select(c => c.CardId))}; {state.Detail}";
+            if (matchedEntityIds.Count > 0)
+            {
+                selectedEntityIds = matchedEntityIds;
+                detail = $"picked={string.Join(",", matchedEntityIds)}; choice_data={string.Join(",", desiredCards.Select(card => card.CardId))}; {state.Detail}";
+                return true;
+            }
+
+            detail = $"choice_card_not_found:{string.Join(",", desiredCards.Select(c => c.CardId))}; {state.Detail}";
             return false;
         }
 
-        public static bool TryMapDiscoverFromBodyText(HsBoxRecommendationState state, DiscoverRecommendationRequest request, out int pickedIndex, out string detail)
+        private static List<HsBoxCardRef> GetChoiceCardsFromStructuredData(HsBoxRecommendationState state, HsBoxActionStep step)
         {
-            pickedIndex = 0;
-            detail = "hsbox_discover_text_state_invalid";
+            var result = new List<HsBoxCardRef>();
+            AddDistinctChoiceCards(result, step?.GetCards());
 
-            if (request == null || request.ChoiceCardIds == null || request.ChoiceCardIds.Count == 0)
+            if (step?.ExtraData != null)
             {
-                detail = "discover_request_empty";
+                foreach (var entry in step.ExtraData)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(entry.Value));
+            }
+
+            if (state?.Envelope?.ExtraData != null)
+            {
+                foreach (var entry in state.Envelope.ExtraData)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(entry.Value));
+            }
+
+            AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(state?.RawToken, allowDirectCardObject: false));
+            return result;
+        }
+
+        private static void AddDistinctChoiceCards(List<HsBoxCardRef> target, IEnumerable<HsBoxCardRef> cards)
+        {
+            if (target == null || cards == null)
+                return;
+
+            foreach (var card in cards)
+            {
+                if (card == null)
+                    continue;
+
+                var cardId = card.CardId ?? string.Empty;
+                var zonePosition = card.GetZonePosition();
+                var exists = target.Any(existing =>
+                    string.Equals(existing?.CardId ?? string.Empty, cardId, StringComparison.OrdinalIgnoreCase)
+                    && existing.GetZonePosition() == zonePosition);
+                if (!exists)
+                    target.Add(card);
+            }
+        }
+
+        private static List<HsBoxCardRef> ExtractChoiceCardsFromToken(JToken token, bool allowDirectCardObject = false)
+        {
+            var result = new List<HsBoxCardRef>();
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return result;
+
+            if (TryReadDirectChoiceCardId(token, out var directChoiceCardId))
+                result.Add(new HsBoxCardRef { CardId = directChoiceCardId });
+
+            if (TryReadChoiceCardList(token, out var listedCards))
+                AddDistinctChoiceCards(result, listedCards);
+
+            if (allowDirectCardObject && TryBuildCardRef(token, out var directCard))
+                AddDistinctChoiceCards(result, new[] { directCard });
+
+            if (token is JObject obj)
+            {
+                var selectDetail = obj["select_detail"] ?? obj["selectDetail"];
+                if (selectDetail != null)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(selectDetail, allowDirectCardObject: false));
+
+                var choiceCardList = obj["choice_card_list"] ?? obj["choiceCardList"];
+                if (choiceCardList != null)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(choiceCardList, allowDirectCardObject: true));
+            }
+            else if (token.Type == JTokenType.Array)
+            {
+                foreach (var item in (JArray)token)
+                {
+                    if (allowDirectCardObject)
+                    {
+                        if (TryBuildCardRef(item, out var card))
+                            AddDistinctChoiceCards(result, new[] { card });
+                    }
+                    else
+                    {
+                        AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(item, allowDirectCardObject: false));
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        private static bool TryReadDirectChoiceCardId(JToken token, out string cardId)
+        {
+            cardId = null;
+            if (!(token is JObject obj))
+                return false;
+
+            cardId =
+                obj.Value<string>("choice_card_id")
+                ?? obj.Value<string>("choiceCardId");
+            return !string.IsNullOrWhiteSpace(cardId);
+        }
+
+        private static bool TryReadChoiceCardList(JToken token, out List<HsBoxCardRef> cards)
+        {
+            cards = new List<HsBoxCardRef>();
+
+            var source = token is JObject obj
+                ? obj["choice_card_list"] ?? obj["choiceCardList"]
+                : token;
+            if (source == null)
+                return false;
+
+            if (source is JArray array)
+            {
+                foreach (var item in array)
+                {
+                    if (TryBuildCardRef(item, out var card))
+                        cards.Add(card);
+                }
+            }
+            else if (TryBuildCardRef(source, out var single))
+            {
+                cards.Add(single);
+            }
+
+            return cards.Count > 0;
+        }
+
+        private static bool TryBuildCardRef(JToken token, out HsBoxCardRef card)
+        {
+            card = null;
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return false;
+
+            if (token.Type == JTokenType.String)
+            {
+                var cardIdValue = token.Value<string>();
+                if (string.IsNullOrWhiteSpace(cardIdValue))
+                    return false;
+
+                card = new HsBoxCardRef { CardId = cardIdValue };
+                return true;
+            }
+
+            if (!(token is JObject obj))
+                return false;
+
+            var cardId =
+                obj.Value<string>("cardId")
+                ?? obj.Value<string>("card_id")
+                ?? obj.Value<string>("choice_card_id")
+                ?? obj.Value<string>("choiceCardId");
+            var cardName =
+                obj.Value<string>("cardName")
+                ?? obj.Value<string>("card_name")
+                ?? obj.Value<string>("name");
+            var position =
+                obj.Value<int?>("ZONE_POSITION")
+                ?? obj.Value<int?>("position")
+                ?? obj.Value<int?>("index")
+                ?? 0;
+
+            if (string.IsNullOrWhiteSpace(cardId) && position <= 0)
+                return false;
+
+            card = new HsBoxCardRef
+            {
+                CardId = cardId ?? string.Empty,
+                CardName = cardName ?? string.Empty,
+                ZonePosition = position,
+                Position = position
+            };
+            return true;
+        }
+
+        public static bool TryMapChoiceFromBodyText(HsBoxRecommendationState state, ChoiceRecommendationRequest request, out IReadOnlyList<int> selectedEntityIds, out string detail)
+        {
+            selectedEntityIds = Array.Empty<int>();
+            detail = "hsbox_choice_text_state_invalid";
+
+            if (request == null || request.Options == null || request.Options.Count == 0)
+            {
+                detail = "choice_request_empty";
                 return false;
             }
 
             var bodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
             if (string.IsNullOrWhiteSpace(bodyText))
             {
-                detail = "hsbox_discover_text_empty";
+                detail = "hsbox_choice_text_empty";
                 return false;
             }
+
+            var preferredIndexMatch = Regex.Match(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant);
+            if (!preferredIndexMatch.Success)
+                preferredIndexMatch = Regex.Match(bodyText, @"选择第\s*(\d+)\s*张卡牌", RegexOptions.CultureInvariant);
+            if (!preferredIndexMatch.Success)
+                preferredIndexMatch = Regex.Match(bodyText, @"(?:选择|选)\s*(?:我方|对方)?\s*(\d+)\s*号位", RegexOptions.CultureInvariant);
 
             var directIndexMatch = Regex.Match(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant);
             if (!directIndexMatch.Success)
                 directIndexMatch = Regex.Match(bodyText, @"选择第\s*(\d+)\s*张卡牌", RegexOptions.CultureInvariant);
 
+            if (!directIndexMatch.Success)
+                directIndexMatch = preferredIndexMatch;
+
             if (directIndexMatch.Success && directIndexMatch.Groups.Count >= 2
                 && int.TryParse(directIndexMatch.Groups[1].Value, out var oneBasedIndex))
             {
                 var index = oneBasedIndex - 1;
-                if (index >= 0 && index < request.ChoiceCardIds.Count)
+                if (index >= 0 && index < request.Options.Count)
                 {
-                    pickedIndex = index;
-                    detail = $"text_choice index={pickedIndex}; {state.Detail}";
-                    return true;
+                    var entityId = request.Options[index]?.EntityId ?? 0;
+                    if (entityId > 0)
+                    {
+                        selectedEntityIds = new[] { entityId };
+                        detail = $"text_choice index={index}; {state.Detail}";
+                        return true;
+                    }
                 }
             }
 
-            detail = $"hsbox_discover_text_unrecognized; {state?.Detail ?? "hsbox_state_null"}";
+            detail = $"hsbox_choice_text_unrecognized; {state?.Detail ?? "hsbox_state_null"}";
             return false;
         }
 
@@ -1981,6 +2224,7 @@ namespace BotMain
     internal sealed class HsBoxRecommendationState
     {
         private string _payloadSignature;
+        private JToken _rawToken;
 
         public bool Ok { get; set; }
         public long Count { get; set; }
@@ -1990,6 +2234,26 @@ namespace BotMain
         public string BodyText { get; set; }
         public string Reason { get; set; }
         public HsBoxRecommendationEnvelope Envelope { get; set; }
+        public JToken RawToken
+        {
+            get
+            {
+                if (_rawToken == null && !string.IsNullOrWhiteSpace(Raw))
+                {
+                    try
+                    {
+                        _rawToken = JsonConvert.DeserializeObject<JToken>(Raw);
+                    }
+                    catch
+                    {
+                        _rawToken = JValue.CreateString(Raw);
+                    }
+                }
+
+                return _rawToken;
+            }
+            set => _rawToken = value;
+        }
         public string PayloadSignature
         {
             get
@@ -2107,6 +2371,9 @@ namespace BotMain
 
         [JsonProperty("data")]
         public List<HsBoxActionStep> Data { get; set; } = new List<HsBoxActionStep>();
+
+        [JsonExtensionData]
+        public IDictionary<string, JToken> ExtraData { get; set; } = new Dictionary<string, JToken>(StringComparer.OrdinalIgnoreCase);
     }
 
     internal sealed class HsBoxActionStep
@@ -2134,6 +2401,9 @@ namespace BotMain
 
         [JsonProperty("position")]
         public int Position { get; set; }
+
+        [JsonExtensionData]
+        public IDictionary<string, JToken> ExtraData { get; set; } = new Dictionary<string, JToken>(StringComparer.OrdinalIgnoreCase);
 
         public List<HsBoxCardRef> GetCards()
         {
