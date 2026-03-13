@@ -118,6 +118,11 @@ namespace HearthstonePayload
 
             if (isFriendly)
             {
+                // 在读取手牌前先确保 FriendlyPlayerId 已就绪
+                // （ReadTurnInfo 在 ReadPlayerData 之后才执行，此处需提前解析）
+                if (data.FriendlyPlayerId <= 0)
+                    data.FriendlyPlayerId = ResolvePlayerId(player);
+
                 // 优先通过 EntityMap + Tag 过滤读取手牌（线程安全，不依赖 ZoneMgr UI 单例）
                 data.Hand = ReadHandFromEntityMap(data.FriendlyPlayerId);
 
@@ -1060,9 +1065,29 @@ namespace HearthstonePayload
         /// </summary>
         private List<EntityData> ReadHandFromEntityMap(int friendlyPlayerId)
         {
-            var result = new List<EntityData>();
-            if (friendlyPlayerId <= 0) return result;
+            if (friendlyPlayerId <= 0) return new List<EntityData>();
 
+            // 发现结算/动画期间，实体的 ZONE 标签可能短暂处于过渡状态，
+            // 导致首次读取返回空列表。做最多 3 次尝试，间隔 30ms。
+            const int maxAttempts = 3;
+            const int retryDelayMs = 30;
+
+            for (int attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                var result = ReadHandFromEntityMapOnce(friendlyPlayerId);
+                if (result.Count > 0)
+                    return result;
+
+                if (attempt < maxAttempts - 1)
+                    System.Threading.Thread.Sleep(retryDelayMs);
+            }
+
+            return new List<EntityData>();
+        }
+
+        private List<EntityData> ReadHandFromEntityMapOnce(int friendlyPlayerId)
+        {
+            var result = new List<EntityData>();
             try
             {
                 var gameState = _ctx.CallStaticAny(_ctx.GameStateType, "Get");

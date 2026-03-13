@@ -245,30 +245,48 @@ namespace HearthstonePayload
         /// </summary>
         public List<object> GetEntityMapEntries(object gameState)
         {
-            var result = new List<object>();
-            if (gameState == null) return result;
+            if (gameState == null) return new List<object>();
 
-            try
+            // 后台线程遍历 Map<int, Entity> 时，主线程可能正在修改它
+            // （例如 Discover 结算添加新实体），导致 InvalidOperationException。
+            // 先尝试获取 Values 集合的快照以减少竞态窗口，并做最多 3 次重试。
+            const int maxRetries = 3;
+            for (int attempt = 0; attempt < maxRetries; attempt++)
             {
-                var mapObj = GetFieldOrPropertyAny(gameState,
-                    "m_entityMap",
-                    "EntityMap",
-                    "m_entities");
-                if (mapObj == null) return result;
-
-                // Map<int, Entity> 实现了 IEnumerable<KeyValuePair<int, Entity>>
-                if (mapObj is IEnumerable enumerable)
+                try
                 {
-                    foreach (var kv in enumerable)
+                    var mapObj = GetFieldOrPropertyAny(gameState,
+                        "m_entityMap",
+                        "EntityMap",
+                        "m_entities");
+                    if (mapObj == null) return new List<object>();
+
+                    // 优先尝试 .Values 属性以获取值集合快照
+                    var values = CallAny(mapObj, "get_Values", "Values");
+                    IEnumerable enumerable = values as IEnumerable ?? mapObj as IEnumerable;
+                    if (enumerable == null) return new List<object>();
+
+                    var result = new List<object>();
+                    foreach (var item in enumerable)
                     {
-                        var value = GetFieldOrPropertyAny(kv, "Value", "value");
-                        if (value != null)
-                            result.Add(value);
+                        // 如果来源是 Values，item 就是 Entity；
+                        // 如果来源是原始 Map，item 是 KeyValuePair，需要取 .Value
+                        var entity = (values != null)
+                            ? item
+                            : GetFieldOrPropertyAny(item, "Value", "value");
+                        if (entity != null)
+                            result.Add(entity);
                     }
+                    return result;
+                }
+                catch
+                {
+                    // 集合在遍历中被修改，短暂等待后重试
+                    if (attempt < maxRetries - 1)
+                        System.Threading.Thread.Sleep(15);
                 }
             }
-            catch { }
-            return result;
+            return new List<object>();
         }
 
         public int ToInt(object value)

@@ -71,6 +71,20 @@ namespace BotMain
                 out var waitDetail,
                 out var lastObservedState);
 
+            // Try structured actions first — actions like titan_power / forge can be
+            // successfully mapped to OPTION commands even though they also pass the
+            // LooksLikeChoiceRecommendation check.  If we defer them as "choice" they
+            // never get executed because no choice UI appears until the player clicks
+            // the Titan minion on the board.
+            if (state != null
+                && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
+            {
+                return new ActionRecommendationResult(
+                    null,
+                    actions,
+                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}");
+            }
+
             if (state != null
                 && HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(state))
             {
@@ -79,15 +93,6 @@ namespace BotMain
                     Array.Empty<string>(),
                     $"hsbox_actions choice_deferred ({state.Detail})",
                     shouldRetryWithoutAction: true);
-            }
-
-            if (state != null
-                && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
-            {
-                return new ActionRecommendationResult(
-                    null,
-                    actions,
-                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}");
             }
 
             if (state != null
@@ -1825,6 +1830,36 @@ namespace BotMain
                     return i;
             }
 
+            // 抉择卡牌前缀匹配：HsBox 可能发送父卡牌 ID（如 TOY_353），
+            // 而游戏抉择选项使用子选项 ID（如 TOY_353a、TOY_353b）。
+            if (!string.IsNullOrWhiteSpace(desiredCard.CardId))
+            {
+                // 优先在 ZONE_POSITION 处做前缀匹配
+                if (zonePosition > 0 && zonePosition <= choices.Count)
+                {
+                    var index = zonePosition - 1;
+                    if ((used == null || !used[index]) && IsChooseOnePrefix(choices[index]?.CardId, desiredCard.CardId))
+                        return index;
+                }
+
+                for (var i = 0; i < choices.Count; i++)
+                {
+                    if (used != null && used[i])
+                        continue;
+
+                    if (IsChooseOnePrefix(choices[i]?.CardId, desiredCard.CardId))
+                        return i;
+                }
+
+                // 最终回退：仅依据 ZONE_POSITION 选择（所有基于卡牌 ID 的匹配均失败时）
+                if (zonePosition > 0 && zonePosition <= choices.Count)
+                {
+                    var index = zonePosition - 1;
+                    if (used == null || !used[index])
+                        return index;
+                }
+            }
+
             return -1;
         }
 
@@ -1847,6 +1882,26 @@ namespace BotMain
                     return i;
             }
 
+            // 抉择卡牌前缀匹配
+            if (!string.IsNullOrWhiteSpace(desiredCard.CardId))
+            {
+                if (zonePosition > 0 && zonePosition <= choices.Count)
+                {
+                    var index = zonePosition - 1;
+                    if (IsChooseOnePrefix(choices[index], desiredCard.CardId))
+                        return index;
+                }
+
+                for (var i = 0; i < choices.Count; i++)
+                {
+                    if (IsChooseOnePrefix(choices[i], desiredCard.CardId))
+                        return i;
+                }
+
+                if (zonePosition > 0 && zonePosition <= choices.Count)
+                    return zonePosition - 1;
+            }
+
             return -1;
         }
 
@@ -1864,6 +1919,32 @@ namespace BotMain
                 return false;
 
             return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>
+        /// 判断 choiceCardId 是否为 parentCardId 的抉择子选项。
+        /// 例如 choiceCardId="EX1_164a" 是 parentCardId="EX1_164" 的子选项，
+        /// 后缀为 1-2 个小写字母（a/b/ts 等）。
+        /// </summary>
+        private static bool IsChooseOnePrefix(string choiceCardId, string parentCardId)
+        {
+            if (string.IsNullOrWhiteSpace(choiceCardId) || string.IsNullOrWhiteSpace(parentCardId))
+                return false;
+
+            if (choiceCardId.Length <= parentCardId.Length || choiceCardId.Length > parentCardId.Length + 2)
+                return false;
+
+            if (!choiceCardId.StartsWith(parentCardId, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var suffix = choiceCardId.Substring(parentCardId.Length);
+            foreach (var ch in suffix)
+            {
+                if (!char.IsLetter(ch))
+                    return false;
+            }
+
+            return true;
         }
 
         private static string NormalizeBodyText(string bodyText)

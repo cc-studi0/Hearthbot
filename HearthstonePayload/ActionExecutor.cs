@@ -296,17 +296,18 @@ namespace HearthstonePayload
                             targetIsEnemyHero = beforeState?.HeroEnemy != null && beforeState.HeroEnemy.EntityId == targetId;
                             if (!targetIsEnemyHero)
                                 targetIsEnemyHero = IsEnemyHeroEntityId(targetId);
-                            if (beforeState != null
-                                && !CanEntityAttackNow(beforeState, attackerId, targetId, out var notReadyReason))
+                            // EXHAUSTED / NUM_ATTACKS_THIS_TURN / ATK 等 tag 在客户端帧上频繁出现
+                            // 短暂错位，对英雄和随从都可能导致 false-reject。
+                            // 统一跳过预检查，先执行鼠标操作，再由后置 DidAttackApply 确认是否生效。
+                            // 若攻击者确实无法攻击，鼠标点击不会产生效果，DidAttackApply 返回 false，
+                            // 最终以 FAIL:ATTACK:not_confirmed 结束。
+                            if (beforeState != null)
                             {
-                                // 英雄攻击：EXHAUSTED / NUM_ATTACKS_THIS_TURN / ATK 等 tag 在客户端帧上频繁出现
-                                // 短暂错位，导致这里 false-reject。对英雄攻击完全跳过预检查，
-                                // 先执行操作，再由后置 DidAttackApply 确认是否生效。
-                                if (!sourceIsFriendlyHero)
-                                {
-                                    return "FAIL:ATTACK:not_ready:" + attackerId + ":" + notReadyReason;
-                                }
-                                // 英雄攻击 — 跳过 not_ready 预检查，继续执行
+                                CanEntityAttackNow(beforeState, attackerId, targetId, out var preCheckReason);
+                                AppendActionTrace(
+                                    "ATTACK pre-check attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " reason=" + preCheckReason);
                             }
 
                             hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
@@ -5166,7 +5167,6 @@ namespace HearthstonePayload
                 return false;
 
             if (snapshot.CountMax > 1
-                || snapshot.IsSubOptionChoice
                 || snapshot.IsRewindChoice
                 || snapshot.IsMagicItemDiscover
                 || snapshot.IsShopChoice
@@ -5181,6 +5181,7 @@ namespace HearthstonePayload
                 case "DREDGE":
                 case "ADAPT":
                 case "GENERAL":
+                case "CHOOSE_ONE":
                     return true;
                 default:
                     return false;

@@ -257,6 +257,57 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TryMapChoice_MatchesParentCardIdAsPrefix_ForChooseOneOptions()
+        {
+            // HsBox sends parent card ID "TOY_353" (拼布好朋友) with ZONE_POSITION=2,
+            // but the game's choice entities use sub-option IDs "TOY_353a" and "TOY_353b".
+            var step = new HsBoxActionStep
+            {
+                ActionName = "choice",
+                Target = new HsBoxCardRef
+                {
+                    CardId = "TOY_353",
+                    CardName = "拼布好朋友",
+                    ZonePosition = 2
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 32,
+                UpdatedAtMs = 700,
+                Raw = "choice-choose-one-prefix",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "选择我方2号位卡牌 拼布好朋友",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-choose-one",
+                14,
+                "GENERAL",
+                "SRC_200",
+                200,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(601, "TOY_353a"),
+                    new ChoiceRecommendationOption(602, "TOY_353b")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 602 }, selectedEntityIds);  // ZONE_POSITION=2 → index 1 → entity 602
+        }
+
+        [Fact]
         public void TryMapChoice_UsesStructuredChoiceCardList_WhenTypedCardFieldIsMissing()
         {
             var step = new HsBoxActionStep
