@@ -62,7 +62,7 @@ namespace BotMain
 
         private void InitBotLog()
         {
-            // Bot.Log() polling is handled in PollLogs().
+            // Bot.Log() 的轮询在 PollLogs() 中处理。
         }
 
         /// <summary>

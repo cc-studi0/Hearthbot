@@ -71,11 +71,11 @@ namespace BotMain
                 out var waitDetail,
                 out var lastObservedState);
 
-            // Try structured actions first — actions like titan_power / forge can be
-            // successfully mapped to OPTION commands even though they also pass the
-            // LooksLikeChoiceRecommendation check.  If we defer them as "choice" they
-            // never get executed because no choice UI appears until the player clicks
-            // the Titan minion on the board.
+            // 优先尝试结构化动作 —— titan_power / forge 等动作可以
+            // 成功映射为 OPTION 命令，即使它们也通过了
+            // LooksLikeChoiceRecommendation 检查。如果将它们延迟为"选择"，它们
+            // 永远不会被执行，因为在玩家点击场上的泰坦随从之前
+            // 不会出现选择 UI。
             if (state != null
                 && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
             {
@@ -171,7 +171,7 @@ namespace BotMain
                 return new ChoiceRecommendationResult(bodySelectedEntityIds, $"hsbox_choice {bodyDetail}", state.UpdatedAtMs, state.PayloadSignature);
             }
 
-            // Diagnostics: determine exactly what failed
+            // 诊断信息：确定具体哪一步失败了
             var diagState = state ?? lastObservedState;
             var diagParts = new List<string>();
             if (diagState != null)
@@ -266,9 +266,9 @@ namespace BotMain
                 return false;
             }
 
-            // Use a generous slack for choices: HsBox typically updates its state
-            // when the card is played (~3-5s before the bot processes the discover choice
-            // due to game animations), so 3000ms is too tight.
+            // 对选择使用较宽松的时间容差：HsBox 通常在打出卡牌时更新状态
+            // （由于游戏动画，比机器人处理发现选择早约3-5秒），
+            // 所以 3000ms 太紧了。
             const int ChoiceFreshnessSlackMs = 8000;
             if (minimumUpdatedAtMs <= 0)
                 return true;

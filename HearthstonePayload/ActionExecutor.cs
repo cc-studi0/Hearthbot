@@ -117,36 +117,39 @@ namespace HearthstonePayload
             if (submitDetail == null)
                 return "OK:OPTION:network:" + sourceId;
 
-            // Choose One / sub-option path: wait for the EntityChoices packet first,
-            // then resolve the sub-option card and click it directly — instead of
-            // blindly clicking the source entity which has already left the hand.
+            // 二选一 / 子选项路径：等待 EntityChoices 包 或
+            // ChoiceCardMgr 的 SubOption UI 出现，然后解析并点击/提交。
             if (targetId <= 0
                 && position <= 0
                 && !string.IsNullOrWhiteSpace(subOptionCardId))
             {
-                // Wait up to 5s for the choice packet to appear after playing a Choose One card
-                if (!WaitForChoicePacketReady(5000))
+                // 最多等待5秒，等待 EntityChoices 包 或 SubOption UI 出现
+                if (!WaitForSubOptionOrChoiceReady(5000))
                 {
-                    // Last resort: retry network option after waiting
+                    // 最后手段：等待后重试网络选项
                     submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
                     if (submitDetail == null)
                         return "OK:OPTION:network_retry:" + sourceId;
                     return "FAIL:OPTION:choice_not_ready:" + sourceId + ":" + submitDetail;
                 }
 
-                // Retry structured option now that choice packet is ready
+                // 选择/子选项已就绪，重试结构化选项
                 submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
                 if (submitDetail == null)
                     return "OK:OPTION:open_then_network:" + sourceId;
 
-                // Resolve and click the choice entity by card ID
+                // 回退方案1：从 EntityChoices 包解析实体
                 if (TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
                     return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
+
+                // 回退方案2：从 ChoiceCardMgr 的 SubOption/友方卡牌解析实体
+                if (TryResolveSubOptionEntityIdByCardId(subOptionCardId, out var subOptionEntityId))
+                    return _coroutine.RunAndWait(MouseClickChoice(subOptionEntityId));
 
                 return "FAIL:OPTION:suboption_not_found:" + sourceId + ":" + subOptionCardId;
             }
 
-            // Targeted option (has targetId or position): use original mouse-open + retry flow
+            // 指向性选项（有 targetId 或 position）：使用原始鼠标打开 + 重试流程
             var openResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
             if (!openResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                 return openResult;
@@ -192,6 +195,48 @@ namespace HearthstonePayload
             return false;
         }
 
+        /// <summary>
+        /// 等待 EntityChoices 包 或 ChoiceCardMgr SubOption / 选择 UI 就绪。
+        /// Choose One 卡牌使用 SubOption 机制（Options 包），不是 EntityChoices 包。
+        /// Discover 使用 EntityChoices 包。此方法同时等待两种机制。
+        /// </summary>
+        private static bool WaitForSubOptionOrChoiceReady(int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                var gs = GetGameState();
+                if (gs != null)
+                {
+                    // 路径1：EntityChoices 包（发现）
+                    var choicePacket = TryGetFriendlyChoicePacket(gs);
+                    if (TryGetChoicePacketEntityIds(choicePacket, out var entityIds) && entityIds.Count > 0)
+                        return true;
+
+                    // 路径2：ChoiceCardMgr 显示 SubOption 或友方选择卡牌（二选一）
+                    var choiceCardMgr = TryGetChoiceCardMgr();
+                    if (choiceCardMgr != null)
+                    {
+                        // HasSubOption() — 二选一子选项卡牌可见
+                        if (TryInvokeBoolMethod(choiceCardMgr, "HasSubOption", out var hasSub) && hasSub)
+                            return true;
+
+                        // IsFriendlyShown() — 任何友方选择 UI 已激活（SubOption 或 EntityChoices）
+                        if (TryInvokeBoolMethod(choiceCardMgr, "IsFriendlyShown", out var isShown) && isShown)
+                            return true;
+                    }
+
+                    // 路径3：GameState 处于 SUB_OPTION 响应模式
+                    if (TryInvokeBoolMethod(gs, "IsInSubOptionMode", out var inSubOpt) && inSubOpt)
+                        return true;
+                }
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
         private static bool TryResolveChoiceEntityIdByCardId(object gameState, string cardId, out int entityId)
         {
             entityId = 0;
@@ -210,6 +255,49 @@ namespace HearthstonePayload
 
                 entityId = candidateEntityId;
                 return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 从 ChoiceCardMgr 的 GetFriendlyCards（SubOption / Choose One 卡片）中
+        /// 按 CardId 查找对应的 entity ID。
+        /// Choose One 的子选项卡片由 ChoiceCardMgr 内部管理，不在 EntityChoices 包中。
+        /// </summary>
+        private static bool TryResolveSubOptionEntityIdByCardId(string cardId, out int entityId)
+        {
+            entityId = 0;
+            if (string.IsNullOrWhiteSpace(cardId))
+                return false;
+
+            if (!TryGetChoiceCardMgrFriendlyCards(out var friendlyCards)
+                || friendlyCards == null
+                || friendlyCards.Count == 0)
+            {
+                return false;
+            }
+
+            var gs = GetGameState();
+            foreach (var card in friendlyCards)
+            {
+                var entity = ResolveChoiceCardEntity(card);
+                if (entity == null)
+                    continue;
+
+                var candidateEntityId = ResolveEntityId(entity);
+                if (candidateEntityId <= 0)
+                    continue;
+
+                var resolvedCardId = ResolveCardIdFromObject(entity);
+                if (string.IsNullOrWhiteSpace(resolvedCardId) && gs != null)
+                    resolvedCardId = ResolveEntityCardId(gs, candidateEntityId);
+
+                if (string.Equals(resolvedCardId, cardId, StringComparison.OrdinalIgnoreCase))
+                {
+                    entityId = candidateEntityId;
+                    return true;
+                }
             }
 
             return false;
@@ -2124,7 +2212,7 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// Apply mulligan replacement list and confirm selection.
+        /// 应用留牌替换列表并确认选择。
         /// </summary>
         public static string ApplyMulligan(string replaceEntityIdsCsv)
         {
@@ -2263,10 +2351,10 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// Return replaceable mulligan choices only (from MulliganManager.m_startingCards).
-        /// Format: cardId1,entityId1;cardId2,entityId2;...
-        /// Returns empty string when mulligan ui exists but cards are not ready yet.
-        /// Returns null when not in mulligan context.
+        /// 仅返回可替换的留牌选择（来自 MulliganManager.m_startingCards）。
+        /// 格式：cardId1,entityId1;cardId2,entityId2;...
+        /// 留牌 UI 存在但卡牌未就绪时返回空字符串。
+        /// 不在留牌上下文时返回 null。
         /// </summary>
         public static string GetMulliganChoiceCards()
         {

@@ -471,8 +471,8 @@ namespace BotMain.AI
         {
             if (board.HeroPower == null) return false;
             var name = board.HeroPower.CardId.ToString();
-            return name == "EX1_625"   // Mind Spike（心灵尖刺）
-                || name == "EX1_625t"  // Mind Shatter（心灵破碎）
+            return name == "EX1_625"   // 心灵尖刺
+                || name == "EX1_625t"  // 心灵破碎
                 || name.Contains("MindSpike")
                 || name.Contains("SCH_270")
                 || name.Contains("YOP_028")

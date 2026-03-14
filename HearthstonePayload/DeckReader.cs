@@ -7,7 +7,7 @@ using System.Reflection;
 namespace HearthstonePayload
 {
     /// <summary>
-    /// Reads deck list from CollectionManager through reflection.
+    /// 通过反射从 CollectionManager 读取牌组列表。
     /// </summary>
     public static class DeckReader
     {
@@ -29,7 +29,7 @@ namespace HearthstonePayload
         public static string LastError { get; private set; }
 
         /// <summary>
-        /// Returns "deckName|class|cardId1,cardId2,...;..."
+        /// 返回格式："deckName|class|cardId1,cardId2,...;..."
         /// </summary>
         public static string ReadDecks()
         {
@@ -37,22 +37,22 @@ namespace HearthstonePayload
 
             if (!Init())
             {
-                LastError = _asm == null ? "Assembly-CSharp not found" : "CollectionManager type not found";
+                LastError = _asm == null ? "未找到 Assembly-CSharp" : "未找到 CollectionManager 类型";
                 return null;
             }
 
             try
             {
                 var manager = GetSingleton(_collectionManagerType);
-                if (manager == null) { LastError = "CollectionManager singleton is null"; return null; }
+                if (manager == null) { LastError = "CollectionManager 单例为 null"; return null; }
 
                 var getDecks = _collectionManagerType.GetMethod("GetDecks",
                     BindingFlags.Public | BindingFlags.Instance,
                     binder: null, types: Type.EmptyTypes, modifiers: null);
-                if (getDecks == null) { LastError = "GetDecks method not found"; return null; }
+                if (getDecks == null) { LastError = "未找到 GetDecks 方法"; return null; }
 
                 var deckCollection = getDecks.Invoke(manager, null) as IEnumerable;
-                if (deckCollection == null) { LastError = "GetDecks returned null"; return null; }
+                if (deckCollection == null) { LastError = "GetDecks 返回 null"; return null; }
 
                 var rows = new List<string>();
                 foreach (var entry in deckCollection)
@@ -119,7 +119,7 @@ namespace HearthstonePayload
             }
             catch
             {
-                // fallback to slot parsing below
+                // 回退到下面的槽位解析
             }
 
             try
@@ -147,7 +147,7 @@ namespace HearthstonePayload
             }
             catch
             {
-                // ignore one deck parse failure
+                // 忽略单个牌组解析失败
             }
 
             return result;

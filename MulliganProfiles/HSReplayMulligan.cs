@@ -13,7 +13,7 @@ namespace SmartBot.Mulligan
     [Serializable]
     public class HSReplayMulligan : MulliganProfile
     {
-        // Initialize the log and list to store cards to keep
+        // 初始化日志和保留卡牌列表
         private string _log = "";
         List<Card.Cards> CardsToKeep = new List<Card.Cards>();
 
@@ -26,7 +26,7 @@ namespace SmartBot.Mulligan
                 string mulliganUrl = "";
                 string mode = "";
 
-                // Determine the deck list and mulligan URLs based on the game mode
+                // 根据游戏模式确定牌库列表和留牌 URL
                 if (Bot.CurrentMode() == Bot.Mode.Standard || Bot.CurrentMode() == Bot.Mode.Casual || Bot.CurrentMode() == Bot.Mode.Practice)
                 {
                     deckListsUrl = "https://hsreplay.net/analytics/query/list_decks_by_win_rate_v2/?GameType=RANKED_STANDARD&TimeRange=LAST_30_DAYS&Region=ALL";
@@ -44,23 +44,23 @@ namespace SmartBot.Mulligan
                 }
                /* else
                 {
-                    // Handle unsupported modes by switching to Default Mulligan
+                     // 通过切换到默认留牌来处理不支持的模式
                     //throw new Exception("Unsupported game mode. Switching to Default Mulligan.");
                 }
                 */
-                // Fetch deck lists data from HSReplay
+                // 从 HSReplay 获取牌库列表数据
                 var deckListsSrc = HttpGet.Get(deckListsUrl);
                 if (string.IsNullOrEmpty(deckListsSrc))
                 {
-                    // Handle empty or invalid response by switching to Default Mulligan
+                    // 处理空或无效响应，切换到默认留牌
                     throw new Exception("Failed to get deck lists from HSReplay. Switching to Default Mulligan.");
                 }
 
-                // Deserialize deck lists data
+                // 反序列化牌库列表数据
                 Root deckListsDatasJson = JsonConvert.DeserializeObject<Root>(deckListsSrc);
                 if (deckListsDatasJson == null || deckListsDatasJson.series == null || deckListsDatasJson.series.data == null)
                 {
-                    // Handle invalid JSON data by switching to Default Mulligan
+                    // 处理无效 JSON 数据，切换到默认留牌
                     throw new Exception("Failed to parse deck lists data from HSReplay. Switching to Default Mulligan.");
                 }
                 AddLog("Selected Deck : " +Bot.CurrentDeck().Name.ToString());
@@ -69,53 +69,53 @@ namespace SmartBot.Mulligan
                 var deckId = HSReplayHelper.GetDeckIdForClosestMatch(Bot.CurrentDeck(), Data);
                 AddLog("Matched Deck :\nhttps://hsreplay.net/decks/" + deckId + "/#gameType=" + mode);
 
-                // Fetch mulligan data from HSReplay
+                // 从 HSReplay 获取留牌数据
                 var mulliganSrc = HttpGet.Get(mulliganUrl.Replace("DECKIDHERE", deckId));
                 if (string.IsNullOrEmpty(mulliganSrc))
                 {
-                    // Handle empty or invalid response by switching to Default Mulligan
+                    // 处理空或无效响应，切换到默认留牌
                     throw new Exception("Failed to get mulligan data from HSReplay. Switching to Default Mulligan.");
                 }
 
-                // Deserialize mulligan data
+                // 反序列化留牌数据
                 MRoot mulliganDataJson = JsonConvert.DeserializeObject<MRoot>(mulliganSrc);
                 if (mulliganDataJson == null || mulliganDataJson.ALL == null)
                 {
-                    // Handle invalid JSON data by switching to Default Mulligan
+                    // 处理无效 JSON 数据，切换到默认留牌
                     throw new Exception("Failed to parse mulligan data from HSReplay. Switching to Default Mulligan.");
                 }
 
-                // Fetch mulligan data from HSReplay and store it in mulliganData
+                // 从 HSReplay 获取留牌数据并存储在 mulliganData 中
                 var mulliganData = mulliganDataJson;
 
-                // Log the number of mulligan entries for debugging or information purposes
+                // 记录留牌条目数量用于调试或信息输出
                 AddLog("MulliganEntries : " + mulliganData.ALL.cards_by_dbf_id.Count);
 
-                // Sanitize the mulligan data using the HSReplayHelper class
+                // 使用 HSReplayHelper 类清洗留牌数据
                 var sanitizedDatas = HSReplayHelper.SanitizeMulliganDatas(mulliganData.ALL);
 
-                // Sort the sanitized mulligan data in descending order based on the kept percentage
+                // 按保留百分比降序排序清洗后的留牌数据
                 var sortedDatas = sanitizedDatas.OrderByDescending(d => d.KeptPercentage);
 
-                // Iterate through the sorted data and log the card names and their kept percentages
+                // 遍历排序后的数据并记录卡牌名称和保留百分比
                 AddLog("\nFull Mulligan Data:");
                 foreach (var d in sortedDatas)
                 {
                     AddLog(CardTemplate.LoadFromId(d.CardId).Name + " - Kept : " + d.KeptPercentage.ToString("0.00") + "%");
                 }
 
-                // Log the cards available to choose from, based on the choices list
+                // 根据选择列表记录可供选择的卡牌
                 AddLog("\nCards to choose from:");
                 foreach (var d in sortedDatas.Where(d => choices.Contains(d.CardId)))
                 {
                     AddLog(CardTemplate.LoadFromId(d.CardId).Name + " - Kept : " + d.KeptPercentage.ToString("0.00") + "%");
                 }
 
-                // Log the cards to keep if their kept percentage is greater than or equal to 75
+                // 如果保留百分比大于等于 75，记录要保留的卡牌
                 AddLog("\nCards to Keep:");
                 foreach (var d in sortedDatas.Where(d => choices.Contains(d.CardId) && d.KeptPercentage >= 75))
                 {
-                    // Flag to check if a high-kept card is found in the choices list
+                    // 检查选择列表中是否找到高保留率卡牌的标志
                     bool highKeptCardCostsOne = false;
                     bool highKeptCardFound = false;
                     bool highKeptCardPlayableOnOne = false;
@@ -132,14 +132,14 @@ namespace SmartBot.Mulligan
                         highKeptCardPlayableOnOne = true;
                     }
 
-                    // If the card is in the choices list and not already marked to keep, add it to CardsToKeep list and log it
+                    // 如果卡牌在选择列表中且未被标记为保留，加入保留列表并记录
                     if (choices.Contains(d.CardId) && !CardsToKeep.Contains(d.CardId))
                     {
                         AddLog(CardTemplate.LoadFromId(d.CardId).Name + " - Kept : " + d.KeptPercentage.ToString("0.00") + "%");
                         Keep(d.CardId);
                     }
 
-                    // If a high-kept card is found, iterate through other cards in the sorted data with kept percentage between 50 and 75, and add them to CardsToKeep list
+                    // 如果找到高保留率卡牌，遍历保留百分比在50-75之间的其他卡牌，并加入保留列表
                     if (highKeptCardFound == true && highKeptCardPlayableOnOne == true)
                     {
                         foreach (var e in sortedDatas.Where(e => choices.Contains(e.CardId) && e.KeptPercentage >= 50 && e.KeptPercentage < 75 && !CardsToKeep.Contains(e.CardId)))
@@ -157,14 +157,14 @@ namespace SmartBot.Mulligan
             }
             catch (Exception ex)
             {
-                // Handle the exception or log the error and switch to Default Mulligan
+                // 处理异常或记录错误，切换到默认留牌
                 Bot.Log("Error in HSReplayMulligan.HandleMulligan: " + ex.Message + " \nSwitching to Default Mulligan.");
                 Bot.StopBot();
                 Bot.ChangeMulligan("Default.cs");
                 Thread.Sleep(1000);
                 Bot.StartBot();
                 
-                // Return null to indicate an error occurred and no cards to keep
+                // 返回 null 表示发生错误且无卡牌保留
                 return null;
             }
             
@@ -179,17 +179,17 @@ namespace SmartBot.Mulligan
 
         private void AddLog(string log)
         {
-            _log += "\r\n" + log; //Combine all Addlog, includes return and new line
+            _log += "\r\n" + log; //合并所有 AddLog，包含回车和换行
         }
-                //Get Current Local Archetype
+                //获取当前本地原型
 
 
-        //Get Current HSReplay Archetype
+        //获取当前 HSReplay 原型
         private static string GetCurrentHSReplayArchetype()
         {
             var HSReplayArchetype = HSReplayArchetypesMatcher.DetectArchetype(Bot.GetSelectedDecks()[0].Cards, Bot.GetSelectedDecks()[0].Class, 30);
             if (HSReplayArchetype == null || HSReplayArchetype is HSReplayArchetypeError)
-                return string.Empty; //Archetype couldn't be found
+                return string.Empty; //未找到原型
             return HSReplayArchetype.Name;
         }
     }
@@ -198,16 +198,16 @@ namespace SmartBot.Mulligan
     {
         private static string CardsRegex = "\\[(\\d*?),(.*?)\\]";
 
-        // Method to sanitize the mulligan data received from HSReplay
+        // 清洗从 HSReplay 收到的留牌数据的方法
         public static List<HSReplayMulliganInfo> SanitizeMulliganDatas(MALL datas)
         {
             List<HSReplayMulliganInfo> ret = new List<HSReplayMulliganInfo>();
 
-            // Iterate through each mulligan data entry and create an HSReplayMulliganInfo object
+            // 遍历每个留牌数据条目并创建 HSReplayMulliganInfo 对象
             foreach (var d in datas.cards_by_dbf_id)
             {
                 HSReplayMulliganInfo info = new HSReplayMulliganInfo();
-                // Find the corresponding card ID based on the dbf_id in the CardTemplate.TemplateList dictionary
+                // 根据 CardTemplate.TemplateList 字典中的 dbf_id 查找对应的卡牌 ID
                 info.CardId = CardTemplate.TemplateList.FirstOrDefault(x => x.Value.DbfId == d.dbf_id).Key;
                 info.KeptPercentage = d.keep_percentage;
                 info.MulliganWinrate = d.opening_hand_winrate;
@@ -219,19 +219,19 @@ namespace SmartBot.Mulligan
             return ret;
         }
 
-        // Method to calculate the match points for a given decklist and deck
+        // 计算给定牌库列表与牌组的匹配分数的方法
         public static int GetMatchPoint(string decklist, Deck deck)
         {
             int ret = 0;
-            // Use regular expression to find the cardDbfId and cardCount in the decklist
+            // 使用正则表达式在牌库列表中查找 cardDbfId 和 cardCount
             var matches = Regex.Matches(decklist, CardsRegex);
             foreach (Match match in matches)
             {
                 var cardDbfId = int.Parse(match.Groups[1].ToString());
                 var cardCount = int.Parse(match.Groups[2].ToString());
-                // Find the corresponding card ID based on the dbf_id in the CardTemplate.TemplateList dictionary
+                // 根据 CardTemplate.TemplateList 字典中的 dbf_id 查找对应的卡牌 ID
                 var cardId = CardTemplate.TemplateList.FirstOrDefault(x => x.Value.DbfId == cardDbfId).Key;
-                // Count the number of occurrences of the card in the deck and update match points accordingly
+                // 计算牌组中该卡牌的出现次数并相应更新匹配分数
                 var cardCountInDeck = deck.Cards.Count(x => x == cardId.ToString());
 
                 if (cardCountInDeck > 0)
@@ -242,8 +242,8 @@ namespace SmartBot.Mulligan
             return ret;
         }
 
-        // Method to get the deck ID for the closest match to the given deck in the data
-        // It iterates through each archetype, calculates match points, and stores the best match
+        // 获取数据中与给定牌组最接近匹配的牌组 ID 的方法
+        // 遍历每个原型，计算匹配分数，并存储最佳匹配
         public static string GetDeckIdForClosestMatch(Deck deck, Data data)
         {
             string ret = string.Empty;
@@ -275,20 +275,20 @@ namespace SmartBot.Mulligan
             var bestMatchPoints = 0;
             var bestMatchGamesPlayed = 0;
 
-            // Iterate through each archetype entry in the data
+            // 遍历数据中的每个原型条目
             foreach (var entry in entries)
             {
-                // Calculate match points for the current archetype entry and the given deck
+                // 计算当前原型条目与给定牌组的匹配分数
                 var points = GetMatchPoint(entry.deck_list, deck);
 
-                // Check if the current archetype entry is the best match so far based on match points
+                // 检查当前原型条目是否是目前最佳匹配
                 if (points > bestMatchPoints)
                 {
                     bestMatchGamesPlayed = entry.total_games;
                     bestMatchPoints = points;
                     ret = entry.deck_id;
                 }
-                // If there's a tie in match points, choose the one with more games played
+                // 如果匹配分数相同，选择游戏场次更多的
                 else if (points == bestMatchPoints && bestMatchGamesPlayed < entry.total_games)
                 {
                     bestMatchGamesPlayed = entry.total_games;
@@ -297,24 +297,24 @@ namespace SmartBot.Mulligan
                 }
             }
 
-            // Finally, return the deck_id of the closest match
+            // 最终返回最接近匹配的 deck_id
             return ret;
         }
     }
-    // Class representing the mulligan information for a specific card
+    // 表示特定卡牌留牌信息的类
     public class HSReplayMulliganInfo
     {
-        public Card.Cards CardId;            // The ID of the card
-        public double KeptPercentage;       // Percentage of times the card is kept in the mulligan
-        public double MulliganWinrate;      // Winrate when the card is kept in the mulligan
-        public double DrawnWinrate;         // Winrate when the card is drawn during the game
-        public double PlayedWinrate;        // Winrate when the card is played during the game
+        public Card.Cards CardId;            // 卡牌 ID
+        public double KeptPercentage;       // 留牌中保留该卡牌的百分比
+        public double MulliganWinrate;      // 留牌中保留该卡牌时的胜率
+        public double DrawnWinrate;         // 游戏中抽到该卡牌时的胜率
+        public double PlayedWinrate;        // 游戏中打出该卡牌时的胜率
     }
 
-    // Class representing the data for all card statistics in the game
+    // 表示游戏中所有卡牌统计数据的类
     public class ALL
     {
-        // Properties for various mulligan and gameplay statistics for a card
+        // 卡牌的各种留牌和游戏统计属性
         public int dbf_id { get; set; }
         public int times_presented_in_initial_cards { get; set; }
         public int times_kept { get; set; }
@@ -329,33 +329,33 @@ namespace SmartBot.Mulligan
         public double winrate_when_played { get; set; }
     }
 
-    // Class representing data related to the mulligan phase of a game
+    // 表示游戏留牌阶段相关数据的类
     public class MulliganData
     {
-        public List<ALL> ALL { get; set; } // List of ALL entries containing mulligan statistics for all cards in the game
+        public List<ALL> ALL { get; set; } // 包含游戏中所有卡牌留牌统计数据的 ALL 条目列表
     }
 
-    // Class representing metadata for the mulligan data
+    // 表示留牌数据元数据的类
     public class MulliganMetadata
     {
-        public string earliest_date { get; set; }   // Earliest date in the mulligan data
-        public string latest_date { get; set; }     // Latest date in the mulligan data
-        public int total_games { get; set; }        // Total number of games in the mulligan data
-        public double base_winrate { get; set; }    // Base winrate for the mulligan data
+        public string earliest_date { get; set; }   // 留牌数据中的最早日期
+        public string latest_date { get; set; }     // 留牌数据中的最晚日期
+        public int total_games { get; set; }        // 留牌数据中的总游戏场次
+        public double base_winrate { get; set; }    // 留牌数据的基础胜率
     }
 
-    // Class representing the root of the mulligan data
+    // 表示留牌数据根节点的类
     public class MulliganRoot
     {
         public MulliganMetadata metadata { get; set; }
         public ALL ALL { get; set; }
     }
 
-    // Class representing the mulligan data series
+    // 表示留牌数据系列的类
     public class MulliganSeries
     {
-        public MulliganMetadata metadata { get; set; }   // Metadata for the mulligan data
-        public MulliganData data { get; set; }           // Mulligan data
+        public MulliganMetadata metadata { get; set; }   // 留牌数据的元数据
+        public MulliganData data { get; set; }           // 留牌数据
     }
 
 
@@ -430,10 +430,10 @@ namespace SmartBot.Mulligan
 
 
 
-    // Class representing the data for all decks in the game
+    // 表示游戏中所有牌组数据的类
     public class Data
     {
-        // Lists containing decks for each class in the game
+        // 包含游戏中每个职业牌组的列表
         public List<ENTRY> DEATHKNIGHT { get; set; }
         public List<ENTRY> DEMONHUNTER { get; set; }
         public List<ENTRY> DRUID { get; set; }
@@ -447,8 +447,8 @@ namespace SmartBot.Mulligan
         public List<ENTRY> WARRIOR { get; set; }
     }
 
-    // Classes representing data for specific classes (DEATHKNIGHT, DEMONHUNTER, etc.) in the game
-    // Each class contains information about the deck, archetype, and gameplay statistics
+    // 表示特定职业（死亡骑士、恶魔猎人等）数据的类
+    // 每个类包含牌组、原型和游戏统计信息
     public class ENTRY
     {
         public string deck_id { get; set; }
@@ -477,18 +477,18 @@ namespace SmartBot.Mulligan
         public ENTRY WARRIOR { get; set; }
     }
 
-    // Class representing the root of the game data, which includes metadata and the actual data for each class
+    // 表示游戏数据根节点的类，包含元数据和每个职业的实际数据
     public class Root
     {
-        public string render_as { get; set; }       // Rendering information for the root
-        public Series series { get; set; }          // Game data series
-        public DateTime as_of { get; set; }         // Date of the game data
+        public string render_as { get; set; }       // 根节点的渲染信息
+        public Series series { get; set; }          // 游戏数据系列
+        public DateTime as_of { get; set; }         // 游戏数据的日期
     }
 
-    // Class representing the game data series
+    // 表示游戏数据系列的类
     public class Series
     {
-        public Metadata metadata { get; set; }   // Metadata for the game data
-        public Data data { get; set; }           // Game data
+        public Metadata metadata { get; set; }   // 游戏数据的元数据
+        public Data data { get; set; }           // 游戏数据
     }
 }

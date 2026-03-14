@@ -313,8 +313,8 @@ namespace BotMain.AI
             // 心灵尖刺系列：EX1_625(Mind Spike), EX1_625t(Mind Shatter)
             // 其他多版本用名字匹配傍错
             var name = board.HeroPower.CardId.ToString();
-            return name == "EX1_625"   // Mind Spike
-                || name == "EX1_625t"  // Mind Shatter
+            return name == "EX1_625"   // 心灵尖刺
+                || name == "EX1_625t"  // 心灵破碎
                 || name.Contains("MindSpike")
                 || name.Contains("SCH_270")
                 || name.Contains("YOP_028")

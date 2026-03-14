@@ -127,19 +127,9 @@ namespace BotMain.AI
 
         private List<GameAction> GenerateLethalCandidates(SimBoard board)
         {
-            var actions = new List<(GameAction action, float priority)>();
+            var actions = new List<(GameAction action, int priority)>();
             var enemyHero = board.EnemyHero;
             if (enemyHero == null) return new List<GameAction>();
-            var aggroContext = AggroInteractionContext.FromAggroCoef(1.3f);
-
-            void AddCandidate(GameAction action, float basePriority)
-            {
-                if (action == null) return;
-                float priority = basePriority;
-                if (UseSearchTreeV2)
-                    priority += ActionPriorityModel.Estimate(board, action, null, aggroContext, ActionPriorityOptions.LethalSearch);
-                actions.Add((action, priority));
-            }
 
             // 是否有嘲讽
             bool hasTaunt = board.EnemyMinions.Any(m => m.IsTaunt && !m.IsStealth && m.IsAlive);
@@ -162,14 +152,14 @@ namespace BotMain.AI
                     foreach (var taunt in tauntMinions)
                     {
                         // Rush 随从首回合可以打随从
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.Attack,
                             Source = atk,
                             Target = taunt,
                             SourceEntityId = atk.EntityId,
                             TargetEntityId = taunt.EntityId
-                        }, PriorityAttackTaunt(atk, taunt));
+                        }, PriorityAttackTaunt(atk, taunt)));
                     }
                 }
                 else
@@ -181,14 +171,14 @@ namespace BotMain.AI
                         if (atk.HasRush && atk.CountAttack == 0 && !atk.IsTired)
                             continue;
 
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.Attack,
                             Source = atk,
                             Target = enemyHero,
                             SourceEntityId = atk.EntityId,
                             TargetEntityId = enemyHero.EntityId
-                        }, 1000 + atk.Atk * 10); // 优先高攻打脸
+                        }, 1000 + atk.Atk * 10)); // 优先高攻打脸
                     }
                 }
             }
@@ -203,14 +193,14 @@ namespace BotMain.AI
                     // 伤害法术打脸
                     if (!enemyHero.IsImmune)
                     {
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.PlayCard,
                             Source = card,
                             Target = enemyHero,
                             SourceEntityId = card.EntityId,
                             TargetEntityId = enemyHero.EntityId
-                        }, 900 + EstimateSpellDamage(card, board));
+                        }, 900 + EstimateSpellDamage(card, board)));
                     }
 
                     // 法术杀嘲讽
@@ -218,26 +208,26 @@ namespace BotMain.AI
                     {
                         foreach (var taunt in tauntMinions)
                         {
-                            AddCandidate(new GameAction
+                            actions.Add((new GameAction
                             {
                                 Type = ActionType.PlayCard,
                                 Source = card,
                                 Target = taunt,
                                 SourceEntityId = card.EntityId,
                                 TargetEntityId = taunt.EntityId
-                            }, 500 + EstimateSpellDamage(card, board));
+                            }, 500 + EstimateSpellDamage(card, board)));
                         }
                     }
 
                     // 无目标法术（AOE 等）
-                    AddCandidate(new GameAction
+                    actions.Add((new GameAction
                     {
                         Type = ActionType.PlayCard,
                         Source = card,
                         Target = null,
                         SourceEntityId = card.EntityId,
                         TargetEntityId = 0
-                    }, 400);
+                    }, 400));
                 }
                 else if (card.Type == Card.CType.MINION)
                 {
@@ -247,14 +237,14 @@ namespace BotMain.AI
                     if (card.HasCharge || card.HasRush)
                     {
                         // 无目标出牌
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.PlayCard,
                             Source = card,
                             Target = null,
                             SourceEntityId = card.EntityId,
                             TargetEntityId = 0
-                        }, card.HasCharge ? 850 + card.Atk * 10 : 700 + card.Atk * 5);
+                        }, card.HasCharge ? 850 + card.Atk * 10 : 700 + card.Atk * 5));
                     }
 
                     // 战吼伤害随从（打脸或解嘲讽）
@@ -263,51 +253,51 @@ namespace BotMain.AI
                     {
                         if (!enemyHero.IsImmune)
                         {
-                            AddCandidate(new GameAction
+                            actions.Add((new GameAction
                             {
                                 Type = ActionType.PlayCard,
                                 Source = card,
                                 Target = enemyHero,
                                 SourceEntityId = card.EntityId,
                                 TargetEntityId = enemyHero.EntityId
-                            }, 800);
+                            }, 800));
                         }
                         if (hasTaunt)
                         {
                             foreach (var taunt in tauntMinions)
                             {
-                                AddCandidate(new GameAction
+                                actions.Add((new GameAction
                                 {
                                     Type = ActionType.PlayCard,
                                     Source = card,
                                     Target = taunt,
                                     SourceEntityId = card.EntityId,
                                     TargetEntityId = taunt.EntityId
-                                }, 600);
+                                }, 600));
                             }
                         }
                         // 无目标战吼
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.PlayCard,
                             Source = card,
                             Target = null,
                             SourceEntityId = card.EntityId,
                             TargetEntityId = 0
-                        }, 500);
+                        }, 500));
                     }
                 }
                 else if (card.Type == Card.CType.WEAPON)
                 {
                     // 装武器 = 英雄获得攻击力，本回合准备好就能打
-                    AddCandidate(new GameAction
+                    actions.Add((new GameAction
                     {
                         Type = ActionType.PlayCard,
                         Source = card,
                         Target = null,
                         SourceEntityId = card.EntityId,
                         TargetEntityId = 0
-                    }, 750 + card.Atk * 10);
+                    }, 750 + card.Atk * 10));
                 }
             }
 
@@ -321,13 +311,13 @@ namespace BotMain.AI
                     var priority = EstimateHeroPowerActionPriority(board, null);
                     if (priority > 0)
                     {
-                        AddCandidate(new GameAction
+                        actions.Add((new GameAction
                         {
                             Type = ActionType.HeroPower,
                             Source = board.HeroPower,
                             SourceEntityId = board.HeroPower.EntityId,
                             TargetEntityId = 0
-                        }, priority);
+                        }, priority));
                     }
                 }
                 else
@@ -337,14 +327,14 @@ namespace BotMain.AI
                         var priority = EstimateHeroPowerActionPriority(board, enemyHero);
                         if (priority > 0)
                         {
-                            AddCandidate(new GameAction
+                            actions.Add((new GameAction
                             {
                                 Type = ActionType.HeroPower,
                                 Source = board.HeroPower,
                                 SourceEntityId = board.HeroPower.EntityId,
                                 Target = enemyHero,
                                 TargetEntityId = enemyHero.EntityId
-                            }, priority);
+                            }, priority));
                         }
                     }
 
@@ -354,14 +344,14 @@ namespace BotMain.AI
                         {
                             var priority = EstimateHeroPowerActionPriority(board, taunt);
                             if (priority <= 0) continue;
-                            AddCandidate(new GameAction
+                            actions.Add((new GameAction
                             {
                                 Type = ActionType.HeroPower,
                                 Source = board.HeroPower,
                                 SourceEntityId = board.HeroPower.EntityId,
                                 Target = taunt,
                                 TargetEntityId = taunt.EntityId
-                            }, priority);
+                            }, priority));
                         }
                     }
                 }
@@ -369,19 +359,6 @@ namespace BotMain.AI
 
             // 按优先级降序排列
             actions.Sort((a, b) => b.priority.CompareTo(a.priority));
-
-            if (UseSearchTreeV2)
-            {
-                float elapsedRatio = TimeoutMs <= 0 ? 1f : Math.Max(0f, (float)NodesExplored / Math.Max(1f, MaxNodesExplored));
-                int cap = elapsedRatio switch
-                {
-                    < 0.3f => 72,
-                    < 0.8f => 52,
-                    _ => 28
-                };
-                actions = actions.Take(Math.Min(cap, actions.Count)).ToList();
-            }
-
             return actions.Select(a => a.action).ToList();
         }
 

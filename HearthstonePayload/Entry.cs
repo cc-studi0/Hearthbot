@@ -248,7 +248,7 @@ namespace HearthstonePayload
                         }
                         else
                         {
-                            // Use mulligan manager choices only (replaceable cards), avoid leaking non-replaceable cards (e.g. coin).
+                            // 仅使用留牌管理器的选择（可替换的卡牌），避免泄露不可替换的卡牌（如硬币）。
                             // 必须在主线程访问 MulliganManager，否则后台线程反射访问 Unity 对象会导致闪退
                             var cardsResult = RunOnMainThread(() =>
                                 (object)(ActionExecutor.GetMulliganChoiceCards() ?? string.Empty));
