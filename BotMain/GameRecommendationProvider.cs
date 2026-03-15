@@ -209,18 +209,21 @@ namespace BotMain
             IReadOnlyList<int> selectedEntityIds,
             string detail,
             long sourceUpdatedAtMs = 0,
-            string sourcePayloadSignature = null)
+            string sourcePayloadSignature = null,
+            bool shouldRetryWithoutAction = false)
         {
             SelectedEntityIds = selectedEntityIds ?? Array.Empty<int>();
             Detail = detail ?? string.Empty;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
             SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
+            ShouldRetryWithoutAction = shouldRetryWithoutAction;
         }
 
         public IReadOnlyList<int> SelectedEntityIds { get; }
         public string Detail { get; }
         public long SourceUpdatedAtMs { get; }
         public string SourcePayloadSignature { get; }
+        public bool ShouldRetryWithoutAction { get; }
     }
 
     internal sealed class DiscoverRecommendationRequest
@@ -283,18 +286,25 @@ namespace BotMain
 
     internal sealed class DiscoverRecommendationResult
     {
-        public DiscoverRecommendationResult(int pickedIndex, string detail, long sourceUpdatedAtMs = 0, string sourcePayloadSignature = null)
+        public DiscoverRecommendationResult(
+            int pickedIndex,
+            string detail,
+            long sourceUpdatedAtMs = 0,
+            string sourcePayloadSignature = null,
+            bool shouldRetryWithoutAction = false)
         {
             PickedIndex = pickedIndex;
             Detail = detail ?? string.Empty;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
             SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
+            ShouldRetryWithoutAction = shouldRetryWithoutAction;
         }
 
         public int PickedIndex { get; }
         public string Detail { get; }
         public long SourceUpdatedAtMs { get; }
         public string SourcePayloadSignature { get; }
+        public bool ShouldRetryWithoutAction { get; }
 
         public static DiscoverRecommendationResult FromChoiceResult(
             ChoiceRecommendationRequest request,
@@ -309,7 +319,12 @@ namespace BotMain
                     pickedIndex = matchIndex;
             }
 
-            return new DiscoverRecommendationResult(pickedIndex, result?.Detail ?? string.Empty, result?.SourceUpdatedAtMs ?? 0, result?.SourcePayloadSignature);
+            return new DiscoverRecommendationResult(
+                pickedIndex,
+                result?.Detail ?? string.Empty,
+                result?.SourceUpdatedAtMs ?? 0,
+                result?.SourcePayloadSignature,
+                result?.ShouldRetryWithoutAction ?? false);
         }
     }
 }

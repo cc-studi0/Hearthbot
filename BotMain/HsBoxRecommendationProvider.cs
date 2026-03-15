@@ -148,6 +148,13 @@ namespace BotMain
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
             HsBoxRecommendationState lastObservedState = null;
 
+            var battlegroundChoice = _bgBridge.GetChoiceRecommendation(request);
+            if (battlegroundChoice?.SelectedEntityIds?.Count > 0
+                || battlegroundChoice?.ShouldRetryWithoutAction == true)
+            {
+                return battlegroundChoice;
+            }
+
             var state = WaitForState(
                 current =>
                 {
@@ -201,39 +208,10 @@ namespace BotMain
             }
             var diag = string.Join("; ", diagParts);
 
-            var fallbackEntityIds = Array.Empty<int>();
-            if (request != null)
-            {
-                var validOptionIds = (request.Options ?? Array.Empty<ChoiceRecommendationOption>())
-                    .Where(option => option != null && option.EntityId > 0)
-                    .Select(option => option.EntityId)
-                    .ToList();
-
-                if (request.IsRewindChoice
-                    && request.MaintainIndex >= 0
-                    && request.MaintainIndex < request.Options.Count)
-                {
-                    fallbackEntityIds = new[] { request.Options[request.MaintainIndex].EntityId };
-                }
-                else if (request.SelectedEntityIds != null
-                    && request.SelectedEntityIds.Count > 0
-                    && request.SelectedEntityIds.All(validOptionIds.Contains))
-                {
-                    fallbackEntityIds = request.SelectedEntityIds.Distinct().ToArray();
-                }
-                else if (request.CountMin > 0)
-                {
-                    fallbackEntityIds = validOptionIds.Take(Math.Max(1, request.CountMin)).ToArray();
-                }
-                else if (validOptionIds.Count > 0)
-                {
-                    fallbackEntityIds = new[] { validOptionIds[0] };
-                }
-            }
-
             return new ChoiceRecommendationResult(
-                fallbackEntityIds,
-                $"hsbox_choice fallback:entities={(fallbackEntityIds.Length == 0 ? "none" : string.Join(",", fallbackEntityIds))} ({waitDetail}) [diag: {diag}]");
+                Array.Empty<int>(),
+                $"hsbox_choice wait_retry ({waitDetail}) [diag: {diag}]",
+                shouldRetryWithoutAction: true);
         }
 
         public DiscoverRecommendationResult RecommendDiscover(DiscoverRecommendationRequest request)
@@ -435,6 +413,89 @@ namespace BotMain
         public Action<string> OnLog { get; set; }
         private void Log(string msg) => OnLog?.Invoke(msg);
 
+        public ChoiceRecommendationResult GetChoiceRecommendation(ChoiceRecommendationRequest request)
+        {
+            lock (_sync)
+            {
+                if (request == null || request.Options == null || request.Options.Count == 0)
+                    return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice request_empty");
+
+                var wsUrl = GetWargameDebuggerUrl();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                    return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice page_missing");
+
+                var json = EvaluateOnPage(wsUrl, BuildBgHookScript());
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    _cachedWsUrl = null;
+                    _cachedWsUrlUntilUtc = DateTime.MinValue;
+                    return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice eval_empty");
+                }
+
+                try
+                {
+                    var dto = JsonConvert.DeserializeObject<JObject>(json);
+                    if (dto == null)
+                        return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice dto_null");
+
+                    var ok = dto.Value<bool>("ok");
+                    if (!ok)
+                        return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice not_ok");
+
+                    var updatedAtMs = dto.Value<long?>("updatedAt") ?? 0;
+                    var sourceCallback = dto.Value<string>("sourceCallback") ?? string.Empty;
+                    var recommendText = NormalizeBgBodyText(dto.Value<string>("recommendText") ?? string.Empty);
+                    var bodyText = NormalizeBgBodyText(dto.Value<string>("bodyText") ?? string.Empty);
+                    var effectiveText = string.IsNullOrWhiteSpace(recommendText) ? bodyText : recommendText;
+                    var dataToken = dto["data"];
+                    var envelope = dataToken?.Type == JTokenType.Null ? null : dataToken?.ToObject<HsBoxRecommendationEnvelope>();
+                    var steps = envelope?.Data ?? new List<HsBoxActionStep>();
+                    var payloadSignature = BuildBgPayloadSignature(dataToken, effectiveText);
+
+                    if (!IsBgChoicePayloadFreshEnough(updatedAtMs, payloadSignature, request))
+                    {
+                        return new ChoiceRecommendationResult(
+                            Array.Empty<int>(),
+                            $"bg_choice stale updatedAt={updatedAtMs} source={sourceCallback}",
+                            updatedAtMs,
+                            payloadSignature,
+                            shouldRetryWithoutAction: true);
+                    }
+
+                    if (TryMapBattlegroundChoiceFromSteps(steps, request, out var selectedEntityIds, out var structuredDetail))
+                    {
+                        return new ChoiceRecommendationResult(
+                            selectedEntityIds,
+                            $"bg_choice structured {structuredDetail}, source={sourceCallback}",
+                            updatedAtMs,
+                            payloadSignature);
+                    }
+
+                    if (TryMapBattlegroundChoiceFromBodyText(effectiveText, request, out selectedEntityIds, out var bodyDetail))
+                    {
+                        return new ChoiceRecommendationResult(
+                            selectedEntityIds,
+                            $"bg_choice body {bodyDetail}, source={sourceCallback}",
+                            updatedAtMs,
+                            payloadSignature);
+                    }
+
+                    return new ChoiceRecommendationResult(
+                        Array.Empty<int>(),
+                        $"bg_choice wait_retry source={sourceCallback}, updatedAt={updatedAtMs}",
+                        updatedAtMs,
+                        payloadSignature,
+                        shouldRetryWithoutAction: true);
+                }
+                catch (Exception ex)
+                {
+                    _cachedWsUrl = null;
+                    _cachedWsUrlUntilUtc = DateTime.MinValue;
+                    return new ChoiceRecommendationResult(Array.Empty<int>(), "bg_choice exception:" + ex.Message);
+                }
+            }
+        }
+
         /// <summary>
         /// 从盒子战旗页面读取推荐，转换为 ActionExecutor 命令列表。
         /// bgStateData 是 BattlegroundStateData.Serialize() 的结果，
@@ -474,7 +535,9 @@ namespace BotMain
                     var count = dto.Value<long>("count");
                     var stationCount = dto.Value<long?>("stationCount") ?? 0;
                     var sourceCallback = dto.Value<string>("sourceCallback") ?? string.Empty;
+                    var recommendText = NormalizeBgBodyText(dto.Value<string>("recommendText") ?? string.Empty);
                     var bodyText = NormalizeBgBodyText(dto.Value<string>("bodyText") ?? string.Empty);
+                    var effectiveText = string.IsNullOrWhiteSpace(recommendText) ? bodyText : recommendText;
                     Log($"[BgBridge] ok={ok}, reason={reason}, count={count}, stationCount={stationCount}, source={sourceCallback}");
 
                     if (!ok)
@@ -502,6 +565,8 @@ namespace BotMain
                     else
                     {
                         Log($"[BgBridge] envelope.Data 为空, status={envelope?.Status}, error={envelope?.Error}");
+                        if (!string.IsNullOrWhiteSpace(recommendText))
+                            Log($"[BgBridge] recommendText: {recommendText.Substring(0, Math.Min(recommendText.Length, 240))}");
                         if (!string.IsNullOrWhiteSpace(bodyText))
                             Log($"[BgBridge] bodyText: {bodyText.Substring(0, Math.Min(bodyText.Length, 240))}");
                     }
@@ -537,6 +602,9 @@ namespace BotMain
                     var shopMap = ParseMinionMap(bgStateData, "SHOP=");
                     var boardMap = ParseMinionMap(bgStateData, "BOARD=");
                     var handMap = ParseMinionMap(bgStateData, "HAND=");
+                    var stationCommands = stationToken != null && stationToken.Type != JTokenType.Null
+                        ? ConvertStationsToCommands(stationToken, bgStateData)
+                        : new List<string>();
                     Log($"[BgBridge] 映射表: shop={shopMap.Count}条, board={boardMap.Count}条, hand={handMap.Count}条, heroPowers={heroPowerRefs.Count}条, heroPower={heroPowerEntityId}");
 
                     var commands = new List<string>();
@@ -608,29 +676,29 @@ namespace BotMain
                             }
                         }
                     }
-                    Log($"[BgBridge] 最终命令 {commands.Count} 条");
                     if (sawFreezeLikeAction && !sawExplicitEndTurn && commands.Contains("BG_FREEZE"))
                     {
                         commands.Add("BG_END_TURN");
                         Log("[BgBridge]   映射: freeze/unfreeze -> BG_END_TURN (implicit)");
                     }
 
-                    if (commands.Count == 0 && stationToken != null && stationToken.Type != JTokenType.Null)
+                    if (commands.Count == 0 && stationCommands.Count > 0)
                     {
-                        var stationCommands = ConvertStationsToCommands(stationToken, bgStateData);
-                        if (stationCommands.Count > 0)
-                        {
-                            commands.AddRange(stationCommands);
-                            Log($"[BgBridge]   站位映射: {string.Join(",", stationCommands)}");
-                        }
+                        commands.AddRange(stationCommands);
+                        Log($"[BgBridge]   站位映射: {string.Join(",", stationCommands)}");
                     }
 
                     if (commands.Count == 0
-                        && TryMapCommandsFromBodyText(bodyText, shopMap, boardMap, handMap, isHeroPick, out var bodyCommands, out var bodyDetail))
+                        && TryMapCommandsFromBodyText(effectiveText, shopMap, boardMap, handMap, isHeroPick, out var bodyCommands, out var bodyDetail))
                     {
                         commands.AddRange(bodyCommands);
                         Log($"[BgBridge]   文本映射: {bodyDetail} -> {string.Join(",", bodyCommands)}");
                     }
+
+                    if (TryInsertStationCommandsBeforeEndTurn(commands, stationCommands, out var stationEndTurnDetail))
+                        Log($"[BgBridge]   结束回合前站位调整: {stationEndTurnDetail}");
+
+                    Log($"[BgBridge] 最终命令 {commands.Count} 条");
 
                     return commands;
                 }
@@ -744,11 +812,8 @@ namespace BotMain
                         return pos > 0 ? $"BG_HERO_PICK|{pos}" : null;
                     }
 
-                    // 发现选择 — 通过位置点击
-                    if (pos > 0 && shopMap.TryGetValue(pos, out var entityId))
-                        return $"BG_BUY|{entityId}|{pos}";
-                    if (pos > 0 && handMap.TryGetValue(pos, out entityId))
-                        return $"BG_PLAY|{entityId}|0|{pos}";
+                    // 战旗发现/抉择界面交给专门的 choice 管道处理。
+                    // 这里若直接按位置映射成 BG_BUY/BG_PLAY，容易把发现页误判成商店或手牌动作。
                     return null;
                 }
                 case "change_minion_index":
@@ -925,13 +990,16 @@ namespace BotMain
             var patterns = reroll
                 ? new[]
                 {
-                    @"(?:重掷|重投|刷新)(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?",
-                    @"(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?\s*(?:重掷|重投|刷新)"
+                    @"(?:重掷|重投)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
+                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:重掷|重投)",
+                    @"(?:刷新)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
+                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:刷新)"
                 }
                 : new[]
                 {
-                    @"(?:选择|选取|选)(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?",
-                    @"推荐(?:选择)?(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?"
+                    @"(?:选择|选取|选|保留|拿)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
+                    @"推荐(?:选择|选取|选|保留|拿)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
+                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:更好|最佳|优先|推荐|保留)"
                 };
 
             foreach (var pattern in patterns)
@@ -939,8 +1007,7 @@ namespace BotMain
                 var match = Regex.Match(normalizedText, pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
                 if (match.Success
                     && match.Groups.Count >= 2
-                    && int.TryParse(match.Groups[1].Value, out position)
-                    && position > 0)
+                    && TryParseFlexibleOneBasedIndex(match.Groups[1].Value, out position))
                 {
                     return true;
                 }
@@ -961,20 +1028,19 @@ namespace BotMain
                 var escapedVerb = Regex.Escape(verb);
                 var match = Regex.Match(
                     normalizedText,
-                    $@"{escapedVerb}(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?",
+                    $@"{escapedVerb}(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?",
                     RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
                 if (!match.Success)
                 {
                     match = Regex.Match(
                         normalizedText,
-                        $@"(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?\s*{escapedVerb}",
+                        $@"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?\s*{escapedVerb}",
                         RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
                 }
 
                 if (match.Success
                     && match.Groups.Count >= 2
-                    && int.TryParse(match.Groups[1].Value, out position)
-                    && position > 0)
+                    && TryParseFlexibleOneBasedIndex(match.Groups[1].Value, out position))
                 {
                     return true;
                 }
@@ -1098,6 +1164,74 @@ namespace BotMain
             return Regex.Replace(bodyText, @"\s+", " ").Trim();
         }
 
+        private static bool TryParseFlexibleOneBasedIndex(string rawValue, out int index)
+        {
+            index = 0;
+            if (string.IsNullOrWhiteSpace(rawValue))
+                return false;
+
+            var normalized = rawValue.Trim();
+            if (int.TryParse(normalized, out index))
+                return index > 0;
+
+            normalized = normalized
+                .Replace("第", string.Empty, StringComparison.Ordinal)
+                .Replace("个", string.Empty, StringComparison.Ordinal)
+                .Replace("张", string.Empty, StringComparison.Ordinal)
+                .Replace("号位", string.Empty, StringComparison.Ordinal)
+                .Replace("号", string.Empty, StringComparison.Ordinal)
+                .Trim();
+
+            if (int.TryParse(normalized, out index))
+                return index > 0;
+
+            int DigitOf(char ch)
+            {
+                switch (ch)
+                {
+                    case '零': return 0;
+                    case '一': return 1;
+                    case '二':
+                    case '两': return 2;
+                    case '三': return 3;
+                    case '四': return 4;
+                    case '五': return 5;
+                    case '六': return 6;
+                    case '七': return 7;
+                    case '八': return 8;
+                    case '九': return 9;
+                    default: return -1;
+                }
+            }
+
+            if (string.Equals(normalized, "十", StringComparison.Ordinal))
+            {
+                index = 10;
+                return true;
+            }
+
+            if (normalized.Length == 1)
+            {
+                index = DigitOf(normalized[0]);
+                return index > 0;
+            }
+
+            var tenIndex = normalized.IndexOf('十');
+            if (tenIndex >= 0)
+            {
+                var tens = tenIndex == 0 ? 1 : DigitOf(normalized[tenIndex - 1]);
+                var ones = tenIndex == normalized.Length - 1 ? 0 : DigitOf(normalized[tenIndex + 1]);
+                if (tens > 0 && ones >= 0)
+                {
+                    index = tens * 10 + ones;
+                    return index > 0;
+                }
+            }
+
+            index = 0;
+            return false;
+        }
+
         /// <summary>
         /// 从 BattlegroundStateData.Serialize() 的结果中解析随从列表，
         /// 返回 position -> entityId 的映射。
@@ -1210,6 +1344,69 @@ namespace BotMain
             }
 
             return commands;
+        }
+
+        internal static bool TryInsertStationCommandsBeforeEndTurn(
+            List<string> commands,
+            IReadOnlyList<string> stationCommands,
+            out string detail)
+        {
+            detail = "station_insert_not_applicable";
+            if (commands == null || commands.Count == 0)
+            {
+                detail = "command_empty";
+                return false;
+            }
+
+            if (stationCommands == null || stationCommands.Count == 0)
+            {
+                detail = "station_empty";
+                return false;
+            }
+
+            var endTurnIndex = commands.FindIndex(command =>
+                string.Equals(command, "BG_END_TURN", StringComparison.OrdinalIgnoreCase));
+            if (endTurnIndex < 0)
+            {
+                detail = "end_turn_missing";
+                return false;
+            }
+
+            if (commands.Take(endTurnIndex).Any(command => command.StartsWith("BG_MOVE|", StringComparison.OrdinalIgnoreCase)))
+            {
+                detail = "existing_move_before_end_turn";
+                return false;
+            }
+
+            var uniqueStationCommands = stationCommands
+                .Where(command => !string.IsNullOrWhiteSpace(command))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (uniqueStationCommands.Count == 0)
+            {
+                detail = "station_distinct_empty";
+                return false;
+            }
+
+            var insertIndex = endTurnIndex;
+            var insertedCount = 0;
+            foreach (var stationCommand in uniqueStationCommands)
+            {
+                if (commands.Any(existing => string.Equals(existing, stationCommand, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                commands.Insert(insertIndex++, stationCommand);
+                insertedCount++;
+            }
+
+            if (insertedCount == 0)
+            {
+                detail = "station_already_present";
+                return false;
+            }
+
+            detail = $"count={insertedCount}";
+            return true;
         }
 
         private static List<BgMinionRef> ParseBgMinionRefs(string bgStateData, string fieldPrefix)
@@ -1347,6 +1544,46 @@ namespace BotMain
         private static string BuildBgHookScript()
         {
             return @"(() => {
+  function normalizeText(text) {
+    return (text || '').replace(/\s+/g, ' ').trim();
+  }
+  function collectRecommendText() {
+    const actionRe = /(选择|选取|选|拿|保留|重掷|重投|购买|买入|打出|使用|出售|卖出|升级|冻结|结束回合|英雄技能)/;
+    const selectors = [
+      '[class*=recommend]',
+      '[id*=recommend]',
+      '[class*=playstyle]',
+      '[class*=strategy]',
+      '[class*=guide]',
+      '[class*=action]',
+      '[class*=choice]',
+      '[class*=hero]',
+      '[class*=option]'
+    ];
+    const candidates = [];
+    const seen = new Set();
+    const pushText = (text) => {
+      const normalized = normalizeText(text);
+      if (!normalized || normalized.length < 4 || normalized.length > 240) return;
+      if (seen.has(normalized)) return;
+      seen.add(normalized);
+      candidates.push(normalized);
+    };
+    for (const selector of selectors) {
+      for (const node of document.querySelectorAll(selector)) {
+        pushText(node.innerText || node.textContent || '');
+      }
+    }
+    for (const node of document.querySelectorAll('body *')) {
+      const text = normalizeText(node.innerText || node.textContent || '');
+      if (!text || !actionRe.test(text)) continue;
+      pushText(text);
+    }
+    const heroSpecific = candidates.find(text => /(英雄|酒馆英雄|候选英雄)/.test(text) && actionRe.test(text));
+    if (heroSpecific) return heroSpecific;
+    const actionCandidate = candidates.find(text => actionRe.test(text));
+    return actionCandidate || '';
+  }
   const response = {
     ok: false,
     count: Number(window.__hbBgCount || 0),
@@ -1355,6 +1592,7 @@ namespace BotMain
     stationData: window.__hbBgLastStations ?? null,
     stationCount: Number(window.__hbBgStationCount || 0),
     sourceCallback: window.__hbBgLastSource ?? '',
+    recommendText: collectRecommendText(),
     bodyText: document.body ? document.body.innerText.slice(0, 1500) : '',
     href: location.href,
     title: document.title ?? ''
@@ -1410,6 +1648,7 @@ namespace BotMain
     response.stationData = window.__hbBgLastStations ?? null;
     response.stationCount = Number(window.__hbBgStationCount || 0);
     response.sourceCallback = window.__hbBgLastSource ?? '';
+    response.recommendText = collectRecommendText();
     response.bodyText = document.body ? document.body.innerText.slice(0, 1500) : '';
     response.href = location.href;
     response.title = document.title ?? '';
@@ -1422,6 +1661,223 @@ namespace BotMain
     return JSON.stringify(response);
   }
 })()";
+        }
+
+        private static bool TryMapBattlegroundChoiceFromSteps(
+            IReadOnlyList<HsBoxActionStep> steps,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            selectedEntityIds = Array.Empty<int>();
+            detail = "bg_choice_step_missing";
+            if (steps == null || request == null || request.Options == null || request.Options.Count == 0)
+                return false;
+
+            var step = steps.FirstOrDefault(candidate => IsBattlegroundChoiceLikeAction(candidate?.ActionName));
+            if (step == null)
+                return false;
+
+            var matchIds = new List<int>();
+            foreach (var candidate in EnumerateBattlegroundChoiceCandidates(step))
+            {
+                if (!string.IsNullOrWhiteSpace(candidate.CardId))
+                {
+                    var matched = request.Options
+                        .FirstOrDefault(option =>
+                            option != null
+                            && option.EntityId > 0
+                            && string.Equals(option.CardId, candidate.CardId, StringComparison.OrdinalIgnoreCase));
+                    if (matched?.EntityId > 0 && !matchIds.Contains(matched.EntityId))
+                        matchIds.Add(matched.EntityId);
+                }
+            }
+
+            if (matchIds.Count > 0)
+            {
+                selectedEntityIds = matchIds;
+                detail = "cardId=" + string.Join(",", matchIds);
+                return true;
+            }
+
+            if (TryResolveBattlegroundChoiceIndex(step, out var oneBasedIndex))
+            {
+                var optionIndex = oneBasedIndex - 1;
+                if (optionIndex >= 0 && optionIndex < request.Options.Count)
+                {
+                    var entityId = request.Options[optionIndex]?.EntityId ?? 0;
+                    if (entityId > 0)
+                    {
+                        selectedEntityIds = new[] { entityId };
+                        detail = "position=" + oneBasedIndex;
+                        return true;
+                    }
+                }
+            }
+
+            detail = "bg_choice_step_unresolved";
+            return false;
+        }
+
+        private static IEnumerable<HsBoxCardRef> EnumerateBattlegroundChoiceCandidates(HsBoxActionStep step)
+        {
+            if (step == null)
+                yield break;
+
+            foreach (var card in step.GetCards() ?? Enumerable.Empty<HsBoxCardRef>())
+            {
+                if (card != null)
+                    yield return card;
+            }
+
+            if (step.Target != null)
+                yield return step.Target;
+            if (step.OppTarget != null)
+                yield return step.OppTarget;
+            if (step.SubOption != null)
+                yield return step.SubOption;
+            if (step.TargetHero != null)
+                yield return step.TargetHero;
+            if (step.OppTargetHero != null)
+                yield return step.OppTargetHero;
+        }
+
+        private static bool TryResolveBattlegroundChoiceIndex(HsBoxActionStep step, out int oneBasedIndex)
+        {
+            oneBasedIndex = 0;
+            if (step == null)
+                return false;
+
+            oneBasedIndex = step.Position;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.GetPrimaryCard()?.GetZonePosition() ?? 0;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.Target?.GetZonePosition() ?? 0;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.OppTarget?.GetZonePosition() ?? 0;
+            return oneBasedIndex > 0;
+        }
+
+        private static bool TryMapBattlegroundChoiceFromBodyText(
+            string bodyText,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            selectedEntityIds = Array.Empty<int>();
+            detail = "bg_choice_body_unrecognized";
+            if (request == null || request.Options == null || request.Options.Count == 0 || string.IsNullOrWhiteSpace(bodyText))
+                return false;
+
+            if (!TryMatchBattlegroundChoiceTextIndex(bodyText, out var oneBasedIndex))
+                return false;
+
+            var optionIndex = oneBasedIndex - 1;
+            if (optionIndex < 0 || optionIndex >= request.Options.Count)
+            {
+                detail = "bg_choice_body_index_out_of_range:" + oneBasedIndex;
+                return false;
+            }
+
+            var entityId = request.Options[optionIndex]?.EntityId ?? 0;
+            if (entityId <= 0)
+            {
+                detail = "bg_choice_body_entity_missing:" + oneBasedIndex;
+                return false;
+            }
+
+            selectedEntityIds = new[] { entityId };
+            detail = "index=" + oneBasedIndex;
+            return true;
+        }
+
+        private static bool TryMatchBattlegroundChoiceTextIndex(string bodyText, out int oneBasedIndex)
+        {
+            oneBasedIndex = 0;
+            if (string.IsNullOrWhiteSpace(bodyText))
+                return false;
+
+            var patterns = new[]
+            {
+                @"(?:推荐)?(?:选择|选取|选|拿)\s*(?:我方|对方)?\s*([零一二两三四五六七八九十\d]+)\s*号位(?:卡牌|卡|选项|饰品|法术|道具|随从)?",
+                @"(?:推荐)?(?:选择|选取|选|拿)第\s*([零一二两三四五六七八九十\d]+)\s*(?:张|个)?(?:卡牌|卡|选项|饰品|法术|道具|随从)?",
+                @"(?:推荐)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)\s*(?:卡牌|卡|选项|饰品|法术|道具|随从)\s*(?:更好|最佳|优先|推荐)?"
+            };
+
+            foreach (var pattern in patterns)
+            {
+                var match = Regex.Match(bodyText, pattern, RegexOptions.CultureInvariant);
+                if (!match.Success || match.Groups.Count < 2)
+                    continue;
+
+                if (TryParseFlexibleOneBasedIndex(match.Groups[1].Value, out oneBasedIndex))
+                    return true;
+            }
+
+            oneBasedIndex = 0;
+            return false;
+        }
+
+        private static bool IsBgChoicePayloadFreshEnough(
+            long updatedAtMs,
+            string payloadSignature,
+            ChoiceRecommendationRequest request)
+        {
+            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
+            var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
+            var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature ?? string.Empty;
+
+            if (lastConsumedUpdatedAtMs > 0)
+            {
+                if (updatedAtMs > lastConsumedUpdatedAtMs)
+                    return true;
+
+                if (updatedAtMs == lastConsumedUpdatedAtMs
+                    && !string.IsNullOrWhiteSpace(payloadSignature)
+                    && !string.Equals(payloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                if (updatedAtMs <= 0
+                    && !string.IsNullOrWhiteSpace(payloadSignature)
+                    && !string.Equals(payloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            const int ChoiceFreshnessSlackMs = 8000;
+            if (updatedAtMs > 0)
+            {
+                if (minimumUpdatedAtMs <= 0)
+                    return true;
+
+                return updatedAtMs + ChoiceFreshnessSlackMs >= minimumUpdatedAtMs;
+            }
+
+            return !string.IsNullOrWhiteSpace(payloadSignature);
+        }
+
+        private static string BuildBgPayloadSignature(JToken dataToken, string bodyText)
+        {
+            string payload;
+            if (dataToken != null && dataToken.Type != JTokenType.Null)
+            {
+                payload = dataToken.ToString(Formatting.None);
+            }
+            else
+            {
+                payload = bodyText ?? string.Empty;
+            }
+
+            if (string.IsNullOrWhiteSpace(payload))
+                return string.Empty;
+
+            var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
+            return Convert.ToHexString(hashBytes);
         }
     }
 
@@ -2266,6 +2722,21 @@ namespace BotMain
             var desiredCards = GetChoiceCardsFromStructuredData(state, step);
             if (desiredCards.Count == 0)
             {
+                if (TryResolveChoiceStepIndex(step, out var directIndex))
+                {
+                    var optionIndex = directIndex - 1;
+                    if (optionIndex >= 0 && optionIndex < request.Options.Count)
+                    {
+                        var entityId = request.Options[optionIndex]?.EntityId ?? 0;
+                        if (entityId > 0)
+                        {
+                            selectedEntityIds = new[] { entityId };
+                            detail = $"picked_by_position={directIndex}; {state.Detail}";
+                            return true;
+                        }
+                    }
+                }
+
                 detail = $"hsbox_choice_cards_empty; {state.Detail}";
                 return false;
             }
@@ -2497,21 +2968,7 @@ namespace BotMain
                 return false;
             }
 
-            var preferredIndexMatch = Regex.Match(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant);
-            if (!preferredIndexMatch.Success)
-                preferredIndexMatch = Regex.Match(bodyText, @"选择第\s*(\d+)\s*张卡牌", RegexOptions.CultureInvariant);
-            if (!preferredIndexMatch.Success)
-                preferredIndexMatch = Regex.Match(bodyText, @"(?:选择|选)\s*(?:我方|对方)?\s*(\d+)\s*号位", RegexOptions.CultureInvariant);
-
-            var directIndexMatch = Regex.Match(bodyText, @"选择(?:我方|对方)?\s*(\d+)\s*号位卡牌", RegexOptions.CultureInvariant);
-            if (!directIndexMatch.Success)
-                directIndexMatch = Regex.Match(bodyText, @"选择第\s*(\d+)\s*张卡牌", RegexOptions.CultureInvariant);
-
-            if (!directIndexMatch.Success)
-                directIndexMatch = preferredIndexMatch;
-
-            if (directIndexMatch.Success && directIndexMatch.Groups.Count >= 2
-                && int.TryParse(directIndexMatch.Groups[1].Value, out var oneBasedIndex))
+            if (TryMatchChoiceTextIndex(bodyText, out var oneBasedIndex))
             {
                 var index = oneBasedIndex - 1;
                 if (index >= 0 && index < request.Options.Count)
@@ -2527,6 +2984,118 @@ namespace BotMain
             }
 
             detail = $"hsbox_choice_text_unrecognized; {state?.Detail ?? "hsbox_state_null"}";
+            return false;
+        }
+
+        private static bool TryResolveChoiceStepIndex(HsBoxActionStep step, out int oneBasedIndex)
+        {
+            oneBasedIndex = 0;
+            if (step == null)
+                return false;
+
+            oneBasedIndex = step.Position;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.GetPrimaryCard()?.GetZonePosition() ?? 0;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.Target?.GetZonePosition() ?? 0;
+            if (oneBasedIndex <= 0)
+                oneBasedIndex = step.OppTarget?.GetZonePosition() ?? 0;
+
+            return oneBasedIndex > 0;
+        }
+
+        private static bool TryMatchChoiceTextIndex(string bodyText, out int oneBasedIndex)
+        {
+            oneBasedIndex = 0;
+            if (string.IsNullOrWhiteSpace(bodyText))
+                return false;
+
+            var patterns = new[]
+            {
+                @"(?:推荐)?(?:选择|选取|选|拿)\s*(?:我方|对方)?\s*([零一二两三四五六七八九十\d]+)\s*号位(?:卡牌|卡|选项|饰品|法术|道具|随从)?",
+                @"(?:推荐)?(?:选择|选取|选|拿)第\s*([零一二两三四五六七八九十\d]+)\s*(?:张|个)?(?:卡牌|卡|选项|饰品|法术|道具|随从)?",
+                @"(?:推荐)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)\s*(?:卡牌|卡|选项|饰品|法术|道具|随从)\s*(?:更好|最佳|优先|推荐)?"
+            };
+
+            foreach (var pattern in patterns)
+            {
+                var match = Regex.Match(bodyText, pattern, RegexOptions.CultureInvariant);
+                if (!match.Success || match.Groups.Count < 2)
+                    continue;
+
+                if (TryParseFlexibleOneBasedIndex(match.Groups[1].Value, out oneBasedIndex))
+                    return true;
+            }
+
+            oneBasedIndex = 0;
+            return false;
+        }
+
+        private static bool TryParseFlexibleOneBasedIndex(string rawValue, out int index)
+        {
+            index = 0;
+            if (string.IsNullOrWhiteSpace(rawValue))
+                return false;
+
+            var normalized = rawValue.Trim();
+            if (int.TryParse(normalized, out index))
+                return index > 0;
+
+            normalized = normalized
+                .Replace("第", string.Empty, StringComparison.Ordinal)
+                .Replace("个", string.Empty, StringComparison.Ordinal)
+                .Replace("张", string.Empty, StringComparison.Ordinal)
+                .Replace("号位", string.Empty, StringComparison.Ordinal)
+                .Replace("号", string.Empty, StringComparison.Ordinal)
+                .Trim();
+
+            if (int.TryParse(normalized, out index))
+                return index > 0;
+
+            int DigitOf(char ch)
+            {
+                switch (ch)
+                {
+                    case '零': return 0;
+                    case '一': return 1;
+                    case '二':
+                    case '两': return 2;
+                    case '三': return 3;
+                    case '四': return 4;
+                    case '五': return 5;
+                    case '六': return 6;
+                    case '七': return 7;
+                    case '八': return 8;
+                    case '九': return 9;
+                    default: return -1;
+                }
+            }
+
+            if (string.Equals(normalized, "十", StringComparison.Ordinal))
+            {
+                index = 10;
+                return true;
+            }
+
+            if (normalized.Length == 1)
+            {
+                index = DigitOf(normalized[0]);
+                return index > 0;
+            }
+
+            var tenIndex = normalized.IndexOf('十');
+            if (tenIndex >= 0)
+            {
+                var tens = tenIndex == 0 ? 1 : DigitOf(normalized[tenIndex - 1]);
+                var ones = tenIndex == normalized.Length - 1 ? 0 : DigitOf(normalized[tenIndex + 1]);
+                if (tens > 0 && ones >= 0)
+                {
+                    index = tens * 10 + ones;
+                    return index > 0;
+                }
+            }
+
+            index = 0;
             return false;
         }
 

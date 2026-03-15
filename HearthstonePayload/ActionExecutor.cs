@@ -562,7 +562,25 @@ namespace HearthstonePayload
                         int handEntityId = int.Parse(parts[1]);
                         int targetEntityId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
-                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position));
+                        int targetHeroSide = -1; // -1: 非英雄目标, 0: 我方英雄, 1: 敌方英雄
+                        bool sourceUsesBoardDrop = false;
+
+                        try
+                        {
+                            var s = reader?.ReadGameState();
+                            if (targetEntityId > 0)
+                            {
+                                if (s?.HeroFriend != null && s.HeroFriend.EntityId == targetEntityId) targetHeroSide = 0;
+                                else if (s?.HeroEnemy != null && s.HeroEnemy.EntityId == targetEntityId) targetHeroSide = 1;
+                            }
+
+                            var gs = GetGameState();
+                            if (gs != null)
+                                TryUsesBoardDropForPlay(gs, handEntityId, out sourceUsesBoardDrop);
+                        }
+                        catch { }
+
+                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position, targetHeroSide, sourceUsesBoardDrop));
                     }
                 case "BG_HERO_PICK":
                     {
@@ -7993,69 +8011,80 @@ namespace HearthstonePayload
 
             var beforeSignature = BuildMulliganSnapshotSignature(snapshot);
             var selected = false;
+            string selectionDetail = null;
+            var hadInitialSelection = TryReadHeroPickSelectionState(snapshot, card, entityId, out var initialSelected, out var initialVisualSelected, out _, out _)
+                && initialSelected;
 
-            if (TrySelectHeroPickCardViaApi(snapshot, card, entityId, out detail))
+            if (TryGetHeroPickCardClickPos(snapshot, card, entityId, choiceIndex - 1, out var cx, out var cy, out detail))
             {
-                for (var retry = 0; retry < 10; retry++)
-                {
-                    yield return 0.08f;
-                    if (TryGetCurrentSelectedChooseOneEntityId(snapshot.MulliganManager, out var selectedEntityId)
-                        && selectedEntityId == entityId)
-                    {
-                        selected = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!selected)
-            {
-                if (!TryGetMulliganCardClickPos(entityId, choiceIndex - 1, snapshot.StartingCards.Count, out var cx, out var cy, out detail))
-                {
-                    _coroutine.SetResult("FAIL:BG_HERO_PICK:select_pos:" + detail);
-                    yield break;
-                }
-
                 for (var attempt = 0; attempt < 2 && !selected; attempt++)
                 {
                     foreach (var w in SmoothMove(cx, cy, 10, 0.012f)) yield return w;
                     MouseSimulator.LeftDown();
                     yield return 0.05f;
                     MouseSimulator.LeftUp();
-                    yield return 0.18f;
 
-                    if (TryGetCurrentSelectedChooseOneEntityId(snapshot.MulliganManager, out var selectedEntityId)
-                        && selectedEntityId == entityId)
+                    for (var retry = 0; retry < 10; retry++)
                     {
-                        selected = true;
+                        yield return 0.08f;
+                        if (TryReadHeroPickSelectionState(snapshot, card, entityId, out var isSelected, out var isVisualSelected, out _, out selectionDetail)
+                            && isSelected
+                            && (!hadInitialSelection || isVisualSelected || !initialVisualSelected))
+                        {
+                            selected = true;
+                            break;
+                        }
                     }
                 }
             }
 
             if (!selected)
             {
-                _coroutine.SetResult("FAIL:BG_HERO_PICK:not_selected:" + entityId);
+                if (TrySelectHeroPickCardViaApi(snapshot, card, entityId, out detail))
+                {
+                    for (var retry = 0; retry < 10; retry++)
+                    {
+                        yield return 0.08f;
+                        if (TryReadHeroPickSelectionState(snapshot, card, entityId, out var isSelected, out var isVisualSelected, out _, out selectionDetail)
+                            && isSelected
+                            && (!hadInitialSelection || isVisualSelected || !initialVisualSelected))
+                        {
+                            selected = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (!selected)
+            {
+                _coroutine.SetResult("FAIL:BG_HERO_PICK:not_selected:" + entityId + ":" + (selectionDetail ?? detail ?? "unknown"));
                 yield break;
             }
 
-            var confirmed = false;
-            var confirmMethod = string.Empty;
-            if (TryConfirmMulligan(out var confirmDetail, allowEndTurnFallback: false))
+            for (var retry = 0; retry < 12; retry++)
             {
-                confirmed = true;
-                confirmMethod = confirmDetail;
-            }
-            else if (GameObjectFinder.GetMulliganConfirmScreenPos(out var bx, out var by))
-            {
-                foreach (var w in SmoothMove(bx, by, 10, 0.012f)) yield return w;
-                MouseSimulator.LeftDown();
-                yield return 0.05f;
-                MouseSimulator.LeftUp();
-                confirmed = true;
-                confirmMethod = "mouse_confirm";
+                if (TryReadHeroPickConfirmButtonState(snapshot.MulliganManager, out var confirmButtonEnabled) && confirmButtonEnabled)
+                    break;
+
+                yield return 0.08f;
+                TryGetMulliganReadySnapshot(out snapshot, out _, allowLooseChoicePacket: true);
             }
 
-            if (!confirmed)
+            var confirmMethod = string.Empty;
+            var confirmSent = false;
+            if (TryConfirmHeroPickViaManager(snapshot?.MulliganManager, out var managerConfirmDetail))
+            {
+                confirmMethod = managerConfirmDetail;
+                confirmSent = true;
+            }
+            else if (TryClickHeroPickConfirmButton(snapshot?.MulliganManager, out var buttonConfirmDetail))
+            {
+                confirmMethod = buttonConfirmDetail;
+                confirmSent = true;
+            }
+
+            if (!confirmSent)
             {
                 _coroutine.SetResult("FAIL:BG_HERO_PICK:confirm_failed:" + entityId);
                 yield break;
@@ -8076,16 +8105,203 @@ namespace HearthstonePayload
                     _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":changed:" + confirmMethod);
                     yield break;
                 }
+            }
 
-                if (TryGetCurrentSelectedChooseOneEntityId(afterSnapshot.MulliganManager, out var selectedEntityId)
-                    && selectedEntityId == entityId)
+            _coroutine.SetResult("FAIL:BG_HERO_PICK:not_confirmed:" + entityId + ":" + confirmMethod);
+        }
+
+        private static bool TryConfirmHeroPickViaManager(object mulliganMgr, out string detail)
+        {
+            detail = "hero_pick_confirm_unavailable";
+            if (mulliganMgr == null)
+                return false;
+
+            if (TryInvokeMethod(mulliganMgr, "OnMulliganButtonReleased", new object[] { null }, out _, out _))
+            {
+                detail = "MulliganManager.OnMulliganButtonReleased";
+                return true;
+            }
+
+            if (TryInvokeMethod(mulliganMgr, "AutomaticContinueMulligan", new object[] { false }, out _, out _))
+            {
+                detail = "MulliganManager.AutomaticContinueMulligan";
+                return true;
+            }
+
+            if (TryInvokeParameterlessMethods(mulliganMgr, new[]
+            {
+                "ConfirmMulligan",
+                "ContinueMulligan",
+                "Confirm",
+                "Submit",
+                "Done",
+                "Accept"
+            }, out var managerMethod))
+            {
+                detail = "MulliganManager." + managerMethod;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryClickHeroPickConfirmButton(object mulliganMgr, out string detail)
+        {
+            detail = "hero_pick_confirm_button_missing";
+            if (!TryGetHeroPickConfirmButton(mulliganMgr, out var button, out detail))
+            {
+                if (!GameObjectFinder.GetMulliganConfirmScreenPos(out var fallbackX, out var fallbackY))
+                    return false;
+
+                MouseSimulator.MoveTo(fallbackX, fallbackY);
+                Thread.Sleep(40);
+                MouseSimulator.LeftDown();
+                Thread.Sleep(50);
+                MouseSimulator.LeftUp();
+                detail = "mouse_confirm:fallback";
+                return true;
+            }
+
+            if (TryTriggerUiElement(button, out detail))
+            {
+                detail = "HeroPickConfirm." + detail;
+                return true;
+            }
+
+            var buttonCandidates = new List<object>();
+            AddDistinctObjectCandidate(buttonCandidates, button);
+            AddDistinctObjectCandidate(buttonCandidates, GetFieldOrProp(button, "NormalButton"));
+            AddDistinctObjectCandidate(buttonCandidates, GetFieldOrProp(button, "m_normalButton"));
+            AddDistinctObjectCandidate(buttonCandidates, GetFieldOrProp(button, "Button"));
+            AddDistinctObjectCandidate(buttonCandidates, GetFieldOrProp(button, "m_button"));
+
+            foreach (var candidate in buttonCandidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                if (TryTriggerUiElement(candidate, out detail))
                 {
-                    _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":selected:" + confirmMethod);
-                    yield break;
+                    detail = "HeroPickConfirm." + detail;
+                    return true;
+                }
+
+                if (TryInvokeParameterlessMethods(candidate, new[]
+                {
+                    "TriggerPress",
+                    "TriggerRelease",
+                    "TriggerTap",
+                    "OnRelease",
+                    "OnClick",
+                    "HandleRelease",
+                    "DoClick"
+                }, out var methodUsed))
+                {
+                    detail = DescribeObjectType(candidate) + "." + methodUsed;
+                    return true;
                 }
             }
 
-            _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":sent:" + confirmMethod);
+            if (TryGetObjectScreenPos(button, out var x, out var y))
+            {
+                MouseSimulator.MoveTo(x, y);
+                Thread.Sleep(40);
+                MouseSimulator.LeftDown();
+                Thread.Sleep(50);
+                MouseSimulator.LeftUp();
+                detail = "mouse_confirm:button_pos";
+                return true;
+            }
+
+            if (GameObjectFinder.GetMulliganConfirmScreenPos(out var bx, out var by))
+            {
+                MouseSimulator.MoveTo(bx, by);
+                Thread.Sleep(40);
+                MouseSimulator.LeftDown();
+                Thread.Sleep(50);
+                MouseSimulator.LeftUp();
+                detail = "mouse_confirm:finder";
+                return true;
+            }
+
+            detail = "hero_pick_confirm_click_failed";
+            return false;
+        }
+
+        private static bool TryGetHeroPickConfirmButton(object mulliganMgr, out object button, out string detail)
+        {
+            button = null;
+            detail = "hero_pick_confirm_button_missing";
+            if (mulliganMgr == null)
+                return false;
+
+            button = Invoke(mulliganMgr, "GetMulliganButton")
+                ?? GetFieldOrProp(mulliganMgr, "mulliganButton")
+                ?? GetFieldOrProp(mulliganMgr, "mulliganButtonWidget")
+                ?? GetFieldOrProp(mulliganMgr, "m_mulliganButton")
+                ?? GetFieldOrProp(mulliganMgr, "m_confirmButton")
+                ?? GetFieldOrProp(mulliganMgr, "m_doneButton");
+            if (button == null)
+                return false;
+
+            detail = DescribeObjectType(button);
+            return true;
+        }
+
+        private static bool TryGetObjectScreenPos(object source, out int x, out int y)
+        {
+            x = y = 0;
+            if (source == null)
+                return false;
+
+            var root = GetFieldOrProp(source, "gameObject") ?? source;
+            var transform = GetFieldOrProp(root, "transform")
+                ?? GetFieldOrProp(source, "transform");
+            if (transform == null && !TryInvokeMethod(root, "get_transform", Array.Empty<object>(), out transform, out _))
+                return false;
+
+            var pos = GetFieldOrProp(transform, "position");
+            if (pos == null && !TryInvokeMethod(transform, "get_position", Array.Empty<object>(), out pos, out _))
+                return false;
+
+            if (!TryReadFloatValue(GetFieldOrProp(pos, "x"), out var xf)
+                || !TryReadFloatValue(GetFieldOrProp(pos, "y"), out var yf)
+                || !TryReadFloatValue(GetFieldOrProp(pos, "z"), out var zf))
+            {
+                return false;
+            }
+
+            return MouseSimulator.WorldToScreen(xf, yf, zf, out x, out y);
+        }
+
+        private static bool TryReadFloatValue(object value, out float result)
+        {
+            result = 0f;
+            if (value == null)
+                return false;
+
+            try
+            {
+                switch (value)
+                {
+                    case float f:
+                        result = f;
+                        return true;
+                    case double d:
+                        result = (float)d;
+                        return true;
+                    case decimal m:
+                        result = (float)m;
+                        return true;
+                    default:
+                        result = Convert.ToSingle(value);
+                        return true;
+                }
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         /// <summary>
@@ -8128,13 +8344,32 @@ namespace HearthstonePayload
         /// <summary>
         /// 战旗打出手牌：从手牌拖到场上，可选带目标
         /// </summary>
-        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position)
+        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop)
         {
             InputHook.Simulating = true;
 
             if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var sx, out var sy))
             {
                 _coroutine.SetResult("FAIL:BG_PLAY:hand_pos:" + handEntityId);
+                yield break;
+            }
+
+            if (targetEntityId > 0 && !sourceUsesBoardDrop)
+            {
+                if (!TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out var directTargetX, out var directTargetY))
+                {
+                    _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
+                    yield break;
+                }
+
+                foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+                MouseSimulator.LeftDown();
+                yield return 0.06f;
+                foreach (var w in SmoothMove(directTargetX, directTargetY, 18, 0.012f)) yield return w;
+                yield return 0.04f;
+                MouseSimulator.LeftUp();
+                yield return 0.18f;
+                _coroutine.SetResult("OK:BG_PLAY:" + handEntityId + ":direct_target");
                 yield break;
             }
 
@@ -8157,7 +8392,7 @@ namespace HearthstonePayload
             // 如果有目标（战吼等）
             if (targetEntityId > 0)
             {
-                if (GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty))
+                if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out var tx, out var ty))
                 {
                     foreach (var w in SmoothMove(tx, ty, 12, 0.012f)) yield return w;
                     MouseSimulator.LeftDown();
@@ -8182,6 +8417,11 @@ namespace HearthstonePayload
 
             var beforeSignature = BuildMulliganSnapshotSignature(snapshot);
             string detail;
+            object selectedCard = null;
+            int selectedEntityId = 0;
+            var hadInitialRerollButtonState = false;
+            var initialRerollButtonActive = false;
+            var initialRerollButtonEnabled = false;
             if (choiceIndex > 0)
             {
                 if (!TryGetHeroPickCardByIndex(choiceIndex, out snapshot, out var card, out var entityId, out detail))
@@ -8189,6 +8429,10 @@ namespace HearthstonePayload
                     _coroutine.SetResult("FAIL:BG_HERO_REROLL:" + detail);
                     yield break;
                 }
+
+                selectedCard = card;
+                selectedEntityId = entityId;
+                hadInitialRerollButtonState = TryReadHeroRerollButtonState(card, out initialRerollButtonActive, out initialRerollButtonEnabled, out _);
 
                 var rerollSent = false;
                 var entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
@@ -8242,7 +8486,7 @@ namespace HearthstonePayload
                 }
             }
 
-            for (var retry = 0; retry < 25; retry++)
+            for (var retry = 0; retry < 50; retry++)
             {
                 yield return 0.12f;
                 if (!TryGetMulliganReadySnapshot(out var afterSnapshot, out _, allowLooseChoicePacket: true))
@@ -8257,9 +8501,31 @@ namespace HearthstonePayload
                     _coroutine.SetResult("OK:BG_HERO_REROLL:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all") + ":changed:" + detail);
                     yield break;
                 }
+
+                if (choiceIndex > 0
+                    && selectedCard != null
+                    && TryReadHeroRerollButtonState(selectedCard, out var rerollButtonActive, out var rerollButtonEnabled, out _)
+                    && hadInitialRerollButtonState
+                    && initialRerollButtonActive
+                    && initialRerollButtonEnabled
+                    && (!rerollButtonActive || !rerollButtonEnabled))
+                {
+                    _coroutine.SetResult("OK:BG_HERO_REROLL:" + choiceIndex + ":consumed:" + detail);
+                    yield break;
+                }
+
+                if (choiceIndex > 0
+                    && TryGetHeroPickCardByIndex(choiceIndex, out _, out _, out var afterEntityId, out _, allowLooseChoicePacket: true)
+                    && selectedEntityId > 0
+                    && afterEntityId > 0
+                    && afterEntityId != selectedEntityId)
+                {
+                    _coroutine.SetResult("OK:BG_HERO_REROLL:" + choiceIndex + ":slot_changed:" + detail);
+                    yield break;
+                }
             }
 
-            _coroutine.SetResult("FAIL:BG_HERO_REROLL:not_confirmed:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all"));
+            _coroutine.SetResult("FAIL:BG_HERO_REROLL:not_confirmed:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all") + ":" + detail);
         }
 
         private static string BuildMulliganSnapshotSignature(MulliganReadySnapshot snapshot)
@@ -8367,6 +8633,174 @@ namespace HearthstonePayload
 
             entityId = ResolveEntityId(entity);
             return entityId > 0;
+        }
+
+        private static bool TryGetHeroPickCardClickPos(
+            MulliganReadySnapshot snapshot,
+            object card,
+            int entityId,
+            int cardIndex,
+            out int x,
+            out int y,
+            out string detail)
+        {
+            x = y = 0;
+            detail = null;
+
+            if (TryResolveHeroPickVisualTarget(card, out var visualTarget, out var actor, out detail))
+            {
+                if (visualTarget != null && GameObjectFinder.GetObjectScreenPos(visualTarget, out x, out y))
+                {
+                    detail = "visual_target";
+                    return true;
+                }
+
+                if (actor != null && GameObjectFinder.GetObjectScreenPos(actor, out x, out y))
+                {
+                    detail = "actor_target";
+                    return true;
+                }
+            }
+
+            return TryGetMulliganCardClickPos(entityId, cardIndex, snapshot?.StartingCards?.Count ?? 0, out x, out y, out detail);
+        }
+
+        private static bool TryResolveHeroPickVisualTarget(object card, out object visualTarget, out object actor, out string detail)
+        {
+            visualTarget = null;
+            actor = null;
+            detail = "card_null";
+            if (card == null)
+                return false;
+
+            actor = Invoke(card, "GetActor")
+                ?? GetFieldOrProp(card, "Actor")
+                ?? GetFieldOrProp(card, "m_actor");
+            if (actor == null)
+            {
+                detail = "actor_missing";
+                return false;
+            }
+
+            var actorGameObject = GetFieldOrProp(actor, "gameObject");
+            var actorTransform = actorGameObject != null ? GetFieldOrProp(actorGameObject, "transform") : GetFieldOrProp(actor, "transform");
+            var parent = actorTransform != null ? GetFieldOrProp(actorTransform, "parent") : null;
+            visualTarget = GetFieldOrProp(parent, "gameObject")
+                ?? actorGameObject
+                ?? actor;
+            detail = "ok";
+            return true;
+        }
+
+        private static bool TryReadHeroPickSelectionState(
+            MulliganReadySnapshot snapshot,
+            object card,
+            int entityId,
+            out bool isSelected,
+            out bool isVisualSelected,
+            out bool isConfirmHighlighted,
+            out string detail)
+        {
+            isSelected = false;
+            isVisualSelected = false;
+            isConfirmHighlighted = false;
+            detail = "hero_pick_state_unavailable";
+            if (snapshot == null || snapshot.MulliganManager == null || entityId <= 0)
+                return false;
+
+            var selectedEntityId = 0;
+            TryGetCurrentSelectedChooseOneEntityId(snapshot.MulliganManager, out selectedEntityId);
+
+            var marked = false;
+            var markedReady = false;
+            if (snapshot.CardIndexByEntityId.TryGetValue(entityId, out var cardIndex))
+                markedReady = TryReadMulliganMarkedState(snapshot.MulliganManager, cardIndex, out marked, out _);
+
+            var buttonActive = TryReadHeroPickConfirmButtonState(snapshot.MulliganManager, out var buttonEnabled);
+            if (TryResolveHeroPickActor(card, out var actor))
+            {
+                isVisualSelected = TryReadGameObjectActive(GetFieldOrProp(actor, "m_fullSelectionHighlight"));
+                isConfirmHighlighted = TryReadGameObjectActive(GetFieldOrProp(actor, "m_confirmSelectionHighlight"));
+            }
+
+            isSelected = isVisualSelected
+                || (selectedEntityId == entityId && (!markedReady || marked) && buttonActive);
+
+            detail = "selectedEntity=" + selectedEntityId
+                + ";marked=" + (markedReady ? (marked ? "1" : "0") : "na")
+                + ";buttonActive=" + (buttonActive ? "1" : "0")
+                + ";buttonEnabled=" + (buttonEnabled ? "1" : "0")
+                + ";visualSelected=" + (isVisualSelected ? "1" : "0")
+                + ";visualConfirm=" + (isConfirmHighlighted ? "1" : "0");
+            return true;
+        }
+
+        private static bool TryResolveHeroPickActor(object card, out object actor)
+        {
+            actor = null;
+            if (card == null)
+                return false;
+
+            actor = Invoke(card, "GetActor")
+                ?? GetFieldOrProp(card, "Actor")
+                ?? GetFieldOrProp(card, "m_actor");
+            return actor != null;
+        }
+
+        private static bool TryReadHeroPickConfirmButtonState(object mulliganMgr, out bool enabled)
+        {
+            enabled = false;
+            if (mulliganMgr == null)
+                return false;
+
+            var button = Invoke(mulliganMgr, "GetMulliganButton")
+                ?? GetFieldOrProp(mulliganMgr, "mulliganButton")
+                ?? GetFieldOrProp(mulliganMgr, "mulliganButtonWidget");
+            if (button == null)
+                return false;
+
+            enabled = TryReadEnabledState(button);
+            return TryReadGameObjectActive(button);
+        }
+
+        private static bool TryReadEnabledState(object target)
+        {
+            if (target == null)
+                return false;
+
+            var direct = GetFieldOrProp(target, "m_enabled")
+                ?? GetFieldOrProp(target, "enabled")
+                ?? GetFieldOrProp(target, "Active");
+            if (direct != null)
+                return ReadBoolValue(direct);
+
+            if (TryInvokeMethod(target, "GetEnabled", Array.Empty<object>(), out var enabledObj))
+                return ReadBoolValue(enabledObj);
+
+            if (TryInvokeMethod(target, "IsEnabled", Array.Empty<object>(), out enabledObj))
+                return ReadBoolValue(enabledObj);
+
+            return false;
+        }
+
+        private static bool TryReadGameObjectActive(object target)
+        {
+            if (target == null)
+                return false;
+
+            var gameObject = GetFieldOrProp(target, "gameObject") ?? target;
+            var active = GetFieldOrProp(gameObject, "activeSelf")
+                ?? GetFieldOrProp(gameObject, "activeInHierarchy");
+            if (active != null)
+                return ReadBoolValue(active);
+
+            if (TryInvokeMethod(gameObject, "get_activeSelf", Array.Empty<object>(), out var activeObj))
+                return ReadBoolValue(activeObj);
+
+            if (TryInvokeMethod(gameObject, "get_activeInHierarchy", Array.Empty<object>(), out activeObj))
+                return ReadBoolValue(activeObj);
+
+            return false;
         }
 
         private static bool TrySelectHeroPickCardViaApi(MulliganReadySnapshot snapshot, object card, int entityId, out string detail)
@@ -8632,6 +9066,39 @@ namespace HearthstonePayload
             y = cy - (int)(screenHeight * 0.06f);
             detail = "fallback_offset";
             return true;
+        }
+
+        private static bool TryReadHeroRerollButtonState(object card, out bool active, out bool enabled, out string detail)
+        {
+            active = false;
+            enabled = false;
+            detail = "hero_card_missing";
+            if (card == null)
+                return false;
+
+            var actor = Invoke(card, "GetActor") ?? GetFieldOrProp(card, "Actor") ?? card;
+            var candidates = new[]
+            {
+                TryInvokeMethod(actor, "GetHeroRerollButton", Array.Empty<object>(), out var rerollButton, out _) ? rerollButton : null,
+                GetFieldOrProp(actor, "m_heroRerollButton"),
+                GetFieldOrProp(actor, "heroRerollButton"),
+                GetFieldOrProp(actor, "m_rerollButtonReference"),
+                GetFieldOrProp(actor, "m_rerollButton")
+            };
+
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                active = TryReadGameObjectActive(candidate);
+                enabled = TryReadEnabledState(candidate);
+                detail = "explicit_field";
+                return true;
+            }
+
+            detail = "refresh_button_missing";
+            return false;
         }
 
         private static bool TryGetBattlegroundsShop()

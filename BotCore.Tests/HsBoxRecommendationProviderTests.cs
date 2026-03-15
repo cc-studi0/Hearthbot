@@ -618,7 +618,7 @@ namespace BotCore.Tests
                 ActionName = "choose",
                 CardToken = JToken.FromObject(new { cardId = "BG_012", position = 3 })
             };
-            Assert.Equal("BG_BUY|703|3", HsBoxBattlegroundsBridge.ConvertStepToCommand(choiceStep, shopMap, boardMap, handMap));
+            Assert.Null(HsBoxBattlegroundsBridge.ConvertStepToCommand(choiceStep, shopMap, boardMap, handMap));
 
             Assert.Equal("BG_TAVERN_UP", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "tavern_up" }, shopMap, boardMap, handMap));
             Assert.Equal("BG_REROLL", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "reroll_choices" }, shopMap, boardMap, handMap));

@@ -1843,6 +1843,8 @@ namespace BotMain
             var lastPhase = "";
             var heroPickBridgeWaitUntilUtc = DateTime.MinValue;
             var heroPickForcePickAtUtc = DateTime.MinValue;
+            var lastExecutedBattlegroundAction = string.Empty;
+            var lastExecutedBattlegroundState = string.Empty;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -1853,22 +1855,41 @@ namespace BotMain
                 bgResp = gotBgResp ? bgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
                 if (bgResp == "NO_BG_STATE")
                 {
-                    if (!TrySendAndReceiveExpected(
-                        pipe,
-                        "GET_SCENE",
-                        1000,
-                        BotProtocol.IsSceneResponse,
-                        out var sceneResp,
-                        "BG.NoStateScene"))
+                    if (!TryGetSceneValue(pipe, 1000, out var scene, "BG.NoStateScene"))
                     {
                         Thread.Sleep(1000);
                         continue;
                     }
-                    if (BotProtocol.TryParseScene(sceneResp, out var scene) && scene != "GAMEPLAY")
+
+                    if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var pendingResolution = ResolveEndgamePending(pipe, "BG.Endgame", out var pendingScene);
+                        if (pendingResolution == EndgamePendingResolution.GameLeftGameplay)
+                        {
+                            if (!string.IsNullOrWhiteSpace(pendingScene)
+                                && BotProtocol.IsStableLobbyScene(pendingScene))
+                            {
+                                Log($"[BG] 对局结算结束，已离开 GAMEPLAY -> scene={pendingScene}");
+                                break;
+                            }
+
+                            if (WaitForStableLobbyForNavigation(pipe, "BG.PostGameLobbyReady", 20))
+                            {
+                                Log("[BG] 对局结算结束，已返回大厅。");
+                                break;
+                            }
+                        }
+
+                        Thread.Sleep(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 300);
+                        continue;
+                    }
+
+                    if (BotProtocol.IsStableLobbyScene(scene))
                     {
                         Log("[BG] 游戏结束，返回大厅");
                         break;
                     }
+
                     Thread.Sleep(1000);
                     continue;
                 }
@@ -1911,7 +1932,8 @@ namespace BotMain
                         Log("[BG] 英雄选择阶段，请求盒子推荐...");
                         var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
                         Log($"[BG] 英雄选择推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
-                        if (actions != null && actions.Count > 0)
+                        var nextAction = actions?.FirstOrDefault(action => !string.IsNullOrWhiteSpace(action));
+                        if (!string.IsNullOrWhiteSpace(nextAction))
                         {
                             if (!WaitForGameReady(pipe, 10, 120, 1200))
                             {
@@ -1920,15 +1942,24 @@ namespace BotMain
                                 continue;
                             }
 
-                            foreach (var action in actions)
+                            if (string.Equals(lastExecutedBattlegroundAction, nextAction, StringComparison.Ordinal)
+                                && string.Equals(lastExecutedBattlegroundState, stateData, StringComparison.Ordinal))
                             {
-                                var actionResp = SendActionCommand(pipe, action, 3000);
-                                Log($"[BG] 选择英雄 {action} -> {actionResp}");
-                                Thread.Sleep(500);
+                                Log($"[BG] 跳过重复推荐: {nextAction}");
+                                Thread.Sleep(180);
+                                continue;
+                            }
+
+                            var actionResp = SendActionCommand(pipe, nextAction, 3000);
+                            Log($"[BG] 选择英雄 {nextAction} -> {actionResp}");
+                            if (!IsActionFailure(actionResp))
+                            {
+                                lastExecutedBattlegroundAction = nextAction;
+                                lastExecutedBattlegroundState = stateData;
                             }
 
                             heroPickBridgeWaitUntilUtc = DateTime.MinValue;
-                            Thread.Sleep(1000);
+                            Thread.Sleep(350);
                             continue;
                         }
                     }
@@ -1983,7 +2014,8 @@ namespace BotMain
                 {
                     var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
                     Log($"[BG] 招募阶段推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
-                    if (actions != null && actions.Count > 0)
+                    var nextAction = actions?.FirstOrDefault(action => !string.IsNullOrWhiteSpace(action));
+                    if (!string.IsNullOrWhiteSpace(nextAction))
                     {
                         if (!WaitForGameReady(pipe, 10, 120, 1200))
                         {
@@ -1992,26 +2024,36 @@ namespace BotMain
                             continue;
                         }
 
-                        foreach (var action in actions)
+                        if (string.Equals(lastExecutedBattlegroundAction, nextAction, StringComparison.Ordinal)
+                            && string.Equals(lastExecutedBattlegroundState, stateData, StringComparison.Ordinal))
                         {
-                            var actionResp = SendActionCommand(pipe, action, 3000);
-                            Log($"[BG] 执行 {action} -> {actionResp}");
-                            if (action.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
-                                || action.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
-                                || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
-                            {
-                                if (TryHandlePendingChoiceBeforePlanning(pipe, choiceSeed, out var waitingForBgChoiceState))
-                                {
-                                    Thread.Sleep(150);
-                                }
-                                else if (waitingForBgChoiceState)
-                                {
-                                    Log($"[BG] 动作后检测到待处理选择: {action}");
-                                    Thread.Sleep(150);
-                                }
-                            }
-                            Thread.Sleep(200);
+                            Log($"[BG] 跳过重复推荐: {nextAction}");
+                            Thread.Sleep(180);
+                            continue;
                         }
+
+                        var actionResp = SendActionCommand(pipe, nextAction, 3000);
+                        Log($"[BG] 执行 {nextAction} -> {actionResp}");
+                        if (!IsActionFailure(actionResp))
+                        {
+                            lastExecutedBattlegroundAction = nextAction;
+                            lastExecutedBattlegroundState = stateData;
+                        }
+                        if (nextAction.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                            || nextAction.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
+                            || nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (TryHandlePendingChoiceBeforePlanning(pipe, choiceSeed, out var waitingForBgChoiceState))
+                            {
+                                Thread.Sleep(150);
+                            }
+                            else if (waitingForBgChoiceState)
+                            {
+                                Log($"[BG] 动作后检测到待处理选择: {nextAction}");
+                                Thread.Sleep(150);
+                            }
+                        }
+                        Thread.Sleep(220);
                     }
                 }
 
@@ -3109,6 +3151,12 @@ namespace BotMain
                     _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
                 }
 
+                if (recommendation?.ShouldRetryWithoutAction == true)
+                {
+                    Log($"[Choice] waiting snapshotId={currentState.SnapshotId} mode={currentState.Mode} detail={recommendation.Detail}");
+                    return false;
+                }
+
                 var selectedEntityIds = NormalizeChoiceSelection(currentState, recommendation?.SelectedEntityIds);
                 if ((currentState.CountMin > 0 && selectedEntityIds.Count < currentState.CountMin)
                     || (currentState.CountMax > 0 && selectedEntityIds.Count > currentState.CountMax))
@@ -3228,6 +3276,11 @@ namespace BotMain
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
                         _lastConsumedHsBoxChoicePayloadSignature));
+                if (recommendation?.ShouldRetryWithoutAction == true)
+                {
+                    Log($"[Choice] wait_retry origin={originCardId} detail={recommendation.Detail}");
+                    return false;
+                }
                 var pickedIndex = recommendation?.PickedIndex ?? -1;
                 if (pickedIndex < 0 || pickedIndex >= choiceEntityIds.Count)
                     pickedIndex = 0;
@@ -3366,6 +3419,11 @@ namespace BotMain
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
                         _lastConsumedHsBoxChoicePayloadSignature));
+                if (recommendation?.ShouldRetryWithoutAction == true)
+                {
+                    Log($"[Discover] wait_retry choiceId={currentState.ChoiceId} source={currentState.SourceCardId} detail={recommendation.Detail}");
+                    return false;
+                }
                 var pickedIndex = recommendation?.PickedIndex ?? -1;
                 if (pickedIndex < 0 || pickedIndex >= currentState.ChoiceEntityIds.Count)
                     pickedIndex = 0;
@@ -4462,15 +4520,8 @@ namespace BotMain
                     continue;
                 }
 
-                if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out var playResp, "BG.InitialClickPlay"))
-                    playResp = "NO_RESPONSE";
-                Log($"[BG] 点击开始 -> {playResp}");
-                if (string.IsNullOrWhiteSpace(playResp)
-                    || playResp.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
-                {
-                    Thread.Sleep(2000);
+                if (!TryClickBattlegroundsPlayWhenReady(pipe, "BG.InitialClickPlay", out _))
                     continue;
-                }
 
                 return true;
             }
@@ -4763,6 +4814,102 @@ namespace BotMain
             }
 
             Log($"[{scope}] Timed out waiting for stable scene {expectedScene} ({timeoutSeconds}s); will retry.");
+            return false;
+        }
+
+        private bool TryClickBattlegroundsPlayWhenReady(PipeServer pipe, string scope, out string playResp, int timeoutSeconds = 12)
+        {
+            playResp = "NO_RESPONSE";
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            var readyConfirmCount = 0;
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    readyConfirmCount = 0;
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && !string.IsNullOrWhiteSpace(dismissResp)
+                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
+                        Thread.Sleep(600);
+                        continue;
+                    }
+
+                    Log($"[{scope}] Blocking dialog still present before play click: {dialogType}({dialogButton})");
+                    Thread.Sleep(800);
+                    continue;
+                }
+
+                if (!TryGetSceneValue(pipe, 1500, out var scene, scope))
+                {
+                    readyConfirmCount = 0;
+                    Log($"[{scope}] Scene probe timed out while waiting to click play.");
+                    Thread.Sleep(500);
+                    continue;
+                }
+
+                if (!string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
+                {
+                    readyConfirmCount = 0;
+                    Log($"[{scope}] Scene changed while waiting to click play: {scene}");
+                    Thread.Sleep(600);
+                    continue;
+                }
+
+                if (!TryGetReadyState(pipe, 1200, out var readyResp, scope))
+                {
+                    readyConfirmCount = 0;
+                    Log($"[{scope}] WAIT_READY timed out while waiting to click play.");
+                    Thread.Sleep(400);
+                    continue;
+                }
+
+                if (!string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase))
+                {
+                    readyConfirmCount = 0;
+                    Log($"[{scope}] Waiting for BACON page ready before click: {readyResp}");
+                    Thread.Sleep(350);
+                    continue;
+                }
+
+                readyConfirmCount++;
+                if (readyConfirmCount < 2)
+                {
+                    Log($"[{scope}] BACON page ready confirmation {readyConfirmCount}/2 before click.");
+                    Thread.Sleep(350);
+                    continue;
+                }
+
+                if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, scope))
+                    playResp = "NO_RESPONSE";
+                Log($"[BG] 点击开始 -> {playResp}");
+
+                if (!string.IsNullOrWhiteSpace(playResp)
+                    && playResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+
+                if (!string.IsNullOrWhiteSpace(playResp)
+                    && playResp.IndexOf("no_play_button", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    readyConfirmCount = 0;
+                    Log($"[{scope}] Play button not ready yet, waiting for page to finish loading.");
+                    Thread.Sleep(700);
+                    continue;
+                }
+
+                Thread.Sleep(800);
+            }
+
+            Log($"[{scope}] Timed out waiting for battleground play button readiness ({timeoutSeconds}s).");
             return false;
         }
 
