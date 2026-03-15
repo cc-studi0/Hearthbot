@@ -140,7 +140,25 @@ namespace HearthstonePayload
                             {
                                 // 优先使用 GameState 的结果
                                 if (state.Result != GameResult.None)
+                                {
                                     _lastGameResult = state.Result.ToString().ToUpper();
+                                }
+                                else if (_lastGameResult == "NONE")
+                                {
+                                    // IsGameOver 为 true 但 Result 还是 None —— playstate 可能尚未更新。
+                                    // 短暂重试几次，让游戏逻辑有时间写入 playstate 标签。
+                                    for (var retry = 0; retry < 8 && _lastGameResult == "NONE"; retry++)
+                                    {
+                                        Thread.Sleep(120);
+                                        var retryState = reader.ReadGameState();
+                                        if (retryState != null && retryState.Result != GameResult.None)
+                                        {
+                                            _lastGameResult = retryState.Result.ToString().ToUpper();
+                                            if (retryState.FriendlyConceded)
+                                                _lastGameConceded = true;
+                                        }
+                                    }
+                                }
 
                                 // 记录投降状态
                                 if (state.FriendlyConceded)
@@ -224,8 +242,12 @@ namespace HearthstonePayload
                             ? "RESULT:" + _lastGameResult + ":CONCEDED"
                             : "RESULT:" + _lastGameResult;
                         _pipe.Write(resultPayload);
-                        _lastGameResult = "NONE";
-                        _lastGameConceded = false;
+                        // 仅在成功获取到有效结果后才重置，避免 NONE 时消费掉后续重试的机会
+                        if (_lastGameResult != "NONE")
+                        {
+                            _lastGameResult = "NONE";
+                            _lastGameConceded = false;
+                        }
                     }
                     else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
                     {

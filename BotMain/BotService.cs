@@ -170,6 +170,7 @@ namespace BotMain
         private string _smartBotRootOverride;
         private string _hearthstoneExecutablePathOverride;
         private string _lastKnownHearthstoneExecutablePath;
+        private string _hsBoxExecutablePath;
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
@@ -390,6 +391,15 @@ namespace BotMain
         {
             _followHsBoxRecommendations = value;
             Log($"[Settings] FollowHsBoxRecommendations={value}");
+            if (value)
+                ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
+        }
+
+        public void SetHsBoxExecutablePath(string path)
+        {
+            var normalized = NormalizeExternalPath(path);
+            _hsBoxExecutablePath = normalized;
+            Log($"[Settings] HsBoxPath={(string.IsNullOrWhiteSpace(normalized) ? "(auto-detect)" : normalized)}");
         }
 
         public void SetSaveHsBoxCallbacks(bool value)
@@ -4213,6 +4223,22 @@ namespace BotMain
                     }
                     catch { }
 
+                    // Payload 未能确定结果时，从结算页类名兜底推断
+                    if (_earlyGameResult == null && !string.IsNullOrWhiteSpace(endgameClass))
+                    {
+                        var lower = endgameClass.ToLowerInvariant();
+                        string inferred = null;
+                        if (lower.Contains("victory")) inferred = "WIN";
+                        else if (lower.Contains("defeat")) inferred = "LOSS";
+                        else if (lower.Contains("tie") || lower.Contains("draw")) inferred = "TIE";
+
+                        if (inferred != null)
+                        {
+                            _earlyGameResult = inferred;
+                            Log($"[{scope}] 从结算页类名推断结果: {inferred} (class={endgameClass})");
+                        }
+                    }
+
                     return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
                         ? EndgamePendingResolution.GameLeftGameplay
                         : EndgamePendingResolution.Waiting;
@@ -5464,6 +5490,187 @@ namespace BotMain
             catch
             {
             }
+        }
+
+        // ── HsBox 进程管理 ──
+
+        private const string HsBoxProcessName = "HSAng";
+        private const int HsBoxDebuggingPort = 9222;
+        private const string HsBoxDebuggingPortArg = "--remote-debugging-port=9222";
+
+        /// <summary>
+        /// 确保 HsBox（网易炉石传说盒子）以远程调试端口 9222 运行。
+        /// - 如果盒子未启动：自动启动（带 --remote-debugging-port=9222）
+        /// - 如果盒子已启动但不是 9222 端口：重启（带 --remote-debugging-port=9222）
+        /// - 如果盒子已经运行在 9222：不做任何操作
+        /// </summary>
+        private void EnsureHsBoxWithDebuggingPort()
+        {
+            try
+            {
+                var processes = Process.GetProcessesByName(HsBoxProcessName);
+                if (processes.Length == 0)
+                {
+                    Log("[HsBox] 盒子未运行，尝试自动启动...");
+                    LaunchHsBoxWithDebuggingPort(null);
+                    return;
+                }
+
+                // 检查已运行进程的命令行是否包含 --remote-debugging-port=9222
+                string existingExePath = null;
+                bool hasDebuggingPort = false;
+                foreach (var proc in processes)
+                {
+                    try
+                    {
+                        var cmdLine = GetProcessCommandLine(proc.Id);
+                        if (existingExePath == null)
+                        {
+                            try { existingExePath = proc.MainModule?.FileName; } catch { }
+                        }
+
+                        if (!string.IsNullOrWhiteSpace(cmdLine)
+                            && cmdLine.IndexOf(HsBoxDebuggingPortArg, StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            hasDebuggingPort = true;
+                            break;
+                        }
+
+                        Log($"[HsBox] 发现进程 PID={proc.Id}，但命令行不包含 {HsBoxDebuggingPortArg}: {ShortenCommandLine(cmdLine)}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[HsBox] 读取进程 PID={proc.Id} 命令行失败: {ex.Message}");
+                    }
+                }
+
+                if (hasDebuggingPort)
+                {
+                    Log("[HsBox] 盒子已在 9222 端口运行，无需操作。");
+                    return;
+                }
+
+                // 盒子在运行但没有 9222 端口，需要重启
+                Log("[HsBox] 盒子已运行但未启用远程调试端口，准备重启...");
+                foreach (var proc in processes)
+                {
+                    try
+                    {
+                        Log($"[HsBox] 关闭进程 PID={proc.Id}");
+                        proc.Kill();
+                        proc.WaitForExit(10000);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log($"[HsBox] 关闭进程失败 PID={proc.Id}: {ex.Message}");
+                    }
+                }
+
+                Thread.Sleep(1500);
+                LaunchHsBoxWithDebuggingPort(existingExePath);
+            }
+            catch (Exception ex)
+            {
+                Log($"[HsBox] 管理盒子进程时出错: {ex.Message}");
+            }
+        }
+
+        private void LaunchHsBoxWithDebuggingPort(string fallbackExePath)
+        {
+            var exePath = ResolveHsBoxExePath(fallbackExePath);
+            if (string.IsNullOrWhiteSpace(exePath))
+            {
+                Log("[HsBox] 未找到盒子路径，请在设置中配置 HsBox.exe 路径。");
+                return;
+            }
+
+            if (!File.Exists(exePath))
+            {
+                Log($"[HsBox] 盒子可执行文件不存在: {exePath}");
+                return;
+            }
+
+            try
+            {
+                var startInfo = new ProcessStartInfo
+                {
+                    FileName = exePath,
+                    Arguments = HsBoxDebuggingPortArg,
+                    WorkingDirectory = Path.GetDirectoryName(exePath) ?? AppDomain.CurrentDomain.BaseDirectory,
+                    UseShellExecute = true
+                };
+
+                var proc = Process.Start(startInfo);
+                Log(proc != null
+                    ? $"[HsBox] 已启动盒子 PID={proc.Id} Path={exePath} Args={HsBoxDebuggingPortArg}"
+                    : $"[HsBox] 已请求启动盒子 Path={exePath} Args={HsBoxDebuggingPortArg}");
+            }
+            catch (Exception ex)
+            {
+                Log($"[HsBox] 启动盒子失败: {ex.Message}");
+            }
+        }
+
+        private string ResolveHsBoxExePath(string fallbackExePath)
+        {
+            // 优先使用用户配置的路径
+            var configured = NormalizeExternalPath(_hsBoxExecutablePath);
+            if (!string.IsNullOrWhiteSpace(configured))
+            {
+                // 如果配置的是目录，拼接 HSAng.exe
+                if (Directory.Exists(configured))
+                    configured = Path.Combine(configured, "HSAng.exe");
+                if (File.Exists(configured))
+                    return configured;
+                Log($"[HsBox] 配置的路径无效: {configured}");
+            }
+
+            // 其次使用从进程中获取的路径
+            if (!string.IsNullOrWhiteSpace(fallbackExePath) && File.Exists(fallbackExePath))
+                return fallbackExePath;
+
+            // 尝试常见安装路径
+            var commonPaths = new[]
+            {
+                @"C:\Program Files\Netease\HSA\HSAng.exe",
+                @"C:\Program Files (x86)\Netease\HSA\HSAng.exe",
+                @"D:\Program Files\Netease\HSA\HSAng.exe",
+                @"F:\炉石传说盒子\HSAng.exe"
+            };
+
+            foreach (var path in commonPaths)
+            {
+                if (File.Exists(path))
+                    return path;
+            }
+
+            return null;
+        }
+
+        private static string GetProcessCommandLine(int processId)
+        {
+            try
+            {
+                using (var searcher = new System.Management.ManagementObjectSearcher(
+                    $"SELECT CommandLine FROM Win32_Process WHERE ProcessId = {processId}"))
+                {
+                    foreach (var obj in searcher.Get())
+                    {
+                        return obj["CommandLine"]?.ToString();
+                    }
+                }
+            }
+            catch
+            {
+            }
+            return null;
+        }
+
+        private static string ShortenCommandLine(string cmdLine)
+        {
+            if (string.IsNullOrWhiteSpace(cmdLine))
+                return "(empty)";
+            return cmdLine.Length > 120 ? cmdLine.Substring(0, 120) + "..." : cmdLine;
         }
     }
 }

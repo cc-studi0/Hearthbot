@@ -123,28 +123,18 @@ namespace HearthstonePayload
                 && position <= 0
                 && !string.IsNullOrWhiteSpace(subOptionCardId))
             {
-                // 最多等待5秒，等待 EntityChoices 包 或 SubOption UI 出现
-                if (!WaitForSubOptionOrChoiceReady(5000))
+                // 先检查 SubOption UI 是否已经打开（Choose One 打出后自动弹出的情况）
+                if (WaitForSubOptionOrChoiceReady(800))
                 {
-                    // 最后手段：等待后重试网络选项
-                    submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
-                    if (submitDetail == null)
-                        return "OK:OPTION:network_retry:" + sourceId;
-                    return "FAIL:OPTION:choice_not_ready:" + sourceId + ":" + submitDetail;
+                    var chooseOneResult = TryResolveAndClickSubOption(sourceId, subOptionCardId);
+                    if (chooseOneResult != null)
+                        return chooseOneResult;
                 }
 
-                // 选择/子选项已就绪，重试结构化选项
-                submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
-                if (submitDetail == null)
-                    return "OK:OPTION:open_then_network:" + sourceId;
-
-                // 回退方案1：从 EntityChoices 包解析实体
-                if (TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
-                    return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
-
-                // 回退方案2：从 ChoiceCardMgr 的 SubOption/友方卡牌解析实体
-                if (TryResolveSubOptionEntityIdByCardId(subOptionCardId, out var subOptionEntityId))
-                    return _coroutine.RunAndWait(MouseClickChoice(subOptionEntityId));
+                // SubOption UI 未自动弹出 —— 尝试泰坦/锻造等需要先点击实体才弹出选择 UI 的路径
+                var titanResult = TryExecuteTitanStyleOption(sourceId, subOptionCardId);
+                if (titanResult != null)
+                    return titanResult;
 
                 return "FAIL:OPTION:suboption_not_found:" + sourceId + ":" + subOptionCardId;
             }
@@ -162,6 +152,63 @@ namespace HearthstonePayload
                 return "OK:OPTION:open_then_network:" + sourceId;
 
             return openResult;
+        }
+
+        /// <summary>
+        /// 在 SubOption/EntityChoices UI 已就绪时，尝试通过网络 API 或鼠标点击提交选项。
+        /// 用于 Choose One 等打出卡牌后自动弹出子选项的场景。
+        /// 返回 null 表示全部回退方案均失败。
+        /// </summary>
+        private static string TryResolveAndClickSubOption(int sourceId, string subOptionCardId)
+        {
+            // 重试结构化选项（此时 SubOption UI 已就绪，Options 包可能已更新）
+            var submitDetail = TrySubmitStructuredOption(sourceId, 0, 0, subOptionCardId);
+            if (submitDetail == null)
+                return "OK:OPTION:open_then_network:" + sourceId;
+
+            // 回退方案1：从 EntityChoices 包解析实体
+            if (TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
+                return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
+
+            // 回退方案2：从 ChoiceCardMgr 的 SubOption/友方卡牌解析实体
+            if (TryResolveSubOptionEntityIdByCardId(subOptionCardId, out var subOptionEntityId))
+                return _coroutine.RunAndWait(MouseClickChoice(subOptionEntityId));
+
+            return null;
+        }
+
+        /// <summary>
+        /// 泰坦/锻造等需要先点击场上实体才弹出选择 UI 的路径。
+        /// 流程：点击场上实体 → 等待选择 UI 出现 → 通过 CardId 解析目标实体 → 点击。
+        /// 返回 null 表示该路径不适用或全部回退方案均失败。
+        /// </summary>
+        private static string TryExecuteTitanStyleOption(int sourceId, string subOptionCardId)
+        {
+            // 阶段1：点击场上实体以打开选择 UI
+            var clickResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
+
+            // 阶段2：等待选择 UI 出现（泰坦能力 / 锻造等）
+            if (!WaitForSubOptionOrChoiceReady(3000))
+            {
+                // 再等一轮，某些泰坦在动画较长时需要更多时间
+                if (!WaitForSubOptionOrChoiceReady(2000))
+                    return null;
+            }
+
+            // 阶段3：重试结构化网络提交
+            var submitDetail = TrySubmitStructuredOption(sourceId, 0, 0, subOptionCardId);
+            if (submitDetail == null)
+                return "OK:OPTION:titan_network:" + sourceId;
+
+            // 阶段4：从 EntityChoices 包解析实体
+            if (TryResolveChoiceEntityIdByCardId(GetGameState(), subOptionCardId, out var choiceEntityId))
+                return _coroutine.RunAndWait(MouseClickChoice(choiceEntityId));
+
+            // 阶段5：从 ChoiceCardMgr 的 SubOption/友方卡牌解析实体
+            if (TryResolveSubOptionEntityIdByCardId(subOptionCardId, out var subOptionEntityId))
+                return _coroutine.RunAndWait(MouseClickChoice(subOptionEntityId));
+
+            return null;
         }
 
         private static string TrySubmitStructuredOption(int sourceId, int targetId, int position, string desiredSubOptionCardId)

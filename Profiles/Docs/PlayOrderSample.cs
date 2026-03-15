@@ -16,16 +16,16 @@ namespace SmartBotProfiles
         {
             var p = new ProfileParameters(BaseProfile.Rush) {DiscoverSimulationValueThresholdPercent = -10};			  
 			
-			/* 在下方的种子中，生命分流先使用，然后是破碎残阳牌师 (VAN_EX1_019)
-			   以下规则提高破碎残阳牌师的出牌顺序优先级，使其先被打出
+			/* In the seed below, Life tap is played first, then Shattered Sun Cleric (VAN_EX1_019)
+			   The following rule increases the play order priority of Shattered Sun Cleric to be played first
 			*/
 			p.PlayOrderModifiers.AddOrUpdate(Card.Cards.VAN_EX1_019, new Modifier(500));
 			
-			/* 大多数卡牌在 AI 中的默认值为 "1"
-			   机器人会先打出值更高的卡牌，所以我们将 VAN_EX1_019 的值设为 500，确保它高于基础配置中的任何其他硬编码值
+			/* Most cards have the default value "1" in the AI
+			   The bot will try to play cards with higher value first, so here we put VAN_EX1_019 value to 500 to make sure it's higher than anything else hardcoded in the base profiles
 		    */
 			
-			//你也可以使用负值让卡牌最后被打出：
+			//You can also make a card to be played last using negative values : 
 			//p.PlayOrderModifiers.AddOrUpdate(Card.Cards.VAN_EX1_019, new Modifier(-500));
 			
             return p;

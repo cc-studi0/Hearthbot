@@ -9341,7 +9341,7 @@ namespace SmartBotProfiles
                     foreach (var friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
                     {
                         // 强化“先buff后攻击”硬约束：拉满保留权重和攻击后置顺序。
-                        // Modifier 范围为 [-10000, 10000]，限制为硬上限以保留"先增益再攻击"的意图。
+                        // Modifier range is [-10000, 10000], cap to hard max to keep "buff before attack" intent.
                         p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
                         p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
                     }

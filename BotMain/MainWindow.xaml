@@ -130,6 +130,18 @@
                                     ToolTip="选择 Hearthstone.exe"/>
                         </StackPanel>
                     </StackPanel>
+                    <StackPanel Margin="0,2,0,0">
+                        <TextBlock Text="HSBox (盒子):" FontSize="11" Margin="0,0,0,2"/>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Width="155" Height="20"
+                                     Text="{Binding HsBoxExecutablePath, UpdateSourceTrigger=PropertyChanged}"
+                                     FontSize="11" VerticalContentAlignment="Center"
+                                     ToolTip="网易炉石传说盒子 HSAng.exe 路径，留空自动检测"/>
+                            <Button Content="..." Width="24" Height="20" Margin="3,0,0,0"
+                                    Command="{Binding BrowseHsBoxPathCmd}"
+                                    ToolTip="选择 HSAng.exe"/>
+                        </StackPanel>
+                    </StackPanel>
                 </StackPanel>
             </Grid>
         </Border>

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14216,7 +14216,7 @@ namespace SmartBotProfiles
             }
             catch { }
 
-            // 牌库列表不可用时的兜底值。
+            // Fallback when deck list is unavailable.
             return 2;
         }
 
@@ -14281,11 +14281,11 @@ namespace SmartBotProfiles
                 int observedNonTempCopies = barrageInHandNonTemp + barrageInGraveNonTemp;
                 baseCount = NormalizeBarrageBaseCountForUnknownDeck(board, baseCount, observedNonTempCopies);
 
-                // 保守估算：只信任基础牌库副本数减去当前已观察到的非临时副本。
-                // 不乐观地加上速写/商人生成的值，以避免误判。
+                // Conservative estimate: only trust base deck copies - currently seen non-temp copies.
+                // Do not optimistic-add Sketch/Merchant generated value, to avoid false positives.
                 int estimate = baseCount - barrageInHandNonTemp - barrageInGraveNonTemp;
 
-                // 运行时 API 兜底：仅当 baseCount 本身表明 RLK_534 可能存在时。
+                // Runtime API fallback: only when baseCount itself suggests RLK_534 can exist.
                 // If baseCount==0 (deck/快照明确无弹幕), never force-add by API.
                 bool hasBarrageInDeckByApi = false;
                 try { hasBarrageInDeckByApi = board.HasCardInDeck(Card.Cards.RLK_534); } catch { hasBarrageInDeckByApi = false; }
@@ -14509,10 +14509,10 @@ namespace SmartBotProfiles
         private static int _tempTrackTurn = int.MinValue;
         private static readonly HashSet<int> _prevHandEntityIds = new HashSet<int>();
         private static readonly HashSet<int> _temporaryHandEntityIdsThisTurn = new HashSet<int>();
-        // 跨回合追踪临时灵魂弹幕的实体 ID。
+        // Cross-turn tracking of temporary Soul Barrage entity ids.
         private static int _lastSeenTurnForTempBarrageTracking = int.MinValue;
         private static readonly HashSet<int> _seenTemporaryBarrageEntityIds = new HashSet<int>();
-        // 开局牌库快照：不在此集合中的卡牌在弃牌逻辑中被视为外来卡。
+        // Opening deck snapshot: cards outside this set are treated as foreign for discard logic.
         private static readonly HashSet<Card.Cards> _openingDeckCardIds = new HashSet<Card.Cards>();
         private static string _openingDeckSnapshotGameKey = string.Empty;
         private static int _openingDeckSnapshotLastSeenTurn = int.MinValue;

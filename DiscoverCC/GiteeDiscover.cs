@@ -17,7 +17,7 @@ namespace UniversalDiscover
 {
     public class UniversalDiscover : DiscoverPickHandler
     {
-        // 用于对手场上来源校正的卡牌列表
+        // List of card for origin correction on opponent board
         private static List<Card.Cards> enemyCards = new List<Card.Cards>
         {
             Card.Cards.REV_000, // Suspicious Alchemist
@@ -27,7 +27,7 @@ namespace UniversalDiscover
             Card.Cards.MIS_916 // Pro Gamer, Challenge your opponent to a game of Rock-Paper-Scissors! The winner draws 2 cards.
         };
 
-        // 用于友方场上来源校正的卡牌列表
+        // List of cards for origin correction on friendly board
         private static List<Card.Cards> friendCards = new List<Card.Cards>
         {
             Card.Cards.GDB_874, // Astrobiologist
@@ -38,7 +38,7 @@ namespace UniversalDiscover
             Card.Cards.WON_103 // Chamber of Viscidus
         };
 
-        // 图腾列表：失误图腾、立体声图腾、融合乐团、远古图腾、点唱机图腾、锚定图腾、火舌图腾、火舌图腾、深渊融合怪、图腾魔像、巨化图腾、罪石图腾、派对图腾、派对图腾、空气之怒图腾、灼热图腾、治疗图腾、石爪图腾、力量图腾、大图腾艾索尔 -> 暗月马戏团、大图腾艾索尔 -> 未知系列、树人图腾、戏法图腾、图腾巨歌、邪恶图腾、毒蛇守卫、鱼人图腾、活力图腾、法力之潮图腾
+        // List of totems: Mistake, Stereo Totem, The One-Amalgam Band, Ancient Totem, Jukebox Totem, Anchored Totem, Flametongue Totem, Flametongue Totem, Amalgam of the Deep, Totem Golem, Gigantotem, Sinstone Totem, Party Favor Totem, Party Favor Totem, Wrath of Air Totem, Searing Totem, Healing Totem, Stoneclaw Totem, Strength Totem, Grand Totem Eys'or -> Set Madness At The Darkmoon Faire, Grand Totem Eys'or -> Set Unknown, Treant Totem, Trick Totem, Totem Goliath, EVIL Totem, Serpent Ward, Primalfin Totem, Vitality Totem, Mana Tide Totem
         private static readonly HashSet<Card.Cards> totemCards = new HashSet<Card.Cards>
         {
             Card.Cards.NX2_050, Card.Cards.ETC_105, Card.Cards.ETC_409, Card.Cards.TTN_710, Card.Cards.JAM_010,
@@ -79,7 +79,7 @@ namespace UniversalDiscover
             { Card.Cards.EDR_100t13, 100 } // Harpy's Talons
         };
 
-        // 全局变量声明
+        // Global variables declaration
         private static readonly Random random = new Random();
         private static readonly Dictionary<string, string> giteeContentCache = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private static readonly Dictionary<string, Dictionary<string, Dictionary<string, string>>> iniCache = new Dictionary<string, Dictionary<string, Dictionary<string, string>>>(StringComparer.OrdinalIgnoreCase);
@@ -97,37 +97,37 @@ namespace UniversalDiscover
             // Starting index
             int startIndex = 0;
 
-            // 从云端获取卡牌定义库的最新版本
+            // Retrieve latest version of card definition library from cloud
             if (!versionChecked)
             {
                 // remote-only project, nothing to update locally
                 versionChecked = true;
             }
 
-            // 机器人日志标题
+            // Bot logs heading
             logBuilder.Clear();
             logBuilder.Append("=====Discover V9.31, Card definition V").Append(CurrentVersion()).Append("===EE");
             string Divider = new string('=', 40);
 
-            // 未找到卡牌时的最终随机选择
+            // Final random choice if no cards found
             Card.Cards bestChoice = choices[random.Next(0, choices.Count)];
 
-            // 获取当前牌组模式
+            // Get current deck mode
             string mode = CurrentMode();
 
-            // 获取当前英雄职业
+            // Get current hero class
             string hero = board.FriendClass.ToString();
 
-            // 来源卡牌检查和校正
+            // Origin card check and correction
             (originCard, startIndex) = OriginCardCorrection(originCard, choices, board, mode);
 
-            // 来自数据库模板的来源卡牌名称
+            // Origin card name from database template
             string Origin_Card = CardTemplate.LoadFromId(originCard).Name;
 
-            // 创建空卡牌列表
+            // Create empty card list
             List<CardValue> choicesCardValue = new List<CardValue>();
 
-            // 主循环从这里开始
+            // Main loop starts here
             double points = 0;
             double TotalPoints = 0;
             string filePath = null;
@@ -136,10 +136,10 @@ namespace UniversalDiscover
                 for (int choiceIndex = startIndex; choiceIndex < 3; choiceIndex++)
                 {
                     string discoverFile = string.Empty;
-                    // 输入文件选择
+                    // Input file selection
                     switch (choiceIndex)
                     {
-                        // 检查卡牌特定文件，不存在则回退到 discover.ini
+                        // Check for card specific file, then fallback to discover.ini if exists
                         case 1:
                             filePath = $"smartbot/DiscoverCC/{mode}/{originCard}.ini";
                             iniTierList = LoadIniData(filePath);
@@ -152,12 +152,12 @@ namespace UniversalDiscover
                             break;
                     }
 
-                    // 清除之前的卡牌值
+                    // Clear previous card values
                     choicesCardValue.Clear();
                     points = 0; // ensure points reset per choice
                     discard = false;
 
-                    // 搜索最佳分数
+                    // Search for best points
                     foreach (var choice in choices)
                     {
                         var cardTemplate = CardTemplate.LoadFromId(choice); // Using SB database to get details of card
@@ -190,7 +190,7 @@ namespace UniversalDiscover
 
                                         bool tuskOffered = choices.Contains(Card.Cards.BAR_330) || choices.Contains(Card.Cards.CORE_BAR_330); // Tuskarr Fisherman
                                         bool felOffered = choices.Contains(Card.Cards.EDR_891); // Ravenous Felhunter
-                                                                                                // 评估选择卡牌
+                                                                                                // Evaluate choice cards
                                         if (tuskOffered || felOffered)
                                         {
                                             if (choice == Card.Cards.TLC_468) // Blob of Tar
@@ -216,7 +216,7 @@ namespace UniversalDiscover
                                     case Card.Cards.DEEP_027: // Gloomstone Guardian
                                         double discardScore = 2 * Math.Max(board.MinionFriend.Count - 2, 0) + 3 * Math.Max(board.ManaAvailable, 0);
                                         double manaLossScore = 2 * Math.Max(board.MinionFriend.Count, 0) + 3 * Math.Max(board.ManaAvailable, 0);
-                                        // 评估选择卡牌
+                                        // Evaluate choice cards
                                         if (choice == Card.Cards.DEEP_027a) // Splintered Form, Discard 2 cards.
                                         {
                                             if (discardScore >= manaLossScore)
@@ -305,7 +305,7 @@ namespace UniversalDiscover
                                 }
                                 break;
                             case 1:
-                                // 从外部文件搜索最佳分数
+                                // Searching for best point from external file
                                 if (iniTierList != null)
                                     double.TryParse(GetIniValue(iniTierList, choice.ToString(), "points", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out points);
                                 break;
@@ -317,27 +317,27 @@ namespace UniversalDiscover
                         }
 
                         // Suspicious Alchemist: fix condition
-                        // 如果敌方场上有可疑的炼金术师且该炼金术师揭示了与我们选择匹配的卡牌（尽力启发式）
+                        // If enemy has Suspicious Alchemist on board and that alchemist revealed a card matching our choice (best effort heuristic)
                         if (board.MinionEnemy.Any(m => m.Template.Id == Card.Cards.REV_000) && board.EnemyGraveyard.Contains(choice))
                         {
                             description = $"Suspicious Alchemist possible opponent selected card {cardTemplate.Name}";
                             points += 500;
                         }
 
-                        // 最后一次机会打出负担得起的卡牌
+                        // Last chance to play affordable card
                         if (cardTemplate.Cost <= board.ManaAvailable)
                         {
                             points = LastChance(choice, points, board);
                         }
 
-                        // 将卡牌连同分数加入卡牌列表
+                        // Add to card list with points
                         choicesCardValue.Add(new CardValue(choice, points));
                         TotalPoints += points;
                     }
                     if (TotalPoints > 0) break;
                 }
 
-                // 选择分数最高的卡牌
+                // Card selection with highest points
                 double bestPoints = 0;
                 for (var i = 0; i < choicesCardValue.Count; i++) // index through each card
                 {
@@ -372,10 +372,10 @@ namespace UniversalDiscover
             }
         }
 
-        // 来源卡牌校正
+        // Origin card correction
         private Tuple<Card.Cards, int> OriginCardCorrection(Card.Cards originCard, List<Card.Cards> choices, Board board, string mode)
         {
-            // 用于校正的来源卡牌列表
+            // List of origin cards for correction
             var originChoices = new List<Card.Cards>();
 
             if (mode == "Arena")
@@ -383,17 +383,17 @@ namespace UniversalDiscover
 
             if (!GiteeFileExists($"smartbot/DiscoverCC/{mode}/{originCard}.ini"))
             {
-                // 添加匹配 enemyCards 的敌方卡牌  
+                // Add enemy cards matching enemyCards  
                 originChoices.AddRange(board.MinionEnemy.Select(card => card.Template.Id).Where(enemyCards.Contains));
 
-                // 添加匹配 friendCards 的友方卡牌  
+                // Add friendly cards matching friendCards  
                 originChoices.AddRange(board.MinionFriend.Select(card => card.Template.Id).Where(friendCards.Contains));
 
-                // 添加上一张打出的卡牌  
+                // Add last played card  
                 if (board.PlayedCards.Any())
                     originChoices.Add(board.PlayedCards.Last());
 
-                // 为匹配选择来源卡牌  
+                // Select origin card for a match  
                 foreach (var card in originChoices)
                 {
                     if (originCard == card)
@@ -409,7 +409,7 @@ namespace UniversalDiscover
             return Tuple.Create(originCard, 0);
         }
 
-        // 从列表获取
+        // Get from list
         public class CardValue
         {
             private readonly double _points;
@@ -459,7 +459,7 @@ namespace UniversalDiscover
             {
                 content = string.Empty;
             }
-            // 规范化行尾并去除 BOM（如果存在）
+            // Normalize line endings and trim BOM if present
             content = NormalizeText(content);
             giteeContentCache[url] = content;
             return content;
@@ -514,7 +514,7 @@ namespace UniversalDiscover
                 line = line.Trim();
                 if (string.IsNullOrWhiteSpace(line)) continue;
 
-                // 去除以 ';' 或 '#' 开头的行内注释
+                // Strip inline comments starting with ';' or '#'
                 int commentIdx = IndexOfComment(line);
                 if (commentIdx >= 0)
                     line = line.Substring(0, commentIdx).Trim();
@@ -569,7 +569,7 @@ namespace UniversalDiscover
             return defaultValue;
         }
 
-        // 获取当前牌组模式 from selected deck string
+        // Get current deck mode from selected deck string
         private static string CurrentMode()
         {
             var mode = Bot.CurrentMode();
@@ -587,7 +587,7 @@ namespace UniversalDiscover
             return "Wild";
         }
 
-        // 将文本添加到日志变量
+        // Adds text to log variable
         private void AddLog(string entry)
         {
             logBuilder.Append("\r\n").Append(entry);
@@ -676,7 +676,7 @@ namespace UniversalDiscover
             // Select Superior Golem if equal or more than 8 mana
             if (board.MaxMana >= 8)
             {
-                // 对敌方随从造成伤害 vs 给己方随从增加生命值
+                // Deal damage to enemy minions vs give your minions health
                 if (board.MinionFriend.Count >= board.MinionEnemy.Count)
                     kazakusCards.Find(x => x.Name == "Wildvine").Superior += 100;
                 return kazakusCards.Find(x => x.Name == kazakusCard).Superior;
@@ -685,14 +685,14 @@ namespace UniversalDiscover
             // Select Greater Golem  if equal or more than 4 mana
             if (board.MaxMana >= 4)
             {
-                // 对敌方随从造成伤害 vs 给己方随从增加生命值
+                // Deal damage to enemy minions vs give your minions health
                 if (board.MinionFriend.Count >= board.MinionEnemy.Count)
                     kazakusCards.Find(x => x.Name == "Wildvine").Greater += 100;
                 return kazakusCards.Find(x => x.Name == kazakusCard).Greater;
             }
 
             // Default Lesser Golem
-            // 对敌方随从造成伤害 vs 给己方随从增加生命值
+            // Deal damage to enemy minions vs give your minions health
             if (board.MinionFriend.Count >= board.MinionEnemy.Count)
                 kazakusCards.Find(x => x.Name == "Wildvine").Lesser += 100;
             return kazakusCards.Find(x => x.Name == kazakusCard).Lesser; // Greater Golem
@@ -706,7 +706,7 @@ namespace UniversalDiscover
             public double Superior { get; set; }
         }
 
-        // 猜测重量，暗月马戏团的疯狂
+        // Guess the weight, Madness at the Darkmoon Faire
         private static string GuessTheWeight(Board board)
         {
             var currentDeck = CurrentDeck(board);
@@ -726,7 +726,7 @@ namespace UniversalDiscover
         // Capture Coldtooth Mine, Fractured in Alterac Valley
         private static double CaptureColdtoothMine(Board board) // Select highest cost card if equal or 1 higher current mana available
         {
-            // 获取当前牌组中的卡牌列表
+            // Get list of current cards in my deck
             List<Card.Cards> currentDeck = new List<Card.Cards>();
             currentDeck = CurrentDeck(board);
             if (currentDeck.Select(CardTemplate.LoadFromId).Max(x => x.Cost) >= board.ManaAvailable - 1)
@@ -761,25 +761,25 @@ namespace UniversalDiscover
         private double MurlocHolmes(Card.Cards choice, Board board)
         {
             description = "Murloc Holmes, possible choices: ";
-            // 创建新空列表，添加对手墓地和场上的卡牌
+            // Create new empty list, add cards from opponent graveyard and board
             var _opponentCards = (from _card in board.EnemyGraveyard select _card).ToList(); // First options
             _opponentCards.AddRange(from _card in board.MinionEnemy select _card.Template.Id);
-            // 输出到机器人日志
+            // Out to bot log
             foreach (var _card in _opponentCards)
             {
                 // Bot.Log("Card: " + CardTemplate.LoadFromId(card).Name);
                 description += CardTemplate.LoadFromId(_card).Name + ", ";
             }
-            // 第一个可能的选择，幸运币
+            // First possible choice, the coin
             if (CardTemplate.LoadFromId(choice).Name == "The Coin")
                 return 500;
-            // 第二个可能的选择，为匹配的卡牌应用分数
+            // Second possible choice apply points to matched cards
             foreach (var card in _opponentCards)
             {
                 if (card == choice)
                     return 200 - _opponentCards.IndexOf(card); // Subtract index of _opponentCards list in order of opponent cards in Graveyard --> board
             }
-            // 如果未找到卡牌，尝试外部文件
+            // If no cards found, try external file
             return 0;
         }
 
@@ -865,7 +865,7 @@ namespace UniversalDiscover
 
         //  *********** End of special card conditions ***********
 
-        // 从 EE_Information.txt 获取当前版本
+        // Get current version from EE_Information.txt
         private string CurrentVersion()
         {
             string url = $"https://gitee.com/{owner}/{repo}/raw/main/smartbot/DiscoverCC/EE_Information.txt";
@@ -896,7 +896,7 @@ namespace UniversalDiscover
             return match.Success ? match.Groups[1].Value : null;
         }
 
-        // 返回当前牌组中剩余卡牌列表
+        // Return list of current cards remaining in my deck
         private static List<Card.Cards> CurrentDeck(Board board)
         {
             var played = new HashSet<Card.Cards>(
@@ -908,43 +908,43 @@ namespace UniversalDiscover
         }
 
         // Board calculations
-        // 计算友方攻击值
+        // Calculate friendly attack value
         private static int CurrentFriendAttack(Board board)
         {
             return (board.MinionFriend.FindAll(x => x.CanAttack && (x.IsCharge || x.NumTurnsInPlay != 0) && x.CountAttack == 0 && !x.IsTired).Sum(x => x.CurrentAtk) + (board.HasWeapon(true) && board.HeroFriend.CountAttack == 0 ? board.WeaponFriend.CurrentAtk : 0));
         }
 
-        // 计算友方防御值（护甲、生命值和嘲讽）
+        // Calculate friendly defense value (armor, health and taunt)
         private static int CurrentFriendDefense(Board board)
         {
             return board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor + (board.MinionFriend.FindAll(x => x.IsTaunt == true).Sum(x => x.CurrentHealth));
         }
 
-        // 计算对手场上防御值（护甲、生命值和嘲讽值）
+        // Calculate opponent board defense value (armor, health and taunt values)
         private static int CurrentEnemyBoardDefense(Board board)
         {
             return board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor + (board.MinionEnemy.FindAll(x => x.IsTaunt == true).Sum(x => x.CurrentHealth));
         }
 
-        // 计算对手英雄防御值（护甲和生命值）
+        // Calculate opponent hero defense value (armor and health)
         private static int CurrentEnemyHeroDefense(Board board)
         {
             return board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
         }
 
-        // 计算对手攻击值
+        // Calculate opponent attack value
         private static int CurrentEnemyAttack(Board board)
         {
             return board.MinionEnemy.FindAll(x => x.CanAttack && (x.IsCharge || x.NumTurnsInPlay != 0) && x.CountAttack == 0 && !x.IsTired).Sum(x => x.CurrentAtk) + (board.HasWeapon(false) && board.HeroEnemy.CountAttack == 0 ? board.WeaponEnemy.CurrentAtk : 0);
         }
 
-        // 计算对手场上生命值
+        // Calculate opponent board health value
         private static int CurrentEnemyBoardHealth(Board board)
         {
             return board.MinionEnemy.FindAll(x => x.CurrentHealth > 0).Sum(x => x.CurrentHealth);
         }
 
-        // 检查敌方是否有斩杀
+        // Check if enemy has lethal
         private static bool EnemyHasLethal(Board board)
         {
             if (board.MinionFriend.Any(x => x.IsTaunt)) return false;
@@ -955,20 +955,20 @@ namespace UniversalDiscover
                    (board.HasWeapon(false) && board.HeroEnemy.CountAttack == 0 ? board.WeaponEnemy.CurrentAtk : 0);
         }
 
-        // 最后一张制胜卡牌
+        // Last chance card for a win
         private double LastChance(Card.Cards card, double points, Board board)
         {
             // Declare variables
             var cardTemplate = CardTemplate.LoadFromId(card);
 
-            // 卡牌有冲锋且能击杀对手英雄
+            // Has card charge and able to kill opponent hero
             if (cardTemplate.Charge && CurrentEnemyBoardDefense(board) <= (CurrentFriendAttack(board) + cardTemplate.Atk))
             {
                 description = "Possible enemy defeat, selecting charge card";
                 points = 1000 + cardTemplate.Atk;
             }
 
-            // 如果卡牌有嘲讽且敌方有斩杀
+            // If card has taunt and enemy has lethal
             if (cardTemplate.Taunt && EnemyHasLethal(board))
             {
                 description = "Enemy has lethal, selecting taunt card";
