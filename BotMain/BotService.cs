@@ -259,6 +259,7 @@ namespace BotMain
                 RecommendLocalMulligan,
                 RecommendLocalChoice);
             _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
+            _hsBoxRecommendationProvider.SetBgLog(msg => Log(msg));
         }
 
         public void RefreshProfiles()
@@ -870,6 +871,12 @@ namespace BotMain
 
         private void MainLoop()
         {
+            if (_modeIndex == 100)
+            {
+                BattlegroundsLoop();
+                return;
+            }
+
             var pipe = _pipe;
             int notOurTurnStreak = 0;
             int mulliganStreak = 0;
@@ -1770,6 +1777,282 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        private void BattlegroundsLoop()
+        {
+            var pipe = _pipe;
+            Log("[BG] 战旗模式启动");
+            ClearChoiceStateWatch("bg_loop_start");
+            ResetChoiceLogState();
+            _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
+            _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+
+            var gotInitialBgResp = TryGetBgStateResponse(pipe, 2000, out var initialBgResp, "BG.InitialProbe");
+            initialBgResp = gotInitialBgResp ? initialBgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+            if (initialBgResp == "NO_BG_STATE")
+            {
+                if (!PrepareBattlegroundsInitialEntry(pipe))
+                    return;
+
+                string playResp = null;
+                goto BgAfterInitialEntry;
+
+                #if false
+
+                Log("[BG] 未在游戏中，导航到战旗界面");
+                navResp = pipe.SendAndReceive("NAV_TO:BACON", 5000);
+                Log($"[BG] 导航 -> {navResp}");
+                Thread.Sleep(3000);
+
+                playResp = pipe.SendAndReceive("CLICK_PLAY", 3000);
+                Log($"[BG] 点击开始 -> {playResp}");
+
+                Log("[BG] 等待匹配...");
+                #endif
+            BgAfterInitialEntry:
+                Log("[BG] 等待匹配...");
+                var matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
+                while (_running && DateTime.UtcNow < matchTimeout)
+                {
+                    var gotFindingResp = TryGetYesNoResponse(pipe, "IS_FINDING", 1000, out var findingResp, "BG.Matchmaking");
+                    findingResp = gotFindingResp ? findingResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                    if (findingResp == "NO")
+                    {
+                        var gotCheckBgResp = TryGetBgStateResponse(pipe, 2000, out var checkBgResp, "BG.MatchmakingState");
+                        checkBgResp = gotCheckBgResp ? checkBgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                        if (checkBgResp != "NO_BG_STATE")
+                        {
+                            Log("[BG] 匹配成功，进入游戏");
+                            break;
+                        }
+                        Log("[BG] 匹配已取消，重新点击开始");
+                        if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, "BG.RematchClickPlay"))
+                            playResp = "NO_RESPONSE";
+                        Log($"[BG] 点击开始 -> {playResp}");
+                        matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
+                    }
+                    Thread.Sleep(1000);
+                }
+            }
+            else
+            {
+                Log("[BG] 已在游戏中，继续执行");
+            }
+
+            var lastPhase = "";
+            var heroPickBridgeWaitUntilUtc = DateTime.MinValue;
+            var heroPickForcePickAtUtc = DateTime.MinValue;
+
+            while (_running && pipe != null && pipe.IsConnected)
+            {
+                while (_suspended && _running) Thread.Sleep(500);
+                if (!_running) break;
+
+                var gotBgResp = TryGetBgStateResponse(pipe, 2000, out var bgResp, "BG.StatePoll");
+                bgResp = gotBgResp ? bgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                if (bgResp == "NO_BG_STATE")
+                {
+                    if (!TrySendAndReceiveExpected(
+                        pipe,
+                        "GET_SCENE",
+                        1000,
+                        BotProtocol.IsSceneResponse,
+                        out var sceneResp,
+                        "BG.NoStateScene"))
+                    {
+                        Thread.Sleep(1000);
+                        continue;
+                    }
+                    if (BotProtocol.TryParseScene(sceneResp, out var scene) && scene != "GAMEPLAY")
+                    {
+                        Log("[BG] 游戏结束，返回大厅");
+                        break;
+                    }
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!BotProtocol.TryParseBgState(bgResp, out var stateData))
+                {
+                    Log($"[BG] 状态解析失败: {(bgResp?.Length > 60 ? bgResp.Substring(0, 60) : bgResp)}");
+                    Thread.Sleep(500);
+                    continue;
+                }
+
+                var shopCount = CountBattlegroundStateEntries(stateData, "SHOP=");
+                var handCount = CountBattlegroundStateEntries(stateData, "HAND=");
+                var boardCount = CountBattlegroundStateEntries(stateData, "BOARD=");
+
+                // 提取阶段，仅在切换时输出日志
+                var phaseEnd = stateData.IndexOf('|');
+                var phaseTag = phaseEnd > 0 ? stateData.Substring(0, phaseEnd) : stateData.Substring(0, Math.Min(stateData.Length, 30));
+                if (phaseTag != lastPhase)
+                {
+                    Log($"[BG] 阶段切换: {phaseTag} (shop={shopCount}, hand={handCount}, board={boardCount})");
+                    lastPhase = phaseTag;
+                    if (stateData.Contains("PHASE=HERO_PICK", StringComparison.Ordinal))
+                    {
+                        heroPickBridgeWaitUntilUtc = DateTime.UtcNow.AddSeconds(8);
+                        heroPickForcePickAtUtc = DateTime.UtcNow.AddSeconds(16);
+                    }
+                    else
+                    {
+                        heroPickBridgeWaitUntilUtc = DateTime.MinValue;
+                        heroPickForcePickAtUtc = DateTime.MinValue;
+                    }
+                }
+
+                var choiceSeed = GetBattlegroundsChoiceSeed();
+                if (stateData.Contains("PHASE=HERO_PICK"))
+                {
+                    if (_followHsBoxRecommendations)
+                    {
+                        Log("[BG] 英雄选择阶段，请求盒子推荐...");
+                        var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
+                        Log($"[BG] 英雄选择推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
+                        if (actions != null && actions.Count > 0)
+                        {
+                            if (!WaitForGameReady(pipe, 10, 120, 1200))
+                            {
+                                Log("[BG] 英雄选择界面尚未就绪，稍后重试");
+                                Thread.Sleep(200);
+                                continue;
+                            }
+
+                            foreach (var action in actions)
+                            {
+                                var actionResp = SendActionCommand(pipe, action, 3000);
+                                Log($"[BG] 选择英雄 {action} -> {actionResp}");
+                                Thread.Sleep(500);
+                            }
+
+                            heroPickBridgeWaitUntilUtc = DateTime.MinValue;
+                            Thread.Sleep(1000);
+                            continue;
+                        }
+                    }
+
+                    if (heroPickBridgeWaitUntilUtc > DateTime.UtcNow)
+                    {
+                        Thread.Sleep(250);
+                        continue;
+                    }
+
+                    if (heroPickForcePickAtUtc > DateTime.UtcNow)
+                    {
+                        Thread.Sleep(250);
+                        continue;
+                    }
+
+                    if (handCount > 0)
+                    {
+                        const string fallbackHeroAction = "BG_HERO_PICK|1";
+                        if (!WaitForGameReady(pipe, 10, 120, 1200))
+                        {
+                            Log("[BG] 英雄选择界面尚未就绪，兜底选择稍后重试");
+                            Thread.Sleep(200);
+                            continue;
+                        }
+
+                        var fallbackResp = SendActionCommand(pipe, fallbackHeroAction, 3000);
+                        Log($"[BG] 英雄选择兜底 {fallbackHeroAction} -> {fallbackResp}");
+                        heroPickForcePickAtUtc = DateTime.UtcNow.AddSeconds(3);
+                        Thread.Sleep(1000);
+                        continue;
+                    }
+
+                    Thread.Sleep(500);
+                    continue;
+                }
+
+                if (TryHandlePendingChoiceBeforePlanning(pipe, choiceSeed, out var waitingForChoiceState)
+                    || waitingForChoiceState)
+                {
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                if (!stateData.Contains("PHASE=RECRUIT"))
+                {
+                    Thread.Sleep(500);
+                    continue;
+                }
+
+                if (_followHsBoxRecommendations)
+                {
+                    var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
+                    Log($"[BG] 招募阶段推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
+                    if (actions != null && actions.Count > 0)
+                    {
+                        if (!WaitForGameReady(pipe, 10, 120, 1200))
+                        {
+                            Log("[BG] 招募界面尚未就绪，稍后重试");
+                            Thread.Sleep(200);
+                            continue;
+                        }
+
+                        foreach (var action in actions)
+                        {
+                            var actionResp = SendActionCommand(pipe, action, 3000);
+                            Log($"[BG] 执行 {action} -> {actionResp}");
+                            if (action.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                                || action.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
+                                || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (TryHandlePendingChoiceBeforePlanning(pipe, choiceSeed, out var waitingForBgChoiceState))
+                                {
+                                    Thread.Sleep(150);
+                                }
+                                else if (waitingForBgChoiceState)
+                                {
+                                    Log($"[BG] 动作后检测到待处理选择: {action}");
+                                    Thread.Sleep(150);
+                                }
+                            }
+                            Thread.Sleep(200);
+                        }
+                    }
+                }
+
+                Thread.Sleep(500);
+            }
+
+            Log("[BG] 战旗模式结束");
+        }
+
+        private string GetBattlegroundsChoiceSeed()
+        {
+            if (!string.IsNullOrWhiteSpace(_lastObservedSeedResponse)
+                && _lastObservedSeedResponse.StartsWith("SEED:", StringComparison.Ordinal))
+            {
+                return _lastObservedSeedResponse.Substring("SEED:".Length);
+            }
+
+            return string.Empty;
+        }
+
+        private static int CountBattlegroundStateEntries(string stateData, string fieldPrefix)
+        {
+            if (string.IsNullOrWhiteSpace(stateData) || string.IsNullOrWhiteSpace(fieldPrefix))
+                return 0;
+
+            var startIdx = stateData.IndexOf(fieldPrefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return 0;
+
+            startIdx += fieldPrefix.Length;
+            var endIdx = stateData.IndexOf('|', startIdx);
+            var segment = endIdx >= 0
+                ? stateData.Substring(startIdx, endIdx - startIdx)
+                : stateData.Substring(startIdx);
+
+            if (string.IsNullOrWhiteSpace(segment))
+                return 0;
+
+            return segment
+                .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
+                .Count(entry => !string.IsNullOrWhiteSpace(entry));
         }
 
         private void ResetDiscoverLogState()
@@ -4029,6 +4312,18 @@ namespace BotMain
             return got;
         }
 
+        private bool TryGetBgStateResponse(PipeServer pipe, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                "GET_BG_STATE",
+                timeoutMs,
+                BotProtocol.IsBgStateResponse,
+                out response,
+                scope);
+        }
+
         private bool TryGetEndgameState(PipeServer pipe, int timeoutMs, out bool shown, out string endgameClass, string scope)
         {
             shown = false;
@@ -4103,6 +4398,372 @@ namespace BotMain
         {
             response = null;
             return TrySendStatusCommand(pipe, "DISMISS_BLOCKING_DIALOG", timeoutMs, out response, scope);
+        }
+
+        private bool PrepareBattlegroundsInitialEntry(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            Log("[BG] 等待大厅稳定后再进入战旗...");
+            while (_running && pipe.IsConnected)
+            {
+                if (!WaitForStableLobbyForNavigation(pipe, "BG.LobbyReady"))
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!TryGetSceneValue(pipe, 1500, out var currentScene, "BG.InitialScene"))
+                {
+                    Log("[BG] 获取当前场景超时，等待后重试...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!string.Equals(currentScene, "BACON", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (!TrySendStatusCommand(pipe, "NAV_TO:BACON", 5000, out var navRespSafe, "BG.NavToBacon"))
+                        navRespSafe = "NO_RESPONSE";
+                    Log($"[BG] NAV_TO:BACON -> {navRespSafe}");
+                    if (string.IsNullOrWhiteSpace(navRespSafe)
+                        || navRespSafe.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Thread.Sleep(2000);
+                        continue;
+                    }
+                }
+                else
+                {
+                    Log("[BG] Already in BACON scene, waiting for it to stabilize.");
+                }
+
+                #if false
+                if (!string.Equals(currentScene, "BACON", StringComparison.OrdinalIgnoreCase))
+                {
+                    var navResp = pipe.SendAndReceive("NAV_TO:BACON", 5000);
+                    Log($"[BG] 导航 -> {navResp}");
+                    if (string.IsNullOrWhiteSpace(navResp)
+                        || navResp.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Thread.Sleep(2000);
+                        continue;
+                    }
+                }
+                else
+                {
+                    Log("[BG] 已在战旗界面，等待界面稳定...");
+                }
+
+                #endif
+                if (!WaitForStableScene(pipe, "BACON", "BG.BaconReady"))
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out var playResp, "BG.InitialClickPlay"))
+                    playResp = "NO_RESPONSE";
+                Log($"[BG] 点击开始 -> {playResp}");
+                if (string.IsNullOrWhiteSpace(playResp)
+                    || playResp.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                {
+                    Thread.Sleep(2000);
+                    continue;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        #if false
+        private bool WaitForStableLobbyForNavigation(PipeServer pipe, string scope, int timeoutSeconds = 30)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            var stableLobbyConfirmCount = 0;
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    stableLobbyConfirmCount = 0;
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && !string.IsNullOrWhiteSpace(dismissResp)
+                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[{scope}] 关闭大厅阻塞弹窗 {dialogType}({dialogButton}) -> {dismissResp}");
+                        Thread.Sleep(800);
+                        continue;
+                    }
+
+                    Log($"[{scope}] 大厅存在阻塞弹窗 {dialogType}({dialogButton})，等待界面稳定...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                var gotScene = TryGetSceneValue(pipe, 1500, out var scene, scope);
+                var gotProbe = TryGetSeedProbe(pipe, 1500, out var probe, scope);
+                var gotFinding = TryGetYesNoResponse(pipe, "IS_FINDING", 1500, out var finding, scope);
+
+                if (gotScene && BotProtocol.IsNavigationBlockedScene(scene))
+                {
+                    stableLobbyConfirmCount = 0;
+                    Log($"[{scope}] 场景={scene}，等待大厅加载完成...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (gotScene && gotProbe && gotFinding)
+                {
+                    stableLobbyConfirmCount = BotProtocol.UpdateMatchmakingLobbyConfirmCount(
+                        stableLobbyConfirmCount,
+                        scene,
+                        probe,
+                        finding);
+                    if (stableLobbyConfirmCount >= PostGameLobbyConfirmationsRequired)
+                    {
+                        Log($"[{scope}] 大厅已稳定：scene={scene}, probe={ShortenSeedProbe(probe)}, finding={finding}");
+                        return true;
+                    }
+
+                    Log($"[{scope}] 等待大厅稳定确认 {stableLobbyConfirmCount}/{PostGameLobbyConfirmationsRequired}，scene={scene}, probe={ShortenSeedProbe(probe)}, finding={finding}");
+                }
+                else
+                {
+                    stableLobbyConfirmCount = 0;
+                    var sceneText = gotScene ? scene : "SCENE_TIMEOUT";
+                    var probeText = gotProbe ? ShortenSeedProbe(probe) : "SEED_TIMEOUT";
+                    var findingText = gotFinding ? finding : "FINDING_TIMEOUT";
+                    Log($"[{scope}] 大厅状态探测中... scene={sceneText}, probe={probeText}, finding={findingText}");
+                }
+
+                Thread.Sleep(1000);
+            }
+
+            Log($"[{scope}] 等待大厅加载超时({timeoutSeconds}s)，继续等待下一轮...");
+            return false;
+        }
+
+        #endif
+
+        private bool WaitForStableLobbyForNavigation(PipeServer pipe, string scope, int timeoutSeconds = 30)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            var stableLobbyConfirmCount = 0;
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    stableLobbyConfirmCount = 0;
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && !string.IsNullOrWhiteSpace(dismissResp)
+                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
+                        Thread.Sleep(800);
+                        continue;
+                    }
+
+                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                var gotScene = TryGetSceneValue(pipe, 1500, out var scene, scope);
+                var gotProbe = TryGetSeedProbe(pipe, 1500, out var probe, scope);
+                var gotFinding = TryGetYesNoResponse(pipe, "IS_FINDING", 1500, out var finding, scope);
+
+                if (gotScene && BotProtocol.IsNavigationBlockedScene(scene))
+                {
+                    stableLobbyConfirmCount = 0;
+                    Log($"[{scope}] Scene is still blocked for navigation: {scene}");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (gotScene && gotProbe && gotFinding)
+                {
+                    stableLobbyConfirmCount = BotProtocol.UpdateMatchmakingLobbyConfirmCount(
+                        stableLobbyConfirmCount,
+                        scene,
+                        probe,
+                        finding);
+                    if (stableLobbyConfirmCount >= PostGameLobbyConfirmationsRequired)
+                    {
+                        Log($"[{scope}] Lobby is stable: scene={scene}, probe={ShortenSeedProbe(probe)}, finding={finding}");
+                        return true;
+                    }
+
+                    Log($"[{scope}] Waiting for stable lobby {stableLobbyConfirmCount}/{PostGameLobbyConfirmationsRequired}: scene={scene}, probe={ShortenSeedProbe(probe)}, finding={finding}");
+                }
+                else
+                {
+                    stableLobbyConfirmCount = 0;
+                    var sceneText = gotScene ? scene : "SCENE_TIMEOUT";
+                    var probeText = gotProbe ? ShortenSeedProbe(probe) : "SEED_TIMEOUT";
+                    var findingText = gotFinding ? finding : "FINDING_TIMEOUT";
+                    Log($"[{scope}] Lobby state probe pending... scene={sceneText}, probe={probeText}, finding={findingText}");
+                }
+
+                Thread.Sleep(1000);
+            }
+
+            Log($"[{scope}] Timed out waiting for a stable lobby ({timeoutSeconds}s); will retry.");
+            return false;
+        }
+
+        #if false
+        private bool WaitForStableScene(PipeServer pipe, string expectedScene, string scope, int timeoutSeconds = 20)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            var confirmCount = 0;
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    confirmCount = 0;
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && !string.IsNullOrWhiteSpace(dismissResp)
+                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[{scope}] 关闭阻塞弹窗 {dialogType}({dialogButton}) -> {dismissResp}");
+                        Thread.Sleep(800);
+                        continue;
+                    }
+
+                    Log($"[{scope}] 界面存在阻塞弹窗 {dialogType}({dialogButton})，等待界面稳定...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!TryGetSceneValue(pipe, 1500, out var scene, scope))
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] 获取场景超时，等待进入 {expectedScene}...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (BotProtocol.IsNavigationBlockedScene(scene))
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] 场景={scene}，等待进入 {expectedScene}...");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (string.Equals(scene, expectedScene, StringComparison.OrdinalIgnoreCase))
+                {
+                    confirmCount++;
+                    if (confirmCount >= PostGameLobbyConfirmationsRequired)
+                    {
+                        Log($"[{scope}] 场景已稳定到 {scene}");
+                        return true;
+                    }
+
+                    Log($"[{scope}] 等待场景稳定确认 {confirmCount}/{PostGameLobbyConfirmationsRequired}，scene={scene}");
+                }
+                else
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] 等待进入 {expectedScene}，当前场景={scene}");
+                }
+
+                Thread.Sleep(1000);
+            }
+
+            Log($"[{scope}] 等待场景 {expectedScene} 稳定超时({timeoutSeconds}s)，继续等待下一轮...");
+            return false;
+        }
+
+        #endif
+
+        private bool WaitForStableScene(PipeServer pipe, string expectedScene, string scope, int timeoutSeconds = 20)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+            var confirmCount = 0;
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    confirmCount = 0;
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && !string.IsNullOrWhiteSpace(dismissResp)
+                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
+                        Thread.Sleep(800);
+                        continue;
+                    }
+
+                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (!TryGetSceneValue(pipe, 1500, out var scene, scope))
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] Scene probe timed out while waiting for {expectedScene}.");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (BotProtocol.IsNavigationBlockedScene(scene))
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] Scene is still blocked while waiting for {expectedScene}: {scene}");
+                    Thread.Sleep(1000);
+                    continue;
+                }
+
+                if (string.Equals(scene, expectedScene, StringComparison.OrdinalIgnoreCase))
+                {
+                    confirmCount++;
+                    if (confirmCount >= PostGameLobbyConfirmationsRequired)
+                    {
+                        Log($"[{scope}] Scene is stable: {scene}");
+                        return true;
+                    }
+
+                    Log($"[{scope}] Waiting for stable scene {confirmCount}/{PostGameLobbyConfirmationsRequired}: {scene}");
+                }
+                else
+                {
+                    confirmCount = 0;
+                    Log($"[{scope}] Waiting to enter {expectedScene}; current scene={scene}");
+                }
+
+                Thread.Sleep(1000);
+            }
+
+            Log($"[{scope}] Timed out waiting for stable scene {expectedScene} ({timeoutSeconds}s); will retry.");
+            return false;
         }
 
         private void ResetMatchmakingTracking()

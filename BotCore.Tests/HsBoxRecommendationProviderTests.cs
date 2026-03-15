@@ -548,6 +548,83 @@ namespace BotCore.Tests
             Assert.Equal("174228_553_count0017_choice_u1773049336553.json", fileName);
         }
 
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_UsesPipeSeparatedCommands()
+        {
+            var shopMap = new Dictionary<int, int> { [2] = 402 };
+            var boardMap = new Dictionary<int, int> { [4] = 601 };
+            var handMap = new Dictionary<int, int> { [1] = 503 };
+
+            var buyStep = new HsBoxActionStep
+            {
+                ActionName = "buy",
+                CardToken = JToken.FromObject(new { cardId = "BG_001", position = 2 })
+            };
+            Assert.Equal("BG_BUY|402|2", HsBoxBattlegroundsBridge.ConvertStepToCommand(buyStep, shopMap, boardMap, handMap));
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play_minion",
+                CardToken = JToken.FromObject(new { cardId = "BG_002", position = 1 }),
+                Target = new HsBoxCardRef { CardId = "BG_003", Position = 4 }
+            };
+            Assert.Equal("BG_PLAY|503|601|1", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+
+            var heroPowerStep = new HsBoxActionStep
+            {
+                ActionName = "hero_skill",
+                Target = new HsBoxCardRef { CardId = "BG_004", Position = 2 }
+            };
+            Assert.Equal("BG_HERO_POWER|402", HsBoxBattlegroundsBridge.ConvertStepToCommand(heroPowerStep, shopMap, boardMap, handMap));
+
+            var dualHeroPowerStep = new HsBoxActionStep
+            {
+                ActionName = "hero_skill",
+                CardToken = JToken.FromObject(new { cardId = "BG31_HERO_811p2" }),
+                Target = new HsBoxCardRef { CardId = "BG_004", Position = 2 }
+            };
+            var heroPowers = new List<BgHeroPowerRef>
+            {
+                new BgHeroPowerRef { EntityId = 901, CardId = "BG31_HERO_811p", IsAvailable = true, Index = 0 },
+                new BgHeroPowerRef { EntityId = 902, CardId = "BG31_HERO_811p2", IsAvailable = true, Index = 1 }
+            };
+            Assert.Equal("BG_HERO_POWER|902|402", HsBoxBattlegroundsBridge.ConvertStepToCommand(dualHeroPowerStep, shopMap, boardMap, handMap, false, heroPowers));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_SupportsBattlegroundAliases()
+        {
+            var shopMap = new Dictionary<int, int> { [3] = 703 };
+            var boardMap = new Dictionary<int, int> { [2] = 802 };
+            var handMap = new Dictionary<int, int>();
+
+            var sellStep = new HsBoxActionStep
+            {
+                ActionName = "sell_minion",
+                CardToken = JToken.FromObject(new { cardId = "BG_010", position = 2 })
+            };
+            Assert.Equal("BG_SELL|802", HsBoxBattlegroundsBridge.ConvertStepToCommand(sellStep, shopMap, boardMap, handMap));
+
+            var moveStep = new HsBoxActionStep
+            {
+                ActionName = "change_minion_index",
+                Position = 5,
+                CardToken = JToken.FromObject(new { cardId = "BG_011", position = 2 })
+            };
+            Assert.Equal("BG_MOVE|802|5", HsBoxBattlegroundsBridge.ConvertStepToCommand(moveStep, shopMap, boardMap, handMap));
+
+            var choiceStep = new HsBoxActionStep
+            {
+                ActionName = "choose",
+                CardToken = JToken.FromObject(new { cardId = "BG_012", position = 3 })
+            };
+            Assert.Equal("BG_BUY|703|3", HsBoxBattlegroundsBridge.ConvertStepToCommand(choiceStep, shopMap, boardMap, handMap));
+
+            Assert.Equal("BG_TAVERN_UP", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "tavern_up" }, shopMap, boardMap, handMap));
+            Assert.Equal("BG_REROLL", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "reroll_choices" }, shopMap, boardMap, handMap));
+            Assert.Equal("BG_FREEZE", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "freeze_choices" }, shopMap, boardMap, handMap));
+        }
+
         private static HsBoxRecommendationState CreateState(
             long updatedAtMs,
             string raw,

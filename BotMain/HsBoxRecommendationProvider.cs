@@ -25,9 +25,12 @@ namespace BotMain
         private const int FreshnessSlackMs = 3000;
 
         private readonly IHsBoxRecommendationBridge _bridge;
+        private readonly HsBoxBattlegroundsBridge _bgBridge = new HsBoxBattlegroundsBridge();
         private readonly int _actionWaitTimeoutMs;
         private readonly int _actionPollIntervalMs;
         private DateTime _nextPrimeAllowedUtc = DateTime.MinValue;
+
+        public void SetBgLog(Action<string> log) => _bgBridge.OnLog = log;
 
         public HsBoxGameRecommendationProvider()
             : this(new HsBoxRecommendationBridge())
@@ -405,6 +408,1020 @@ namespace BotMain
                 return "null";
 
             return $"updatedAt={state.UpdatedAtMs},count={state.Count},signature={state.PayloadSignature}";
+        }
+
+        public List<string> RecommendBattlegroundsActions(string bgStateData)
+        {
+            return _bgBridge.GetRecommendedActions(bgStateData);
+        }
+    }
+
+    /// <summary>
+    /// 战旗模式专用的 HsBox 推荐桥接器。
+    /// 连接 client-wargame/action 页面，Hook onUpdateBattleActionRecommend 回调，
+    /// 将盒子推荐的 actionName 转换为 ActionExecutor 命令（BG_BUY / BG_SELL 等）。
+    /// </summary>
+    internal sealed class HsBoxBattlegroundsBridge
+    {
+        private static readonly HttpClient Http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(2)
+        };
+
+        private readonly object _sync = new object();
+        private string _cachedWsUrl;
+        private DateTime _cachedWsUrlUntilUtc = DateTime.MinValue;
+
+        public Action<string> OnLog { get; set; }
+        private void Log(string msg) => OnLog?.Invoke(msg);
+
+        /// <summary>
+        /// 从盒子战旗页面读取推荐，转换为 ActionExecutor 命令列表。
+        /// bgStateData 是 BattlegroundStateData.Serialize() 的结果，
+        /// 用于将盒子的 position 映射为 entityId。
+        /// </summary>
+        public List<string> GetRecommendedActions(string bgStateData)
+        {
+            lock (_sync)
+            {
+                var wsUrl = GetWargameDebuggerUrl();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                {
+                    Log("[BgBridge] 未找到战旗盒子页面 (client-wargame/action)");
+                    return new List<string>();
+                }
+
+                var json = EvaluateOnPage(wsUrl, BuildBgHookScript());
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    Log("[BgBridge] JS 执行返回空");
+                    _cachedWsUrl = null;
+                    _cachedWsUrlUntilUtc = DateTime.MinValue;
+                    return new List<string>();
+                }
+
+                try
+                {
+                    var dto = JsonConvert.DeserializeObject<JObject>(json);
+                    if (dto == null)
+                    {
+                        Log("[BgBridge] JSON 解析返回 null");
+                        return new List<string>();
+                    }
+
+                    var ok = dto.Value<bool>("ok");
+                    var reason = dto.Value<string>("reason") ?? "";
+                    var count = dto.Value<long>("count");
+                    var stationCount = dto.Value<long?>("stationCount") ?? 0;
+                    var sourceCallback = dto.Value<string>("sourceCallback") ?? string.Empty;
+                    var bodyText = NormalizeBgBodyText(dto.Value<string>("bodyText") ?? string.Empty);
+                    Log($"[BgBridge] ok={ok}, reason={reason}, count={count}, stationCount={stationCount}, source={sourceCallback}");
+
+                    if (!ok)
+                        return new List<string>();
+
+                    var dataToken = dto["data"];
+                    var stationToken = dto["stationData"];
+                    var envelope = dataToken?.Type == JTokenType.Null ? null : dataToken?.ToObject<HsBoxRecommendationEnvelope>();
+                    var steps = envelope?.Data ?? new List<HsBoxActionStep>();
+                    if (dataToken == null || dataToken.Type == JTokenType.Null)
+                        Log("[BgBridge] action data is null");
+                    else
+                        Log($"[BgBridge] data 原始: {dataToken.ToString(Formatting.None).Substring(0, Math.Min(dataToken.ToString(Formatting.None).Length, 300))}");
+                    if (stationToken != null && stationToken.Type != JTokenType.Null)
+                        Log($"[BgBridge] station 原始: {stationToken.ToString(Formatting.None).Substring(0, Math.Min(stationToken.ToString(Formatting.None).Length, 300))}");
+                    if (steps.Count > 0)
+                    {
+                        Log($"[BgBridge] 收到 {steps.Count} 条推荐步骤");
+                        foreach (var step in steps)
+                        {
+                            var cardInfo = step.GetPrimaryCard();
+                            Log($"[BgBridge]   step: actionName={step.ActionName}, card={cardInfo?.CardId}(pos={cardInfo?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()}, zone={step.Target?.ZoneName}), sub={step.SubOption?.CardId}");
+                        }
+                    }
+                    else
+                    {
+                        Log($"[BgBridge] envelope.Data 为空, status={envelope?.Status}, error={envelope?.Error}");
+                        if (!string.IsNullOrWhiteSpace(bodyText))
+                            Log($"[BgBridge] bodyText: {bodyText.Substring(0, Math.Min(bodyText.Length, 240))}");
+                    }
+
+                    #if false
+                    if (dataToken == null || dataToken.Type == JTokenType.Null)
+                    {
+                        Log("[BgBridge] data 为 null，盒子尚未推送推荐");
+                        return new List<string>();
+                    }
+
+                    Log($"[BgBridge] data 原始: {dataToken.ToString(Formatting.None).Substring(0, Math.Min(dataToken.ToString(Formatting.None).Length, 300))}");
+
+                    var envelope = dataToken.ToObject<HsBoxRecommendationEnvelope>();
+                    if (envelope?.Data == null || envelope.Data.Count == 0)
+                    {
+                        Log($"[BgBridge] envelope.Data 为空, status={envelope?.Status}, error={envelope?.Error}");
+                        return new List<string>();
+                    }
+
+                    Log($"[BgBridge] 收到 {envelope.Data.Count} 条推荐步骤");
+                    foreach (var step in envelope.Data)
+                    {
+                        var cardInfo = step.GetPrimaryCard();
+                        Log($"[BgBridge]   step: actionName={step.ActionName}, card={cardInfo?.CardId}(pos={cardInfo?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()})");
+                    }
+
+                    #endif
+                    var isHeroPick = !string.IsNullOrWhiteSpace(bgStateData)
+                        && bgStateData.Contains("PHASE=HERO_PICK", StringComparison.Ordinal);
+                    var heroPowerRefs = ParseBgHeroPowerRefs(bgStateData);
+                    var heroPowerEntityId = heroPowerRefs.FirstOrDefault()?.EntityId ?? 0;
+                    var shopMap = ParseMinionMap(bgStateData, "SHOP=");
+                    var boardMap = ParseMinionMap(bgStateData, "BOARD=");
+                    var handMap = ParseMinionMap(bgStateData, "HAND=");
+                    Log($"[BgBridge] 映射表: shop={shopMap.Count}条, board={boardMap.Count}条, hand={handMap.Count}条, heroPowers={heroPowerRefs.Count}条, heroPower={heroPowerEntityId}");
+
+                    var commands = new List<string>();
+                    var sawExplicitEndTurn = false;
+                    var sawFreezeLikeAction = false;
+                    var pendingHeroPowerSourceId = 0;
+                    foreach (var step in steps)
+                    {
+                        var stepName = step?.ActionName?.Trim().ToLowerInvariant() ?? string.Empty;
+                        var heroPowerSourceId = !isHeroPick
+                            && string.Equals(stepName, "hero_skill", StringComparison.Ordinal)
+                            ? ResolveBattlegroundHeroPowerSourceEntityId(step, heroPowerRefs)
+                            : 0;
+                        if (stepName == "end_turn")
+                            sawExplicitEndTurn = true;
+                        if (stepName == "freeze" || stepName == "unfreeze")
+                            sawFreezeLikeAction = true;
+
+                        var cmd = ConvertStepToCommand(step, shopMap, boardMap, handMap, isHeroPick, heroPowerRefs);
+                        if (!string.IsNullOrWhiteSpace(cmd))
+                        {
+                            commands.Add(cmd);
+                            Log($"[BgBridge]   映射: {step.ActionName} -> {cmd}");
+
+                            if (!isHeroPick
+                                && string.Equals(stepName, "hero_skill", StringComparison.Ordinal)
+                                && heroPowerSourceId > 0)
+                            {
+                                if (TryBuildBattlegroundOptionCommand(step, heroPowerSourceId, out var inlineOptionCommand, out var inlineOptionDetail))
+                                {
+                                    commands.Add(inlineOptionCommand);
+                                    Log($"[BgBridge]   英雄技能子选项: {inlineOptionDetail} -> {inlineOptionCommand}");
+                                    pendingHeroPowerSourceId = 0;
+                                }
+                                else
+                                {
+                                    pendingHeroPowerSourceId = heroPowerSourceId;
+                                }
+                            }
+                            else if (!isHeroPick
+                                && pendingHeroPowerSourceId > 0
+                                && IsBattlegroundChoiceLikeAction(stepName)
+                                && TryBuildBattlegroundOptionCommand(step, pendingHeroPowerSourceId, out var chainedOptionCommand, out var chainedOptionDetail))
+                            {
+                                commands.Add(chainedOptionCommand);
+                                Log($"[BgBridge]   英雄技能后续选择: {chainedOptionDetail} -> {chainedOptionCommand}");
+                                pendingHeroPowerSourceId = 0;
+                            }
+                            else if (!IsBattlegroundChoiceLikeAction(stepName))
+                            {
+                                pendingHeroPowerSourceId = 0;
+                            }
+                        }
+                        else
+                        {
+                            if (!isHeroPick
+                                && pendingHeroPowerSourceId > 0
+                                && IsBattlegroundChoiceLikeAction(stepName)
+                                && TryBuildBattlegroundOptionCommand(step, pendingHeroPowerSourceId, out var orphanOptionCommand, out var orphanOptionDetail))
+                            {
+                                commands.Add(orphanOptionCommand);
+                                Log($"[BgBridge]   英雄技能后续选择: {orphanOptionDetail} -> {orphanOptionCommand}");
+                                pendingHeroPowerSourceId = 0;
+                            }
+                            else
+                            {
+                                var cardInfo = step.GetPrimaryCard();
+                                Log($"[BgBridge]   映射失败: {step.ActionName}, cardPos={cardInfo?.GetZonePosition()}, cardId={cardInfo?.CardId}");
+                            }
+                        }
+                    }
+                    Log($"[BgBridge] 最终命令 {commands.Count} 条");
+                    if (sawFreezeLikeAction && !sawExplicitEndTurn && commands.Contains("BG_FREEZE"))
+                    {
+                        commands.Add("BG_END_TURN");
+                        Log("[BgBridge]   映射: freeze/unfreeze -> BG_END_TURN (implicit)");
+                    }
+
+                    if (commands.Count == 0 && stationToken != null && stationToken.Type != JTokenType.Null)
+                    {
+                        var stationCommands = ConvertStationsToCommands(stationToken, bgStateData);
+                        if (stationCommands.Count > 0)
+                        {
+                            commands.AddRange(stationCommands);
+                            Log($"[BgBridge]   站位映射: {string.Join(",", stationCommands)}");
+                        }
+                    }
+
+                    if (commands.Count == 0
+                        && TryMapCommandsFromBodyText(bodyText, shopMap, boardMap, handMap, isHeroPick, out var bodyCommands, out var bodyDetail))
+                    {
+                        commands.AddRange(bodyCommands);
+                        Log($"[BgBridge]   文本映射: {bodyDetail} -> {string.Join(",", bodyCommands)}");
+                    }
+
+                    return commands;
+                }
+                catch (Exception ex)
+                {
+                    Log($"[BgBridge] 异常: {ex.Message}");
+                    _cachedWsUrl = null;
+                    _cachedWsUrlUntilUtc = DateTime.MinValue;
+                    return new List<string>();
+                }
+            }
+        }
+
+        internal static string ConvertStepToCommand(
+            HsBoxActionStep step,
+            Dictionary<int, int> shopMap,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> handMap,
+            bool isHeroPick = false,
+            IReadOnlyList<BgHeroPowerRef> heroPowers = null)
+        {
+            if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                return null;
+
+            var name = step.ActionName.Trim().ToLowerInvariant();
+            var card = step.GetPrimaryCard();
+            var target = step.Target;
+
+            switch (name)
+            {
+                case "buy":
+                case "buy_special":
+                case "buy_minion":
+                {
+                    var pos = card?.GetZonePosition() ?? 0;
+                    if (pos > 0 && shopMap.TryGetValue(pos, out var entityId))
+                        return $"BG_BUY|{entityId}|{pos}";
+                    return null;
+                }
+                case "sell":
+                case "sell_minion":
+                {
+                    var pos = card?.GetZonePosition() ?? 0;
+                    if (pos > 0 && boardMap.TryGetValue(pos, out var entityId))
+                        return $"BG_SELL|{entityId}";
+                    return null;
+                }
+                case "play":
+                case "special":
+                case "play_minion":
+                case "play_special":
+                {
+                    var pos = card?.GetZonePosition() ?? 0;
+                    int cardEntityId = 0;
+                    if (pos > 0)
+                        handMap.TryGetValue(pos, out cardEntityId);
+
+                    int targetEntityId = 0;
+                    if (target != null)
+                    {
+                        targetEntityId = ResolveBgTargetEntityId(target, boardMap, shopMap, preferBoard: true);
+                    }
+
+                    if (cardEntityId > 0)
+                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{pos}";
+                    return null;
+                }
+                case "hero_skill":
+                {
+                    var sourceHeroPowerEntityId = ResolveBattlegroundHeroPowerSourceEntityId(step, heroPowers);
+                    int targetEntityId = 0;
+                    if (target != null)
+                    {
+                        targetEntityId = ResolveBgTargetEntityId(target, boardMap, shopMap, preferBoard: false);
+                    }
+
+                    if (sourceHeroPowerEntityId > 0)
+                        return $"BG_HERO_POWER|{sourceHeroPowerEntityId}|{targetEntityId}";
+
+                    return targetEntityId > 0 ? $"BG_HERO_POWER|{targetEntityId}" : "BG_HERO_POWER";
+                }
+                case "upgrade":
+                case "tavern_up":
+                    return "BG_TAVERN_UP";
+                case "refresh":
+                case "reroll":
+                case "reroll_choices":
+                    if (isHeroPick)
+                    {
+                        var rerollPos = card?.GetZonePosition() ?? target?.GetZonePosition() ?? step.Position;
+                        return rerollPos > 0
+                            ? $"BG_HERO_REROLL|{rerollPos}"
+                            : "BG_HERO_REROLL";
+                    }
+                    return "BG_REROLL";
+                case "freeze":
+                case "unfreeze":
+                case "freeze_choices":
+                    return "BG_FREEZE";
+                case "end_turn":
+                    return "BG_END_TURN";
+                case "choice":
+                case "choose":
+                case "pick":
+                case "select":
+                case "choose_hero":
+                {
+                    var pos = card?.GetZonePosition() ?? target?.GetZonePosition() ?? step.Position;
+                    if (isHeroPick)
+                    {
+                        return pos > 0 ? $"BG_HERO_PICK|{pos}" : null;
+                    }
+
+                    // 发现选择 — 通过位置点击
+                    if (pos > 0 && shopMap.TryGetValue(pos, out var entityId))
+                        return $"BG_BUY|{entityId}|{pos}";
+                    if (pos > 0 && handMap.TryGetValue(pos, out entityId))
+                        return $"BG_PLAY|{entityId}|0|{pos}";
+                    return null;
+                }
+                case "change_minion_index":
+                {
+                    var pos = card?.GetZonePosition() ?? 0;
+                    if (pos > 0 && boardMap.TryGetValue(pos, out var entityId))
+                    {
+                        var newIndex = step.Position > 0 ? step.Position : pos;
+                        return $"BG_MOVE|{entityId}|{newIndex}";
+                    }
+                    return null;
+                }
+                default:
+                    return null;
+            }
+        }
+
+        private static bool TryMapCommandsFromBodyText(
+            string bodyText,
+            Dictionary<int, int> shopMap,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> handMap,
+            bool isHeroPick,
+            out List<string> commands,
+            out string detail)
+        {
+            commands = new List<string>();
+            detail = "body_empty";
+
+            var normalizedText = NormalizeBgBodyText(bodyText);
+            if (string.IsNullOrWhiteSpace(normalizedText))
+                return false;
+
+            if (isHeroPick)
+            {
+                if (TryMatchHeroPickIndex(normalizedText, reroll: true, out var rerollPos))
+                {
+                    commands.Add($"BG_HERO_REROLL|{rerollPos}");
+                    detail = $"hero_reroll pos={rerollPos}";
+                    return true;
+                }
+
+                if (TryMatchHeroPickIndex(normalizedText, reroll: false, out var heroPos))
+                {
+                    commands.Add($"BG_HERO_PICK|{heroPos}");
+                    detail = $"hero_pick pos={heroPos}";
+                    return true;
+                }
+            }
+
+            if (TryMatchIndexedAction(normalizedText, out var buyPos, "购买", "买入", "买"))
+            {
+                if (buyPos > 0 && shopMap.TryGetValue(buyPos, out var buyEntityId))
+                {
+                    commands.Add($"BG_BUY|{buyEntityId}|{buyPos}");
+                    detail = $"buy pos={buyPos}";
+                    return true;
+                }
+            }
+
+            if (TryMatchIndexedAction(normalizedText, out var playPos, "打出", "使用", "上场"))
+            {
+                if (playPos > 0 && handMap.TryGetValue(playPos, out var playEntityId))
+                {
+                    commands.Add($"BG_PLAY|{playEntityId}|0|{playPos}");
+                    detail = $"play pos={playPos}";
+                    return true;
+                }
+            }
+
+            if (TryMatchIndexedAction(normalizedText, out var sellPos, "出售", "卖出", "卖"))
+            {
+                if (sellPos > 0 && boardMap.TryGetValue(sellPos, out var sellEntityId))
+                {
+                    commands.Add($"BG_SELL|{sellEntityId}");
+                    detail = $"sell pos={sellPos}";
+                    return true;
+                }
+            }
+
+            const RegexOptions opts = RegexOptions.CultureInvariant | RegexOptions.IgnoreCase;
+            if (Regex.IsMatch(normalizedText, @"(?:升级)(?:酒馆|商店)?", opts))
+            {
+                commands.Add("BG_TAVERN_UP");
+                detail = "upgrade";
+                return true;
+            }
+
+            if (Regex.IsMatch(normalizedText, @"(?:取消冻结|解冻|冻结|锁定)(?:酒馆|商店)?", opts))
+            {
+                commands.Add("BG_FREEZE");
+                detail = "freeze_toggle";
+                return true;
+            }
+
+            if (Regex.IsMatch(normalizedText, @"(?:刷新|重掷|重投)(?:酒馆|商店|随从)?", opts))
+            {
+                commands.Add("BG_REROLL");
+                detail = "reroll_shop";
+                return true;
+            }
+
+            if (Regex.IsMatch(normalizedText, @"结束回合", opts))
+            {
+                commands.Add("BG_END_TURN");
+                detail = "end_turn";
+                return true;
+            }
+
+            detail = "body_unrecognized";
+            return false;
+        }
+
+        private static bool TryBuildBattlegroundOptionCommand(
+            HsBoxActionStep step,
+            int sourceEntityId,
+            out string command,
+            out string detail)
+        {
+            command = null;
+            detail = "bg_option_missing";
+
+            if (sourceEntityId <= 0 || step == null)
+            {
+                detail = "bg_option_source_missing";
+                return false;
+            }
+
+            var targetEntityId = 0;
+            var position = step.Position > 0 ? step.Position : 0;
+            var subOptionCardId = step.SubOption?.CardId;
+            if (string.IsNullOrWhiteSpace(subOptionCardId))
+                subOptionCardId = step.GetPrimaryCard()?.CardId;
+            if (string.IsNullOrWhiteSpace(subOptionCardId))
+                subOptionCardId = step.Target?.CardId;
+            if (string.IsNullOrWhiteSpace(subOptionCardId))
+                subOptionCardId = step.OppTarget?.CardId;
+
+            if (string.IsNullOrWhiteSpace(subOptionCardId))
+            {
+                detail = "bg_option_card_missing";
+                return false;
+            }
+
+            command = $"OPTION|{sourceEntityId}|{targetEntityId}|{position}|{subOptionCardId}";
+            detail = $"source={sourceEntityId},sub={subOptionCardId}";
+            return true;
+        }
+
+        private static bool IsBattlegroundChoiceLikeAction(string actionName)
+        {
+            switch ((actionName ?? string.Empty).ToLowerInvariant())
+            {
+                case "choose":
+                case "choice":
+                case "pick":
+                case "select":
+                case "discard":
+                case "common_action":
+                case "titan_power":
+                case "launch_starship":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryMatchHeroPickIndex(string normalizedText, bool reroll, out int position)
+        {
+            position = 0;
+            if (string.IsNullOrWhiteSpace(normalizedText))
+                return false;
+
+            var patterns = reroll
+                ? new[]
+                {
+                    @"(?:重掷|重投|刷新)(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?",
+                    @"(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?\s*(?:重掷|重投|刷新)"
+                }
+                : new[]
+                {
+                    @"(?:选择|选取|选)(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?",
+                    @"推荐(?:选择)?(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:英雄|卡牌)?"
+                };
+
+            foreach (var pattern in patterns)
+            {
+                var match = Regex.Match(normalizedText, pattern, RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                if (match.Success
+                    && match.Groups.Count >= 2
+                    && int.TryParse(match.Groups[1].Value, out position)
+                    && position > 0)
+                {
+                    return true;
+                }
+            }
+
+            position = 0;
+            return false;
+        }
+
+        private static bool TryMatchIndexedAction(string normalizedText, out int position, params string[] verbs)
+        {
+            position = 0;
+            if (string.IsNullOrWhiteSpace(normalizedText) || verbs == null || verbs.Length == 0)
+                return false;
+
+            foreach (var verb in verbs.Where(v => !string.IsNullOrWhiteSpace(v)))
+            {
+                var escapedVerb = Regex.Escape(verb);
+                var match = Regex.Match(
+                    normalizedText,
+                    $@"{escapedVerb}(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?",
+                    RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                if (!match.Success)
+                {
+                    match = Regex.Match(
+                        normalizedText,
+                        $@"(?:第)?\s*(\d+)\s*(?:号位|个|张)?(?:随从|法术|道具|卡牌|手牌)?\s*{escapedVerb}",
+                        RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+                }
+
+                if (match.Success
+                    && match.Groups.Count >= 2
+                    && int.TryParse(match.Groups[1].Value, out position)
+                    && position > 0)
+                {
+                    return true;
+                }
+            }
+
+            position = 0;
+            return false;
+        }
+
+        private static List<BgHeroPowerRef> ParseBgHeroPowerRefs(string bgStateData)
+        {
+            var items = new List<BgHeroPowerRef>();
+            if (string.IsNullOrWhiteSpace(bgStateData))
+                return items;
+
+            if (TryReadStateSegment(bgStateData, "HPS=", out var segment) && !string.IsNullOrWhiteSpace(segment))
+            {
+                foreach (var entry in segment.Split(';'))
+                {
+                    var fields = entry.Split(',');
+                    if (fields.Length < 5)
+                        continue;
+
+                    if (!int.TryParse(fields[0], out var entityId) || entityId <= 0)
+                        continue;
+
+                    var isAvailable = fields[2] == "1";
+                    var cost = int.TryParse(fields[3], out var parsedCost) ? parsedCost : 0;
+                    var index = int.TryParse(fields[4], out var parsedIndex) ? parsedIndex : 0;
+                    items.Add(new BgHeroPowerRef
+                    {
+                        EntityId = entityId,
+                        CardId = fields[1] ?? string.Empty,
+                        IsAvailable = isAvailable,
+                        Cost = cost,
+                        Index = index
+                    });
+                }
+            }
+
+            if (items.Count == 0
+                && TryReadStateSegment(bgStateData, "HP=", out segment)
+                && !string.IsNullOrWhiteSpace(segment))
+            {
+                var fields = segment.Split(',');
+                if (fields.Length >= 4
+                    && int.TryParse(fields[0], out var entityId)
+                    && entityId > 0)
+                {
+                    items.Add(new BgHeroPowerRef
+                    {
+                        EntityId = entityId,
+                        CardId = fields[1] ?? string.Empty,
+                        IsAvailable = fields[2] == "1",
+                        Cost = int.TryParse(fields[3], out var parsedCost) ? parsedCost : 0,
+                        Index = 0
+                    });
+                }
+            }
+
+            return items
+                .OrderBy(power => power.Index)
+                .ThenBy(power => power.EntityId)
+                .ToList();
+        }
+
+        private static int ResolveBattlegroundHeroPowerSourceEntityId(
+            HsBoxActionStep step,
+            IReadOnlyList<BgHeroPowerRef> heroPowers)
+        {
+            if (step == null || heroPowers == null || heroPowers.Count == 0)
+                return 0;
+
+            var primaryCard = step.GetPrimaryCard();
+            var desiredCardId = primaryCard?.CardId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(desiredCardId))
+            {
+                var exactAvailable = heroPowers.FirstOrDefault(power =>
+                    power.IsAvailable
+                    && string.Equals(power.CardId, desiredCardId, StringComparison.OrdinalIgnoreCase));
+                if (exactAvailable != null)
+                    return exactAvailable.EntityId;
+
+                var exact = heroPowers.FirstOrDefault(power =>
+                    string.Equals(power.CardId, desiredCardId, StringComparison.OrdinalIgnoreCase));
+                if (exact != null)
+                    return exact.EntityId;
+            }
+
+            var desiredPosition = primaryCard?.GetZonePosition() ?? step.Position;
+            if (desiredPosition > 0 && desiredPosition <= heroPowers.Count)
+                return heroPowers[desiredPosition - 1].EntityId;
+
+            var firstAvailable = heroPowers.FirstOrDefault(power => power.IsAvailable);
+            return firstAvailable?.EntityId ?? heroPowers[0].EntityId;
+        }
+
+        private static bool TryReadStateSegment(string bgStateData, string fieldPrefix, out string segment)
+        {
+            segment = string.Empty;
+            if (string.IsNullOrWhiteSpace(bgStateData) || string.IsNullOrWhiteSpace(fieldPrefix))
+                return false;
+
+            var startIdx = bgStateData.IndexOf(fieldPrefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return false;
+
+            startIdx += fieldPrefix.Length;
+            var endIdx = bgStateData.IndexOf('|', startIdx);
+            segment = endIdx >= 0
+                ? bgStateData.Substring(startIdx, endIdx - startIdx)
+                : bgStateData.Substring(startIdx);
+            return true;
+        }
+
+        private static string NormalizeBgBodyText(string bodyText)
+        {
+            if (string.IsNullOrWhiteSpace(bodyText))
+                return string.Empty;
+
+            return Regex.Replace(bodyText, @"\s+", " ").Trim();
+        }
+
+        /// <summary>
+        /// 从 BattlegroundStateData.Serialize() 的结果中解析随从列表，
+        /// 返回 position -> entityId 的映射。
+        /// 格式: FIELD=entityId,cardId,atk,hp,tier,pos,flags,cost;...
+        /// </summary>
+        private static Dictionary<int, int> ParseMinionMap(string bgStateData, string fieldPrefix)
+        {
+            var map = new Dictionary<int, int>();
+            if (string.IsNullOrWhiteSpace(bgStateData))
+                return map;
+
+            var startIdx = bgStateData.IndexOf(fieldPrefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return map;
+
+            startIdx += fieldPrefix.Length;
+            var endIdx = bgStateData.IndexOf('|', startIdx);
+            var segment = endIdx >= 0
+                ? bgStateData.Substring(startIdx, endIdx - startIdx)
+                : bgStateData.Substring(startIdx);
+
+            if (string.IsNullOrWhiteSpace(segment))
+                return map;
+
+            foreach (var entry in segment.Split(';'))
+            {
+                var fields = entry.Split(',');
+                if (fields.Length < 6) continue;
+                if (int.TryParse(fields[0], out var entityId) && int.TryParse(fields[5], out var pos) && pos > 0)
+                    map[pos] = entityId;
+            }
+
+            return map;
+        }
+
+        private static int ResolveBgTargetEntityId(
+            HsBoxCardRef target,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> shopMap,
+            bool preferBoard)
+        {
+            var tpos = target?.GetZonePosition() ?? 0;
+            if (tpos <= 0)
+                return 0;
+
+            if (string.Equals(target.ZoneName, "play", StringComparison.OrdinalIgnoreCase))
+            {
+                boardMap.TryGetValue(tpos, out var boardEntityId);
+                return boardEntityId;
+            }
+
+            if (string.Equals(target.ZoneName, "baconshop", StringComparison.OrdinalIgnoreCase))
+            {
+                shopMap.TryGetValue(tpos, out var shopEntityId);
+                return shopEntityId;
+            }
+
+            if (preferBoard)
+            {
+                if (boardMap.TryGetValue(tpos, out var boardEntityId))
+                    return boardEntityId;
+                if (shopMap.TryGetValue(tpos, out var shopEntityId))
+                    return shopEntityId;
+            }
+            else
+            {
+                if (shopMap.TryGetValue(tpos, out var shopEntityId))
+                    return shopEntityId;
+                if (boardMap.TryGetValue(tpos, out var boardEntityId))
+                    return boardEntityId;
+            }
+
+            return 0;
+        }
+
+        internal static List<string> ConvertStationsToCommands(JToken stationToken, string bgStateData)
+        {
+            var commands = new List<string>();
+            var envelope = stationToken?.ToObject<HsBoxBattlegroundStationsEnvelope>();
+            var desired = envelope?.Rearrange?.Data ?? new List<HsBoxBattlegroundStationCard>();
+            if (desired.Count == 0)
+                return commands;
+
+            var currentBoard = ParseBgMinionRefs(bgStateData, "BOARD=");
+            if (currentBoard.Count == 0)
+                return commands;
+
+            var unused = new List<BgMinionRef>(currentBoard);
+            for (var i = 0; i < desired.Count; i++)
+            {
+                var targetPos = i + 1;
+                var desiredCard = desired[i];
+                var match = unused.FirstOrDefault(card =>
+                    string.Equals(card.CardId, desiredCard.CardId, StringComparison.OrdinalIgnoreCase)
+                    && card.Attack == desiredCard.GetAttack()
+                    && card.Health == desiredCard.Health);
+
+                if (match == null)
+                {
+                    match = unused.FirstOrDefault(card =>
+                        string.Equals(card.CardId, desiredCard.CardId, StringComparison.OrdinalIgnoreCase));
+                }
+
+                if (match == null)
+                    continue;
+
+                unused.Remove(match);
+                if (match.Position != targetPos)
+                    commands.Add($"BG_MOVE|{match.EntityId}|{targetPos}");
+            }
+
+            return commands;
+        }
+
+        private static List<BgMinionRef> ParseBgMinionRefs(string bgStateData, string fieldPrefix)
+        {
+            var items = new List<BgMinionRef>();
+            if (string.IsNullOrWhiteSpace(bgStateData))
+                return items;
+
+            var startIdx = bgStateData.IndexOf(fieldPrefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return items;
+
+            startIdx += fieldPrefix.Length;
+            var endIdx = bgStateData.IndexOf('|', startIdx);
+            var segment = endIdx >= 0
+                ? bgStateData.Substring(startIdx, endIdx - startIdx)
+                : bgStateData.Substring(startIdx);
+
+            if (string.IsNullOrWhiteSpace(segment))
+                return items;
+
+            foreach (var entry in segment.Split(';'))
+            {
+                var fields = entry.Split(',');
+                if (fields.Length < 6)
+                    continue;
+
+                if (!int.TryParse(fields[0], out var entityId)
+                    || !int.TryParse(fields[2], out var attack)
+                    || !int.TryParse(fields[3], out var health)
+                    || !int.TryParse(fields[5], out var position)
+                    || position <= 0)
+                {
+                    continue;
+                }
+
+                items.Add(new BgMinionRef
+                {
+                    EntityId = entityId,
+                    CardId = fields[1] ?? string.Empty,
+                    Attack = attack,
+                    Health = health,
+                    Position = position
+                });
+            }
+
+            return items;
+        }
+
+        private string GetWargameDebuggerUrl()
+        {
+            if (!string.IsNullOrWhiteSpace(_cachedWsUrl) && _cachedWsUrlUntilUtc > DateTime.UtcNow)
+                return _cachedWsUrl;
+
+            try
+            {
+                var json = Http.GetStringAsync("http://127.0.0.1:9222/json/list").GetAwaiter().GetResult();
+                var targets = JArray.Parse(json);
+                var target = targets
+                    .OfType<JObject>()
+                    .FirstOrDefault(obj =>
+                    {
+                        var url = obj["url"]?.Value<string>() ?? string.Empty;
+                        return url.IndexOf("/client-wargame/action", StringComparison.OrdinalIgnoreCase) >= 0;
+                    });
+
+                var wsUrl = target?["webSocketDebuggerUrl"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                    return null;
+
+                _cachedWsUrl = wsUrl;
+                _cachedWsUrlUntilUtc = DateTime.UtcNow.AddSeconds(8);
+                return wsUrl;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string EvaluateOnPage(string webSocketDebuggerUrl, string expression)
+        {
+            using (var socket = new ClientWebSocket())
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            {
+                try
+                {
+                    socket.ConnectAsync(new Uri(webSocketDebuggerUrl), cts.Token).GetAwaiter().GetResult();
+
+                    var request = new JObject
+                    {
+                        ["id"] = 1,
+                        ["method"] = "Runtime.evaluate",
+                        ["params"] = new JObject
+                        {
+                            ["expression"] = expression,
+                            ["returnByValue"] = true,
+                            ["awaitPromise"] = true
+                        }
+                    };
+
+                    var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
+                    socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token)
+                        .GetAwaiter().GetResult();
+
+                    while (true)
+                    {
+                        var buffer = new byte[32768];
+                        using (var stream = new MemoryStream())
+                        {
+                            WebSocketReceiveResult result;
+                            do
+                            {
+                                result = socket.ReceiveAsync(new ArraySegment<byte>(buffer), cts.Token).GetAwaiter().GetResult();
+                                if (result.Count > 0) stream.Write(buffer, 0, result.Count);
+                            } while (!result.EndOfMessage);
+
+                            var responseText = Encoding.UTF8.GetString(stream.ToArray());
+                            if (string.IsNullOrWhiteSpace(responseText)) continue;
+
+                            var response = JObject.Parse(responseText);
+                            if (response["id"]?.Value<int>() != 1) continue;
+
+                            return response["result"]?["result"]?["value"]?.Value<string>();
+                        }
+                    }
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        private static string BuildBgHookScript()
+        {
+            return @"(() => {
+  const response = {
+    ok: false,
+    count: Number(window.__hbBgCount || 0),
+    updatedAt: Number(window.__hbBgUpdatedAt || 0),
+    data: window.__hbBgLastData ?? null,
+    stationData: window.__hbBgLastStations ?? null,
+    stationCount: Number(window.__hbBgStationCount || 0),
+    sourceCallback: window.__hbBgLastSource ?? '',
+    bodyText: document.body ? document.body.innerText.slice(0, 1500) : '',
+    href: location.href,
+    title: document.title ?? ''
+  };
+  try {
+    if (!window.__hbBgHooked) window.__hbBgHooked = {};
+    const stationOrig = window.onUpdateBattleStations;
+    const pattern = /^onUpdateBattle\w*Recommend$/;
+    let foundRecommend = false;
+    for (const key of Object.keys(window)) {
+      if (!pattern.test(key)) continue;
+      if (typeof window[key] !== 'function') continue;
+      foundRecommend = true;
+      if (window.__hbBgHooked[key]) continue;
+      const origKey = '__hbBgOrig_' + key;
+      window[origKey] = window[key];
+      window[key] = function(e) {
+        e = e || '';
+        window.__hbBgCount = Number(window.__hbBgCount || 0) + 1;
+        window.__hbBgUpdatedAt = Date.now();
+        window.__hbBgLastSource = key;
+        try {
+          window.__hbBgLastData = JSON.parse(e);
+        } catch (err) {
+          window.__hbBgLastData = { __parseError: String(err), raw: e };
+        }
+        return window[origKey].apply(this, arguments);
+      };
+      window.__hbBgHooked[key] = true;
+    }
+    if (!foundRecommend && typeof stationOrig !== 'function' && !window.__hbBgStationsHooked) {
+      response.reason = 'callback_missing';
+      return JSON.stringify(response);
+    }
+    if (typeof stationOrig === 'function' && !window.__hbBgStationsHooked) {
+      window.__hbBgStationsOriginal = stationOrig;
+      window.onUpdateBattleStations = function(e) {
+        e = e || '';
+        window.__hbBgStationCount = Number(window.__hbBgStationCount || 0) + 1;
+        try {
+          window.__hbBgLastStations = JSON.parse(e);
+        } catch (err) {
+          window.__hbBgLastStations = { __parseError: String(err), raw: e };
+        }
+        return window.__hbBgStationsOriginal.apply(this, arguments);
+      };
+      window.__hbBgStationsHooked = true;
+    }
+    response.ok = true;
+    response.count = Number(window.__hbBgCount || 0);
+    response.updatedAt = Number(window.__hbBgUpdatedAt || 0);
+    response.data = window.__hbBgLastData ?? null;
+    response.stationData = window.__hbBgLastStations ?? null;
+    response.stationCount = Number(window.__hbBgStationCount || 0);
+    response.sourceCallback = window.__hbBgLastSource ?? '';
+    response.bodyText = document.body ? document.body.innerText.slice(0, 1500) : '';
+    response.href = location.href;
+    response.title = document.title ?? '';
+    response.reason = response.count > 0 || response.stationCount > 0
+      ? 'ready'
+      : (response.bodyText ? 'body_only' : 'waiting');
+    return JSON.stringify(response);
+  } catch (error) {
+    response.reason = String(error && error.message ? error.message : error);
+    return JSON.stringify(response);
+  }
+})()";
         }
     }
 
@@ -878,30 +1895,62 @@ namespace BotMain
     data: window.__hbHsBoxLastData ?? null,
     href: location.href,
     bodyText: document.body ? document.body.innerText.slice(0, 1500) : '',
-    reason: ''
+    reason: '',
+    sourceCallback: window.__hbHsBoxLastSource ?? '',
+    title: document.title ?? ''
   };
   try {
-    const current = window.onUpdateLadderActionRecommend;
-    const original = typeof current === 'function' ? current : window.__hbHsBoxOriginal;
-    if (typeof original !== 'function') {
-      response.reason = 'callback_missing';
-      return JSON.stringify(response);
-    }
-    if (window.__hbHsBoxWrapped !== current) {
-      window.__hbHsBoxOriginal = original;
-      window.__hbHsBoxWrapped = function(e = '') {
+    if (!window.__hbHsBoxHooked) window.__hbHsBoxHooked = {};
+    const pattern = /^onUpdate\w*Recommend$/;
+    let foundAny = false;
+    for (const key of Object.keys(window)) {
+      if (!pattern.test(key)) continue;
+      if (typeof window[key] !== 'function') continue;
+      foundAny = true;
+      if (window.__hbHsBoxHooked[key]) continue;
+      const origKey = '__hbOrig_' + key;
+      window[origKey] = window[key];
+      window[key] = function(e) {
+        e = e || '';
         window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0) + 1;
         window.__hbHsBoxUpdatedAt = Date.now();
         window.__hbHsBoxLastRaw = e;
+        window.__hbHsBoxLastSource = key;
         try {
           const normalized = e.replaceAll('opp-target-hero', 'oppTargetHero').replaceAll('opp-target', 'oppTarget').replaceAll('target-hero', 'targetHero');
           window.__hbHsBoxLastData = JSON.parse(normalized);
         } catch (error) {
           window.__hbHsBoxLastData = { __parseError: String(error), raw: e };
         }
-        return window.__hbHsBoxOriginal.apply(this, arguments);
+        return window[origKey].apply(this, arguments);
       };
-      window.onUpdateLadderActionRecommend = window.__hbHsBoxWrapped;
+      window.__hbHsBoxHooked[key] = true;
+    }
+    if (!foundAny) {
+      const current = window.onUpdateLadderActionRecommend;
+      const original = typeof current === 'function' ? current : window.__hbHsBoxOriginal;
+      if (typeof original !== 'function') {
+        response.reason = 'callback_missing';
+        return JSON.stringify(response);
+      }
+      if (window.__hbHsBoxWrapped !== current) {
+        window.__hbHsBoxOriginal = original;
+        window.__hbHsBoxWrapped = function(e) {
+          e = e || '';
+          window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0) + 1;
+          window.__hbHsBoxUpdatedAt = Date.now();
+          window.__hbHsBoxLastRaw = e;
+          window.__hbHsBoxLastSource = 'onUpdateLadderActionRecommend';
+          try {
+            const normalized = e.replaceAll('opp-target-hero', 'oppTargetHero').replaceAll('opp-target', 'oppTarget').replaceAll('target-hero', 'targetHero');
+            window.__hbHsBoxLastData = JSON.parse(normalized);
+          } catch (error) {
+            window.__hbHsBoxLastData = { __parseError: String(error), raw: e };
+          }
+          return window.__hbHsBoxOriginal.apply(this, arguments);
+        };
+        window.onUpdateLadderActionRecommend = window.__hbHsBoxWrapped;
+      }
     }
     response.ok = true;
     response.hooked = true;
@@ -909,6 +1958,7 @@ namespace BotMain
     response.updatedAt = Number(window.__hbHsBoxUpdatedAt || 0);
     response.raw = window.__hbHsBoxLastRaw ?? null;
     response.data = window.__hbHsBoxLastData ?? null;
+    response.sourceCallback = window.__hbHsBoxLastSource ?? '';
     response.reason = response.count > 0 ? 'ready' : 'waiting_for_box_payload';
     return JSON.stringify(response);
   } catch (error) {
@@ -1520,10 +2570,192 @@ namespace BotMain
                 case "launch_starship":
                 case "common_action":
                     return TryMapOptionAction(step, board, out command, out reason);
+
+                // ── 战旗模式动作 ──
+                case "buy_minion":
+                    return TryMapBgBuy(step, out command, out reason);
+                case "sell_minion":
+                    return TryMapBgSell(step, out command, out reason);
+                case "change_minion_index":
+                    return TryMapBgMove(step, out command, out reason);
+                case "tavern_up":
+                    command = "BG_TAVERN_UP";
+                    reason = "ok";
+                    return true;
+                case "reroll_choices":
+                    command = "BG_REROLL";
+                    reason = "ok";
+                    return true;
+                case "freeze_choices":
+                    command = "BG_FREEZE";
+                    reason = "ok";
+                    return true;
+
                 default:
                     reason = "unsupported_action_name";
                     return false;
             }
+        }
+
+        // ── 战旗动作映射 ──
+
+        private static bool TryMapBgBuy(HsBoxActionStep step, out string command, out string reason)
+        {
+            command = null;
+            var card = step.GetPrimaryCard();
+            if (card == null)
+            {
+                reason = "bg_buy_card_missing";
+                return false;
+            }
+
+            // 商店随从的 zone_position 用来定位
+            var position = step.Position > 0 ? step.Position : card.GetZonePosition();
+            // 对于战旗, entityId 不一定与 Board 匹配，使用 zonePosition 作为标识
+            // 使用 ExtraData 中可能存在的 entityId
+            var entityId = TryGetExtraEntityId(step);
+            if (entityId <= 0)
+                entityId = card.GetZonePosition(); // 兜底用 position 作为 entityId 占位
+
+            command = $"BG_BUY|{entityId}|{position}";
+            reason = "ok";
+            return true;
+        }
+
+        private static bool TryMapBgSell(HsBoxActionStep step, out string command, out string reason)
+        {
+            command = null;
+            var card = step.GetPrimaryCard();
+            if (card == null)
+            {
+                reason = "bg_sell_card_missing";
+                return false;
+            }
+
+            var entityId = TryGetExtraEntityId(step);
+            if (entityId <= 0)
+                entityId = card.GetZonePosition();
+
+            command = $"BG_SELL|{entityId}";
+            reason = "ok";
+            return true;
+        }
+
+        private static bool TryMapBgMove(HsBoxActionStep step, out string command, out string reason)
+        {
+            command = null;
+            var card = step.GetPrimaryCard();
+            if (card == null)
+            {
+                reason = "bg_move_card_missing";
+                return false;
+            }
+
+            var entityId = TryGetExtraEntityId(step);
+            if (entityId <= 0)
+                entityId = card.GetZonePosition();
+
+            var newIndex = step.Position > 0 ? step.Position : 0;
+            command = $"BG_MOVE|{entityId}|{newIndex}";
+            reason = "ok";
+            return true;
+        }
+
+        /// <summary>
+        /// 判断 HSBox step 是否包含战旗动词
+        /// </summary>
+        internal static bool IsBattlegroundsActionName(string actionName)
+        {
+            switch ((actionName ?? string.Empty).ToLowerInvariant())
+            {
+                case "buy_minion":
+                case "sell_minion":
+                case "change_minion_index":
+                case "tavern_up":
+                case "reroll_choices":
+                case "freeze_choices":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>
+        /// 战旗模式专用映射入口 —— 只映射战旗动词 + end_turn + hero_skill + choice/choose
+        /// </summary>
+        public static bool TryMapBattlegroundsActions(HsBoxRecommendationState state, out List<string> actions, out string detail)
+        {
+            actions = new List<string>();
+            detail = "bg_action_state_invalid";
+
+            var steps = GetSteps(state, out var stateDetail);
+            if (steps == null)
+            {
+                detail = stateDetail;
+                return false;
+            }
+
+            var skipped = new List<string>();
+            foreach (var step in steps)
+            {
+                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                    continue;
+
+                var name = step.ActionName.ToLowerInvariant();
+
+                // 战旗动词
+                if (IsBattlegroundsActionName(name) || name == "end_turn" || name == "hero_skill")
+                {
+                    if (!TryMapSingleAction(step, null, 0, out var cmd, out var reason))
+                    {
+                        detail = $"bg_map_failed:{name}:{reason}";
+                        return false;
+                    }
+                    if (!string.IsNullOrWhiteSpace(cmd))
+                        actions.Add(cmd);
+                }
+                // 选择类动词（英雄选择、饰品发现等）仍走 choice 管道
+                else if (IsChoiceRecommendationAction(name))
+                {
+                    skipped.Add(name);
+                }
+                else if (name == "play_minion" || name == "play_special")
+                {
+                    // 战旗中 play_minion 可能是"打出手牌中的随从"
+                    var card = step.GetPrimaryCard();
+                    var entityId = TryGetExtraEntityId(step);
+                    if (entityId <= 0 && card != null)
+                        entityId = card.GetZonePosition();
+                    var target = TryGetExtraEntityId(step, "target");
+                    var position = step.Position > 0 ? step.Position : 0;
+                    actions.Add($"BG_PLAY|{entityId}|{target}|{position}");
+                }
+                else
+                {
+                    skipped.Add(name);
+                }
+            }
+
+            if (actions.Count == 0)
+            {
+                detail = $"bg_actions_empty; skipped={string.Join(",", skipped)}; {state.Detail}";
+                return false;
+            }
+
+            detail = $"bg_count={actions.Count}, skipped={skipped.Count}, updatedAt={state.UpdatedAtMs}, commands={SummarizeCommands(actions)}";
+            return true;
+        }
+
+        private static int TryGetExtraEntityId(HsBoxActionStep step, string key = "entityId")
+        {
+            if (step?.ExtraData == null)
+                return 0;
+            if (step.ExtraData.TryGetValue(key, out var token))
+            {
+                var val = token.Value<int>();
+                if (val > 0) return val;
+            }
+            return 0;
         }
 
         private static bool TryMapPlayAction(HsBoxActionStep step, Board board, out string command, out string reason)
@@ -2319,6 +3551,8 @@ namespace BotMain
         public string Href { get; set; }
         public string BodyText { get; set; }
         public string Reason { get; set; }
+        public string SourceCallback { get; set; }
+        public string Title { get; set; }
         public HsBoxRecommendationEnvelope Envelope { get; set; }
         public JToken RawToken
         {
@@ -2382,6 +3616,8 @@ namespace BotMain
                 Href = dto.Href ?? string.Empty,
                 BodyText = dto.BodyText ?? string.Empty,
                 Reason = dto.Reason ?? string.Empty,
+                SourceCallback = dto.SourceCallback ?? string.Empty,
+                Title = dto.Title ?? string.Empty,
                 Envelope = dto.Data
             };
         }
@@ -2445,6 +3681,12 @@ namespace BotMain
 
         [JsonProperty("reason")]
         public string Reason { get; set; }
+
+        [JsonProperty("sourceCallback")]
+        public string SourceCallback { get; set; }
+
+        [JsonProperty("title")]
+        public string Title { get; set; }
     }
 
     internal sealed class HsBoxRecommendationEnvelope
@@ -2509,6 +3751,59 @@ namespace BotMain
         }
     }
 
+    internal sealed class HsBoxBattlegroundStationsEnvelope
+    {
+        [JsonProperty("rearrange")]
+        public HsBoxBattlegroundStationGroup Rearrange { get; set; } = new HsBoxBattlegroundStationGroup();
+    }
+
+    internal sealed class HsBoxBattlegroundStationGroup
+    {
+        [JsonProperty("data")]
+        public List<HsBoxBattlegroundStationCard> Data { get; set; } = new List<HsBoxBattlegroundStationCard>();
+    }
+
+    internal sealed class HsBoxBattlegroundStationCard
+    {
+        [JsonProperty("cardId")]
+        public string CardId { get; set; }
+
+        [JsonProperty("cardName")]
+        public string CardName { get; set; }
+
+        [JsonProperty("atk")]
+        public int Attack { get; set; }
+
+        [JsonProperty("attack")]
+        public int AttackAlt { get; set; }
+
+        [JsonProperty("health")]
+        public int Health { get; set; }
+
+        public int GetAttack()
+        {
+            return Attack > 0 ? Attack : AttackAlt;
+        }
+    }
+
+    internal sealed class BgMinionRef
+    {
+        public int EntityId { get; set; }
+        public string CardId { get; set; }
+        public int Attack { get; set; }
+        public int Health { get; set; }
+        public int Position { get; set; }
+    }
+
+    internal sealed class BgHeroPowerRef
+    {
+        public int EntityId { get; set; }
+        public string CardId { get; set; }
+        public bool IsAvailable { get; set; }
+        public int Cost { get; set; }
+        public int Index { get; set; }
+    }
+
     internal sealed class HsBoxCardRef
     {
         [JsonProperty("cardId")]
@@ -2516,6 +3811,9 @@ namespace BotMain
 
         [JsonProperty("cardName")]
         public string CardName { get; set; }
+
+        [JsonProperty("zoneName")]
+        public string ZoneName { get; set; }
 
         [JsonProperty("ZONE_POSITION")]
         public int ZonePosition { get; set; }

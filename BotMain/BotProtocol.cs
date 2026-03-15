@@ -308,6 +308,7 @@ namespace BotMain
         {
             return string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(scene, "COLLECTIONMANAGER", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(scene, "GAME_MODE", StringComparison.OrdinalIgnoreCase);
         }
@@ -413,6 +414,20 @@ namespace BotMain
                 .ToLowerInvariant()
                 .Where(c => !char.IsWhiteSpace(c) && c != '_' && c != '-' && c != ':')
                 .ToArray());
+        }
+
+        public static bool IsBgStateResponse(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && (resp.StartsWith("BG_STATE:", StringComparison.Ordinal) || resp == "NO_BG_STATE");
+        }
+
+        public static bool TryParseBgState(string resp, out string stateData)
+        {
+            stateData = null;
+            if (!resp.StartsWith("BG_STATE:", StringComparison.Ordinal)) return false;
+            stateData = resp.Substring("BG_STATE:".Length);
+            return true;
         }
     }
 }

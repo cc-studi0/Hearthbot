@@ -169,6 +169,14 @@ namespace HearthstonePayload
         /// </summary>
         public static bool GetHeroPowerScreenPos(out int x, out int y)
         {
+            return GetHeroPowerScreenPos(0, out x, out y);
+        }
+
+        /// <summary>
+        /// 英雄技能位置。sourceHeroPowerEntityId>0 时优先定位指定英雄技能按钮。
+        /// </summary>
+        public static bool GetHeroPowerScreenPos(int sourceHeroPowerEntityId, out int x, out int y)
+        {
             x = y = 0;
             if (!EnsureTypes()) return false;
 
@@ -179,11 +187,7 @@ namespace HearthstonePayload
                 ?? Invoke(gs, "GetFriendlyPlayer");
             if (friendly == null) return false;
 
-            var heroPower = Invoke(friendly, "GetHeroPower");
-            if (heroPower == null) return false;
-
-            var hpEntity = Invoke(heroPower, "GetEntity") ?? heroPower;
-            var card = Invoke(hpEntity, "GetCard") ?? Invoke(heroPower, "GetCard");
+            var card = ResolveHeroPowerCard(friendly, sourceHeroPowerEntityId);
             if (card == null) return FallbackHeroPower(out x, out y);
 
             var pos = GetTransformPos(card);
@@ -596,6 +600,43 @@ namespace HearthstonePayload
             return new SimpleVector3 { x = x, y = y, z = z };
         }
 
+        private static object ResolveHeroPowerCard(object friendly, int sourceHeroPowerEntityId)
+        {
+            if (friendly == null)
+                return null;
+
+            var heroPower = Invoke(friendly, "GetHeroPower");
+            var heroPowerEntity = Invoke(heroPower, "GetEntity") ?? heroPower;
+            if (sourceHeroPowerEntityId <= 0 || GetEntityIdFromObject(heroPowerEntity, _gameStateType?.Assembly.GetType("GAME_TAG")) == sourceHeroPowerEntityId)
+            {
+                var primaryCard = Invoke(heroPowerEntity, "GetCard") ?? Invoke(heroPower, "GetCard");
+                if (primaryCard != null)
+                    return primaryCard;
+            }
+
+            var gs = InvokeStatic(_gameStateType, "Get");
+            var requestedEntity = gs != null ? GetEntity(gs, sourceHeroPowerEntityId) : null;
+            if (requestedEntity == null)
+                return Invoke(heroPowerEntity, "GetCard") ?? Invoke(heroPower, "GetCard");
+
+            var controller = Invoke(requestedEntity, "GetController") ?? friendly;
+            var additionalIndex = GetTagValue(requestedEntity, "ADDITIONAL_HERO_POWER_INDEX");
+            if (additionalIndex > 0)
+            {
+                var indexedCard = InvokeWithIntArg(controller, "GetHeroPowerCardWithIndex", additionalIndex);
+                if (indexedCard != null)
+                    return indexedCard;
+            }
+
+            var directCard = Invoke(requestedEntity, "GetCard");
+            if (directCard != null)
+                return directCard;
+
+            return Invoke(controller, "GetHeroPowerCard")
+                ?? Invoke(heroPowerEntity, "GetCard")
+                ?? Invoke(heroPower, "GetCard");
+        }
+
         private struct SimpleVector3
         {
             public float x, y, z;
@@ -606,6 +647,37 @@ namespace HearthstonePayload
             if (vector3 == null) return 0;
             var f = vector3.GetType().GetField(field);
             return f != null ? (float)f.GetValue(vector3) : 0;
+        }
+
+        private static int GetTagValue(object entity, string tagName)
+        {
+            if (entity == null || string.IsNullOrWhiteSpace(tagName) || !EnsureTypes())
+                return 0;
+
+            try
+            {
+                var tagType = _gameStateType?.Assembly.GetType("GAME_TAG");
+                if (tagType == null)
+                    return 0;
+
+                var tagValue = Enum.Parse(tagType, tagName, true);
+                var tagInt = Convert.ToInt32(tagValue);
+                var getTag = entity.GetType().GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    .FirstOrDefault(method => method.Name == "GetTag" && method.GetParameters().Length == 1);
+                if (getTag == null)
+                    return 0;
+
+                var paramType = getTag.GetParameters()[0].ParameterType;
+                object arg = paramType.IsEnum
+                    ? (paramType == tagType ? tagValue : Enum.ToObject(paramType, tagInt))
+                    : Convert.ChangeType(tagInt, paramType);
+                var result = getTag.Invoke(entity, new[] { arg });
+                return result != null ? Convert.ToInt32(result) : 0;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         public static int NormalizeBoardDropPosition(int position, int totalMinions)
@@ -718,6 +790,32 @@ namespace HearthstonePayload
             return mi?.Invoke(obj, null);
         }
 
+        private static object InvokeWithIntArg(object obj, string method, int arg)
+        {
+            if (obj == null || string.IsNullOrWhiteSpace(method))
+                return null;
+
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var mi = obj.GetType().GetMethods(flags)
+                .FirstOrDefault(candidate =>
+                    candidate.Name.Equals(method, StringComparison.OrdinalIgnoreCase)
+                    && candidate.GetParameters().Length == 1
+                    && IsNumericParameterType(candidate.GetParameters()[0].ParameterType));
+            if (mi == null)
+                return null;
+
+            try
+            {
+                var parameterType = mi.GetParameters()[0].ParameterType;
+                var argValue = Convert.ChangeType(arg, parameterType);
+                return mi.Invoke(obj, new[] { argValue });
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
         private static object InvokeStatic(Type type, string method)
         {
             if (type == null) return null;
@@ -733,6 +831,14 @@ namespace HearthstonePayload
             if (prop != null) return prop.GetValue(obj);
             var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
             return field?.GetValue(obj);
+        }
+
+        private static bool IsNumericParameterType(Type type)
+        {
+            return type == typeof(int)
+                || type == typeof(short)
+                || type == typeof(byte)
+                || type == typeof(long);
         }
 
         #endregion

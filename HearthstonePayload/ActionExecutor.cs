@@ -378,7 +378,9 @@ namespace HearthstonePayload
             if (string.IsNullOrEmpty(actionData)) return "SKIP:empty";
             if (!EnsureTypes()) return "SKIP:no_asm";
 
-            var parts = actionData.Split('|');
+            var parts = actionData.IndexOf('|') >= 0
+                ? actionData.Split('|')
+                : actionData.Split(':');
             var type = parts[0];
 
             switch (type)
@@ -484,6 +486,7 @@ namespace HearthstonePayload
                     }
                 case "HERO_POWER":
                     return _coroutine.RunAndWait(MouseHeroPower(
+                        0,
                         parts.Length > 2 ? int.Parse(parts[2]) : 0));
                 case "USE_LOCATION":
                     {
@@ -517,6 +520,67 @@ namespace HearthstonePayload
                 case "CONCEDE":
                     Concede();
                     return "OK:CONCEDE";
+
+                // ── 战旗模式动作 ──
+                case "BG_BUY":
+                    {
+                        int shopEntityId = int.Parse(parts[1]);
+                        int position = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        return _coroutine.RunAndWait(BgMouseBuy(shopEntityId, position));
+                    }
+                case "BG_SELL":
+                    {
+                        int boardEntityId = int.Parse(parts[1]);
+                        return _coroutine.RunAndWait(BgMouseSell(boardEntityId));
+                    }
+                case "BG_MOVE":
+                    {
+                        int boardEntityId = int.Parse(parts[1]);
+                        int newIndex = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        return _coroutine.RunAndWait(BgMouseMove(boardEntityId, newIndex));
+                    }
+                case "BG_TAVERN_UP":
+                    return _coroutine.RunAndWait(BgMouseTavernUp());
+                case "BG_HERO_POWER":
+                    {
+                        int sourceHeroPowerEntityId = 0;
+                        int targetEntityId = 0;
+                        if (parts.Length > 2)
+                        {
+                            sourceHeroPowerEntityId = int.Parse(parts[1]);
+                            targetEntityId = int.Parse(parts[2]);
+                        }
+                        else if (parts.Length > 1)
+                        {
+                            targetEntityId = int.Parse(parts[1]);
+                        }
+
+                        return _coroutine.RunAndWait(MouseHeroPower(sourceHeroPowerEntityId, targetEntityId));
+                    }
+                case "BG_PLAY":
+                    {
+                        int handEntityId = int.Parse(parts[1]);
+                        int targetEntityId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position));
+                    }
+                case "BG_HERO_PICK":
+                    {
+                        int choiceIndex = parts.Length > 1 ? int.Parse(parts[1]) : 0;
+                        return _coroutine.RunAndWait(BgPickHero(choiceIndex));
+                    }
+                case "BG_REROLL":
+                    return _coroutine.RunAndWait(BgMouseReroll());
+                case "BG_HERO_REROLL":
+                    {
+                        int choiceIndex = parts.Length > 1 ? int.Parse(parts[1]) : 0;
+                        return _coroutine.RunAndWait(BgMouseHeroReroll(choiceIndex));
+                    }
+                case "BG_FREEZE":
+                    return _coroutine.RunAndWait(BgMouseFreeze());
+                case "BG_END_TURN":
+                    return _coroutine.RunAndWait(MouseEndTurn());
+
                 default:
                     return "SKIP:unknown_type:" + type;
             }
@@ -2109,12 +2173,14 @@ namespace HearthstonePayload
             }
         }
 
-        private static IEnumerator<float> MouseHeroPower(int targetEntityId)
+        private static IEnumerator<float> MouseHeroPower(int sourceHeroPowerEntityId, int targetEntityId)
         {
             InputHook.Simulating = true;
-            if (!GameObjectFinder.GetHeroPowerScreenPos(out var hx, out var hy))
+            if (!GameObjectFinder.GetHeroPowerScreenPos(sourceHeroPowerEntityId, out var hx, out var hy))
             {
-                _coroutine.SetResult("FAIL:HP:pos_not_found");
+                _coroutine.SetResult(sourceHeroPowerEntityId > 0
+                    ? "FAIL:HP:pos_not_found:" + sourceHeroPowerEntityId
+                    : "FAIL:HP:pos_not_found");
                 yield break;
             }
 
@@ -2498,7 +2564,7 @@ namespace HearthstonePayload
             public HashSet<int> ChoiceEntityIds { get; } = new HashSet<int>();
         }
 
-        private static bool TryGetMulliganReadySnapshot(out MulliganReadySnapshot snapshot, out string detail)
+        private static bool TryGetMulliganReadySnapshot(out MulliganReadySnapshot snapshot, out string detail, bool allowLooseChoicePacket = false)
         {
             snapshot = null;
             detail = null;
@@ -2523,10 +2589,24 @@ namespace HearthstonePayload
                 return false;
             }
 
+            var introObj = GetFieldOrProp(mulliganMgr, "introComplete");
+            if (introObj is bool introComplete && !introComplete)
+            {
+                detail = "intro_not_complete";
+                return false;
+            }
+
             var waitingObj = GetFieldOrProp(mulliganMgr, "m_waitingForUserInput");
             if (!(waitingObj is bool waitingForUserInput) || !waitingForUserInput)
             {
                 detail = "waiting_for_user_input";
+                return false;
+            }
+
+            var mulliganButton = Invoke(mulliganMgr, "GetMulliganButton") ?? GetFieldOrProp(mulliganMgr, "mulliganButton");
+            if (mulliganButton == null)
+            {
+                detail = "mulligan_button_not_ready";
                 return false;
             }
 
@@ -2537,14 +2617,14 @@ namespace HearthstonePayload
             }
 
             var responseMode = Invoke(gameState, "GetResponseMode");
-            if (!IsChoiceResponseMode(responseMode))
+            if (!allowLooseChoicePacket && !IsChoiceResponseMode(responseMode))
             {
                 detail = "response_mode_not_choice:" + (responseMode?.ToString() ?? "null");
                 return false;
             }
 
             var friendlyChoices = Invoke(gameState, "GetFriendlyEntityChoices");
-            if (friendlyChoices == null)
+            if (!allowLooseChoicePacket && friendlyChoices == null)
             {
                 detail = "friendly_choices_not_ready";
                 return false;
@@ -2571,8 +2651,8 @@ namespace HearthstonePayload
                 return false;
             }
 
-            if (!TryGetCollectionCount(GetFieldOrProp(mulliganMgr, "m_handCardsMarkedForReplace"), out var markedCount)
-                || markedCount < startingCards.Count)
+            if ((!TryGetCollectionCount(GetFieldOrProp(mulliganMgr, "m_handCardsMarkedForReplace"), out var markedCount)
+                || markedCount < startingCards.Count) && !allowLooseChoicePacket)
             {
                 detail = "marked_state_not_ready";
                 return false;
@@ -2610,7 +2690,8 @@ namespace HearthstonePayload
                 builtSnapshot.ChoiceParts.Add(cardId + "," + entityId);
             }
 
-            if (builtSnapshot.ChoiceEntityIds.Count > 0
+            if (!allowLooseChoicePacket
+                && builtSnapshot.ChoiceEntityIds.Count > 0
                 && builtSnapshot.CardIndexByEntityId.Keys.Any(entityId => !builtSnapshot.ChoiceEntityIds.Contains(entityId)))
             {
                 detail = "choice_entities_not_ready";
@@ -2864,6 +2945,8 @@ namespace HearthstonePayload
 
             var normalized = detail.ToLowerInvariant();
             return normalized.Contains("waiting_for_user_input")
+                || normalized.Contains("intro_not_complete")
+                || normalized.Contains("mulligan_button_not_ready")
                 || normalized.Contains("game_state_not_available")
                 || normalized.Contains("response_packet_blocked")
                 || normalized.Contains("response_mode_not_choice")
@@ -5035,6 +5118,18 @@ namespace HearthstonePayload
                 return true;
             }
 
+            if (mulliganMgr != null
+                && TryInvokeMethod(mulliganMgr, "GetMulliganButton", Array.Empty<object>(), out var mulliganButton, out _)
+                && mulliganButton != null
+                && TryTriggerUiElement(mulliganButton, out detail))
+            {
+                detail = "MulliganButton." + detail;
+                return true;
+            }
+
+            if (!allowEndTurnFallback)
+                return false;
+
             var endTurnButtonType = _asm.GetType("EndTurnButton");
             var endTurnButton = endTurnButtonType != null ? InvokeStatic(endTurnButtonType, "Get") : null;
             if (endTurnButton != null && TryInvokeParameterlessMethods(endTurnButton, new[]
@@ -5046,9 +5141,6 @@ namespace HearthstonePayload
                 detail = endTurnButton.GetType().Name + "." + detail;
                 return true;
             }
-
-            if (!allowEndTurnFallback)
-                return false;
 
             if (inputMgr != null && TryInvokeParameterlessMethods(inputMgr, new[]
             {
@@ -7258,6 +7350,35 @@ namespace HearthstonePayload
             return cardIdObj?.ToString() ?? string.Empty;
         }
 
+        private static int ResolveEntityZoneTag(object gameState, int entityId)
+        {
+            if (gameState == null || entityId <= 0)
+                return 0;
+
+            var entity = GetEntity(gameState, entityId);
+            if (entity == null)
+                return 0;
+
+            try
+            {
+                var ctx = ReflectionContext.Instance;
+                if (ctx.Init())
+                {
+                    var zone = ctx.GetTagValue(entity, "ZONE");
+                    if (zone > 0)
+                        return zone;
+                }
+            }
+            catch
+            {
+            }
+
+            var fallback = GetIntFieldOrProp(entity, "Zone");
+            if (fallback <= 0) fallback = GetIntFieldOrProp(entity, "ZONE");
+            if (fallback <= 0) fallback = GetIntFieldOrProp(entity, "m_zone");
+            return fallback > 0 ? fallback : 0;
+        }
+
         private static int ResolveEntityZonePosition(object gameState, int entityId)
         {
             if (gameState == null || entityId <= 0)
@@ -7711,6 +7832,1224 @@ namespace HearthstonePayload
 
             args = built;
             return true;
+        }
+
+        #endregion
+
+        #region 战旗模式鼠标协程
+
+        /// <summary>
+        /// 战旗购买：将商店实体拖动到我方英雄购买区，使其先进入手牌。
+        /// </summary>
+        private static IEnumerator<float> BgMouseBuy(int shopEntityId, int position)
+        {
+            InputHook.Simulating = true;
+
+            var gsBeforeBuy = GetGameState();
+            var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforeBuy, out var beforeHandIds);
+            var beforeHandCount = hasBeforeHand ? beforeHandIds.Count : 0;
+            var beforeZone = ResolveEntityZoneTag(gsBeforeBuy, shopEntityId);
+            if (!TryReadBattlegroundsShopMetrics(out var beforeShopSignature, out var beforeGold, out _, out _))
+            {
+                beforeShopSignature = string.Empty;
+                beforeGold = -1;
+            }
+
+            // 获取商店牌屏幕坐标
+            if (!GameObjectFinder.GetEntityScreenPos(shopEntityId, out var sx, out var sy))
+            {
+                _coroutine.SetResult("FAIL:BG_BUY:shop_pos:" + shopEntityId);
+                yield break;
+            }
+
+            // 购买区落点：我方英雄附近
+            if (!TryResolveBattlegroundsBuyDropScreenPos(out var dx, out var dy))
+            {
+                dx = MouseSimulator.GetScreenWidth() / 2;
+                dy = (int)(MouseSimulator.GetScreenHeight() * 0.82f);
+            }
+
+            // 拖动：商店 -> 我方英雄购买区
+            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+            foreach (var w in SmoothMove(dx, dy, 20, 0.012f)) yield return w;
+            yield return 0.06f;
+            MouseSimulator.LeftUp();
+            yield return 0.35f;
+
+            var buyConfirmed = false;
+            for (var retry = 0; retry < 15; retry++)
+            {
+                yield return 0.12f;
+
+                var gsAfterBuy = GetGameState();
+                var afterZone = ResolveEntityZoneTag(gsAfterBuy, shopEntityId);
+                var hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterBuy, out var afterHandIds);
+                var afterHandCount = hasAfterHand ? afterHandIds.Count : -1;
+                var movedIntoHand = hasAfterHand && afterHandIds.Contains(shopEntityId);
+                var handIncreased = hasBeforeHand && hasAfterHand && afterHandCount > beforeHandCount;
+
+                var leftShop = afterZone > 0
+                    && afterZone != 1
+                    && afterZone != 5
+                    && afterZone != beforeZone;
+
+                var shopChanged = false;
+                var goldSpent = false;
+                if (TryReadBattlegroundsShopMetrics(out var afterShopSignature, out var afterGold, out _, out _))
+                {
+                    shopChanged = !string.Equals(beforeShopSignature, afterShopSignature, StringComparison.Ordinal);
+                    goldSpent = beforeGold >= 0 && afterGold >= 0 && afterGold < beforeGold;
+                }
+
+                if (movedIntoHand
+                    || handIncreased
+                    || afterZone == 3
+                    || (leftShop && (shopChanged || goldSpent)))
+                {
+                    buyConfirmed = true;
+                    break;
+                }
+            }
+
+            if (!buyConfirmed)
+            {
+                _coroutine.SetResult("FAIL:BG_BUY:not_confirmed:" + shopEntityId + ":pos=" + position);
+                yield break;
+            }
+
+            _coroutine.SetResult("OK:BG_BUY:" + shopEntityId);
+        }
+
+        /// <summary>
+        /// 战旗出售：将场上随从拖动到 Bob 的头像区域（屏幕上半部分中央）
+        /// </summary>
+        private static IEnumerator<float> BgMouseSell(int boardEntityId)
+        {
+            InputHook.Simulating = true;
+
+            if (!GameObjectFinder.GetEntityScreenPos(boardEntityId, out var sx, out var sy))
+            {
+                _coroutine.SetResult("FAIL:BG_SELL:board_pos:" + boardEntityId);
+                yield break;
+            }
+
+            // Bob 区域通常在屏幕上半中央（商店区域）
+            int tx = MouseSimulator.GetScreenWidth() / 2;
+            int ty = (int)(MouseSimulator.GetScreenHeight() * 0.25f);
+
+            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+            foreach (var w in SmoothMove(tx, ty, 20, 0.012f)) yield return w;
+            yield return 0.06f;
+            MouseSimulator.LeftUp();
+            yield return 0.3f;
+
+            _coroutine.SetResult("OK:BG_SELL:" + boardEntityId);
+        }
+
+        /// <summary>
+        /// 战旗调整站位：将场上随从拖到新的位置槽位
+        /// </summary>
+        private static IEnumerator<float> BgMouseMove(int boardEntityId, int newIndex)
+        {
+            InputHook.Simulating = true;
+
+            if (!GameObjectFinder.GetEntityScreenPos(boardEntityId, out var sx, out var sy))
+            {
+                _coroutine.SetResult("FAIL:BG_MOVE:source_pos:" + boardEntityId);
+                yield break;
+            }
+
+            int totalMinions = GetFriendlyMinionCount();
+            if (!GameObjectFinder.GetBoardDropZoneScreenPos(newIndex, totalMinions, out var dx, out var dy))
+            {
+                _coroutine.SetResult("FAIL:BG_MOVE:drop_pos:" + newIndex);
+                yield break;
+            }
+
+            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.1f;
+            foreach (var w in SmoothMove(dx, dy, 18, 0.012f)) yield return w;
+            yield return 0.08f;
+            MouseSimulator.LeftUp();
+            yield return 0.3f;
+
+            _coroutine.SetResult("OK:BG_MOVE:" + boardEntityId + ":" + newIndex);
+        }
+
+        private static IEnumerator<float> BgPickHero(int choiceIndex)
+        {
+            InputHook.Simulating = true;
+
+            if (!TryGetHeroPickCardByIndex(choiceIndex, out var snapshot, out var card, out var entityId, out var detail, allowLooseChoicePacket: true))
+            {
+                _coroutine.SetResult("FAIL:BG_HERO_PICK:" + detail);
+                yield break;
+            }
+
+            var beforeSignature = BuildMulliganSnapshotSignature(snapshot);
+            var selected = false;
+
+            if (TrySelectHeroPickCardViaApi(snapshot, card, entityId, out detail))
+            {
+                for (var retry = 0; retry < 10; retry++)
+                {
+                    yield return 0.08f;
+                    if (TryGetCurrentSelectedChooseOneEntityId(snapshot.MulliganManager, out var selectedEntityId)
+                        && selectedEntityId == entityId)
+                    {
+                        selected = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!selected)
+            {
+                if (!TryGetMulliganCardClickPos(entityId, choiceIndex - 1, snapshot.StartingCards.Count, out var cx, out var cy, out detail))
+                {
+                    _coroutine.SetResult("FAIL:BG_HERO_PICK:select_pos:" + detail);
+                    yield break;
+                }
+
+                for (var attempt = 0; attempt < 2 && !selected; attempt++)
+                {
+                    foreach (var w in SmoothMove(cx, cy, 10, 0.012f)) yield return w;
+                    MouseSimulator.LeftDown();
+                    yield return 0.05f;
+                    MouseSimulator.LeftUp();
+                    yield return 0.18f;
+
+                    if (TryGetCurrentSelectedChooseOneEntityId(snapshot.MulliganManager, out var selectedEntityId)
+                        && selectedEntityId == entityId)
+                    {
+                        selected = true;
+                    }
+                }
+            }
+
+            if (!selected)
+            {
+                _coroutine.SetResult("FAIL:BG_HERO_PICK:not_selected:" + entityId);
+                yield break;
+            }
+
+            var confirmed = false;
+            var confirmMethod = string.Empty;
+            if (TryConfirmMulligan(out var confirmDetail, allowEndTurnFallback: false))
+            {
+                confirmed = true;
+                confirmMethod = confirmDetail;
+            }
+            else if (GameObjectFinder.GetMulliganConfirmScreenPos(out var bx, out var by))
+            {
+                foreach (var w in SmoothMove(bx, by, 10, 0.012f)) yield return w;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                confirmed = true;
+                confirmMethod = "mouse_confirm";
+            }
+
+            if (!confirmed)
+            {
+                _coroutine.SetResult("FAIL:BG_HERO_PICK:confirm_failed:" + entityId);
+                yield break;
+            }
+
+            for (var retry = 0; retry < 20; retry++)
+            {
+                yield return 0.15f;
+                if (!TryGetMulliganReadySnapshot(out var afterSnapshot, out _, allowLooseChoicePacket: true))
+                {
+                    _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":closed:" + confirmMethod);
+                    yield break;
+                }
+
+                var afterSignature = BuildMulliganSnapshotSignature(afterSnapshot);
+                if (!string.Equals(beforeSignature, afterSignature, StringComparison.Ordinal))
+                {
+                    _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":changed:" + confirmMethod);
+                    yield break;
+                }
+
+                if (TryGetCurrentSelectedChooseOneEntityId(afterSnapshot.MulliganManager, out var selectedEntityId)
+                    && selectedEntityId == entityId)
+                {
+                    _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":selected:" + confirmMethod);
+                    yield break;
+                }
+            }
+
+            _coroutine.SetResult("OK:BG_HERO_PICK:" + entityId + ":sent:" + confirmMethod);
+        }
+
+        /// <summary>
+        /// 战旗升级酒馆：优先调用真实的游戏模式按钮，再回退到鼠标点击。
+        /// </summary>
+        private static IEnumerator<float> BgMouseTavernUp()
+        {
+            InputHook.Simulating = true;
+
+            if (!TryReadBattlegroundsShopMetrics(out var beforeShopSignature, out var beforeGold, out var beforeTier, out var beforeFrozen))
+            {
+                beforeShopSignature = string.Empty;
+                beforeGold = beforeTier = beforeFrozen = -1;
+            }
+
+            if (!TryActivateBattlegroundsGameModeButton(3, out var detail))
+            {
+                _coroutine.SetResult("FAIL:BG_TAVERN_UP:" + detail);
+                yield break;
+            }
+
+            for (var retry = 0; retry < 15; retry++)
+            {
+                yield return 0.12f;
+                if (!TryReadBattlegroundsShopMetrics(out var afterShopSignature, out var afterGold, out var afterTier, out var afterFrozen))
+                    continue;
+
+                if (afterTier > beforeTier
+                    || (beforeTier >= 0 && afterGold >= 0 && afterGold < beforeGold)
+                    || !string.Equals(beforeShopSignature, afterShopSignature, StringComparison.Ordinal))
+                {
+                    _coroutine.SetResult("OK:BG_TAVERN_UP:" + detail);
+                    yield break;
+                }
+            }
+
+            _coroutine.SetResult("FAIL:BG_TAVERN_UP:not_confirmed:" + detail);
+        }
+
+        /// <summary>
+        /// 战旗打出手牌：从手牌拖到场上，可选带目标
+        /// </summary>
+        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position)
+        {
+            InputHook.Simulating = true;
+
+            if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var sx, out var sy))
+            {
+                _coroutine.SetResult("FAIL:BG_PLAY:hand_pos:" + handEntityId);
+                yield break;
+            }
+
+            int totalMinions = GetFriendlyMinionCount();
+            if (!TryResolveBattlegroundsBoardDropScreenPos(position, totalMinions, out var dx, out var dy))
+            {
+                dx = MouseSimulator.GetScreenWidth() / 2;
+                dy = (int)(MouseSimulator.GetScreenHeight() * 0.72f);
+            }
+
+            // 拖动手牌到场上
+            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+            foreach (var w in SmoothMove(dx, dy, 18, 0.012f)) yield return w;
+            yield return 0.06f;
+            MouseSimulator.LeftUp();
+            yield return 0.3f;
+
+            // 如果有目标（战吼等）
+            if (targetEntityId > 0)
+            {
+                if (GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty))
+                {
+                    foreach (var w in SmoothMove(tx, ty, 12, 0.012f)) yield return w;
+                    MouseSimulator.LeftDown();
+                    yield return 0.05f;
+                    MouseSimulator.LeftUp();
+                    yield return 0.3f;
+                }
+            }
+
+            _coroutine.SetResult("OK:BG_PLAY:" + handEntityId);
+        }
+
+        private static IEnumerator<float> BgMouseHeroReroll(int choiceIndex)
+        {
+            InputHook.Simulating = true;
+
+            if (!TryGetMulliganReadySnapshot(out var snapshot, out var snapshotDetail, allowLooseChoicePacket: true))
+            {
+                _coroutine.SetResult("FAIL:BG_HERO_REROLL:hero_pick_not_ready:" + snapshotDetail);
+                yield break;
+            }
+
+            var beforeSignature = BuildMulliganSnapshotSignature(snapshot);
+            string detail;
+            if (choiceIndex > 0)
+            {
+                if (!TryGetHeroPickCardByIndex(choiceIndex, out snapshot, out var card, out var entityId, out detail))
+                {
+                    _coroutine.SetResult("FAIL:BG_HERO_REROLL:" + detail);
+                    yield break;
+                }
+
+                var rerollSent = false;
+                var entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
+                if (entity == null && snapshot.GameState != null && entityId > 0)
+                    entity = GetEntity(snapshot.GameState, entityId);
+
+                var actor = Invoke(card, "GetActor");
+                if (actor != null
+                    && TryInvokeMethod(actor, "GetHeroRerollButton", Array.Empty<object>(), out var heroRerollButton, out _)
+                    && heroRerollButton != null
+                    && TryTriggerUiElement(heroRerollButton, out detail))
+                {
+                    rerollSent = true;
+                }
+                else if (entity != null && TryInvokeMethod(snapshot.MulliganManager, "RequestHeroReroll", new object[] { entity }, out _, out _))
+                {
+                    rerollSent = true;
+                    detail = "RequestHeroReroll";
+                }
+                else
+                {
+                    if (actor != null && TryInvokeMethod(actor, "OnMulliganHeroRerollButtonReleased", new object[] { null }, out _, out _))
+                    {
+                        rerollSent = true;
+                        detail = "OnMulliganHeroRerollButtonReleased";
+                    }
+                }
+
+                if (!rerollSent)
+                {
+                    if (!TryGetHeroRerollButtonScreenPos(card, out var x, out var y, out detail))
+                    {
+                        _coroutine.SetResult("FAIL:BG_HERO_REROLL:button_pos:" + detail);
+                        yield break;
+                    }
+
+                    foreach (var w in SmoothMove(x, y, 12, 0.012f)) yield return w;
+                    yield return 0.05f;
+                    MouseSimulator.LeftDown();
+                    yield return 0.06f;
+                    MouseSimulator.LeftUp();
+                    detail = "mouse_click";
+                }
+            }
+            else
+            {
+                if (!TryInvokeGlobalHeroRefresh(snapshot.MulliganManager, out detail))
+                {
+                    _coroutine.SetResult("FAIL:BG_HERO_REROLL:" + detail);
+                    yield break;
+                }
+            }
+
+            for (var retry = 0; retry < 25; retry++)
+            {
+                yield return 0.12f;
+                if (!TryGetMulliganReadySnapshot(out var afterSnapshot, out _, allowLooseChoicePacket: true))
+                {
+                    _coroutine.SetResult("OK:BG_HERO_REROLL:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all") + ":closed:" + detail);
+                    yield break;
+                }
+
+                var afterSignature = BuildMulliganSnapshotSignature(afterSnapshot);
+                if (!string.Equals(beforeSignature, afterSignature, StringComparison.Ordinal))
+                {
+                    _coroutine.SetResult("OK:BG_HERO_REROLL:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all") + ":changed:" + detail);
+                    yield break;
+                }
+            }
+
+            _coroutine.SetResult("FAIL:BG_HERO_REROLL:not_confirmed:" + (choiceIndex > 0 ? choiceIndex.ToString() : "all"));
+        }
+
+        private static string BuildMulliganSnapshotSignature(MulliganReadySnapshot snapshot)
+        {
+            if (snapshot == null || snapshot.ChoiceParts == null || snapshot.ChoiceParts.Count == 0)
+                return string.Empty;
+
+            return string.Join(";", snapshot.ChoiceParts);
+        }
+
+        private static bool TryGetHeroPickCardByIndex(
+            int oneBasedIndex,
+            out MulliganReadySnapshot snapshot,
+            out object card,
+            out int entityId,
+            out string detail,
+            bool allowLooseChoicePacket = false)
+        {
+            snapshot = null;
+            card = null;
+            entityId = 0;
+            detail = null;
+
+            if (oneBasedIndex <= 0)
+            {
+                detail = "invalid_choice_index";
+                return false;
+            }
+
+            if (!TryGetMulliganReadySnapshot(out snapshot, out detail, allowLooseChoicePacket))
+                return false;
+
+            if (oneBasedIndex > snapshot.StartingCards.Count)
+            {
+                detail = "choice_index_out_of_range:" + oneBasedIndex + "/" + snapshot.StartingCards.Count;
+                return false;
+            }
+
+            card = snapshot.StartingCards[oneBasedIndex - 1];
+            entityId = ResolveEntityId(Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity"));
+            if (card == null || entityId <= 0)
+            {
+                detail = "hero_card_entity_missing";
+                return false;
+            }
+
+            detail = "ok";
+            return true;
+        }
+
+        private static bool TryResolveBattlegroundsBoardDropScreenPos(int position, int totalMinions, out int x, out int y)
+        {
+            x = y = 0;
+            int boardX = 0, boardY = 0;
+            int releaseX = 0, releaseY = 0;
+            var hasBoard = GameObjectFinder.GetBoardDropZoneScreenPos(position, totalMinions, out boardX, out boardY);
+            var hasRelease = GameObjectFinder.GetPlayReleaseScreenPos(out releaseX, out releaseY);
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var screenHeight = MouseSimulator.GetScreenHeight();
+            if (screenWidth <= 0 || screenHeight <= 0)
+                return false;
+
+            x = hasBoard ? boardX : (hasRelease ? releaseX : screenWidth / 2);
+            y = hasBoard ? boardY : (hasRelease ? releaseY : (int)(screenHeight * 0.72f));
+            if (hasRelease)
+                y = Math.Max(y, releaseY);
+
+            y = Math.Max(y, (int)(screenHeight * 0.68f));
+            return true;
+        }
+
+        private static bool TryResolveBattlegroundsBuyDropScreenPos(out int x, out int y)
+        {
+            x = y = 0;
+
+            if (GameObjectFinder.GetHeroScreenPos(true, out x, out y))
+            {
+                var screenHeight = MouseSimulator.GetScreenHeight();
+                if (screenHeight > 0)
+                    y = Math.Max(0, y - (int)(screenHeight * 0.035f));
+                return true;
+            }
+
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var fallbackHeight = MouseSimulator.GetScreenHeight();
+            if (screenWidth <= 0 || fallbackHeight <= 0)
+                return false;
+
+            x = screenWidth / 2;
+            y = (int)(fallbackHeight * 0.82f);
+            return true;
+        }
+
+        private static bool TryGetCurrentSelectedChooseOneEntityId(object mulliganMgr, out int entityId)
+        {
+            entityId = 0;
+            if (mulliganMgr == null)
+                return false;
+
+            if (!TryInvokeMethod(mulliganMgr, "GetCurrentSelectedChooseOneEntity", Array.Empty<object>(), out var entity, out _)
+                || entity == null)
+            {
+                return false;
+            }
+
+            entityId = ResolveEntityId(entity);
+            return entityId > 0;
+        }
+
+        private static bool TrySelectHeroPickCardViaApi(MulliganReadySnapshot snapshot, object card, int entityId, out string detail)
+        {
+            detail = "toggle_failed";
+            if (snapshot == null || snapshot.MulliganManager == null || card == null || entityId <= 0)
+                return false;
+
+            if (TryInvokeMethod(snapshot.MulliganManager, "ToggleHoldState", new object[] { card }, out _, out _))
+            {
+                detail = "ToggleHoldState(Card)";
+                return true;
+            }
+
+            var entity = snapshot.GameState != null ? GetEntity(snapshot.GameState, entityId) : null;
+            if (entity != null)
+            {
+                var inputMgr = GetSingleton(_inputMgrType);
+                if (inputMgr != null
+                    && TryInvokeMethod(inputMgr, "DoNetworkResponse", new object[] { entity }, out var responseResult, out _)
+                    && (!(responseResult is bool ok) || ok))
+                {
+                    detail = "InputManager.DoNetworkResponse";
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryTriggerUiElement(object source, out string detail)
+        {
+            detail = "ui_element_missing";
+            if (!TryResolvePegUiElement(source, out var uiElement) || uiElement == null)
+                return false;
+
+            TryInvokeMethod(uiElement, "SetEnabled", new object[] { true, false }, out _, out _);
+            TryInvokeMethod(uiElement, "SetEnabled", new object[] { true }, out _, out _);
+
+            var methods = new List<string>();
+            if (TryInvokeParameterlessMethods(uiElement, new[] { "TriggerPress" }, out var pressMethod))
+            {
+                methods.Add(pressMethod);
+                Thread.Sleep(40);
+            }
+
+            if (TryInvokeParameterlessMethods(uiElement, new[] { "TriggerRelease", "TriggerTap" }, out var releaseMethod))
+            {
+                methods.Add(releaseMethod);
+            }
+
+            if (methods.Count == 0)
+            {
+                detail = "ui_trigger_methods_missing:" + DescribeObjectType(uiElement);
+                return false;
+            }
+
+            detail = DescribeObjectType(uiElement) + "." + string.Join("+", methods);
+            return true;
+        }
+
+        private static bool TryResolvePegUiElement(object source, out object uiElement)
+        {
+            uiElement = null;
+            if (source == null || _asm == null)
+                return false;
+
+            var pegUiElementType = _asm.GetType("PegUIElement");
+            if (pegUiElementType == null)
+                return false;
+
+            var candidates = new List<object>();
+            AddDistinctObjectCandidate(candidates, source);
+            AddDistinctObjectCandidate(candidates, GetFieldOrProp(source, "gameObject"));
+            AddDistinctObjectCandidate(candidates, GetFieldOrProp(source, "transform"));
+
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                if (pegUiElementType.IsInstanceOfType(candidate))
+                {
+                    uiElement = candidate;
+                    return true;
+                }
+
+                if (TryResolveComponentByType(candidate, pegUiElementType, out uiElement))
+                    return true;
+
+                if (TryFindNamedDescendant(candidate, out var namedCandidate, "button", "refresh", "reroll", "freeze", "upgrade", "confirm")
+                    && TryResolveComponentByType(namedCandidate, pegUiElementType, out uiElement))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveComponentByType(object source, Type componentType, out object component)
+        {
+            component = null;
+            if (source == null || componentType == null)
+                return false;
+
+            var roots = new List<object>();
+            AddDistinctObjectCandidate(roots, source);
+            AddDistinctObjectCandidate(roots, GetFieldOrProp(source, "gameObject"));
+
+            foreach (var root in roots)
+            {
+                if (root == null)
+                    continue;
+
+                if (componentType.IsInstanceOfType(root))
+                {
+                    component = root;
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponent", new object[] { componentType }, out var found, out _) && found != null)
+                {
+                    component = found;
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponentInChildren", new object[] { componentType }, out found, out _) && found != null)
+                {
+                    component = found;
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponentInChildren", new object[] { componentType, true }, out found, out _) && found != null)
+                {
+                    component = found;
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponentInParent", new object[] { componentType }, out found, out _) && found != null)
+                {
+                    component = found;
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponentsInChildren", new object[] { componentType }, out found, out _)
+                    && TryGetFirstEnumerableValue(found, out component))
+                {
+                    return true;
+                }
+
+                if (TryInvokeMethod(root, "GetComponentsInChildren", new object[] { componentType, true }, out found, out _)
+                    && TryGetFirstEnumerableValue(found, out component))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryGetFirstEnumerableValue(object source, out object value)
+        {
+            value = null;
+            if (!(source is IEnumerable enumerable))
+                return false;
+
+            foreach (var item in enumerable)
+            {
+                if (item == null)
+                    continue;
+
+                value = item;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryInvokeGlobalHeroRefresh(object mulliganMgr, out string detail)
+        {
+            detail = "mulligan_manager_missing";
+            if (mulliganMgr == null)
+                return false;
+
+            if (TryInvokeMethod(mulliganMgr, "OnMulliganRefreshButtonReleased", new object[] { null }, out _, out _))
+            {
+                detail = "OnMulliganRefreshButtonReleased";
+                return true;
+            }
+
+            if (TryInvokeMethod(mulliganMgr, "GetMulliganRefreshButton", Array.Empty<object>(), out var refreshButton, out _)
+                && refreshButton != null)
+            {
+                if (TryTriggerUiElement(refreshButton, out detail))
+                    return true;
+
+                if (GameObjectFinder.GetObjectScreenPos(refreshButton, out var x, out var y))
+                {
+                    TryClickScreenPos(x, y);
+                    detail = "mouse_refresh_button";
+                    return true;
+                }
+            }
+
+            detail = "refresh_button_missing";
+            return false;
+        }
+
+        private static bool TryGetHeroRerollButtonScreenPos(object card, out int x, out int y, out string detail)
+        {
+            x = y = 0;
+            detail = "hero_card_missing";
+            if (card == null)
+                return false;
+
+            var actor = Invoke(card, "GetActor") ?? GetFieldOrProp(card, "Actor") ?? card;
+            var explicitCandidates = new[]
+            {
+                TryInvokeMethod(actor, "GetHeroRerollButton", Array.Empty<object>(), out var rerollButton, out _) ? rerollButton : null,
+                GetFieldOrProp(actor, "m_heroRerollButton"),
+                GetFieldOrProp(actor, "heroRerollButton"),
+                GetFieldOrProp(actor, "m_rerollButtonReference"),
+                GetFieldOrProp(actor, "m_rerollButton")
+            };
+
+            foreach (var candidate in explicitCandidates)
+            {
+                if (candidate != null && GameObjectFinder.GetObjectScreenPos(candidate, out x, out y))
+                {
+                    detail = "explicit_field";
+                    return true;
+                }
+            }
+
+            if (TryFindNamedDescendant(card, out var namedCandidate, "refresh", "reroll"))
+            {
+                if (GameObjectFinder.GetObjectScreenPos(namedCandidate, out x, out y))
+                {
+                    detail = "named_descendant";
+                    return true;
+                }
+            }
+
+            if (TryFindNamedDescendant(actor, out var actorNamedCandidate, "reroll", "refresh"))
+            {
+                if (GameObjectFinder.GetObjectScreenPos(actorNamedCandidate, out x, out y))
+                {
+                    detail = "named_descendant";
+                    return true;
+                }
+            }
+
+            if (!GameObjectFinder.GetObjectScreenPos(actor, out var cx, out var cy))
+            {
+                detail = "hero_card_pos_missing";
+                return false;
+            }
+
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var screenHeight = MouseSimulator.GetScreenHeight();
+            x = cx - (int)(screenWidth * 0.055f);
+            y = cy - (int)(screenHeight * 0.06f);
+            detail = "fallback_offset";
+            return true;
+        }
+
+        private static bool TryGetBattlegroundsShop()
+        {
+            return TryGetBattlegroundsShop(out _);
+        }
+
+        private static bool TryGetBattlegroundsShop(out object shop)
+        {
+            shop = null;
+            if (_asm == null)
+                return false;
+
+            var type = _asm.GetType("TB_BaconShop");
+            if (type == null)
+                return false;
+
+            shop = GetSingleton(type) ?? InvokeStatic(type, "Get");
+            return shop != null;
+        }
+
+        private static bool TryGetBattlegroundsGameModeButtonCardFromZones(int slot, out object card, out object entity, out string detail)
+        {
+            card = null;
+            entity = null;
+            detail = "zone_mgr_not_found";
+
+            if (_asm == null)
+                return false;
+
+            var zoneMgrType = _asm.GetType("ZoneMgr");
+            var playerSideType = _asm.GetType("Player+Side");
+            var zoneGameModeButtonType = _asm.GetType("ZoneGameModeButton");
+            if (zoneMgrType == null || playerSideType == null || zoneGameModeButtonType == null)
+            {
+                detail = "zone_types_missing";
+                return false;
+            }
+
+            var zoneMgr = GetSingleton(zoneMgrType);
+            if (zoneMgr == null)
+            {
+                detail = "zone_mgr_singleton_missing";
+                return false;
+            }
+
+            object friendlySide;
+            try
+            {
+                friendlySide = Enum.Parse(playerSideType, "FRIENDLY", ignoreCase: true);
+            }
+            catch
+            {
+                detail = "friendly_side_enum_missing";
+                return false;
+            }
+
+            if (!TryInvokeMethod(zoneMgr, "FindZonesForSide", new[] { friendlySide }, out var zones, out _)
+                || !(zones is IEnumerable zoneEnumerable))
+            {
+                detail = "find_zones_for_side_failed";
+                return false;
+            }
+
+            foreach (var zone in zoneEnumerable)
+            {
+                if (zone == null || !zoneGameModeButtonType.IsInstanceOfType(zone))
+                    continue;
+
+                var buttonSlot = GetIntFieldOrProp(zone, "m_ButtonSlot");
+                if (buttonSlot <= 0)
+                    buttonSlot = GetIntFieldOrProp(zone, "ButtonSlot");
+                if (buttonSlot != slot)
+                    continue;
+
+                card = Invoke(zone, "GetFirstCard") ?? GetFieldOrProp(zone, "m_cards");
+                if (card is IEnumerable cardEnumerable)
+                    TryGetFirstEnumerableValue(cardEnumerable, out card);
+
+                if (card == null)
+                {
+                    detail = "zone_button_card_missing:" + slot;
+                    return false;
+                }
+
+                entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
+                if (entity == null)
+                {
+                    detail = "zone_button_entity_missing:" + slot;
+                    return false;
+                }
+
+                detail = "zone_button";
+                return true;
+            }
+
+            detail = "zone_button_not_found:" + slot;
+            return false;
+        }
+
+        private static bool TryGetBattlegroundsGameModeButtonCard(int slot, out object card, out object entity, out string detail)
+        {
+            card = null;
+            entity = null;
+            detail = "shop_not_found";
+
+            if (TryGetBattlegroundsShop(out var shop) && shop != null)
+            {
+                switch (slot)
+                {
+                    case 1:
+                        card = Invoke(shop, "GetFreezeButtonCard");
+                        break;
+                    case 2:
+                        card = Invoke(shop, "GetRefreshButtonCard");
+                        break;
+                    case 3:
+                        card = Invoke(shop, "GetTavernUpgradeButtonCard");
+                        break;
+                }
+
+                if (card == null && TryInvokeMethod(shop, "GetGameModeButtonBySlot", new object[] { slot }, out var fallbackCard, out _))
+                {
+                    card = fallbackCard;
+                }
+            }
+
+            if (card == null && TryGetBattlegroundsGameModeButtonCardFromZones(slot, out card, out entity, out var zoneDetail))
+            {
+                detail = zoneDetail;
+                return true;
+            }
+
+            if (card == null)
+            {
+                detail = detail == "shop_not_found" ? "button_card_missing:" + slot : detail;
+                return false;
+            }
+
+            entity = Invoke(card, "GetEntity") ?? GetFieldOrProp(card, "Entity") ?? GetFieldOrProp(card, "m_entity");
+            if (entity == null)
+            {
+                detail = "button_entity_missing:" + slot;
+                return false;
+            }
+
+            detail = "ok";
+            return true;
+        }
+
+        private static bool TryActivateEntityViaInputManager(object card, object entity, out string detail)
+        {
+            detail = "input_manager_missing";
+            var inputMgr = GetSingleton(_inputMgrType);
+            if (inputMgr == null || entity == null)
+                return false;
+
+            if (TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permitInput) && !permitInput)
+            {
+                detail = "input_not_ready";
+                return false;
+            }
+
+            if (TryInvokeMethod(inputMgr, "DoNetworkResponse", new object[] { entity }, out var responseResult, out _)
+                && (!(responseResult is bool ok) || ok))
+            {
+                detail = "DoNetworkResponse";
+                return true;
+            }
+
+            if (TryInvokeMethod(inputMgr, "HandleClickOnCardInBattlefield", new object[] { entity }, out _, out _))
+            {
+                detail = "HandleClickOnCardInBattlefield";
+                return true;
+            }
+
+            if (TryInvokeMethod(inputMgr, "HandleClickOnCardInBattlefield", new object[] { entity, true }, out _, out _))
+            {
+                detail = "HandleClickOnCardInBattlefield(bool)";
+                return true;
+            }
+
+            var cardGameObject = GetFieldOrProp(card, "gameObject");
+            if (cardGameObject != null
+                && TryInvokeMethod(inputMgr, "HandleClickOnCard", new object[] { cardGameObject, true }, out _, out _))
+            {
+                detail = "HandleClickOnCard";
+                return true;
+            }
+
+            if (cardGameObject != null
+                && TryInvokeMethod(inputMgr, "HandleClickOnCard", new object[] { cardGameObject, false }, out _, out _))
+            {
+                detail = "HandleClickOnCard(false)";
+                return true;
+            }
+
+            detail = "input_methods_failed";
+            return false;
+        }
+
+        private static bool TryClickScreenPos(int x, int y)
+        {
+            if (x <= 0 || y <= 0)
+                return false;
+
+            foreach (var _ in SmoothMove(x, y, 10, 0.01f))
+            {
+            }
+
+            MouseSimulator.MoveTo(x, y);
+            Thread.Sleep(60);
+            MouseSimulator.LeftDown();
+            Thread.Sleep(60);
+            MouseSimulator.LeftUp();
+            return true;
+        }
+
+        private static bool TryActivateBattlegroundsGameModeButton(int slot, out string detail)
+        {
+            detail = "button_not_found";
+            if (!TryGetBattlegroundsGameModeButtonCard(slot, out var card, out var entity, out detail))
+                return false;
+
+            TryInvokeMethod(card, "SetInputEnabled", new object[] { true }, out _, out _);
+
+            if (TryTriggerUiElement(card, out detail))
+                return true;
+
+            if (TryActivateEntityViaInputManager(card, entity, out detail))
+                return true;
+
+            var entityId = ResolveEntityId(entity);
+            if (entityId > 0 && GameObjectFinder.GetEntityScreenPos(entityId, out var x, out var y) && TryClickScreenPos(x, y))
+            {
+                detail = "mouse_entity_click";
+                return true;
+            }
+
+            if (card != null && GameObjectFinder.GetObjectScreenPos(card, out x, out y) && TryClickScreenPos(x, y))
+            {
+                detail = "mouse_card_click";
+                return true;
+            }
+
+            detail = "button_click_failed";
+            return false;
+        }
+
+        private static bool TryReadBattlegroundsShopMetrics(out string shopSignature, out int gold, out int tavernTier, out int frozenState)
+        {
+            shopSignature = string.Empty;
+            gold = tavernTier = frozenState = -1;
+
+            var gameState = GetGameState();
+            if (gameState == null)
+                return false;
+
+            var friendly = Invoke(gameState, "GetFriendlySidePlayer") ?? Invoke(gameState, "GetFriendlyPlayer");
+            var opposing = Invoke(gameState, "GetOpposingSidePlayer") ?? Invoke(gameState, "GetOpposingPlayer");
+            if (friendly == null)
+                return false;
+
+            var ctx = ReflectionContext.Instance;
+            if (!ctx.Init())
+                return false;
+
+            var resources = ctx.GetTagValue(friendly, "RESOURCES");
+            var used = ctx.GetTagValue(friendly, "RESOURCES_USED");
+            var temp = ctx.GetTagValue(friendly, "TEMP_RESOURCES");
+            gold = Math.Max(0, resources - used + temp);
+            tavernTier = ctx.GetTagValue(friendly, "PLAYER_TECH_LEVEL");
+            frozenState = ctx.GetTagValue(friendly, "BACON_SHOP_IS_FROZEN");
+
+            var shopParts = new List<string>();
+            var zone = opposing != null ? (Invoke(opposing, "GetBattlefieldZone") ?? Invoke(opposing, "GetPlayZone")) : null;
+            var cards = zone != null ? (Invoke(zone, "GetCards") as IEnumerable ?? GetFieldOrProp(zone, "m_cards") as IEnumerable) : null;
+            if (cards != null)
+            {
+                foreach (var rawCard in cards)
+                {
+                    if (rawCard == null)
+                        continue;
+
+                    var cardEntity = Invoke(rawCard, "GetEntity") ?? GetFieldOrProp(rawCard, "Entity") ?? GetFieldOrProp(rawCard, "m_entity");
+                    var entityId = ResolveEntityId(cardEntity);
+                    if (entityId <= 0)
+                        continue;
+
+                    shopParts.Add(entityId
+                        + ":" + ResolveEntityCardId(gameState, entityId)
+                        + ":" + ResolveEntityZonePosition(gameState, entityId));
+                }
+            }
+
+            shopSignature = gold
+                + "|" + tavernTier
+                + "|" + frozenState
+                + "|" + string.Join(";", shopParts.OrderBy(part => part, StringComparer.Ordinal).ToArray());
+            return true;
+        }
+
+        private static bool TryFindNamedDescendant(object source, out object found, params string[] nameHints)
+        {
+            found = null;
+            if (source == null || nameHints == null || nameHints.Length == 0)
+                return false;
+
+            var root = GetFieldOrProp(source, "gameObject") ?? source;
+            var rootTransform = GetFieldOrProp(root, "transform");
+            if (rootTransform == null)
+                return false;
+
+            var queue = new Queue<object>();
+            queue.Enqueue(rootTransform);
+            while (queue.Count > 0)
+            {
+                var current = queue.Dequeue();
+                if (current == null)
+                    continue;
+
+                var name = GetFieldOrProp(current, "name")?.ToString()
+                    ?? GetFieldOrProp(GetFieldOrProp(current, "gameObject"), "name")?.ToString()
+                    ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(name)
+                    && nameHints.Any(hint => name.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0))
+                {
+                    found = GetFieldOrProp(current, "gameObject") ?? current;
+                    return true;
+                }
+
+                var childCount = GetIntFieldOrProp(current, "childCount");
+                if (childCount <= 0)
+                    continue;
+
+                for (var i = 0; i < childCount; i++)
+                {
+                    if (TryInvokeMethod(current, "GetChild", new object[] { i }, out var child, out _)
+                        && child != null)
+                    {
+                        queue.Enqueue(child);
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// 战旗刷新商店：优先调用真实的游戏模式按钮，再回退到鼠标点击。
+        /// </summary>
+        private static IEnumerator<float> BgMouseReroll()
+        {
+            InputHook.Simulating = true;
+
+            if (!TryReadBattlegroundsShopMetrics(out var beforeShopSignature, out var beforeGold, out var beforeTier, out var beforeFrozen))
+            {
+                beforeShopSignature = string.Empty;
+                beforeGold = beforeTier = beforeFrozen = -1;
+            }
+
+            if (!TryActivateBattlegroundsGameModeButton(2, out var detail))
+            {
+                _coroutine.SetResult("FAIL:BG_REROLL:" + detail);
+                yield break;
+            }
+
+            for (var retry = 0; retry < 18; retry++)
+            {
+                yield return 0.12f;
+                if (!TryReadBattlegroundsShopMetrics(out var afterShopSignature, out var afterGold, out var afterTier, out var afterFrozen))
+                    continue;
+
+                if (!string.Equals(beforeShopSignature, afterShopSignature, StringComparison.Ordinal)
+                    || (beforeGold >= 0 && afterGold >= 0 && afterGold < beforeGold))
+                {
+                    _coroutine.SetResult("OK:BG_REROLL:" + detail);
+                    yield break;
+                }
+            }
+
+            _coroutine.SetResult("FAIL:BG_REROLL:not_confirmed:" + detail);
+        }
+
+        /// <summary>
+        /// 战旗冻结商店：优先调用真实的游戏模式按钮，再回退到鼠标点击。
+        /// </summary>
+        private static IEnumerator<float> BgMouseFreeze()
+        {
+            InputHook.Simulating = true;
+
+            if (!TryReadBattlegroundsShopMetrics(out var beforeShopSignature, out var beforeGold, out var beforeTier, out var beforeFrozen))
+            {
+                beforeShopSignature = string.Empty;
+                beforeGold = beforeTier = beforeFrozen = -1;
+            }
+
+            if (!TryActivateBattlegroundsGameModeButton(1, out var detail))
+            {
+                _coroutine.SetResult("FAIL:BG_FREEZE:" + detail);
+                yield break;
+            }
+
+            for (var retry = 0; retry < 15; retry++)
+            {
+                yield return 0.12f;
+                if (!TryReadBattlegroundsShopMetrics(out var afterShopSignature, out var afterGold, out var afterTier, out var afterFrozen))
+                    continue;
+
+                if (afterFrozen != beforeFrozen
+                    || !string.Equals(beforeShopSignature, afterShopSignature, StringComparison.Ordinal))
+                {
+                    _coroutine.SetResult("OK:BG_FREEZE:" + detail);
+                    yield break;
+                }
+            }
+
+            _coroutine.SetResult("FAIL:BG_FREEZE:not_confirmed:" + detail);
         }
 
         #endregion

@@ -84,6 +84,7 @@ namespace HearthstonePayload
         private static void MainLoop()
         {
             var reader = new GameReader();
+            var bgReader = new BattlegroundStateReader();
             var nav = new SceneNavigator();
             var keepAliveClicker = new BackgroundKeepAliveClicker(reader, nav);
             nav.SetCoroutine(_coroutine);
@@ -248,6 +249,14 @@ namespace HearthstonePayload
                             _lastGameResult = "NONE";
                             _lastGameConceded = false;
                         }
+                    }
+                    else if (cmd == "GET_BG_STATE")
+                    {
+                        var bgState = bgReader.ReadState();
+                        if (bgState == null)
+                            _pipe.Write("NO_BG_STATE");
+                        else
+                            _pipe.Write("BG_STATE:" + bgState.Serialize());
                     }
                     else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
                     {

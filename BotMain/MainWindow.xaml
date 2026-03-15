@@ -24,9 +24,10 @@
                     Margin="0,0,4,0" FontSize="11"/>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,4,0">
                 <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="100" Height="23" SelectedIndex="{Binding ModeIndex}" FontSize="11">
+                <ComboBox Width="115" Height="23" SelectedIndex="{Binding ModeIndex}" FontSize="11">
                     <ComboBoxItem Content="Standard"/>
                     <ComboBoxItem Content="Wild"/>
+                    <ComboBoxItem Content="Battlegrounds"/>
                     <ComboBoxItem Content="Test"/>
                 </ComboBox>
             </StackPanel>

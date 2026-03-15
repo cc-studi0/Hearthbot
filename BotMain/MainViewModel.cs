@@ -16,7 +16,9 @@ namespace BotMain
 {
     public class MainViewModel : INotifyPropertyChanged
     {
-        private const int UiModeTest = 2;
+        private const int UiModeBattlegrounds = 2;
+        private const int UiModeTest = 3;
+        private const int ServiceModeBattlegrounds = 100;
         private const int ServiceModeTest = 99;
 
         private readonly BotService _bot = new();
@@ -139,7 +141,16 @@ namespace BotMain
         public string LogText { get; set; } = "";
         public string Status { get; set; } = "Idle";
         public bool IsRunning => _bot.State == BotState.Running || _bot.State == BotState.Finishing;
-        public string TopStatusText => $"v1.0 - Game: {Status} - Recommend: {(FollowHsBoxOperation ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
+        public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
+        public bool IsBattlegroundsMode => ModeIndex == UiModeBattlegrounds;
+        private string CurrentModeName => ModeIndex switch
+        {
+            0 => "Standard",
+            1 => "Wild",
+            UiModeBattlegrounds => "Battlegrounds",
+            UiModeTest => "Test",
+            _ => "Unknown"
+        };
         public string MainButtonText => _bot.State == BotState.Idle ? "Start" : "Stop";
 
         // 统计
@@ -168,7 +179,20 @@ namespace BotMain
         }
         public bool FpsLock { get => _fpsLock; set { _fpsLock = value; AutoSave(); } }
         public int FpsValue { get => _fpsValue; set { _fpsValue = value; AutoSave(); } }
-        public int ModeIndex { get => _modeIndex; set { _modeIndex = value; AutoSave(); } }
+        public int ModeIndex
+        {
+            get => _modeIndex;
+            set
+            {
+                _modeIndex = value;
+                Notify();
+                Notify(nameof(IsBattlegroundsMode));
+                Notify(nameof(LocalRecommendationControlsEnabled));
+                Notify(nameof(DeckSelectionVisible));
+                Notify(nameof(TopStatusText));
+                AutoSave();
+            }
+        }
         public int MatchmakingTimeoutSeconds
         {
             get => _matchmakingTimeoutSeconds;
@@ -244,7 +268,8 @@ namespace BotMain
                 AutoSave();
             }
         }
-        public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation;
+        public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation && !IsBattlegroundsMode;
+        public bool DeckSelectionVisible => !IsBattlegroundsMode;
 
         // 策略/卡组
         public ObservableCollection<string> ProfileNames { get; } = new() { "None" };
@@ -357,9 +382,17 @@ namespace BotMain
                 var deckName = SelectedDeckName;
                 var mulliganName = SelectedMulliganName;
                 var discoverName = SelectedDiscoverName;
-                var serviceMode = ModeIndex == UiModeTest ? ServiceModeTest : ModeIndex;
+                int serviceMode;
+                switch (ModeIndex)
+                {
+                    case UiModeTest: serviceMode = ServiceModeTest; break;
+                    case UiModeBattlegrounds: serviceMode = ServiceModeBattlegrounds; break;
+                    default: serviceMode = ModeIndex; break;
+                }
                 _bot.SetRunConfiguration(serviceMode, deckName, mulliganName, discoverName);
-                AppendLocalLog($"Start requested: mode={ModeIndex}, deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation ? "hsbox" : "local")}");
+                if (IsBattlegroundsMode)
+                    _bot.SetFollowHsBoxRecommendations(true);
+                AppendLocalLog($"Start requested: mode={CurrentModeName}({serviceMode}), deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation || IsBattlegroundsMode ? "hsbox" : "local")}");
 
                 _startTime = DateTime.Now;
                 _timer.Start();
@@ -512,6 +545,7 @@ namespace BotMain
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
+                dict["ModeName"] = JsonSerializer.SerializeToElement(CurrentModeName);
                 dict["MatchmakingTimeoutSeconds"] = JsonSerializer.SerializeToElement(MatchmakingTimeoutSeconds);
                 dict["HearthstoneExecutablePath"] = JsonSerializer.SerializeToElement(HearthstoneExecutablePath);
                 dict["HsBoxExecutablePath"] = JsonSerializer.SerializeToElement(HsBoxExecutablePath);
@@ -553,7 +587,15 @@ namespace BotMain
                         if (dict.TryGetValue("ConcedeWhenLethal", out v)) ConcedeWhenLethal = v.GetBoolean();
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
-                        if (dict.TryGetValue("ModeIndex", out v)) ModeIndex = v.GetInt32();
+                        if (dict.TryGetValue("ModeIndex", out v))
+                        {
+                            var loadedMode = v.GetInt32();
+                            // 向后兼容：旧设置中 2=Test，新布局 2=Battlegrounds, 3=Test
+                            // 如果 ModeIndex==2 且文件中没有 "ModeName" 字段，视为旧 Test
+                            if (loadedMode == 2 && (!dict.ContainsKey("ModeName") || ReadOptionalString(dict["ModeName"]) == "Test"))
+                                loadedMode = UiModeTest;
+                            ModeIndex = loadedMode;
+                        }
                         if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) MatchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
                         if (dict.TryGetValue("HearthstoneExecutablePath", out v)) HearthstoneExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("HsBoxExecutablePath", out v)) HsBoxExecutablePath = ReadOptionalString(v);

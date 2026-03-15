@@ -386,7 +386,9 @@ namespace HearthstonePayload
         public string NavigateTo(string sceneName)
         {
             sceneName = (sceneName ?? string.Empty).Trim();
-            if (!string.Equals(sceneName, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(sceneName, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(sceneName, "BACON", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(sceneName, "HUB", StringComparison.OrdinalIgnoreCase))
                 return "ERROR:unsupported_scene:" + sceneName;
 
             return OnMain(() => NavigateToSceneModeInternal(sceneName));
@@ -669,47 +671,15 @@ namespace HearthstonePayload
             var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
-                var scene = GetSceneInternal();
-                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
-                    return "ERROR:scene:" + scene;
 
                 try
                 {
-                    var dpt = GetDeckPickerTray();
-                    if (dpt == null) return "ERROR:no_dpt";
-
-                    var playBtn = GetProp(dpt, "m_playButton");
-                    if (playBtn == null) return "ERROR:no_play_button";
-                    if (!IsButtonEnabled(playBtn))
-                    {
-                        var buttonText = TryExtractButtonLabel(playBtn);
-                        if (string.IsNullOrWhiteSpace(buttonText))
-                            buttonText = "UNKNOWN";
-                        return "ERROR:play_disabled:" + buttonText;
-                    }
-
-                    var rPress = CallMethod(playBtn, "TriggerPress");
-                    var rRelease = CallMethod(playBtn, "TriggerRelease");
-                    if (rPress != null || rRelease != null) return "PENDING:playButton";
-
-                    foreach (var name in new[] { "OnPlayButtonPressed", "PlayButtonPress", "Play" })
-                    {
-                        var r = CallMethod(dpt, name);
-                        if (r != null) return "PENDING:api:" + name;
-                    }
-
-                    if (_gameMgrType != null)
-                    {
-                        var gameMgr = CallStatic(_gameMgrType, "Get");
-                        if (gameMgr != null)
-                        {
-                            var r = CallMethod(gameMgr, "FindGame",
-                                (int)1 /*GameType.GT_RANKED*/, (int)2 /*FormatType*/, (long)0, (long)0);
-                            if (r != null) return "PENDING:findgame";
-                        }
-                    }
-
-                    return "ERROR:no_play_method";
+                    var scene = GetSceneInternal();
+                    if (string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                        return ClickTournamentPlayInternal();
+                    if (string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
+                        return ClickBattlegroundsPlayInternal();
+                    return "ERROR:scene:" + scene;
                 }
                 catch (Exception ex)
                 {
@@ -731,6 +701,70 @@ namespace HearthstonePayload
             }
 
             return "OK:" + result.Substring("PENDING:".Length);
+        }
+
+        private string ClickTournamentPlayInternal()
+        {
+            var dpt = GetDeckPickerTray();
+            if (dpt == null) return "ERROR:no_dpt";
+
+            var playBtn = GetProp(dpt, "m_playButton");
+            if (playBtn == null) return "ERROR:no_play_button";
+            if (!IsButtonEnabled(playBtn))
+            {
+                var buttonText = TryExtractButtonLabel(playBtn);
+                if (string.IsNullOrWhiteSpace(buttonText))
+                    buttonText = "UNKNOWN";
+                return "ERROR:play_disabled:" + buttonText;
+            }
+
+            var rPress = CallMethod(playBtn, "TriggerPress");
+            var rRelease = CallMethod(playBtn, "TriggerRelease");
+            if (rPress != null || rRelease != null) return "PENDING:playButton";
+
+            foreach (var name in new[] { "OnPlayButtonPressed", "PlayButtonPress", "Play" })
+            {
+                var r = CallMethod(dpt, name);
+                if (r != null) return "PENDING:api:" + name;
+            }
+
+            if (_gameMgrType != null)
+            {
+                var gameMgr = CallStatic(_gameMgrType, "Get");
+                if (gameMgr != null)
+                {
+                    var r = CallMethod(gameMgr, "FindGame",
+                        (int)1 /*GameType.GT_RANKED*/, (int)2 /*FormatType*/, (long)0, (long)0);
+                    if (r != null) return "PENDING:findgame";
+                }
+            }
+
+            return "ERROR:no_play_method";
+        }
+
+        private string ClickBattlegroundsPlayInternal()
+        {
+            var baconDisplay = GetBaconDisplay();
+            if (baconDisplay == null) return "ERROR:no_bacon_display";
+
+            var playBtn = GetProp(baconDisplay, "m_playButton");
+            if (playBtn == null) return "ERROR:no_play_button";
+            if (!IsButtonEnabled(playBtn))
+            {
+                var buttonText = TryExtractButtonLabel(playBtn);
+                if (string.IsNullOrWhiteSpace(buttonText))
+                    buttonText = "UNKNOWN";
+                return "ERROR:play_disabled:" + buttonText;
+            }
+
+            var rPress = CallMethod(playBtn, "TriggerPress");
+            var rRelease = CallMethod(playBtn, "TriggerRelease");
+            if (rPress != null || rRelease != null) return "PENDING:api:bacon_play_button";
+
+            var direct = CallMethod(baconDisplay, "PlayButtonRelease", new object[] { null });
+            if (direct != null) return "PENDING:api:bacon_play_button";
+
+            return "ERROR:no_play_method";
         }
 
         public string GetBlockingDialog()
@@ -838,6 +872,12 @@ namespace HearthstonePayload
         private object GetGameModeDisplay()
         {
             var type = _asm?.GetType("GameModeDisplay");
+            return type != null ? (CallStatic(type, "Get") ?? GetStaticValue(type, "m_instance")) : null;
+        }
+
+        private object GetBaconDisplay()
+        {
+            var type = _asm?.GetType("BaconDisplay");
             return type != null ? (CallStatic(type, "Get") ?? GetStaticValue(type, "m_instance")) : null;
         }
 
