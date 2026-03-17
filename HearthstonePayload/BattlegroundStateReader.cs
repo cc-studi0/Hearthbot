@@ -38,6 +38,7 @@ namespace HearthstonePayload
                 ReadPhaseAndTurn(gameState, friendly, data);
                 ReadEconomy(friendly, data);
                 ReadTavern(friendly, data);
+                ReadTimewarp(gameState, friendly, data);
                 ReadHero(friendly, data);
                 ReadHeroPower(friendly, data);
                 ReadShop(gameState, friendly, data);
@@ -65,9 +66,11 @@ namespace HearthstonePayload
                 if (gameEntity == null) return;
 
                 data.Turn = _ctx.GetTagValue(gameEntity, "TURN");
+                data.Step = _ctx.GetTagValue(gameEntity, "STEP");
+                data.NextStep = _ctx.GetTagValue(gameEntity, "NEXT_STEP");
 
                 // STEP tag 判断阶段
-                var step = _ctx.GetTagValue(gameEntity, "STEP");
+                var step = data.Step;
 
                 var currentPlayerId = _ctx.GetTagValue(gameEntity, "CURRENT_PLAYER");
                 var friendlyPlayerId = ResolvePlayerId(friendly);
@@ -159,6 +162,7 @@ namespace HearthstonePayload
 
                 data.HeroEntityId = ResolveEntityId(hero);
                 data.HeroCardId = ResolveCardId(hero) ?? "";
+                data.HeroPlayState = _ctx.GetTagValue(hero, "PLAYSTATE");
                 data.HeroHealth = _ctx.GetTagValue(hero, "HEALTH");
                 data.HeroArmor = _ctx.GetTagValue(hero, "ARMOR");
 
@@ -354,21 +358,39 @@ namespace HearthstonePayload
             try
             {
                 var hero = _ctx.CallAny(friendly, "GetHero");
-                if (hero == null) return;
+                if (hero != null && data.HeroPlayState <= 0)
+                    data.HeroPlayState = _ctx.GetTagValue(hero, "PLAYSTATE");
 
-                var playstate = _ctx.GetTagValue(hero, "PLAYSTATE");
-                // PLAYSTATE: PLAYING=1, WINNING=2, LOSING=3, WON=4, LOST=5, TIED=6, DISCONNECTED=7, CONCEDED=8
-                if (playstate == 4) { data.IsGameOver = true; data.GameResult = "WIN"; }
-                else if (playstate == 5 || playstate == 7 || playstate == 8) { data.IsGameOver = true; data.GameResult = "LOSS"; }
-                else if (playstate == 6) { data.IsGameOver = true; data.GameResult = "TIE"; }
-
-                // 也检查 GameState.IsGameOver()
-                if (!data.IsGameOver)
+                if (data.Step <= 0 || data.NextStep <= 0)
                 {
-                    var isGameOverObj = _ctx.CallAny(gameState, "IsGameOver", "get_IsGameOver");
-                    if (isGameOverObj is bool b && b)
-                        data.IsGameOver = true;
+                    var gameEntity = _ctx.CallAny(gameState, "GetGameEntity");
+                    if (gameEntity != null)
+                    {
+                        if (data.Step <= 0)
+                            data.Step = _ctx.GetTagValue(gameEntity, "STEP");
+                        if (data.NextStep <= 0)
+                            data.NextStep = _ctx.GetTagValue(gameEntity, "NEXT_STEP");
+                    }
                 }
+
+                var hasTerminalPlayState = TryMapTerminalPlayStateToResult(data.HeroPlayState, out var terminalResult);
+                if (hasTerminalPlayState && string.Equals(data.GameResult, "NONE", StringComparison.OrdinalIgnoreCase))
+                    data.GameResult = terminalResult;
+
+                if (TryGetEndGameScreenState(out var endgameShown, out var endgameClass, out _))
+                {
+                    data.IsEndGameScreenVisible = endgameShown;
+
+                    if (string.Equals(data.GameResult, "NONE", StringComparison.OrdinalIgnoreCase)
+                        && TryMapEndGameClassToResult(endgameClass, out var inferredResult))
+                    {
+                        data.GameResult = inferredResult;
+                    }
+                }
+
+                var hasFinalStep = IsFinalStep(data.Step) || IsFinalStep(data.NextStep);
+                data.IsGameOver = data.IsEndGameScreenVisible
+                    || (hasTerminalPlayState && hasFinalStep);
             }
             catch { }
         }
@@ -380,14 +402,407 @@ namespace HearthstonePayload
             try
             {
                 var playerEntity = GetPlayerEntity(friendly);
-                if (playerEntity == null) return;
+                var heroEntity = _ctx.CallAny(friendly, "GetHero");
 
-                data.Placement = _ctx.GetTagValue(playerEntity, "PLAYER_LEADERBOARD_PLACE");
-                if (data.Placement <= 0)
-                    data.Placement = _ctx.GetTagValue(playerEntity, "BACON_PLAYER_RESULT_PLACE");
+                data.Placement = TryReadPlacementFromTags(playerEntity, heroEntity, friendly);
 
-                // 剩余玩家数
-                data.PlayerCount = _ctx.GetTagValue(playerEntity, "BACON_PLAYER_NUM_REMAINING");
+                if (data.Placement <= 0
+                    && TryGetEndGameScreenState(out var endgameShown, out _, out var endGameScreen)
+                    && endgameShown)
+                {
+                    data.Placement = TryReadPlacementFromEndGameScreen(endGameScreen);
+                }
+
+                if (data.Placement <= 0
+                    && string.Equals(data.GameResult, "WIN", StringComparison.OrdinalIgnoreCase))
+                {
+                    data.Placement = 1;
+                }
+
+                data.PlayerCount = TryReadPlayerCount(playerEntity, heroEntity, friendly);
+            }
+            catch { }
+        }
+
+        private int TryReadPlacementFromTags(params object[] candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                var placement = _ctx.GetTagValue(candidate, "PLAYER_LEADERBOARD_PLACE");
+                if (placement > 0)
+                    return placement;
+
+                placement = _ctx.GetTagValue(candidate, "BACON_PLAYER_RESULT_PLACE");
+                if (placement > 0)
+                    return placement;
+            }
+
+            return 0;
+        }
+
+        private int TryReadPlayerCount(params object[] candidates)
+        {
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                var count = _ctx.GetTagValue(candidate, "BACON_PLAYER_NUM_REMAINING");
+                if (count > 0)
+                    return count;
+            }
+
+            return 0;
+        }
+
+        private bool TryGetEndGameScreenState(out bool shown, out string className, out object screen)
+        {
+            shown = false;
+            className = string.Empty;
+            screen = null;
+            try
+            {
+                var type = _ctx?.AsmCSharp?.GetType("EndGameScreen");
+                if (type == null)
+                    return false;
+
+                screen = _ctx.CallStaticAny(type, "Get");
+                if (screen == null)
+                    return false;
+
+                var shownObj = _ctx.GetFieldOrPropertyAny(
+                    screen,
+                    "m_shown",
+                    "shown",
+                    "IsShown",
+                    "m_isShown");
+
+                if (shownObj is bool boolShown)
+                    shown = boolShown;
+                else if (shownObj != null)
+                    shown = _ctx.GetTagValue(shownObj, "VALUE") == 1 || SafeToInt(shownObj) == 1;
+
+                className = _ctx.GetFieldOrPropertyAny(
+                    screen,
+                    "RealClassName",
+                    "m_realClassName",
+                    "ClassName",
+                    "m_className")?.ToString() ?? string.Empty;
+
+                if (string.IsNullOrWhiteSpace(className))
+                {
+                    className = _ctx.CallAny(screen, "GetRealClassName", "GetClassName")?.ToString() ?? string.Empty;
+                }
+
+                if (!shown && IsEndGameScreenProbablyVisible(screen, className))
+                    shown = true;
+
+                return true;
+            }
+            catch
+            {
+                screen = null;
+                shown = false;
+                className = string.Empty;
+                return false;
+            }
+        }
+
+        private bool IsEndGameScreenProbablyVisible(object screen, string className)
+        {
+            if (screen == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(className) && IsObjectProbablyVisible(screen))
+                return true;
+
+            var candidates = new[]
+            {
+                _ctx.GetFieldOrPropertyAny(screen, "m_widget", "Widget", "m_root", "m_gameObject", "gameObject"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_battlegroundsEndGame", "m_battlegroundsPanel", "m_battlegroundsResults", "m_summaryDisplay"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_placeText", "m_placementText", "m_placeLabel", "m_placementLabel"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_rankText", "m_rankLabel", "m_resultText")
+            };
+
+            return candidates.Any(IsObjectProbablyVisible);
+        }
+
+        private bool IsObjectProbablyVisible(object obj)
+        {
+            if (obj == null)
+                return false;
+
+            foreach (var name in new[] { "m_shown", "shown", "IsShown", "m_isShown", "m_visible", "visible", "isVisible" })
+            {
+                if (TryGetBoolLike(obj, name, out var value) && !value)
+                    return false;
+            }
+
+            var gameObject = _ctx.GetFieldOrPropertyAny(obj, "gameObject", "GameObject", "m_gameObject", "m_root", "m_RootObject");
+            if (gameObject != null)
+            {
+                foreach (var name in new[] { "activeSelf", "activeInHierarchy" })
+                {
+                    if (TryGetBoolLike(gameObject, name, out var active) && !active)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool TryGetBoolLike(object obj, string name, out bool value)
+        {
+            value = false;
+            if (obj == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            var raw = _ctx.GetFieldOrPropertyAny(obj, name);
+            if (raw is bool fieldBool)
+            {
+                value = fieldBool;
+                return true;
+            }
+
+            var called = _ctx.CallAny(obj, name);
+            if (called is bool methodBool)
+            {
+                value = methodBool;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryMapEndGameClassToResult(string endgameClass, out string result)
+        {
+            result = "NONE";
+            if (string.IsNullOrWhiteSpace(endgameClass))
+                return false;
+
+            var lower = endgameClass.ToLowerInvariant();
+            if (lower.Contains("victory"))
+            {
+                result = "WIN";
+                return true;
+            }
+
+            if (lower.Contains("defeat"))
+            {
+                result = "LOSS";
+                return true;
+            }
+
+            if (lower.Contains("tie") || lower.Contains("draw"))
+            {
+                result = "TIE";
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryMapTerminalPlayStateToResult(int playState, out string result)
+        {
+            result = "NONE";
+
+            // PLAYSTATE: PLAYING=1, WINNING=2, LOSING=3, WON=4, LOST=5, TIED=6, DISCONNECTED=7, CONCEDED=8
+            switch (playState)
+            {
+                case 4:
+                    result = "WIN";
+                    return true;
+                case 5:
+                case 7:
+                case 8:
+                    result = "LOSS";
+                    return true;
+                case 6:
+                    result = "TIE";
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private int TryReadPlacementFromEndGameScreen(object endGameScreen)
+        {
+            if (endGameScreen == null)
+                return 0;
+
+            foreach (var target in EnumeratePlacementCandidates(endGameScreen))
+            {
+                if (TryReadPlacementFromObject(target, out var placement))
+                    return placement;
+            }
+
+            return 0;
+        }
+
+        private IEnumerable<object> EnumeratePlacementCandidates(object endGameScreen)
+        {
+            if (endGameScreen == null)
+                yield break;
+
+            yield return endGameScreen;
+
+            var directChildren = new[]
+            {
+                _ctx.GetFieldOrPropertyAny(endGameScreen, "m_battlegroundsEndGame", "m_battlegroundsPanel", "m_battlegroundsResults", "m_summaryDisplay"),
+                _ctx.GetFieldOrPropertyAny(endGameScreen, "m_placeText", "m_placementText", "m_placeLabel", "m_placementLabel"),
+                _ctx.GetFieldOrPropertyAny(endGameScreen, "m_rankText", "m_rankLabel", "m_resultText")
+            };
+
+            foreach (var child in directChildren)
+            {
+                if (child != null)
+                    yield return child;
+            }
+        }
+
+        private bool TryReadPlacementFromObject(object candidate, out int placement)
+        {
+            placement = 0;
+            if (candidate == null)
+                return false;
+
+            var directValue = _ctx.GetFieldOrPropertyAny(
+                candidate,
+                "m_place",
+                "Place",
+                "m_placement",
+                "Placement",
+                "m_rank",
+                "Rank",
+                "m_playerResultPlace",
+                "m_leaderboardPlace");
+
+            if (TryParsePlacementValue(directValue, out placement))
+                return true;
+
+            var textValue = _ctx.GetFieldOrPropertyAny(
+                candidate,
+                "Text",
+                "text",
+                "m_text",
+                "m_Text",
+                "Label",
+                "m_label",
+                "m_Label");
+
+            if (TryParsePlacementValue(textValue, out placement))
+                return true;
+
+            var methodValue = _ctx.CallAny(candidate, "GetText", "GetLabelText", "GetTextString");
+            return TryParsePlacementValue(methodValue, out placement);
+        }
+
+        private bool TryParsePlacementValue(object value, out int placement)
+        {
+            placement = 0;
+            if (value == null)
+                return false;
+
+            if (TryParsePlacementText(value.ToString(), out placement))
+                return true;
+
+            placement = SafeToInt(value);
+            return placement > 0;
+        }
+
+        private bool TryParsePlacementText(string text, out int placement)
+        {
+            placement = 0;
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var digits = new string(text.Where(char.IsDigit).ToArray());
+            if (!string.IsNullOrWhiteSpace(digits) && int.TryParse(digits, out placement) && placement > 0)
+                return true;
+
+            var firstIndex = text.IndexOf("第一名", StringComparison.Ordinal);
+            if (firstIndex >= 0) { placement = 1; return true; }
+            if (text.IndexOf("第二名", StringComparison.Ordinal) >= 0) { placement = 2; return true; }
+            if (text.IndexOf("第三名", StringComparison.Ordinal) >= 0) { placement = 3; return true; }
+            if (text.IndexOf("第四名", StringComparison.Ordinal) >= 0) { placement = 4; return true; }
+            if (text.IndexOf("第五名", StringComparison.Ordinal) >= 0) { placement = 5; return true; }
+            if (text.IndexOf("第六名", StringComparison.Ordinal) >= 0) { placement = 6; return true; }
+            if (text.IndexOf("第七名", StringComparison.Ordinal) >= 0) { placement = 7; return true; }
+            if (text.IndexOf("第八名", StringComparison.Ordinal) >= 0) { placement = 8; return true; }
+
+            return false;
+        }
+
+        private static int SafeToInt(object value)
+        {
+            if (value == null)
+                return 0;
+
+            try
+            {
+                return Convert.ToInt32(value);
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        // ── 时空扭曲（Alt Tavern） ──
+
+        private void ReadTimewarp(object gameState, object friendly, BattlegroundStateData data)
+        {
+            try
+            {
+                var gameEntity = _ctx.CallAny(gameState, "GetGameEntity");
+                if (gameEntity == null) return;
+
+                data.IsTimewarpActive = _ctx.GetTagValue(gameEntity, "BACON_ALT_TAVERN_IN_PROGRESS") != 0;
+
+                if (!data.IsTimewarpActive) return;
+
+                // 读取时空扭曲专属货币
+                var playerEntity = GetPlayerEntity(friendly);
+                if (playerEntity != null)
+                {
+                    data.TimewarpCoins = _ctx.GetTagValue(playerEntity, "BACON_ALT_TAVERN_COIN");
+                    data.TimewarpCoinsUsed = _ctx.GetTagValue(playerEntity, "BACON_ALT_TAVERN_COIN_USED");
+                }
+
+                // 时空扭曲商店的卡牌通过 Choice 系统呈现（SECOND_SHOP 区域），
+                // ReadShop 基于 Bob 的控制权扫描可能无法捕获。
+                // 此处扫描所有带 BACON_TIMEWARPED tag 的实体，补充到 ShopCards。
+                var friendlyPlayerId = ResolvePlayerId(friendly);
+                var entities = _ctx.GetEntityMapEntries(gameState);
+                foreach (var entity in entities)
+                {
+                    if (entity == null) continue;
+                    var timewarped = _ctx.GetTagValue(entity, "BACON_TIMEWARPED");
+                    if (timewarped != 1) continue;
+
+                    var controller = _ctx.GetTagValue(entity, "CONTROLLER");
+                    var zone = _ctx.GetTagValue(entity, "ZONE");
+                    var zonePosition = _ctx.GetTagValue(entity, "ZONE_POSITION");
+                    var cardType = _ctx.GetTagValue(entity, "CARDTYPE");
+
+                    // 仅采集可购买的时空扭曲卡牌
+                    if (!IsSupportedShopCardType(cardType)) continue;
+                    // zone: PLAY=1, DECK=2, HAND=3, GRAVEYARD=4, SETASIDE=5, SECRET=6
+                    // 时空扭曲卡可能在 PLAY(1)/HAND(3)/SETASIDE(5) 区域中
+                    if (zone != 1 && zone != 3 && zone != 5) continue;
+                    if (zonePosition <= 0) continue;
+
+                    var minion = ReadMinion(entity);
+                    if (minion != null && data.ShopCards.All(existing => existing.EntityId != minion.EntityId))
+                        data.ShopCards.Add(minion);
+                }
+
+                // 按 ZonePosition 重新排序
+                if (data.ShopCards.Count > 0)
+                    data.ShopCards = data.ShopCards.OrderBy(m => m.ZonePosition).ToList();
             }
             catch { }
         }
@@ -420,7 +835,9 @@ namespace HearthstonePayload
                     IsWindfury = _ctx.GetTagValue(entity, "WINDFURY") == 1,
                     IsVenomous = _ctx.GetTagValue(entity, "POISONOUS") == 1,
                     IsReborn = _ctx.GetTagValue(entity, "REBORN") == 1,
-                    Cost = _ctx.GetTagValue(entity, "COST")
+                    Cost = _ctx.GetTagValue(entity, "COST"),
+                    CardType = _ctx.GetTagValue(entity, "CARDTYPE"),
+                    IsTimewarped = _ctx.GetTagValue(entity, "BACON_TIMEWARPED") == 1
                 };
             }
             catch
@@ -729,6 +1146,24 @@ namespace HearthstonePayload
                 return step == mulliganStep.Value;
 
             return step == 4;
+        }
+
+        private bool IsFinalStep(int step)
+        {
+            if (step <= 0)
+                return false;
+
+            var stepType = _ctx.AsmCSharp.GetType("TAG_STEP")
+                ?? _ctx.AsmCSharp.GetType("STEP")
+                ?? _ctx.AsmCSharp.GetType("Step");
+
+            var finalWrapup = GetEnumValue(stepType, "FINAL_WRAPUP");
+            var finalGameover = GetEnumValue(stepType, "FINAL_GAMEOVER");
+
+            if (finalWrapup.HasValue || finalGameover.HasValue)
+                return step == finalWrapup || step == finalGameover;
+
+            return step == 14 || step == 15;
         }
 
         private bool IsMulliganActive(int mulliganState)

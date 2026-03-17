@@ -24,8 +24,7 @@ namespace BotMain
         {
             get
             {
-                try { return _client?.Connected == true; }
-                catch { return false; }
+                return HasLiveConnection();
             }
         }
 
@@ -82,7 +81,11 @@ namespace BotMain
                 _writer.WriteLine(message);
                 return true;
             }
-            catch { return false; }
+            catch
+            {
+                DisposeClient();
+                return false;
+            }
         }
 
         public string Receive(int timeoutMs = 5000)
@@ -100,9 +103,19 @@ namespace BotMain
                     _pendingRead = task;
                     return null;
                 }
-                return task.Result;
+                var line = task.Result;
+                if (line == null)
+                {
+                    DisposeClient();
+                    return null;
+                }
+                return line;
             }
-            catch { return null; }
+            catch
+            {
+                DisposeClient();
+                return null;
+            }
         }
 
         /// <summary>
@@ -117,14 +130,50 @@ namespace BotMain
         public void Dispose()
         {
             _pendingRead = null;
+            DisposeClient();
+            try { _listener?.Stop(); } catch { }
+            _listener = null;
+        }
+
+        private bool HasLiveConnection()
+        {
+            try
+            {
+                if (_client == null || !_client.Connected)
+                    return false;
+
+                var socket = _client.Client;
+                if (socket == null)
+                    return false;
+
+                var disconnected =
+                    (socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0)
+                    || socket.Poll(0, SelectMode.SelectError);
+
+                if (disconnected)
+                {
+                    DisposeClient();
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                DisposeClient();
+                return false;
+            }
+        }
+
+        private void DisposeClient()
+        {
+            _pendingRead = null;
             try { _reader?.Dispose(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _client?.Close(); } catch { }
-            try { _listener?.Stop(); } catch { }
             _reader = null;
             _writer = null;
             _client = null;
-            _listener = null;
         }
     }
 }

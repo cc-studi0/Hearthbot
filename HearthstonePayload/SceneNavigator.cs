@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -14,12 +13,7 @@ namespace HearthstonePayload
     /// </summary>
     public class SceneNavigator
     {
-        private const uint GW_OWNER = 4;
-        private const uint WM_MOUSEMOVE = 0x0200;
-        private const uint WM_LBUTTONDOWN = 0x0201;
-        private const uint WM_LBUTTONUP = 0x0202;
-        private const int MK_LBUTTON = 0x0001;
-        private const int DismissClickTimeoutMs = 2500;
+        private const int DismissClickTimeoutMs = 4000;
         private const string StartupRatingsDialogType = "StartupRatings";
         private const string StartupRatingsButtonLabel = "\u70b9\u51fb\u5f00\u59cb";
         private const string StartupRatingsStartPressedEvent = "USER_START_PRESSED";
@@ -765,6 +759,39 @@ namespace HearthstonePayload
             if (direct != null) return "PENDING:api:bacon_play_button";
 
             return "ERROR:no_play_method";
+        }
+
+        /// <summary>
+        /// 检查战旗大厅 UI 是否完全加载就绪：
+        /// 场景为 BACON 且 BaconDisplay 存在且开始按钮可用。
+        /// 返回 "READY" 或 "NOT_READY:原因"。
+        /// </summary>
+        public string IsBattlegroundsLobbyReady()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "NOT_READY:not_initialized";
+
+                var scene = GetSceneInternal();
+                if (!string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
+                    return "NOT_READY:scene:" + scene;
+
+                var baconDisplay = GetBaconDisplay();
+                if (baconDisplay == null)
+                    return "NOT_READY:no_bacon_display";
+
+                var playBtn = GetProp(baconDisplay, "m_playButton");
+                if (playBtn == null)
+                    return "NOT_READY:no_play_button";
+
+                if (!IsButtonEnabled(playBtn))
+                {
+                    var buttonText = TryExtractButtonLabel(playBtn);
+                    return "NOT_READY:play_disabled:" + (string.IsNullOrWhiteSpace(buttonText) ? "UNKNOWN" : buttonText);
+                }
+
+                return "READY";
+            });
         }
 
         public string GetBlockingDialog()
@@ -2099,7 +2126,53 @@ namespace HearthstonePayload
 
         public string ClickDismiss()
         {
-            // 使用 InputHook 方式实现真正的后台点击，不激活窗口
+            // 先通过 API 尝试关闭结算界面
+            var apiResult = OnMain(() =>
+            {
+                try
+                {
+                    if (_asm == null) return (object)null;
+                    var egType = _asm.GetType("EndGameScreen");
+                    if (egType == null) return (object)null;
+
+                    var screen = egType.GetMethod("Get",
+                            BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy)
+                        ?.Invoke(null, null);
+                    if (screen == null) return (object)null;
+
+                    // 依次尝试已知的跳过/继续方法
+                    var names = new[]
+                    {
+                        "ContinueEvents", "Continue", "ContinueAfterScoreScreen",
+                        "OnTwoScoopsShown", "ShowStandardFlowIfReady",
+                        "OnBackOutOfGameplay", "Hide"
+                    };
+                    foreach (var name in names)
+                    {
+                        try
+                        {
+                            var method = screen.GetType().GetMethod(name,
+                                BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                            if (method != null && method.GetParameters().Length == 0)
+                            {
+                                method.Invoke(screen, null);
+                                return (object)("API:" + name);
+                            }
+                        }
+                        catch { }
+                    }
+                    return (object)null;
+                }
+                catch
+                {
+                    return (object)null;
+                }
+            });
+
+            var apiResultStr = apiResult as string;
+            var mouseResult = "SKIPPED";
+
+            // 无论 API 是否成功，始终执行鼠标点击序列作为兜底/补充
             var dims = OnMain(() =>
             {
                 var sw = MouseSimulator.GetScreenWidth();
@@ -2108,10 +2181,16 @@ namespace HearthstonePayload
             });
             var w = dims[0];
             var h = dims[1];
-            if (w <= 0 || h <= 0) return "ERROR:bg_dismiss:no_screen";
+            if (w > 0 && h > 0)
+            {
+                mouseResult = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
+            }
 
-            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
-            return result ?? "ERROR:bg_dismiss:click_failed";
+            if (!string.IsNullOrEmpty(apiResultStr))
+                return "OK:bg_dismiss:" + apiResultStr + "|mouse=" + (mouseResult ?? "null");
+            if (mouseResult != null && mouseResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+                return mouseResult;
+            return "OK:bg_dismiss:click_sent|mouse=" + (mouseResult ?? "null");
         }
 
         private string ClickDismissLegacy()
@@ -2178,157 +2257,38 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 对局结束页点击右下角位置继续（避开手牌区）
+        /// 对齐标准对战原来的结算页点击：固定点击右下区域。
         /// </summary>
         private IEnumerator<float> MouseDismissClickSequence(int w, int h)
         {
             InputHook.Simulating = true;
-            var clickX = (int)(w * 0.85f);
-            var clickY = (int)(h * 0.75f);
-
-            MouseSimulator.MoveTo(clickX, clickY);
-            yield return 0.03f;
-            MouseSimulator.LeftDown();
-            yield return 0.03f;
-            MouseSimulator.LeftUp();
-            yield return 0.10f;
-
-            _coroutine.SetResult("OK:bottom_right");
-        }
-
-        private string ClickDismissByWindowMessage(IntPtr windowHandle, NativeRect clientRect)
-        {
-            if (windowHandle == IntPtr.Zero)
-                return "ERROR:bg_dismiss:no_window";
-            if (clientRect.Width < 100 || clientRect.Height < 100)
-                return "ERROR:bg_dismiss:client_rect_invalid";
-
-            // 激活窗口以确保点击生效
-            if (!IsForegroundWindow(windowHandle))
-                SetForegroundWindow(windowHandle);
-
-            foreach (var point in BuildDismissClientPoints(clientRect))
+            foreach (var point in BuildDismissPoints(w, h))
             {
-                if (!TryDispatchClick(windowHandle, point, out var error))
-                    return "ERROR:bg_dismiss:" + error;
+                MouseSimulator.MoveTo(point.X, point.Y);
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                yield return 0.12f;
             }
 
-            return "OK:bg_dismiss";
+            _coroutine.SetResult("OK:bg_dismiss:screen_sequence");
         }
 
-        private static ClientPoint[] BuildDismissClientPoints(NativeRect clientRect)
+        private static ScreenPoint[] BuildDismissPoints(int width, int height)
         {
-            var width = clientRect.Width;
-            var height = clientRect.Height;
-            var cx = width / 2;
-            var cy = height / 2;
-            var lowerY = (int)(height * 0.70f);
-            var bottomY = (int)(height * 0.82f);
-            var continueY = (int)(height * 0.93f);
-            var sideOffset = Math.Max(14, width / 12);
+            int ClampX(float ratio) => Math.Max(6, Math.Min(width - 6, (int)(width * ratio)));
+            int ClampY(float ratio) => Math.Max(6, Math.Min(height - 6, (int)(height * ratio)));
 
             return new[]
             {
-                new ClientPoint(cx, cy),
-                new ClientPoint(cx, lowerY),
-                new ClientPoint(cx, bottomY),
-                new ClientPoint(cx, continueY),
-                new ClientPoint(cx - sideOffset, continueY),
-                new ClientPoint(cx + sideOffset, continueY),
-                new ClientPoint(cx - sideOffset, lowerY),
-                new ClientPoint(cx + sideOffset, lowerY),
-                new ClientPoint(cx, cy),
+                new ScreenPoint(ClampX(0.85f), ClampY(0.75f)), // 标准对战原始落点
+                new ScreenPoint(ClampX(0.50f), ClampY(0.52f)), // 战旗名次牌中心
+                new ScreenPoint(ClampX(0.50f), ClampY(0.66f)), // 名次牌下半区
+                new ScreenPoint(ClampX(0.50f), ClampY(0.80f)), // 下方面板区域
+                new ScreenPoint(ClampX(0.50f), ClampY(0.90f)), // 靠近“点击继续”常见区域
+                new ScreenPoint(ClampX(0.85f), ClampY(0.75f)),
             };
-        }
-
-        private static bool TryFindWindow(out IntPtr windowHandle, out NativeRect clientRect, out string error)
-        {
-            var pid = Process.GetCurrentProcess().Id;
-            var bestArea = -1;
-            var bestHandle = IntPtr.Zero;
-            var bestRect = default(NativeRect);
-            var bestError = "window_not_found";
-
-            EnumWindows((candidate, _) =>
-            {
-                GetWindowThreadProcessId(candidate, out var windowPid);
-                if (windowPid != pid)
-                    return true;
-
-                if (!IsWindowVisible(candidate))
-                    return true;
-
-                if (GetWindow(candidate, GW_OWNER) != IntPtr.Zero)
-                    return true;
-
-                if (IsIconic(candidate))
-                {
-                    bestError = "window_minimized";
-                    return true;
-                }
-
-                if (!GetClientRect(candidate, out var rect))
-                    return true;
-
-                if (rect.Width <= 0 || rect.Height <= 0)
-                    return true;
-
-                var area = rect.Width * rect.Height;
-                if (area <= bestArea)
-                    return true;
-
-                bestArea = area;
-                bestHandle = candidate;
-                bestRect = rect;
-                bestError = null;
-                return true;
-            }, IntPtr.Zero);
-
-            windowHandle = bestHandle;
-            clientRect = bestRect;
-            error = bestError;
-            return windowHandle != IntPtr.Zero;
-        }
-
-        private static bool IsForegroundWindow(IntPtr windowHandle)
-        {
-            return windowHandle != IntPtr.Zero && GetForegroundWindow() == windowHandle;
-        }
-
-        private static bool TryDispatchClick(IntPtr windowHandle, ClientPoint point, out string error)
-        {
-            error = null;
-            var lParam = MakeLParam(point.X, point.Y);
-
-            if (!PostMessage(windowHandle, WM_MOUSEMOVE, IntPtr.Zero, lParam))
-            {
-                error = "mouse_move_" + Marshal.GetLastWin32Error();
-                return false;
-            }
-
-            Thread.Sleep(15);
-
-            if (!PostMessage(windowHandle, WM_LBUTTONDOWN, new IntPtr(MK_LBUTTON), lParam))
-            {
-                error = "mouse_down_" + Marshal.GetLastWin32Error();
-                return false;
-            }
-
-            Thread.Sleep(35);
-
-            if (!PostMessage(windowHandle, WM_LBUTTONUP, IntPtr.Zero, lParam))
-            {
-                error = "mouse_up_" + Marshal.GetLastWin32Error();
-                return false;
-            }
-
-            Thread.Sleep(40);
-            return true;
-        }
-
-        private static IntPtr MakeLParam(int x, int y)
-        {
-            return new IntPtr(((y & 0xFFFF) << 16) | (x & 0xFFFF));
         }
 
         private static string WrapClickResult(string clickResult, string detail)
@@ -2338,21 +2298,9 @@ namespace HearthstonePayload
             return clickResult ?? "ERROR:click_failed";
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct NativeRect
+        private struct ScreenPoint
         {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
-
-            public int Width => Right - Left;
-            public int Height => Bottom - Top;
-        }
-
-        private struct ClientPoint
-        {
-            public ClientPoint(int x, int y)
+            public ScreenPoint(int x, int y)
             {
                 X = x;
                 Y = y;
@@ -2361,35 +2309,6 @@ namespace HearthstonePayload
             public int X { get; }
             public int Y { get; }
         }
-
-        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsWindowVisible(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern bool IsIconic(IntPtr hWnd);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetWindow(IntPtr hWnd, uint uCmd);
-
-        [DllImport("user32.dll")]
-        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out int processId);
-
-        [DllImport("user32.dll")]
-        private static extern bool GetClientRect(IntPtr hWnd, out NativeRect lpRect);
-
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
-
-        [DllImport("user32.dll")]
-        private static extern bool SetForegroundWindow(IntPtr hWnd);
-
-        [DllImport("user32.dll", SetLastError = true)]
-        private static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
 
         private static object ResolveAsyncReference(object asyncRef)
         {

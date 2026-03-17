@@ -518,7 +518,76 @@ namespace HearthstonePayload
                 className = _ctx.CallAny(screen, "GetRealClassName", "GetClassName")?.ToString() ?? string.Empty;
             }
 
+            if (!shown && IsEndGameScreenProbablyVisible(screen, className))
+                shown = true;
+
             return true;
+        }
+
+        private bool IsEndGameScreenProbablyVisible(object screen, string className)
+        {
+            if (screen == null)
+                return false;
+
+            if (!string.IsNullOrWhiteSpace(className) && IsObjectProbablyVisible(screen))
+                return true;
+
+            var candidates = new[]
+            {
+                _ctx.GetFieldOrPropertyAny(screen, "m_widget", "Widget", "m_root", "m_gameObject", "gameObject"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_battlegroundsEndGame", "m_battlegroundsPanel", "m_battlegroundsResults", "m_summaryDisplay"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_placeText", "m_placementText", "m_placeLabel", "m_placementLabel"),
+                _ctx.GetFieldOrPropertyAny(screen, "m_rankText", "m_rankLabel", "m_resultText")
+            };
+
+            return candidates.Any(IsObjectProbablyVisible);
+        }
+
+        private bool IsObjectProbablyVisible(object obj)
+        {
+            if (obj == null)
+                return false;
+
+            foreach (var name in new[] { "m_shown", "shown", "IsShown", "m_isShown", "m_visible", "visible", "isVisible" })
+            {
+                if (TryGetBoolLike(obj, name, out var value) && !value)
+                    return false;
+            }
+
+            var gameObject = _ctx.GetFieldOrPropertyAny(obj, "gameObject", "GameObject", "m_gameObject", "m_root", "m_RootObject");
+            if (gameObject != null)
+            {
+                foreach (var name in new[] { "activeSelf", "activeInHierarchy" })
+                {
+                    if (TryGetBoolLike(gameObject, name, out var active) && !active)
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool TryGetBoolLike(object obj, string name, out bool value)
+        {
+            value = false;
+            if (obj == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            var raw = _ctx.GetFieldOrPropertyAny(obj, name);
+            if (raw is bool fieldBool)
+            {
+                value = fieldBool;
+                return true;
+            }
+
+            var called = _ctx.CallAny(obj, name);
+            if (called is bool methodBool)
+            {
+                value = methodBool;
+                return true;
+            }
+
+            return false;
         }
 
         private GameResult ResolveGameResult(object friendly, object opposing, string endScreenClass)
@@ -1067,10 +1136,12 @@ namespace HearthstonePayload
         {
             if (friendlyPlayerId <= 0) return new List<EntityData>();
 
-            // 发现结算/动画期间，实体的 ZONE 标签可能短暂处于过渡状态，
-            // 导致首次读取返回空列表。做最多 3 次尝试，间隔 30ms。
-            const int maxAttempts = 3;
-            const int retryDelayMs = 30;
+            // 发现（Discover）结算后，实体的 ZONE 标签需要较长时间才能从
+            // SETASIDE(5) 完成到 HAND(3) 的切换。旧的 3×30ms（总 ≈90ms）窗口
+            // 经常不够用，导致 Discover 后手牌读取持续为空。
+            // 增加到 8×80ms（总 ≈640ms）以覆盖动画 + ZoneChangeList 结算。
+            const int maxAttempts = 8;
+            const int retryDelayMs = 80;
 
             for (int attempt = 0; attempt < maxAttempts; attempt++)
             {
@@ -1113,8 +1184,11 @@ namespace HearthstonePayload
                 // 按 ZonePosition 排序（手牌顺序）
                 result.Sort((a, b) => a.ZonePosition.CompareTo(b.ZonePosition));
             }
-            catch
+            catch (System.Exception ex)
             {
+                // 记录异常类型，帮助定位是并发修改还是其他问题
+                System.Diagnostics.Debug.WriteLine(
+                    $"[GameReader] ReadHandFromEntityMapOnce failed: {ex.GetType().Name}: {ex.Message}");
             }
 
             return result;

@@ -19,6 +19,10 @@ namespace HearthstonePayload
         public bool IsOurTurn { get; set; }
         public bool IsGameOver { get; set; }
         public string GameResult { get; set; } = "NONE"; // WIN / LOSS / NONE
+        public int Step { get; set; }
+        public int NextStep { get; set; }
+        public int HeroPlayState { get; set; }
+        public bool IsEndGameScreenVisible { get; set; }
 
         // ── 经济 ──
         public int Gold { get; set; }
@@ -31,6 +35,14 @@ namespace HearthstonePayload
         public bool CanReroll { get; set; }
         public int RerollCost { get; set; }
         public bool IsFrozen { get; set; }
+
+        // ── 时空扭曲（Timewarped Tavern / Alt Tavern） ──
+        /// <summary>是否正处于时空扭曲回合（BACON_ALT_TAVERN_IN_PROGRESS）</summary>
+        public bool IsTimewarpActive { get; set; }
+        /// <summary>时空扭曲专属货币余额</summary>
+        public int TimewarpCoins { get; set; }
+        /// <summary>已使用的时空扭曲货币</summary>
+        public int TimewarpCoinsUsed { get; set; }
 
         // ── 英雄 ──
         public int HeroEntityId { get; set; }
@@ -71,6 +83,10 @@ namespace HearthstonePayload
             sb.Append("|OUR_TURN=").Append(IsOurTurn ? "1" : "0");
             sb.Append("|GAME_OVER=").Append(IsGameOver ? "1" : "0");
             sb.Append("|RESULT=").Append(GameResult);
+            sb.Append("|STEP=").Append(Step);
+            sb.Append("|NEXT_STEP=").Append(NextStep);
+            sb.Append("|HERO_PS=").Append(HeroPlayState);
+            sb.Append("|ENDGAME=").Append(IsEndGameScreenVisible ? "1" : "0");
             sb.Append("|GOLD=").Append(Gold);
             sb.Append("|MAX_GOLD=").Append(MaxGold);
             sb.Append("|TIER=").Append(TavernTier);
@@ -87,6 +103,12 @@ namespace HearthstonePayload
             sb.Append("|BOARD=").Append(SerializeMinionList(BoardMinions));
             sb.Append("|PLAYERS=").Append(PlayerCount);
             sb.Append("|PLACE=").Append(Placement);
+            if (IsTimewarpActive)
+            {
+                sb.Append("|TIMEWARP=1");
+                sb.Append("|TW_COINS=").Append(TimewarpCoins);
+                sb.Append("|TW_USED=").Append(TimewarpCoinsUsed);
+            }
             return sb.ToString();
         }
 
@@ -122,21 +144,30 @@ namespace HearthstonePayload
         public bool IsVenomous { get; set; }
         public bool IsReborn { get; set; }
         public int Cost { get; set; }
+        /// <summary>卡牌类型 TAG_CARDTYPE（4=MINION, 42=BATTLEGROUND_SPELL 等）</summary>
+        public int CardType { get; set; }
+        /// <summary>是否是时空扭曲卡牌（BACON_TIMEWARPED tag）</summary>
+        public bool IsTimewarped { get; set; }
 
         /// <summary>
         /// 序列化为紧凑格式: entityId,cardId,atk,hp,tier,pos,flags,cost
         /// flags: G=golden T=taunt D=divine S=windfury V=venomous R=reborn
         /// </summary>
+        /// <summary>
+        /// 序列化为紧凑格式: entityId,cardId,atk,hp,tier,pos,flags,cost,cardType
+        /// flags: G=golden T=taunt D=divine S=windfury V=venomous R=reborn W=timewarped
+        /// </summary>
         public string Serialize()
         {
-            var flags = new StringBuilder(6);
+            var flags = new StringBuilder(8);
             if (IsGolden) flags.Append('G');
             if (IsTaunt) flags.Append('T');
             if (IsDivineShield) flags.Append('D');
             if (IsWindfury) flags.Append('S');
             if (IsVenomous) flags.Append('V');
             if (IsReborn) flags.Append('R');
-            return $"{EntityId},{CardId},{Attack},{Health},{TavernTier},{ZonePosition},{flags},{Cost}";
+            if (IsTimewarped) flags.Append('W');
+            return $"{EntityId},{CardId},{Attack},{Health},{TavernTier},{ZonePosition},{flags},{Cost},{CardType}";
         }
     }
 

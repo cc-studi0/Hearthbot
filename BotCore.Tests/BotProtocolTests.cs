@@ -121,6 +121,14 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ShouldClickVisiblePostGameDismiss_RequiresVisibleEndgameScreen()
+        {
+            Assert.True(BotProtocol.ShouldClickVisiblePostGameDismiss("GAMEPLAY", endgameShown: true));
+            Assert.False(BotProtocol.ShouldClickVisiblePostGameDismiss("GAMEPLAY", endgameShown: false));
+            Assert.False(BotProtocol.ShouldClickVisiblePostGameDismiss("HUB", endgameShown: true));
+        }
+
+        [Fact]
         public void ShouldAbortPostGameDismiss_WhenGameplayResponsesResume()
         {
             Assert.True(BotProtocol.ShouldAbortPostGameDismiss("SEED:abc"));

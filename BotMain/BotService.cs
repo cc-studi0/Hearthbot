@@ -61,6 +61,9 @@ namespace BotMain
         };
 
         private readonly object _sync = new object();
+        // UI 的 Prepare 定时器会频繁触发，不能和 payload 连接等待共用同一把锁，
+        // 否则连接超时期间会把界面线程一起卡住。
+        private readonly object _prepareStateSync = new object();
 
         private Thread _thread;
         private Thread _prepareThread;
@@ -97,8 +100,9 @@ namespace BotMain
         private const int DefaultMatchmakingTimeoutSeconds = 60;
         private int _matchmakingTimeoutSeconds = DefaultMatchmakingTimeoutSeconds;
         private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
-        private static readonly TimeSpan KeepAliveMinInterval = TimeSpan.FromSeconds(45);
         private const int PostGameLobbyConfirmationsRequired = 2;
+        private const int PostGameDismissCommandTimeoutMs = 4000;
+        private const int ConsumedBattlegroundRecommendationRepeatThreshold = BattlegroundRecommendationConsumptionTracker.ReleaseThreshold;
         /// <summary>
         /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
         /// 在保护期内不会导航到传统对战，防止把正在加载的对局拉出来。
@@ -108,13 +112,9 @@ namespace BotMain
         private int _postGameLobbyConfirmCount;
         private const int MatchLoadGracePeriodSeconds = 30;
         private DateTime _lastActionCommandUtc = DateTime.UtcNow;
-        private DateTime _lastKeepAliveAttemptUtc = DateTime.MinValue;
-        private DateTime _lastKeepAliveSuccessUtc = DateTime.MinValue;
         private string _lastObservedSeedResponse = string.Empty;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
-        private int _keepAliveFailureStreak;
-        private bool _executingActionPlan;
 
         // 运行限制设置
         private int _maxWins;
@@ -412,7 +412,7 @@ namespace BotMain
 
         public void Prepare()
         {
-            lock (_sync)
+            lock (_prepareStateSync)
             {
                 if (_preparing) return;
                 _preparing = true;
@@ -445,7 +445,7 @@ namespace BotMain
                 }
                 finally
                 {
-                    lock (_sync) { _preparing = false; }
+                    lock (_prepareStateSync) { _preparing = false; }
                 }
             })
             { IsBackground = true };
@@ -873,7 +873,67 @@ namespace BotMain
         {
             if (_modeIndex == 100)
             {
-                BattlegroundsLoop();
+                // 战旗 AutoQueue 循环：每局结束后自动开始下一局
+                var bgMatchCount = 0;
+                while (_running)
+                {
+                    bgMatchCount++;
+                    Log($"[BG.AutoQueue] ── 开始第 {bgMatchCount} 局战旗 ──");
+                    BattlegroundsLoop();
+                    if (!_running) break;
+
+                    Log($"[BG.AutoQueue] 第 {bgMatchCount} 局结束，准备重新排队...");
+
+                    // 等待返回大厅
+                    var lobbyReady = false;
+                    for (var waitIdx = 0; waitIdx < 30 && _running; waitIdx++)
+                    {
+                        Thread.Sleep(1000);
+                        if (!TryGetSceneValue(_pipe, 2000, out var scene, "BG.AutoQueue"))
+                            continue;
+
+                        if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (TryGetEndgameState(_pipe, 1500, out var bgEndgameShown, out _, "BG.AutoQueue.Dismiss")
+                                && bgEndgameShown)
+                            {
+                                TrySendStatusCommand(_pipe, "CLICK_DISMISS", 1500, out _, "BG.AutoQueue.Dismiss");
+                            }
+                            continue;
+                        }
+
+                        if (BotProtocol.IsStableLobbyScene(scene))
+                        {
+                            Log($"[BG.AutoQueue] 已返回大厅: scene={scene}");
+                            lobbyReady = true;
+                            break;
+                        }
+                    }
+
+                    if (!_running) break;
+                    if (!lobbyReady)
+                    {
+                        // 检查是否仍在 GAMEPLAY — 如果是，说明之前的结束检测是误判，重新进入战旗循环
+                        if (TryGetSceneValue(_pipe, 2000, out var stuckScene, "BG.AutoQueue.StuckCheck")
+                            && string.Equals(stuckScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log("[BG.AutoQueue] 超时仍在 GAMEPLAY，可能是误判对局结束，重新进入战旗循环");
+                            continue;
+                        }
+                        Log("[BG.AutoQueue] 超时仍未返回大厅，中止");
+                        break;
+                    }
+
+                    // 消除可能遗留的弹框
+                    for (var dialogRound = 0; dialogRound < 3; dialogRound++)
+                    {
+                        if (!TryDismissBlockingDialog(_pipe, 2000, out _, "BG.AutoQueue.Dialog"))
+                            break;
+                        Thread.Sleep(500);
+                    }
+                    Thread.Sleep(2000);
+                }
+
                 return;
             }
 
@@ -1166,9 +1226,7 @@ namespace BotMain
                                 ? DateTime.UtcNow.AddSeconds(1)
                                 : DateTime.UtcNow.AddSeconds(2);
                         }
-                        if (!attemptedDismiss)
-                            TryDoKeepAlive(pipe, "GAMEPLAY");
-                        if (notOurTurnStreak % 15 == 0)
+                        if (!attemptedDismiss && notOurTurnStreak % 15 == 0)
                             Log("[MainLoop] waiting for our turn...");
                         Thread.Sleep(300);
                     }
@@ -1321,7 +1379,6 @@ namespace BotMain
                 string resimulationReason = null;
                 var concededBeforeEndTurn = false;
                 var actionIndex = 0;
-                _executingActionPlan = true;
                 try
                 {
                     for (int ai = 0; ai < actions.Count; ai++)
@@ -1530,7 +1587,6 @@ namespace BotMain
                 }
                 finally
                 {
-                    _executingActionPlan = false;
                 }
 
 
@@ -1843,8 +1899,20 @@ namespace BotMain
             var lastPhase = "";
             var heroPickBridgeWaitUntilUtc = DateTime.MinValue;
             var heroPickForcePickAtUtc = DateTime.MinValue;
-            var lastExecutedBattlegroundAction = string.Empty;
-            var lastExecutedBattlegroundState = string.Empty;
+            var lastConsumedBattlegroundUpdatedAtMs = 0L;
+            var lastConsumedBattlegroundPayloadSignature = string.Empty;
+            var lastConsumedBattlegroundCommandSummary = string.Empty;
+            var repeatedConsumedBattlegroundRecommendationCount = 0;
+            var lastObservedBattlegroundTurn = -1;
+            var pendingBattlegroundRecommendationKey = string.Empty;
+            var pendingBattlegroundActionIndex = 0;
+            var pendingBattlegroundActions = new List<string>();
+
+            // 防止对同一实体反复执行同样的操作（如打出同一张手牌但实际没有效果）
+            var staleActionEntityKey = string.Empty;
+            var staleActionCount = 0;
+            var staleActionFirstUtc = DateTime.MinValue;
+            var gameOverFalsePositiveCount = 0;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -1863,7 +1931,11 @@ namespace BotMain
 
                     if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                     {
-                        var pendingResolution = ResolveEndgamePending(pipe, "BG.Endgame", out var pendingScene);
+                        var pendingResolution = ResolveEndgamePending(
+                            pipe,
+                            "BG.Endgame",
+                            out var pendingScene,
+                            requireVisibleEndgameScreen: true);
                         if (pendingResolution == EndgamePendingResolution.GameLeftGameplay)
                         {
                             if (!string.IsNullOrWhiteSpace(pendingScene)
@@ -1904,6 +1976,26 @@ namespace BotMain
                 var shopCount = CountBattlegroundStateEntries(stateData, "SHOP=");
                 var handCount = CountBattlegroundStateEntries(stateData, "HAND=");
                 var boardCount = CountBattlegroundStateEntries(stateData, "BOARD=");
+                if (TryGetBattlegroundStateInt(stateData, "TURN=", out var currentBattlegroundTurn)
+                    && currentBattlegroundTurn != lastObservedBattlegroundTurn)
+                {
+                    if (lastObservedBattlegroundTurn >= 0)
+                    {
+                        ResetConsumedBattlegroundRecommendation(
+                            ref lastConsumedBattlegroundUpdatedAtMs,
+                            ref lastConsumedBattlegroundPayloadSignature,
+                            ref lastConsumedBattlegroundCommandSummary,
+                            ref repeatedConsumedBattlegroundRecommendationCount);
+                        pendingBattlegroundRecommendationKey = string.Empty;
+                        pendingBattlegroundActionIndex = 0;
+                        pendingBattlegroundActions.Clear();
+                        staleActionEntityKey = string.Empty;
+                        staleActionCount = 0;
+                        staleActionFirstUtc = DateTime.MinValue;
+                    }
+
+                    lastObservedBattlegroundTurn = currentBattlegroundTurn;
+                }
 
                 // 提取阶段，仅在切换时输出日志
                 var phaseEnd = stateData.IndexOf('|');
@@ -1912,6 +2004,21 @@ namespace BotMain
                 {
                     Log($"[BG] 阶段切换: {phaseTag} (shop={shopCount}, hand={handCount}, board={boardCount})");
                     lastPhase = phaseTag;
+                    ResetConsumedBattlegroundRecommendation(
+                        ref lastConsumedBattlegroundUpdatedAtMs,
+                        ref lastConsumedBattlegroundPayloadSignature,
+                        ref lastConsumedBattlegroundCommandSummary,
+                        ref repeatedConsumedBattlegroundRecommendationCount);
+                    pendingBattlegroundRecommendationKey = string.Empty;
+                    pendingBattlegroundActionIndex = 0;
+                    pendingBattlegroundActions.Clear();
+                    staleActionEntityKey = string.Empty;
+                    staleActionCount = 0;
+                    staleActionFirstUtc = DateTime.MinValue;
+                    if (stateData.Contains("TIMEWARP=1", StringComparison.Ordinal))
+                    {
+                        Log("[BG] ★ 时空扭曲酒馆激活！");
+                    }
                     if (stateData.Contains("PHASE=HERO_PICK", StringComparison.Ordinal))
                     {
                         heroPickBridgeWaitUntilUtc = DateTime.UtcNow.AddSeconds(8);
@@ -1930,7 +2037,8 @@ namespace BotMain
                     if (_followHsBoxRecommendations)
                     {
                         Log("[BG] 英雄选择阶段，请求盒子推荐...");
-                        var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
+                        var recommendation = _hsBoxRecommendationProvider.RecommendBattlegroundsActionResult(stateData);
+                        var actions = recommendation?.Actions?.ToList() ?? new List<string>();
                         Log($"[BG] 英雄选择推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
                         var nextAction = actions?.FirstOrDefault(action => !string.IsNullOrWhiteSpace(action));
                         if (!string.IsNullOrWhiteSpace(nextAction))
@@ -1942,20 +2050,42 @@ namespace BotMain
                                 continue;
                             }
 
-                            if (string.Equals(lastExecutedBattlegroundAction, nextAction, StringComparison.Ordinal)
-                                && string.Equals(lastExecutedBattlegroundState, stateData, StringComparison.Ordinal))
+                            if (ShouldTreatBattlegroundRecommendationAsConsumed(
+                                recommendation,
+                                ref lastConsumedBattlegroundUpdatedAtMs,
+                                ref lastConsumedBattlegroundPayloadSignature,
+                                ref lastConsumedBattlegroundCommandSummary,
+                                ref repeatedConsumedBattlegroundRecommendationCount,
+                                out var releasedHeroPickRecommendation))
                             {
-                                Log($"[BG] 跳过重复推荐: {nextAction}");
+                                if (repeatedConsumedBattlegroundRecommendationCount == 1
+                                    || repeatedConsumedBattlegroundRecommendationCount >= ConsumedBattlegroundRecommendationRepeatThreshold - 1)
+                                {
+                                    Log($"[BG] 英雄选择推荐与上次已消费相同，等待刷新: {nextAction} ({repeatedConsumedBattlegroundRecommendationCount}/{ConsumedBattlegroundRecommendationRepeatThreshold})");
+                                }
+
                                 Thread.Sleep(180);
                                 continue;
+                            }
+
+                            if (releasedHeroPickRecommendation)
+                            {
+                                staleActionEntityKey = string.Empty;
+                                staleActionCount = 0;
+                                staleActionFirstUtc = DateTime.MinValue;
+                                Log($"[BG] 英雄选择推荐连续出现 {ConsumedBattlegroundRecommendationRepeatThreshold} 次未变化，判定上次可能未生效，重新尝试: {nextAction}");
                             }
 
                             var actionResp = SendActionCommand(pipe, nextAction, 3000);
                             Log($"[BG] 选择英雄 {nextAction} -> {actionResp}");
                             if (!IsActionFailure(actionResp))
                             {
-                                lastExecutedBattlegroundAction = nextAction;
-                                lastExecutedBattlegroundState = stateData;
+                                RememberConsumedBattlegroundRecommendation(
+                                    recommendation,
+                                    ref lastConsumedBattlegroundUpdatedAtMs,
+                                    ref lastConsumedBattlegroundPayloadSignature,
+                                    ref lastConsumedBattlegroundCommandSummary,
+                                    ref repeatedConsumedBattlegroundRecommendationCount);
                             }
 
                             heroPickBridgeWaitUntilUtc = DateTime.MinValue;
@@ -2004,6 +2134,84 @@ namespace BotMain
                     continue;
                 }
 
+                // ── 战旗对局结束检测 ──
+                if (stateData.Contains("GAME_OVER=1", StringComparison.Ordinal))
+                {
+                    // 提取结果和名次
+                    var bgResult = "UNKNOWN";
+                    var resultIdx = stateData.IndexOf("RESULT=", StringComparison.Ordinal);
+                    if (resultIdx >= 0)
+                    {
+                        var resultStart = resultIdx + 7;
+                        var resultEnd = stateData.IndexOf('|', resultStart);
+                        bgResult = resultEnd >= 0
+                            ? stateData.Substring(resultStart, resultEnd - resultStart)
+                            : stateData.Substring(resultStart);
+                    }
+
+                    var bgPlace = 0;
+                    var placeIdx = stateData.IndexOf("PLACE=", StringComparison.Ordinal);
+                    if (placeIdx >= 0)
+                    {
+                        var placeStart = placeIdx + 6;
+                        var placeEnd = stateData.IndexOf('|', placeStart);
+                        var placeStr = placeEnd >= 0
+                            ? stateData.Substring(placeStart, placeEnd - placeStart)
+                            : stateData.Substring(placeStart);
+                        int.TryParse(placeStr, out bgPlace);
+                    }
+
+                    // ── 误判保护：GAME_OVER=1 但 RESULT=NONE 且 PLACE=0 时可能是战斗阶段的暂态 ──
+                    // 需要连续多次确认才真正当作对局结束（防止战斗动画期间 IsGameOver 短暂返回 true）
+                    var seemsLegitGameOver = bgPlace > 0
+                        || (!string.Equals(bgResult, "NONE", StringComparison.OrdinalIgnoreCase)
+                            && !string.Equals(bgResult, "UNKNOWN", StringComparison.OrdinalIgnoreCase));
+
+                    if (!seemsLegitGameOver)
+                    {
+                        gameOverFalsePositiveCount++;
+                        if (gameOverFalsePositiveCount < 5)
+                        {
+                            if (gameOverFalsePositiveCount == 1)
+                                Log($"[BG] GAME_OVER=1 但 RESULT={bgResult}/PLACE={bgPlace}，可能是战斗阶段暂态，等待确认... ({gameOverFalsePositiveCount}/5)");
+                            Thread.Sleep(500);
+                            continue;
+                        }
+                        // 连续 5 次仍然是 GAME_OVER=1，执行正常结束流程
+                        Log($"[BG] GAME_OVER=1 连续检测 {gameOverFalsePositiveCount} 次，确认对局结束");
+                    }
+                    gameOverFalsePositiveCount = 0;
+
+                    Log($"[BG] ★ 对局结束! 结果={bgResult}, 名次={bgPlace}");
+                    _earlyGameResult = bgResult;
+
+                    // 连续点击跳过结算动画
+                    var dismissed = RunPostGameDismissLoop(pipe, "BG.Endgame", out var dismissScene);
+                    Log($"[BG] 结算跳过: dismissed={dismissed}, scene={dismissScene}");
+
+                    if (!dismissed)
+                    {
+                        // 即使 dismiss 循环没有完全离开 GAMEPLAY，
+                        // 也等待一段时间让游戏自动过渡
+                        for (var waitCount = 0; waitCount < 15 && _running; waitCount++)
+                        {
+                            Thread.Sleep(1000);
+                            if (TryGetSceneValue(pipe, 1500, out var waitScene, "BG.PostEndgameWait")
+                                && BotProtocol.IsStableLobbyScene(waitScene))
+                            {
+                                Log($"[BG] 等待后已返回大厅: scene={waitScene}");
+                                break;
+                            }
+                        }
+                    }
+
+                    break;
+                }
+                else
+                {
+                    gameOverFalsePositiveCount = 0;
+                }
+
                 if (!stateData.Contains("PHASE=RECRUIT"))
                 {
                     Thread.Sleep(500);
@@ -2012,9 +2220,25 @@ namespace BotMain
 
                 if (_followHsBoxRecommendations)
                 {
-                    var actions = _hsBoxRecommendationProvider.RecommendBattlegroundsActions(stateData);
-                    Log($"[BG] 招募阶段推荐: 收到 {actions?.Count ?? 0} 条动作 (shop={shopCount}, hand={handCount}, board={boardCount})");
-                    var nextAction = actions?.FirstOrDefault(action => !string.IsNullOrWhiteSpace(action));
+                    var recommendation = _hsBoxRecommendationProvider.RecommendBattlegroundsActionResult(stateData);
+                    var currentActions = recommendation?.Actions?
+                        .Where(action => !string.IsNullOrWhiteSpace(action))
+                        .ToList() ?? new List<string>();
+                    var recommendationExecutionKey = BuildBattlegroundRecommendationExecutionKey(recommendation);
+                    if (!string.Equals(pendingBattlegroundRecommendationKey, recommendationExecutionKey, StringComparison.Ordinal)
+                        || pendingBattlegroundActionIndex >= pendingBattlegroundActions.Count
+                        || pendingBattlegroundActions.Count == 0)
+                    {
+                        pendingBattlegroundRecommendationKey = recommendationExecutionKey;
+                        pendingBattlegroundActionIndex = 0;
+                        pendingBattlegroundActions = currentActions;
+                    }
+
+                    var actions = pendingBattlegroundActions;
+                    var nextAction = pendingBattlegroundActionIndex < actions.Count
+                        ? actions[pendingBattlegroundActionIndex]
+                        : null;
+                    var isContinuationAction = pendingBattlegroundActionIndex > 0;
                     if (!string.IsNullOrWhiteSpace(nextAction))
                     {
                         if (!WaitForGameReady(pipe, 10, 120, 1200))
@@ -2024,20 +2248,99 @@ namespace BotMain
                             continue;
                         }
 
-                        if (string.Equals(lastExecutedBattlegroundAction, nextAction, StringComparison.Ordinal)
-                            && string.Equals(lastExecutedBattlegroundState, stateData, StringComparison.Ordinal))
+                        var releasedRecruitRecommendation = false;
+                        if (!isContinuationAction
+                            && ShouldTreatBattlegroundRecommendationAsConsumed(
+                                recommendation,
+                                ref lastConsumedBattlegroundUpdatedAtMs,
+                                ref lastConsumedBattlegroundPayloadSignature,
+                                ref lastConsumedBattlegroundCommandSummary,
+                                ref repeatedConsumedBattlegroundRecommendationCount,
+                                out releasedRecruitRecommendation))
                         {
-                            Log($"[BG] 跳过重复推荐: {nextAction}");
+                            if (repeatedConsumedBattlegroundRecommendationCount == 1
+                                || repeatedConsumedBattlegroundRecommendationCount >= ConsumedBattlegroundRecommendationRepeatThreshold - 1)
+                            {
+                                Log($"[BG] 推荐与上次已消费相同，等待刷新: {nextAction} ({repeatedConsumedBattlegroundRecommendationCount}/{ConsumedBattlegroundRecommendationRepeatThreshold})");
+                            }
+
                             Thread.Sleep(180);
                             continue;
+                        }
+
+                        if (releasedRecruitRecommendation)
+                        {
+                            pendingBattlegroundRecommendationKey = string.Empty;
+                            pendingBattlegroundActionIndex = 0;
+                            pendingBattlegroundActions.Clear();
+                            staleActionEntityKey = string.Empty;
+                            staleActionCount = 0;
+                            staleActionFirstUtc = DateTime.MinValue;
+                            Log($"[BG] 同一盒子推荐连续出现 {ConsumedBattlegroundRecommendationRepeatThreshold} 次未变化，判定上次可能未生效，重新尝试: {nextAction}");
+                        }
+
+                        var actionOrdinalText = actions.Count > 1
+                            ? $"，执行第 {pendingBattlegroundActionIndex + 1}/{actions.Count} 条"
+                            : string.Empty;
+                        Log($"[BG] 招募阶段推荐: 收到 {actions.Count} 条动作{actionOrdinalText} (shop={shopCount}, hand={handCount}, board={boardCount})");
+
+                        // 检测同一实体被反复操作的死循环
+                        // 提取动作中的主实体 ID（BG_PLAY|entityId|..., BG_BUY|entityId|..., etc.）
+                        var entityKey = ExtractActionEntityKey(nextAction);
+                        if (!string.IsNullOrEmpty(entityKey))
+                        {
+                            if (string.Equals(staleActionEntityKey, entityKey, StringComparison.Ordinal))
+                            {
+                                staleActionCount++;
+                                var elapsed = DateTime.UtcNow - staleActionFirstUtc;
+                                if (staleActionCount >= 3 && elapsed.TotalSeconds < 8)
+                                {
+                                    Log($"[BG] ⚠ 同一实体 {entityKey} 已执行 {staleActionCount} 次 ({elapsed.TotalSeconds:F1}s内)，操作可能无效，跳过");
+                                    staleActionCount = 0;
+                                    staleActionFirstUtc = DateTime.MinValue;
+                                    staleActionEntityKey = string.Empty;
+                                    Thread.Sleep(500);
+                                    continue;
+                                }
+                            }
+                            else
+                            {
+                                staleActionEntityKey = entityKey;
+                                staleActionCount = 1;
+                                staleActionFirstUtc = DateTime.UtcNow;
+                            }
+                        }
+                        else
+                        {
+                            staleActionEntityKey = string.Empty;
+                            staleActionCount = 0;
                         }
 
                         var actionResp = SendActionCommand(pipe, nextAction, 3000);
                         Log($"[BG] 执行 {nextAction} -> {actionResp}");
                         if (!IsActionFailure(actionResp))
                         {
-                            lastExecutedBattlegroundAction = nextAction;
-                            lastExecutedBattlegroundState = stateData;
+                            if (pendingBattlegroundActionIndex + 1 < actions.Count)
+                            {
+                                pendingBattlegroundActionIndex++;
+                                Thread.Sleep(180);
+                                continue;
+                            }
+
+                            pendingBattlegroundRecommendationKey = string.Empty;
+                            pendingBattlegroundActionIndex = 0;
+                            pendingBattlegroundActions.Clear();
+                            RememberConsumedBattlegroundRecommendation(
+                                recommendation,
+                                ref lastConsumedBattlegroundUpdatedAtMs,
+                                ref lastConsumedBattlegroundPayloadSignature,
+                                ref lastConsumedBattlegroundCommandSummary,
+                                ref repeatedConsumedBattlegroundRecommendationCount);
+                        }
+                        else
+                        {
+                            Thread.Sleep(220);
+                            continue;
                         }
                         if (nextAction.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
                             || nextAction.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
@@ -4067,6 +4370,122 @@ namespace BotMain
                 || string.Equals(result, "NO_RESPONSE", StringComparison.OrdinalIgnoreCase);
         }
 
+        internal static string SummarizeBattlegroundRecommendationActions(IReadOnlyList<string> actions)
+        {
+            return BattlegroundRecommendationConsumptionTracker.SummarizeActions(actions);
+        }
+
+        internal static string BuildBattlegroundRecommendationExecutionKey(BattlegroundActionRecommendationResult recommendation)
+        {
+            if (recommendation == null)
+                return string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(recommendation.SourcePayloadSignature))
+                return $"sig:{recommendation.SourcePayloadSignature}";
+
+            var summarizedActions = SummarizeBattlegroundRecommendationActions(recommendation.Actions);
+            return $"ts:{recommendation.SourceUpdatedAtMs}|actions:{summarizedActions}";
+        }
+
+        internal static bool IsSameBattlegroundRecommendation(
+            BattlegroundActionRecommendationResult recommendation,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature,
+            string lastConsumedCommandSummary)
+        {
+            return BattlegroundRecommendationConsumptionTracker.IsSameRecommendation(
+                recommendation,
+                lastConsumedUpdatedAtMs,
+                lastConsumedPayloadSignature,
+                lastConsumedCommandSummary);
+        }
+
+        internal static bool ShouldTreatBattlegroundRecommendationAsConsumed(
+            BattlegroundActionRecommendationResult recommendation,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount,
+            out bool releasedDueToRepetition)
+        {
+            return BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                recommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out releasedDueToRepetition);
+        }
+
+        private static void RememberConsumedBattlegroundRecommendation(
+            BattlegroundActionRecommendationResult recommendation,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount)
+        {
+            BattlegroundRecommendationConsumptionTracker.RememberConsumed(
+                recommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount);
+        }
+
+        private static void ResetConsumedBattlegroundRecommendation(
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount)
+        {
+            BattlegroundRecommendationConsumptionTracker.Reset(
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount);
+        }
+
+        private static bool TryGetBattlegroundStateInt(string stateData, string fieldPrefix, out int value)
+        {
+            value = 0;
+            if (string.IsNullOrWhiteSpace(stateData) || string.IsNullOrWhiteSpace(fieldPrefix))
+                return false;
+
+            var startIdx = stateData.IndexOf(fieldPrefix, StringComparison.Ordinal);
+            if (startIdx < 0)
+                return false;
+
+            startIdx += fieldPrefix.Length;
+            var endIdx = stateData.IndexOf('|', startIdx);
+            var raw = endIdx >= 0
+                ? stateData.Substring(startIdx, endIdx - startIdx)
+                : stateData.Substring(startIdx);
+
+            return int.TryParse(raw, out value);
+        }
+
+        /// <summary>
+        /// 从战旗命令中提取 "动作类型|实体ID" 作为去重 key。
+        /// 例如 "BG_PLAY|17508|17950|10" → "BG_PLAY|17508"，
+        ///      "BG_BUY|12345|3" → "BG_BUY|12345"
+        /// </summary>
+        private static string ExtractActionEntityKey(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return string.Empty;
+
+            // 格式: ACTION_TYPE|entityId|...
+            var firstPipe = action.IndexOf('|');
+            if (firstPipe < 0)
+                return string.Empty;
+
+            var secondPipe = action.IndexOf('|', firstPipe + 1);
+            if (secondPipe < 0)
+                return action; // 只有一个参数，整条命令做 key
+
+            return action.Substring(0, secondPipe); // "BG_PLAY|17508"
+        }
+
         private bool TryConcedeBeforeEndTurnIfDeadNextTurn(PipeServer pipe)
         {
             if (pipe == null || !pipe.IsConnected)
@@ -4178,88 +4597,7 @@ namespace BotMain
             return pipe.SendAndReceive("ACTION:" + action, timeoutMs);
         }
 
-        private void TryDoKeepAlive(PipeServer pipe, string currentScene = null)
-        {
-            if (pipe == null || !pipe.IsConnected || _executingActionPlan)
-                return;
 
-            var now = DateTime.UtcNow;
-            if (now - _lastActionCommandUtc < KeepAliveMinInterval)
-                return;
-            if (_lastKeepAliveAttemptUtc != DateTime.MinValue
-                && now - _lastKeepAliveAttemptUtc < KeepAliveMinInterval)
-                return;
-            if (_postGameSinceUtc != null)
-                return;
-            if (_matchEndedUtc != null
-                && now - _matchEndedUtc.Value < TimeSpan.FromSeconds(MatchLoadGracePeriodSeconds))
-                return;
-
-            var scene = currentScene;
-            if (string.IsNullOrWhiteSpace(scene)
-                && !TryGetSceneValue(pipe, 1500, out scene, "KeepAliveScene"))
-            {
-                return;
-            }
-
-            var allowKeepAlive = string.Equals(scene, "HUB", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase)
-                || (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
-                    && string.Equals(_lastObservedSeedResponse, "NOT_OUR_TURN", StringComparison.Ordinal));
-            if (!allowKeepAlive)
-                return;
-
-            _lastKeepAliveAttemptUtc = now;
-
-            if (!TryGetBlockingDialog(pipe, 1500, out var dialogType, out var buttonLabel, "KeepAlive"))
-            {
-                _keepAliveFailureStreak++;
-                Log($"[KeepAlive] GET_BLOCKING_DIALOG failed, streak={_keepAliveFailureStreak}");
-                return;
-            }
-
-            if (!string.IsNullOrWhiteSpace(dialogType))
-            {
-                _keepAliveFailureStreak = 0;
-                Log($"[KeepAlive] skip blocking dialog {dialogType}({buttonLabel})");
-                return;
-            }
-
-            var gotKeepAliveResp = TrySendAndReceiveExpected(
-                pipe,
-                "CLICK_KEEPALIVE",
-                3000,
-                IsKeepAliveResponse,
-                out var keepAliveResp,
-                "KeepAlive");
-            keepAliveResp = gotKeepAliveResp ? keepAliveResp ?? "NO_RESPONSE" : "NO_RESPONSE";
-
-            if (keepAliveResp.StartsWith("OK:KEEPALIVE:", StringComparison.OrdinalIgnoreCase))
-            {
-                _lastKeepAliveSuccessUtc = now;
-                _keepAliveFailureStreak = 0;
-                Log($"[KeepAlive] {keepAliveResp}");
-                return;
-            }
-
-            if (keepAliveResp.StartsWith("SKIP:KEEPALIVE:", StringComparison.OrdinalIgnoreCase))
-            {
-                _keepAliveFailureStreak = 0;
-                Log($"[KeepAlive] {keepAliveResp}");
-                return;
-            }
-
-            _keepAliveFailureStreak++;
-            Log($"[KeepAlive] {keepAliveResp}, streak={_keepAliveFailureStreak}");
-        }
-
-        private static bool IsKeepAliveResponse(string resp)
-        {
-            return !string.IsNullOrWhiteSpace(resp)
-                && (resp.StartsWith("OK:KEEPALIVE:", StringComparison.Ordinal)
-                    || resp.StartsWith("SKIP:KEEPALIVE:", StringComparison.Ordinal)
-                    || resp.StartsWith("ERROR:KEEPALIVE:", StringComparison.Ordinal));
-        }
 
         private bool TrySendAndReceiveExpected(
             PipeServer pipe,
@@ -4817,7 +5155,7 @@ namespace BotMain
             return false;
         }
 
-        private bool TryClickBattlegroundsPlayWhenReady(PipeServer pipe, string scope, out string playResp, int timeoutSeconds = 12)
+        private bool TryClickBattlegroundsPlayWhenReady(PipeServer pipe, string scope, out string playResp, int timeoutSeconds = 15)
         {
             playResp = "NO_RESPONSE";
             if (pipe == null || !pipe.IsConnected)
@@ -4825,6 +5163,7 @@ namespace BotMain
 
             var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
             var readyConfirmCount = 0;
+            const int requiredConfirmations = 3;
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
@@ -4847,46 +5186,43 @@ namespace BotMain
                     continue;
                 }
 
-                if (!TryGetSceneValue(pipe, 1500, out var scene, scope))
+                // 使用 IS_BACON_READY 检查 BaconDisplay 是否加载完成、开始按钮是否可用
+                var gotBaconReady = TrySendAndReceiveExpected(
+                    pipe,
+                    "IS_BACON_READY",
+                    2000,
+                    r => !string.IsNullOrWhiteSpace(r)
+                        && (r.StartsWith("READY", StringComparison.OrdinalIgnoreCase)
+                            || r.StartsWith("NOT_READY", StringComparison.OrdinalIgnoreCase)),
+                    out var baconReadyResp,
+                    scope);
+
+                if (!gotBaconReady || string.IsNullOrWhiteSpace(baconReadyResp))
                 {
                     readyConfirmCount = 0;
-                    Log($"[{scope}] Scene probe timed out while waiting to click play.");
+                    Log($"[{scope}] IS_BACON_READY probe timed out, waiting for UI to load.");
                     Thread.Sleep(500);
                     continue;
                 }
 
-                if (!string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
+                if (!string.Equals(baconReadyResp, "READY", StringComparison.OrdinalIgnoreCase))
                 {
                     readyConfirmCount = 0;
-                    Log($"[{scope}] Scene changed while waiting to click play: {scene}");
-                    Thread.Sleep(600);
+                    Log($"[{scope}] Battlegrounds UI not ready: {baconReadyResp}");
+                    Thread.Sleep(800);
                     continue;
                 }
 
-                if (!TryGetReadyState(pipe, 1200, out var readyResp, scope))
-                {
-                    readyConfirmCount = 0;
-                    Log($"[{scope}] WAIT_READY timed out while waiting to click play.");
-                    Thread.Sleep(400);
-                    continue;
-                }
-
-                if (!string.Equals(readyResp, "READY", StringComparison.OrdinalIgnoreCase))
-                {
-                    readyConfirmCount = 0;
-                    Log($"[{scope}] Waiting for BACON page ready before click: {readyResp}");
-                    Thread.Sleep(350);
-                    continue;
-                }
-
+                // UI 就绪，累计确认次数
                 readyConfirmCount++;
-                if (readyConfirmCount < 2)
+                if (readyConfirmCount < requiredConfirmations)
                 {
-                    Log($"[{scope}] BACON page ready confirmation {readyConfirmCount}/2 before click.");
-                    Thread.Sleep(350);
+                    Log($"[{scope}] Battlegrounds UI ready confirmation {readyConfirmCount}/{requiredConfirmations}.");
+                    Thread.Sleep(500);
                     continue;
                 }
 
+                // 已连续确认 UI 就绪，点击开始
                 if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, scope))
                     playResp = "NO_RESPONSE";
                 Log($"[BG] 点击开始 -> {playResp}");
@@ -4898,10 +5234,11 @@ namespace BotMain
                 }
 
                 if (!string.IsNullOrWhiteSpace(playResp)
-                    && playResp.IndexOf("no_play_button", StringComparison.OrdinalIgnoreCase) >= 0)
+                    && (playResp.IndexOf("no_play_button", StringComparison.OrdinalIgnoreCase) >= 0
+                        || playResp.IndexOf("play_disabled", StringComparison.OrdinalIgnoreCase) >= 0))
                 {
                     readyConfirmCount = 0;
-                    Log($"[{scope}] Play button not ready yet, waiting for page to finish loading.");
+                    Log($"[{scope}] Play button became unavailable after ready check, re-waiting.");
                     Thread.Sleep(700);
                     continue;
                 }
@@ -4937,19 +5274,29 @@ namespace BotMain
                 && DateTime.UtcNow < deadline
                 && string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
-                var gotDismissResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", 2500, out var dismissResp, scope);
+                var gotDismissResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", PostGameDismissCommandTimeoutMs, out var dismissResp, scope);
                 dismissResp = gotDismissResp ? dismissResp ?? "NO_RESPONSE" : "NO_RESPONSE";
+                var dismissConfirmed = !string.IsNullOrWhiteSpace(dismissResp)
+                    && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase);
                 clickCount++;
 
                 string extraClickResp = null;
                 if (clickCount % 3 == 0)
                 {
-                    var gotExtraResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", 2500, out extraClickResp, scope);
+                    var gotExtraResp = TrySendStatusCommand(pipe, "CLICK_DISMISS", PostGameDismissCommandTimeoutMs, out extraClickResp, scope);
                     extraClickResp = gotExtraResp ? extraClickResp ?? "NO_RESPONSE" : "NO_RESPONSE";
                 }
 
                 if (!TryGetSceneValue(pipe, 2500, out var nextScene, scope))
                 {
+                    if (dismissConfirmed
+                        && TryGetEndgameState(pipe, 1500, out var hiddenEndgameShown, out var hiddenEndgameClass, scope)
+                        && !hiddenEndgameShown)
+                    {
+                        Log($"[{scope}] CLICK_DISMISS[{clickCount}] -> {dismissResp}, endgame_hidden=1, scene_probe=timeout");
+                        return true;
+                    }
+
                     if (clickCount <= 3 || clickCount % 5 == 0)
                     {
                         var extraInfo = extraClickResp == null ? string.Empty : $", extra={extraClickResp}";
@@ -4972,6 +5319,14 @@ namespace BotMain
                 if (!string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                     break;
 
+                if (dismissConfirmed
+                    && TryGetEndgameState(pipe, 1500, out var endgameShown, out var endgameClass, scope)
+                    && !endgameShown)
+                {
+                    Log($"[{scope}] 结算层已关闭，等待自动返回大厅... scene={sceneAfter}");
+                    return true;
+                }
+
                 Thread.Sleep(250);
             }
 
@@ -4985,7 +5340,11 @@ namespace BotMain
             return true;
         }
 
-        private EndgamePendingResolution ResolveEndgamePending(PipeServer pipe, string scope, out string sceneAfter)
+        private EndgamePendingResolution ResolveEndgamePending(
+            PipeServer pipe,
+            string scope,
+            out string sceneAfter,
+            bool requireVisibleEndgameScreen = false)
         {
             sceneAfter = "GAMEPLAY";
             var deadline = DateTime.UtcNow.AddSeconds(2);
@@ -5011,7 +5370,11 @@ namespace BotMain
                     return EndgamePendingResolution.Waiting;
                 }
 
-                if (BotProtocol.ShouldClickPostGameDismiss(scene, BotProtocol.EndgamePending, endgameShown))
+                var shouldClickDismiss = requireVisibleEndgameScreen
+                    ? BotProtocol.ShouldClickVisiblePostGameDismiss(scene, endgameShown)
+                    : BotProtocol.ShouldClickPostGameDismiss(scene, BotProtocol.EndgamePending, endgameShown);
+
+                if (shouldClickDismiss)
                 {
                     Log($"[{scope}] 检测到结算页显示({endgameClass})，开始连续点击跳过...");
 
@@ -5050,6 +5413,12 @@ namespace BotMain
                     return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
                         ? EndgamePendingResolution.GameLeftGameplay
                         : EndgamePendingResolution.Waiting;
+                }
+
+                if (requireVisibleEndgameScreen)
+                {
+                    Thread.Sleep(150);
+                    continue;
                 }
 
                 if (!TryGetSeedProbe(pipe, 1500, out var seedProbe, scope))
@@ -5416,7 +5785,7 @@ namespace BotMain
                 }
             }
 
-            TryDoKeepAlive(pipe, scene);
+
 
             // 检查是否已在匹配中
             if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))

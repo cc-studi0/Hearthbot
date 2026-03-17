@@ -118,6 +118,133 @@ namespace BotMain
         public bool ShouldRetryWithoutAction { get; }
     }
 
+    internal sealed class BattlegroundActionRecommendationResult
+    {
+        public BattlegroundActionRecommendationResult(
+            IReadOnlyList<string> actions,
+            string detail,
+            long sourceUpdatedAtMs = 0,
+            string sourcePayloadSignature = null,
+            bool shouldRetryWithoutAction = false)
+        {
+            Actions = actions ?? Array.Empty<string>();
+            Detail = detail ?? string.Empty;
+            SourceUpdatedAtMs = sourceUpdatedAtMs;
+            SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
+            ShouldRetryWithoutAction = shouldRetryWithoutAction;
+        }
+
+        public IReadOnlyList<string> Actions { get; }
+        public string Detail { get; }
+        public long SourceUpdatedAtMs { get; }
+        public string SourcePayloadSignature { get; }
+        public bool ShouldRetryWithoutAction { get; }
+    }
+
+    internal static class BattlegroundRecommendationConsumptionTracker
+    {
+        internal const int ReleaseThreshold = 3;
+
+        public static string SummarizeActions(IReadOnlyList<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return string.Empty;
+
+            return string.Join(">", actions.Where(action => !string.IsNullOrWhiteSpace(action)));
+        }
+
+        public static bool IsSameRecommendation(
+            BattlegroundActionRecommendationResult recommendation,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature,
+            string lastConsumedCommandSummary)
+        {
+            if (recommendation == null)
+                return false;
+
+            var currentPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(currentPayloadSignature)
+                && !string.IsNullOrWhiteSpace(lastConsumedPayloadSignature))
+            {
+                return string.Equals(currentPayloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal);
+            }
+
+            var currentCommandSummary = SummarizeActions(recommendation.Actions);
+            if (string.IsNullOrWhiteSpace(currentCommandSummary)
+                || string.IsNullOrWhiteSpace(lastConsumedCommandSummary))
+            {
+                return false;
+            }
+
+            if (recommendation.SourceUpdatedAtMs > 0 && lastConsumedUpdatedAtMs > 0)
+            {
+                return recommendation.SourceUpdatedAtMs == lastConsumedUpdatedAtMs
+                    && string.Equals(currentCommandSummary, lastConsumedCommandSummary, StringComparison.Ordinal);
+            }
+
+            return string.Equals(currentCommandSummary, lastConsumedCommandSummary, StringComparison.Ordinal);
+        }
+
+        public static bool ShouldTreatAsConsumed(
+            BattlegroundActionRecommendationResult recommendation,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount,
+            out bool releasedDueToRepetition)
+        {
+            releasedDueToRepetition = false;
+            if (!IsSameRecommendation(
+                recommendation,
+                lastConsumedUpdatedAtMs,
+                lastConsumedPayloadSignature,
+                lastConsumedCommandSummary))
+            {
+                repeatedRecommendationCount = 0;
+                return false;
+            }
+
+            repeatedRecommendationCount++;
+            if (repeatedRecommendationCount < ReleaseThreshold)
+                return true;
+
+            releasedDueToRepetition = true;
+            repeatedRecommendationCount = 0;
+            lastConsumedUpdatedAtMs = 0;
+            lastConsumedPayloadSignature = string.Empty;
+            lastConsumedCommandSummary = string.Empty;
+            return false;
+        }
+
+        public static void RememberConsumed(
+            BattlegroundActionRecommendationResult recommendation,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount)
+        {
+            if (recommendation == null)
+                return;
+
+            lastConsumedUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+            lastConsumedPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+            lastConsumedCommandSummary = SummarizeActions(recommendation.Actions);
+            repeatedRecommendationCount = 0;
+        }
+
+        public static void Reset(
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature,
+            ref string lastConsumedCommandSummary,
+            ref int repeatedRecommendationCount)
+        {
+            lastConsumedUpdatedAtMs = 0;
+            lastConsumedPayloadSignature = string.Empty;
+            lastConsumedCommandSummary = string.Empty;
+            repeatedRecommendationCount = 0;
+        }
+    }
+
     internal sealed class MulliganRecommendationRequest
     {
         public MulliganRecommendationRequest(

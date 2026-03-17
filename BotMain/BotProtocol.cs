@@ -83,6 +83,12 @@ namespace BotMain
                     || IsEndgamePendingState(seedProbe));
         }
 
+        public static bool ShouldClickVisiblePostGameDismiss(string scene, bool endgameShown)
+        {
+            return string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
+                && endgameShown;
+        }
+
         public static bool ShouldAbortPostGameDismiss(string seedProbe)
         {
             return IsGameplayProgressResponse(seedProbe);
@@ -282,6 +288,8 @@ namespace BotMain
                 return false;
 
             if (resp == "READY" || resp == "BUSY" || resp == "PONG")
+                return true;
+            if (resp.StartsWith("NOT_READY:", StringComparison.Ordinal))
                 return true;
             if (IsYesNoResponse(resp))
                 return true;

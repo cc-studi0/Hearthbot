@@ -19,8 +19,7 @@ namespace HearthstonePayload
         {
             get
             {
-                try { return _tcp != null && _tcp.Connected; }
-                catch { return false; }
+                return HasLiveConnection();
             }
         }
 
@@ -46,15 +45,33 @@ namespace HearthstonePayload
         public string Read()
         {
             if (!IsConnected) return null;
-            try { return _reader.ReadLine(); }
-            catch { return null; }
+            try
+            {
+                var line = _reader?.ReadLine();
+                if (line == null)
+                    Disconnect();
+                return line;
+            }
+            catch
+            {
+                Disconnect();
+                return null;
+            }
         }
 
         public bool Write(string msg)
         {
             if (!IsConnected) return false;
-            try { _writer.WriteLine(msg); return true; }
-            catch { return false; }
+            try
+            {
+                _writer?.WriteLine(msg);
+                return true;
+            }
+            catch
+            {
+                Disconnect();
+                return false;
+            }
         }
 
         public void Disconnect()
@@ -65,6 +82,36 @@ namespace HearthstonePayload
             _reader = null;
             _writer = null;
             _tcp = null;
+        }
+
+        private bool HasLiveConnection()
+        {
+            try
+            {
+                if (_tcp == null || !_tcp.Connected)
+                    return false;
+
+                var socket = _tcp.Client;
+                if (socket == null)
+                    return false;
+
+                var disconnected =
+                    (socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0)
+                    || socket.Poll(0, SelectMode.SelectError);
+
+                if (disconnected)
+                {
+                    Disconnect();
+                    return false;
+                }
+
+                return true;
+            }
+            catch
+            {
+                Disconnect();
+                return false;
+            }
         }
     }
 }

@@ -31,6 +31,7 @@ namespace HearthstonePayload
                 UnityEngine.Application.runInBackground = true;
                 var harmony = new Harmony("com.bot.hearthstone");
                 AntiCheatPatches.Apply(harmony);
+                InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
                 Logger.LogInfo("Harmony patches applied.");
 
@@ -53,7 +54,10 @@ namespace HearthstonePayload
         private void Update()
         {
             InputHook.NewFrame();
-            _coroutine?.Tick(UnityEngine.Time.deltaTime);
+            var deltaTime = UnityEngine.Time.unscaledDeltaTime;
+            if (deltaTime <= 0f)
+                deltaTime = 0.016f;
+            _coroutine?.Tick(deltaTime);
 
             if (!_actionReady.IsSet) return;
 
@@ -351,6 +355,10 @@ namespace HearthstonePayload
                     else if (cmd == "IS_FINDING")
                     {
                         _pipe.Write(nav.IsFindingGame() ? "YES" : "NO");
+                    }
+                    else if (cmd == "IS_BACON_READY")
+                    {
+                        _pipe.Write(nav.IsBattlegroundsLobbyReady());
                     }
                     else if (cmd == "GET_CHOICE_STATE")
                     {

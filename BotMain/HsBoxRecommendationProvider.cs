@@ -20,12 +20,19 @@ namespace BotMain
         bool TryReadState(out HsBoxRecommendationState state, out string detail);
     }
 
+    internal interface IHsBoxBattlegroundsBridge
+    {
+        Action<string> OnLog { get; set; }
+        ChoiceRecommendationResult GetChoiceRecommendation(ChoiceRecommendationRequest request);
+        BattlegroundActionRecommendationResult GetRecommendedActionResult(string bgStateData);
+    }
+
     internal sealed class HsBoxGameRecommendationProvider : IGameRecommendationProvider
     {
         private const int FreshnessSlackMs = 3000;
 
         private readonly IHsBoxRecommendationBridge _bridge;
-        private readonly HsBoxBattlegroundsBridge _bgBridge = new HsBoxBattlegroundsBridge();
+        private readonly IHsBoxBattlegroundsBridge _bgBridge;
         private readonly int _actionWaitTimeoutMs;
         private readonly int _actionPollIntervalMs;
         private DateTime _nextPrimeAllowedUtc = DateTime.MinValue;
@@ -39,10 +46,12 @@ namespace BotMain
 
         internal HsBoxGameRecommendationProvider(
             IHsBoxRecommendationBridge bridge,
+            IHsBoxBattlegroundsBridge bgBridge = null,
             int actionWaitTimeoutMs = 2600,
             int actionPollIntervalMs = 180)
         {
             _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
+            _bgBridge = bgBridge ?? new HsBoxBattlegroundsBridge();
             _actionWaitTimeoutMs = actionWaitTimeoutMs;
             _actionPollIntervalMs = actionPollIntervalMs;
         }
@@ -388,9 +397,14 @@ namespace BotMain
             return $"updatedAt={state.UpdatedAtMs},count={state.Count},signature={state.PayloadSignature}";
         }
 
+        public BattlegroundActionRecommendationResult RecommendBattlegroundsActionResult(string bgStateData)
+        {
+            return _bgBridge.GetRecommendedActionResult(bgStateData);
+        }
+
         public List<string> RecommendBattlegroundsActions(string bgStateData)
         {
-            return _bgBridge.GetRecommendedActions(bgStateData);
+            return RecommendBattlegroundsActionResult(bgStateData)?.Actions?.ToList() ?? new List<string>();
         }
     }
 
@@ -399,7 +413,7 @@ namespace BotMain
     /// 连接 client-wargame/action 页面，Hook onUpdateBattleActionRecommend 回调，
     /// 将盒子推荐的 actionName 转换为 ActionExecutor 命令（BG_BUY / BG_SELL 等）。
     /// </summary>
-    internal sealed class HsBoxBattlegroundsBridge
+    internal sealed class HsBoxBattlegroundsBridge : IHsBoxBattlegroundsBridge
     {
         private static readonly HttpClient Http = new HttpClient
         {
@@ -409,6 +423,11 @@ namespace BotMain
         private readonly object _sync = new object();
         private string _cachedWsUrl;
         private DateTime _cachedWsUrlUntilUtc = DateTime.MinValue;
+
+        // 日志去重：仅当推荐内容变化时输出详细日志
+        private long _lastLoggedCount;
+        private string _lastLoggedCommandSummary = string.Empty;
+        private int _bgDuplicateLogSkipCount;
 
         public Action<string> OnLog { get; set; }
         private void Log(string msg) => OnLog?.Invoke(msg);
@@ -501,7 +520,7 @@ namespace BotMain
         /// bgStateData 是 BattlegroundStateData.Serialize() 的结果，
         /// 用于将盒子的 position 映射为 entityId。
         /// </summary>
-        public List<string> GetRecommendedActions(string bgStateData)
+        public BattlegroundActionRecommendationResult GetRecommendedActionResult(string bgStateData)
         {
             lock (_sync)
             {
@@ -509,7 +528,7 @@ namespace BotMain
                 if (string.IsNullOrWhiteSpace(wsUrl))
                 {
                     Log("[BgBridge] 未找到战旗盒子页面 (client-wargame/action)");
-                    return new List<string>();
+                    return new BattlegroundActionRecommendationResult(Array.Empty<string>(), "bg_actions page_missing", shouldRetryWithoutAction: true);
                 }
 
                 var json = EvaluateOnPage(wsUrl, BuildBgHookScript());
@@ -518,7 +537,7 @@ namespace BotMain
                     Log("[BgBridge] JS 执行返回空");
                     _cachedWsUrl = null;
                     _cachedWsUrlUntilUtc = DateTime.MinValue;
-                    return new List<string>();
+                    return new BattlegroundActionRecommendationResult(Array.Empty<string>(), "bg_actions eval_empty", shouldRetryWithoutAction: true);
                 }
 
                 try
@@ -527,49 +546,34 @@ namespace BotMain
                     if (dto == null)
                     {
                         Log("[BgBridge] JSON 解析返回 null");
-                        return new List<string>();
+                        return new BattlegroundActionRecommendationResult(Array.Empty<string>(), "bg_actions dto_null", shouldRetryWithoutAction: true);
                     }
 
                     var ok = dto.Value<bool>("ok");
                     var reason = dto.Value<string>("reason") ?? "";
                     var count = dto.Value<long>("count");
+                    var updatedAtMs = dto.Value<long?>("updatedAt") ?? 0;
                     var stationCount = dto.Value<long?>("stationCount") ?? 0;
                     var sourceCallback = dto.Value<string>("sourceCallback") ?? string.Empty;
                     var recommendText = NormalizeBgBodyText(dto.Value<string>("recommendText") ?? string.Empty);
                     var bodyText = NormalizeBgBodyText(dto.Value<string>("bodyText") ?? string.Empty);
                     var effectiveText = string.IsNullOrWhiteSpace(recommendText) ? bodyText : recommendText;
-                    Log($"[BgBridge] ok={ok}, reason={reason}, count={count}, stationCount={stationCount}, source={sourceCallback}");
-
-                    if (!ok)
-                        return new List<string>();
 
                     var dataToken = dto["data"];
+                    var payloadSignature = BuildBgPayloadSignature(dataToken, effectiveText);
+                    if (!ok)
+                    {
+                        return new BattlegroundActionRecommendationResult(
+                            Array.Empty<string>(),
+                            $"bg_actions not_ok reason={reason}",
+                            updatedAtMs,
+                            payloadSignature,
+                            shouldRetryWithoutAction: true);
+                    }
+
                     var stationToken = dto["stationData"];
                     var envelope = dataToken?.Type == JTokenType.Null ? null : dataToken?.ToObject<HsBoxRecommendationEnvelope>();
                     var steps = envelope?.Data ?? new List<HsBoxActionStep>();
-                    if (dataToken == null || dataToken.Type == JTokenType.Null)
-                        Log("[BgBridge] action data is null");
-                    else
-                        Log($"[BgBridge] data 原始: {dataToken.ToString(Formatting.None).Substring(0, Math.Min(dataToken.ToString(Formatting.None).Length, 300))}");
-                    if (stationToken != null && stationToken.Type != JTokenType.Null)
-                        Log($"[BgBridge] station 原始: {stationToken.ToString(Formatting.None).Substring(0, Math.Min(stationToken.ToString(Formatting.None).Length, 300))}");
-                    if (steps.Count > 0)
-                    {
-                        Log($"[BgBridge] 收到 {steps.Count} 条推荐步骤");
-                        foreach (var step in steps)
-                        {
-                            var cardInfo = step.GetPrimaryCard();
-                            Log($"[BgBridge]   step: actionName={step.ActionName}, card={cardInfo?.CardId}(pos={cardInfo?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()}, zone={step.Target?.ZoneName}), sub={step.SubOption?.CardId}");
-                        }
-                    }
-                    else
-                    {
-                        Log($"[BgBridge] envelope.Data 为空, status={envelope?.Status}, error={envelope?.Error}");
-                        if (!string.IsNullOrWhiteSpace(recommendText))
-                            Log($"[BgBridge] recommendText: {recommendText.Substring(0, Math.Min(recommendText.Length, 240))}");
-                        if (!string.IsNullOrWhiteSpace(bodyText))
-                            Log($"[BgBridge] bodyText: {bodyText.Substring(0, Math.Min(bodyText.Length, 240))}");
-                    }
 
                     #if false
                     if (dataToken == null || dataToken.Type == JTokenType.Null)
@@ -605,111 +609,84 @@ namespace BotMain
                     var stationCommands = stationToken != null && stationToken.Type != JTokenType.Null
                         ? ConvertStationsToCommands(stationToken, bgStateData)
                         : new List<string>();
-                    Log($"[BgBridge] 映射表: shop={shopMap.Count}条, board={boardMap.Count}条, hand={handMap.Count}条, heroPowers={heroPowerRefs.Count}条, heroPower={heroPowerEntityId}");
 
-                    var commands = new List<string>();
-                    var sawExplicitEndTurn = false;
-                    var sawFreezeLikeAction = false;
-                    var pendingHeroPowerSourceId = 0;
-                    foreach (var step in steps)
-                    {
-                        var stepName = step?.ActionName?.Trim().ToLowerInvariant() ?? string.Empty;
-                        var heroPowerSourceId = !isHeroPick
-                            && string.Equals(stepName, "hero_skill", StringComparison.Ordinal)
-                            ? ResolveBattlegroundHeroPowerSourceEntityId(step, heroPowerRefs)
-                            : 0;
-                        if (stepName == "end_turn")
-                            sawExplicitEndTurn = true;
-                        if (stepName == "freeze" || stepName == "unfreeze")
-                            sawFreezeLikeAction = true;
-
-                        var cmd = ConvertStepToCommand(step, shopMap, boardMap, handMap, isHeroPick, heroPowerRefs);
-                        if (!string.IsNullOrWhiteSpace(cmd))
-                        {
-                            commands.Add(cmd);
-                            Log($"[BgBridge]   映射: {step.ActionName} -> {cmd}");
-
-                            if (!isHeroPick
-                                && string.Equals(stepName, "hero_skill", StringComparison.Ordinal)
-                                && heroPowerSourceId > 0)
-                            {
-                                if (TryBuildBattlegroundOptionCommand(step, heroPowerSourceId, out var inlineOptionCommand, out var inlineOptionDetail))
-                                {
-                                    commands.Add(inlineOptionCommand);
-                                    Log($"[BgBridge]   英雄技能子选项: {inlineOptionDetail} -> {inlineOptionCommand}");
-                                    pendingHeroPowerSourceId = 0;
-                                }
-                                else
-                                {
-                                    pendingHeroPowerSourceId = heroPowerSourceId;
-                                }
-                            }
-                            else if (!isHeroPick
-                                && pendingHeroPowerSourceId > 0
-                                && IsBattlegroundChoiceLikeAction(stepName)
-                                && TryBuildBattlegroundOptionCommand(step, pendingHeroPowerSourceId, out var chainedOptionCommand, out var chainedOptionDetail))
-                            {
-                                commands.Add(chainedOptionCommand);
-                                Log($"[BgBridge]   英雄技能后续选择: {chainedOptionDetail} -> {chainedOptionCommand}");
-                                pendingHeroPowerSourceId = 0;
-                            }
-                            else if (!IsBattlegroundChoiceLikeAction(stepName))
-                            {
-                                pendingHeroPowerSourceId = 0;
-                            }
-                        }
-                        else
-                        {
-                            if (!isHeroPick
-                                && pendingHeroPowerSourceId > 0
-                                && IsBattlegroundChoiceLikeAction(stepName)
-                                && TryBuildBattlegroundOptionCommand(step, pendingHeroPowerSourceId, out var orphanOptionCommand, out var orphanOptionDetail))
-                            {
-                                commands.Add(orphanOptionCommand);
-                                Log($"[BgBridge]   英雄技能后续选择: {orphanOptionDetail} -> {orphanOptionCommand}");
-                                pendingHeroPowerSourceId = 0;
-                            }
-                            else
-                            {
-                                var cardInfo = step.GetPrimaryCard();
-                                Log($"[BgBridge]   映射失败: {step.ActionName}, cardPos={cardInfo?.GetZonePosition()}, cardId={cardInfo?.CardId}");
-                            }
-                        }
-                    }
-                    if (sawFreezeLikeAction && !sawExplicitEndTurn && commands.Contains("BG_FREEZE"))
-                    {
-                        commands.Add("BG_END_TURN");
-                        Log("[BgBridge]   映射: freeze/unfreeze -> BG_END_TURN (implicit)");
-                    }
+                    var commands = MapStructuredCommands(
+                        steps,
+                        shopMap,
+                        boardMap,
+                        handMap,
+                        isHeroPick,
+                        heroPowerRefs,
+                        msg => Log(msg));
 
                     if (commands.Count == 0 && stationCommands.Count > 0)
                     {
                         commands.AddRange(stationCommands);
-                        Log($"[BgBridge]   站位映射: {string.Join(",", stationCommands)}");
                     }
 
                     if (commands.Count == 0
                         && TryMapCommandsFromBodyText(effectiveText, shopMap, boardMap, handMap, isHeroPick, out var bodyCommands, out var bodyDetail))
                     {
                         commands.AddRange(bodyCommands);
-                        Log($"[BgBridge]   文本映射: {bodyDetail} -> {string.Join(",", bodyCommands)}");
                     }
 
-                    if (TryInsertStationCommandsBeforeEndTurn(commands, stationCommands, out var stationEndTurnDetail))
-                        Log($"[BgBridge]   结束回合前站位调整: {stationEndTurnDetail}");
+                    TryInsertStationCommandsBeforeEndTurn(commands, stationCommands, out var stationEndTurnDetail);
 
-                    Log($"[BgBridge] 最终命令 {commands.Count} 条");
+                    // ── 日志去重：只有推荐内容变化时才输出详细日志 ──
+                    var commandSummary = string.Join(">", commands);
+                    var isNewRecommendation = count != _lastLoggedCount
+                        || !string.Equals(commandSummary, _lastLoggedCommandSummary, StringComparison.Ordinal);
 
-                    return commands;
+                    if (isNewRecommendation)
+                    {
+                        if (_bgDuplicateLogSkipCount > 0)
+                            Log($"[BgBridge] （已省略 {_bgDuplicateLogSkipCount} 条重复日志）");
+                        _bgDuplicateLogSkipCount = 0;
+
+                        Log($"[BgBridge] ok={ok}, reason={reason}, count={count}, stationCount={stationCount}, source={sourceCallback}");
+                        if (dataToken != null && dataToken.Type != JTokenType.Null)
+                            Log($"[BgBridge] data 原始: {dataToken.ToString(Formatting.None).Substring(0, Math.Min(dataToken.ToString(Formatting.None).Length, 300))}");
+                        if (steps.Count > 0)
+                        {
+                            Log($"[BgBridge] 收到 {steps.Count} 条推荐步骤");
+                            foreach (var step in steps)
+                            {
+                                var ci = step.GetPrimaryCard();
+                                Log($"[BgBridge]   step: actionName={step.ActionName}, card={ci?.CardId}(pos={ci?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()}, zone={step.Target?.ZoneName}), sub={step.SubOption?.CardId}");
+                            }
+                        }
+                        Log($"[BgBridge] 映射表: shop={shopMap.Count}条, board={boardMap.Count}条, hand={handMap.Count}条, heroPowers={heroPowerRefs.Count}条, heroPower={heroPowerEntityId}");
+                        foreach (var c in commands)
+                            Log($"[BgBridge]   映射: {c}");
+                        Log($"[BgBridge] 最终命令 {commands.Count} 条");
+
+                        _lastLoggedCount = count;
+                        _lastLoggedCommandSummary = commandSummary;
+                    }
+                    else
+                    {
+                        _bgDuplicateLogSkipCount++;
+                    }
+
+                    return new BattlegroundActionRecommendationResult(
+                        commands,
+                        $"bg_actions count={commands.Count}, updatedAt={updatedAtMs}, source={sourceCallback}",
+                        updatedAtMs,
+                        payloadSignature);
                 }
                 catch (Exception ex)
                 {
                     Log($"[BgBridge] 异常: {ex.Message}");
                     _cachedWsUrl = null;
                     _cachedWsUrlUntilUtc = DateTime.MinValue;
-                    return new List<string>();
+                    return new BattlegroundActionRecommendationResult(Array.Empty<string>(), "bg_actions exception:" + ex.Message, shouldRetryWithoutAction: true);
                 }
             }
+        }
+
+        public List<string> GetRecommendedActions(string bgStateData)
+        {
+            return GetRecommendedActionResult(bgStateData)?.Actions?.ToList() ?? new List<string>();
         }
 
         internal static string ConvertStepToCommand(
@@ -753,8 +730,28 @@ namespace BotMain
                 {
                     var pos = card?.GetZonePosition() ?? 0;
                     int cardEntityId = 0;
+                    var cardZone = card?.ZoneName?.Trim().ToLowerInvariant() ?? string.Empty;
                     if (pos > 0)
-                        handMap.TryGetValue(pos, out cardEntityId);
+                    {
+                        if (cardZone == "baconshop")
+                        {
+                            // 卡牌在商店区域（如特殊法术/任务奖励），优先查 shopMap，当作 BG_BUY
+                            if (shopMap.TryGetValue(pos, out var shopEntityId))
+                                return $"BG_BUY|{shopEntityId}|{pos}";
+                            // 回退查 handMap
+                            handMap.TryGetValue(pos, out cardEntityId);
+                        }
+                        else
+                        {
+                            // 默认优先查 handMap
+                            if (!handMap.TryGetValue(pos, out cardEntityId))
+                            {
+                                // 手牌中没找到，回退查 shopMap（有些 special 可能在商店）
+                                if (shopMap.TryGetValue(pos, out var shopFallbackEntityId))
+                                    return $"BG_BUY|{shopFallbackEntityId}|{pos}";
+                            }
+                        }
+                    }
 
                     int targetEntityId = 0;
                     if (target != null)
@@ -762,8 +759,11 @@ namespace BotMain
                         targetEntityId = ResolveBgTargetEntityId(target, boardMap, shopMap, preferBoard: true);
                     }
 
+                    // 场上放置位置应使用 step.Position（HSBox 推荐的板面插槽），而非手牌 ZonePosition
+                    // 这对磁力随从尤为关键：磁力需要放在目标机械的左侧位置
+                    var boardPosition = step.Position > 0 ? step.Position : pos;
                     if (cardEntityId > 0)
-                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{pos}";
+                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{boardPosition}";
                     return null;
                 }
                 case "hero_skill":
@@ -829,6 +829,144 @@ namespace BotMain
                 default:
                     return null;
             }
+        }
+
+        internal static List<string> MapStructuredCommands(
+            IReadOnlyList<HsBoxActionStep> steps,
+            Dictionary<int, int> shopMap,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> handMap,
+            bool isHeroPick = false,
+            IReadOnlyList<BgHeroPowerRef> heroPowers = null,
+            Action<string> log = null)
+        {
+            var commands = new List<string>();
+            if (steps == null || steps.Count == 0)
+                return commands;
+
+            var sawExplicitEndTurn = false;
+            var sawFreezeLikeAction = false;
+            var pendingChoiceSourceId = 0;
+            var pendingChoiceTargetEntityId = 0;
+            for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                var step = steps[stepIndex];
+                var stepName = step?.ActionName?.Trim().ToLowerInvariant() ?? string.Empty;
+                if (stepName == "end_turn")
+                    sawExplicitEndTurn = true;
+                if (stepName == "freeze" || stepName == "unfreeze")
+                    sawFreezeLikeAction = true;
+
+                var cmd = ConvertStepToCommand(step, shopMap, boardMap, handMap, isHeroPick, heroPowers);
+                if (!string.IsNullOrWhiteSpace(cmd))
+                {
+                    var stepTargetEntityId = ResolveBattlegroundStepTargetEntityId(step, boardMap, shopMap);
+                    var hasEmbeddedSubOption = step?.SubOption != null
+                        && !string.IsNullOrWhiteSpace(step.SubOption.CardId);
+                    var deferredChoiceStepIndex = hasEmbeddedSubOption
+                        ? -1
+                        : FindDeferredBattlegroundChoiceStepIndex(steps, stepIndex);
+                    var shouldDeferCommandTargetToOption =
+                        stepTargetEntityId > 0
+                        && (hasEmbeddedSubOption || deferredChoiceStepIndex >= 0)
+                        && (cmd.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
+                            || cmd.StartsWith("BG_HERO_POWER|", StringComparison.OrdinalIgnoreCase));
+
+                    if (shouldDeferCommandTargetToOption
+                        && TrySetBattlegroundCommandTarget(cmd, 0, out var deferredTargetCommand))
+                    {
+                        cmd = deferredTargetCommand;
+                    }
+
+                    commands.Add(cmd);
+
+                    if (!isHeroPick
+                        && step?.SubOption != null
+                        && !string.IsNullOrWhiteSpace(step.SubOption.CardId)
+                        && TryGetBattlegroundCommandSourceEntityId(cmd, out var inlineOptionSourceId)
+                        && IsBattlegroundChoiceCapableCommand(cmd)
+                        && TryBuildBattlegroundOptionCommand(
+                            step,
+                            inlineOptionSourceId,
+                            boardMap,
+                            shopMap,
+                            shouldDeferCommandTargetToOption ? stepTargetEntityId : 0,
+                            out var inlineOptionCommand,
+                            out var inlineOptionDetail,
+                            out var inlineTargetClickCommand))
+                    {
+                        commands.Add(inlineOptionCommand);
+                        if (!string.IsNullOrWhiteSpace(inlineTargetClickCommand))
+                            commands.Add(inlineTargetClickCommand);
+                        pendingChoiceSourceId = 0;
+                        pendingChoiceTargetEntityId = 0;
+                    }
+                    else if (!isHeroPick
+                        && pendingChoiceSourceId > 0
+                        && IsBattlegroundChoiceLikeAction(stepName)
+                        && TryBuildBattlegroundOptionCommand(
+                            step,
+                            pendingChoiceSourceId,
+                            boardMap,
+                            shopMap,
+                            pendingChoiceTargetEntityId,
+                            out var chainedOptionCommand,
+                            out var chainedOptionDetail,
+                            out var chainedTargetClickCommand))
+                    {
+                        commands.Add(chainedOptionCommand);
+                        if (!string.IsNullOrWhiteSpace(chainedTargetClickCommand))
+                            commands.Add(chainedTargetClickCommand);
+                        pendingChoiceSourceId = 0;
+                        pendingChoiceTargetEntityId = 0;
+                    }
+                    else if (TryGetBattlegroundCommandSourceEntityId(cmd, out var choiceSourceId)
+                        && IsBattlegroundChoiceCapableCommand(cmd))
+                    {
+                        pendingChoiceSourceId = choiceSourceId;
+                        pendingChoiceTargetEntityId = deferredChoiceStepIndex >= 0 ? stepTargetEntityId : 0;
+                    }
+                    else if (!IsBattlegroundChoiceLikeAction(stepName))
+                    {
+                        pendingChoiceSourceId = 0;
+                        pendingChoiceTargetEntityId = 0;
+                    }
+                }
+                else
+                {
+                    if (!isHeroPick
+                        && pendingChoiceSourceId > 0
+                        && IsBattlegroundChoiceLikeAction(stepName)
+                        && TryBuildBattlegroundOptionCommand(
+                            step,
+                            pendingChoiceSourceId,
+                            boardMap,
+                            shopMap,
+                            pendingChoiceTargetEntityId,
+                            out var orphanOptionCommand,
+                            out var orphanOptionDetail,
+                            out var orphanTargetClickCommand))
+                    {
+                        commands.Add(orphanOptionCommand);
+                        if (!string.IsNullOrWhiteSpace(orphanTargetClickCommand))
+                            commands.Add(orphanTargetClickCommand);
+                        pendingChoiceSourceId = 0;
+                        pendingChoiceTargetEntityId = 0;
+                    }
+                    else
+                    {
+                        var cardInfo = step?.GetPrimaryCard();
+                        log?.Invoke($"[BgBridge]   映射失败: {step?.ActionName}, cardPos={cardInfo?.GetZonePosition()}, cardId={cardInfo?.CardId}");
+                        pendingChoiceSourceId = 0;
+                        pendingChoiceTargetEntityId = 0;
+                    }
+                }
+            }
+
+            if (sawFreezeLikeAction && !sawExplicitEndTurn && commands.Contains("BG_FREEZE"))
+                commands.Add("BG_END_TURN");
+
+            return commands;
         }
 
         private static bool TryMapCommandsFromBodyText(
@@ -930,11 +1068,16 @@ namespace BotMain
         private static bool TryBuildBattlegroundOptionCommand(
             HsBoxActionStep step,
             int sourceEntityId,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> shopMap,
+            int fallbackTargetEntityId,
             out string command,
-            out string detail)
+            out string detail,
+            out string targetClickCommand)
         {
             command = null;
             detail = "bg_option_missing";
+            targetClickCommand = null;
 
             if (sourceEntityId <= 0 || step == null)
             {
@@ -942,7 +1085,9 @@ namespace BotMain
                 return false;
             }
 
-            var targetEntityId = 0;
+            var targetEntityId = ResolveBattlegroundStepTargetEntityId(step, boardMap, shopMap);
+            if (targetEntityId <= 0)
+                targetEntityId = fallbackTargetEntityId > 0 ? fallbackTargetEntityId : 0;
             var position = step.Position > 0 ? step.Position : 0;
             var subOptionCardId = step.SubOption?.CardId;
             if (string.IsNullOrWhiteSpace(subOptionCardId))
@@ -958,9 +1103,35 @@ namespace BotMain
                 return false;
             }
 
-            command = $"OPTION|{sourceEntityId}|{targetEntityId}|{position}|{subOptionCardId}";
-            detail = $"source={sourceEntityId},sub={subOptionCardId}";
+            command = $"OPTION|{sourceEntityId}|0|{position}|{subOptionCardId}";
+            if (targetEntityId > 0)
+                targetClickCommand = BuildBattlegroundTargetClickCommand(targetEntityId);
+
+            detail = $"source={sourceEntityId},target={targetEntityId},sub={subOptionCardId}";
             return true;
+        }
+
+        private static int ResolveBattlegroundStepTargetEntityId(
+            HsBoxActionStep step,
+            Dictionary<int, int> boardMap,
+            Dictionary<int, int> shopMap)
+        {
+            if (step == null)
+                return 0;
+
+            var targetEntityId = ResolveBgTargetEntityId(step.Target, boardMap, shopMap, preferBoard: true);
+            if (targetEntityId > 0)
+                return targetEntityId;
+
+            targetEntityId = ResolveBgTargetEntityId(step.OppTarget, boardMap, shopMap, preferBoard: true);
+            if (targetEntityId > 0)
+                return targetEntityId;
+
+            targetEntityId = ResolveBgTargetEntityId(step.TargetHero, boardMap, shopMap, preferBoard: false);
+            if (targetEntityId > 0)
+                return targetEntityId;
+
+            return ResolveBgTargetEntityId(step.OppTargetHero, boardMap, shopMap, preferBoard: false);
         }
 
         private static bool IsBattlegroundChoiceLikeAction(string actionName)
@@ -981,25 +1152,99 @@ namespace BotMain
             }
         }
 
+        private static int FindDeferredBattlegroundChoiceStepIndex(IReadOnlyList<HsBoxActionStep> steps, int sourceStepIndex)
+        {
+            if (steps == null || sourceStepIndex < 0 || sourceStepIndex >= steps.Count)
+                return -1;
+
+            for (var i = sourceStepIndex + 1; i < steps.Count; i++)
+            {
+                var candidate = steps[i];
+                var actionName = candidate?.ActionName?.Trim();
+                if (string.IsNullOrWhiteSpace(actionName))
+                    continue;
+
+                if (string.Equals(actionName, "replace", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                return IsBattlegroundChoiceLikeAction(actionName) ? i : -1;
+            }
+
+            return -1;
+        }
+
+        private static bool IsBattlegroundChoiceCapableCommand(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            return command.StartsWith("BG_BUY|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("BG_HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryGetBattlegroundCommandSourceEntityId(string command, out int sourceEntityId)
+        {
+            sourceEntityId = 0;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 2
+                && int.TryParse(parts[1], out sourceEntityId)
+                && sourceEntityId > 0;
+        }
+
+        private static bool TrySetBattlegroundCommandTarget(string command, int targetEntityId, out string rewrittenCommand)
+        {
+            rewrittenCommand = command;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            if (parts.Length < 3)
+                return false;
+
+            if (!string.Equals(parts[0], "BG_PLAY", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parts[0], "BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parts[0], "OPTION", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            parts[2] = targetEntityId.ToString();
+            rewrittenCommand = string.Join("|", parts);
+            return true;
+        }
+
+        private static string BuildBattlegroundTargetClickCommand(int targetEntityId)
+        {
+            return targetEntityId > 0
+                ? $"OPTION|{targetEntityId}|0|0"
+                : null;
+        }
+
         private static bool TryMatchHeroPickIndex(string normalizedText, bool reroll, out int position)
         {
             position = 0;
             if (string.IsNullOrWhiteSpace(normalizedText))
                 return false;
 
+            const string heroPickNounPattern = @"(?:英雄|酒馆英雄|候选英雄|卡牌|卡|选项)";
             var patterns = reroll
                 ? new[]
                 {
-                    @"(?:重掷|重投)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
-                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:重掷|重投)",
-                    @"(?:刷新)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
-                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:刷新)"
+                    $@"(?:重掷|重投)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}",
+                    $@"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}\s*(?:重掷|重投)",
+                    $@"(?:刷新)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}",
+                    $@"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}\s*(?:刷新)"
                 }
                 : new[]
                 {
-                    @"(?:选择|选取|选|保留|拿)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
-                    @"推荐(?:选择|选取|选|保留|拿)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)",
-                    @"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*(?:英雄|酒馆英雄|候选英雄)\s*(?:更好|最佳|优先|推荐|保留)"
+                    $@"(?:选择|选取|选|保留|拿)(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}",
+                    $@"推荐(?:选择|选取|选|保留|拿)?(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}",
+                    $@"(?:第)?\s*([零一二两三四五六七八九十\d]+)\s*(?:号位|个|张)?\s*{heroPickNounPattern}\s*(?:更好|最佳|优先|推荐|保留)"
                 };
 
             foreach (var pattern in patterns)
@@ -1307,6 +1552,17 @@ namespace BotMain
             return 0;
         }
 
+        /// <summary>
+        /// 将盒子推荐的站位（stationData）转换为 BG_MOVE 命令列表。
+        /// 
+        /// 核心改进：模拟每次拖拽后棋盘的变化。
+        /// 炉石酒馆战旗的随从拖拽是"插入"语义：
+        ///   1. 随从从原位置 A 被移除（后面的随从向前补位）
+        ///   2. 随从插入到目标位置 B（该位置及后面的随从向后挪）
+        /// 旧算法不模拟这个过程，导致第一次移动后后续命令的位置都是错的，
+        /// 需要多轮才能站对位置。新算法在每次生成 BG_MOVE 后就更新模拟棋盘，
+        /// 保证一轮就能完成所有站位调整。
+        /// </summary>
         internal static List<string> ConvertStationsToCommands(JToken stationToken, string bgStateData)
         {
             var commands = new List<string>();
@@ -1319,28 +1575,59 @@ namespace BotMain
             if (currentBoard.Count == 0)
                 return commands;
 
-            var unused = new List<BgMinionRef>(currentBoard);
-            for (var i = 0; i < desired.Count; i++)
+            // ── 第1步：将每张期望的卡匹配到当前棋盘上的一个 entityId ──
+            var desiredEntityOrder = new List<int>();
+            var availableMinions = new List<BgMinionRef>(currentBoard);
+            foreach (var desiredCard in desired)
             {
-                var targetPos = i + 1;
-                var desiredCard = desired[i];
-                var match = unused.FirstOrDefault(card =>
+                var match = availableMinions.FirstOrDefault(card =>
                     string.Equals(card.CardId, desiredCard.CardId, StringComparison.OrdinalIgnoreCase)
                     && card.Attack == desiredCard.GetAttack()
                     && card.Health == desiredCard.Health);
 
                 if (match == null)
                 {
-                    match = unused.FirstOrDefault(card =>
+                    match = availableMinions.FirstOrDefault(card =>
                         string.Equals(card.CardId, desiredCard.CardId, StringComparison.OrdinalIgnoreCase));
                 }
 
                 if (match == null)
                     continue;
 
-                unused.Remove(match);
-                if (match.Position != targetPos)
-                    commands.Add($"BG_MOVE|{match.EntityId}|{targetPos}");
+                availableMinions.Remove(match);
+                desiredEntityOrder.Add(match.EntityId);
+            }
+
+            if (desiredEntityOrder.Count == 0)
+                return commands;
+
+            // ── 第2步：构建当前棋盘的 entityId 序列（按位置排序）──
+            var simBoard = currentBoard
+                .OrderBy(m => m.Position)
+                .Select(m => m.EntityId)
+                .ToList();
+
+            // ── 第3步：从左到右，把每个位置调整到期望的 entityId ──
+            //   对于位置 i (0-based)，如果当前模拟棋盘的 simBoard[i] != desiredEntityOrder[i]，
+            //   就找到目标 entityId 在模拟棋盘中的当前位置，生成 BG_MOVE，
+            //   然后模拟这次"移除 + 插入"操作。
+            for (var i = 0; i < desiredEntityOrder.Count && i < simBoard.Count; i++)
+            {
+                var wantedEntityId = desiredEntityOrder[i];
+                if (simBoard[i] == wantedEntityId)
+                    continue;
+
+                var currentIndex = simBoard.IndexOf(wantedEntityId);
+                if (currentIndex < 0)
+                    continue;
+
+                // 生成命令：目标位置是 1-based
+                var targetPos = i + 1;
+                commands.Add($"BG_MOVE|{wantedEntityId}|{targetPos}");
+
+                // 模拟棋盘变化：先移除，再插入
+                simBoard.RemoveAt(currentIndex);
+                simBoard.Insert(i, wantedEntityId);
             }
 
             return commands;
@@ -2482,8 +2769,12 @@ namespace BotMain
 
             var skipped = new List<string>();
             var lastChoiceCapableSourceEntityId = 0;
-            foreach (var step in steps)
+            var pendingDeferredChoiceSourceEntityId = 0;
+            var pendingDeferredChoiceTargetEntityId = 0;
+            var pendingDeferredChoiceStepIndex = -1;
+            for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
+                var step = steps[stepIndex];
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
                     continue;
 
@@ -2501,15 +2792,55 @@ namespace BotMain
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
+                    var stepTargetEntityId = ResolveTargetEntityId(board, step);
+                    var hasEmbeddedSubOption = step.SubOption != null
+                        && !string.IsNullOrWhiteSpace(step.SubOption.CardId);
+                    var deferredChoiceStepIndex = hasEmbeddedSubOption
+                        ? -1
+                        : FindDeferredChoiceStepIndex(steps, stepIndex);
+                    var shouldDeferPlayTargetToOption =
+                        command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                        && stepTargetEntityId > 0
+                        && (hasEmbeddedSubOption || deferredChoiceStepIndex >= 0);
+
+                    if (shouldDeferPlayTargetToOption
+                        && TrySetCommandTarget(command, 0, out var deferredPlayCommand))
+                    {
+                        command = deferredPlayCommand;
+                    }
+
+                    if (pendingDeferredChoiceStepIndex == stepIndex
+                        && pendingDeferredChoiceSourceEntityId > 0
+                        && TryGetCommandSourceEntityId(command, out var pendingChoiceSourceEntityId)
+                        && pendingChoiceSourceEntityId == pendingDeferredChoiceSourceEntityId
+                        && (!TryGetCommandTargetEntityId(command, out var currentChoiceTargetEntityId) || currentChoiceTargetEntityId <= 0)
+                        && TrySetCommandTarget(command, pendingDeferredChoiceTargetEntityId, out var deferredChoiceCommand))
+                    {
+                        command = deferredChoiceCommand;
+                    }
+
                     actions.Add(command);
 
-                    // play_special 带 subOption 时（如滋养的抉择），自动追加 OPTION 命令
+                    // 带抉择的出牌需要先落牌，再在 OPTION 阶段提交子选项和目标。
                     if (command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                        && step.SubOption != null
-                        && !string.IsNullOrWhiteSpace(step.SubOption.CardId)
-                        && TryGetCommandSourceEntityId(command, out var playSourceId))
+                        && hasEmbeddedSubOption
+                        && TryGetCommandSourceEntityId(command, out var embeddedPlaySourceId))
                     {
-                        actions.Add($"OPTION|{playSourceId}|0|0|{step.SubOption.CardId}");
+                        actions.Add(BuildOptionCommand(embeddedPlaySourceId, shouldDeferPlayTargetToOption ? stepTargetEntityId : 0, 0, step.SubOption.CardId));
+                    }
+                    else if (shouldDeferPlayTargetToOption
+                        && deferredChoiceStepIndex >= 0
+                        && TryGetCommandSourceEntityId(command, out var deferredPlaySourceId))
+                    {
+                        pendingDeferredChoiceSourceEntityId = deferredPlaySourceId;
+                        pendingDeferredChoiceTargetEntityId = stepTargetEntityId;
+                        pendingDeferredChoiceStepIndex = deferredChoiceStepIndex;
+                    }
+                    else if (pendingDeferredChoiceStepIndex == stepIndex)
+                    {
+                        pendingDeferredChoiceSourceEntityId = 0;
+                        pendingDeferredChoiceTargetEntityId = 0;
+                        pendingDeferredChoiceStepIndex = -1;
                     }
 
                     if (TryGetCommandSourceEntityId(command, out var sourceEntityId)
@@ -3339,6 +3670,16 @@ namespace BotMain
 
             var target = ResolveTargetEntityId(board, step);
             var position = step.Position > 0 ? step.Position : 0;
+
+            // 磁力随从兜底：如果有友方目标（磁力附着机械）但 position 未指定，
+            // 用目标的 ZonePosition 作为放置位置（放在其左侧触发磁力附着）
+            if (position <= 0 && target > 0 && step.Target != null)
+            {
+                var targetZonePos = step.Target.GetZonePosition();
+                if (targetZonePos > 0)
+                    position = targetZonePos;
+            }
+
             command = $"PLAY|{source}|{target}|{position}";
             reason = "ok";
             return true;
@@ -3518,6 +3859,47 @@ namespace BotMain
                 && sourceEntityId > 0;
         }
 
+        private static bool TrySetCommandTarget(string command, int targetEntityId, out string rewrittenCommand)
+        {
+            rewrittenCommand = command;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            if (parts.Length < 4)
+                return false;
+
+            if (!string.Equals(parts[0], "PLAY", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parts[0], "OPTION", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parts[0], "HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parts[0], "USE_LOCATION", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            parts[2] = targetEntityId.ToString();
+            rewrittenCommand = string.Join("|", parts);
+            return true;
+        }
+
+        private static bool TryGetCommandTargetEntityId(string command, out int targetEntityId)
+        {
+            targetEntityId = 0;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 3
+                && int.TryParse(parts[2], out targetEntityId);
+        }
+
+        private static string BuildOptionCommand(int sourceEntityId, int targetEntityId, int position, string subOptionCardId)
+        {
+            return string.IsNullOrWhiteSpace(subOptionCardId)
+                ? $"OPTION|{sourceEntityId}|{targetEntityId}|{position}"
+                : $"OPTION|{sourceEntityId}|{targetEntityId}|{position}|{subOptionCardId}";
+        }
+
         private static bool IsChoiceCapableCommand(string command)
         {
             if (string.IsNullOrWhiteSpace(command))
@@ -3527,6 +3909,54 @@ namespace BotMain
                 || command.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                 || command.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
                 || command.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int FindDeferredChoiceStepIndex(IReadOnlyList<HsBoxActionStep> steps, int playStepIndex)
+        {
+            if (steps == null || playStepIndex < 0 || playStepIndex >= steps.Count)
+                return -1;
+
+            var playStep = steps[playStepIndex];
+            if (playStep == null)
+                return -1;
+
+            for (var i = playStepIndex + 1; i < steps.Count; i++)
+            {
+                var candidate = steps[i];
+                if (candidate == null || string.IsNullOrWhiteSpace(candidate.ActionName))
+                    continue;
+
+                if (ShouldIgnoreForTurnAction(candidate.ActionName))
+                    continue;
+
+                return IsDeferredChoiceStepForPlay(playStep, candidate) ? i : -1;
+            }
+
+            return -1;
+        }
+
+        private static bool IsDeferredChoiceStepForPlay(HsBoxActionStep playStep, HsBoxActionStep candidate)
+        {
+            if (playStep == null
+                || candidate == null
+                || !IsChoiceRecommendationAction(candidate.ActionName))
+            {
+                return false;
+            }
+
+            var playCardId = playStep.GetPrimaryCard()?.CardId;
+            var candidateCardId = candidate.GetPrimaryCard()?.CardId;
+            if (MatchesCardId(candidateCardId, playCardId)
+                || IsChooseOnePrefix(candidateCardId, playCardId)
+                || IsChooseOnePrefix(playCardId, candidateCardId))
+            {
+                return true;
+            }
+
+            var embeddedSubOptionCardId = playStep.SubOption?.CardId;
+            return MatchesCardId(candidateCardId, embeddedSubOptionCardId)
+                || IsChooseOnePrefix(candidateCardId, embeddedSubOptionCardId)
+                || IsChooseOnePrefix(embeddedSubOptionCardId, candidateCardId);
         }
 
         private static List<HsBoxActionStep> GetSteps(HsBoxRecommendationState state, out string detail)

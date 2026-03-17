@@ -91,8 +91,12 @@ namespace HearthstonePayload
 
         private const int FriendlyDrawFallbackDelayMs = 420;
         private const int FriendlyDrawRecentGuardWindowMs = 2500;
+        private const int ChoiceDecisionTraceDedupWindowMs = 1200;
         private static readonly object _friendlyDrawGateSync = new object();
         private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
+        private static readonly object _choiceDecisionTraceSync = new object();
+        private static string _lastChoiceDecisionTrace = string.Empty;
+        private static int _lastChoiceDecisionTraceTick;
 
         public static void Init(CoroutineExecutor executor)
         {
@@ -3587,6 +3591,7 @@ namespace HearthstonePayload
             var choicePacket = TryGetFriendlyChoicePacket(gameState);
             var hasGeneralPacket = IsChoicePacketGeneral(choicePacket);
             var currentChoiceState = GetRawFriendlyChoiceState(choiceCardMgr);
+            var hasUsableCurrentChoiceUi = HasFriendlyChoiceUi(choiceCardMgr, currentChoiceState);
 
             if (IsMulliganActiveForChoiceSuppression(gameState, out var mulliganDetail))
             {
@@ -3623,7 +3628,7 @@ namespace HearthstonePayload
 
             if (!hasGeneralPacket)
             {
-                if (HasFriendlyChoiceUi(choiceCardMgr))
+                if (hasUsableCurrentChoiceUi)
                 {
                     AppendChoiceDecisionTrace(
                         "choice_ui_fallback_rejected_no_general_packet",
@@ -3637,12 +3642,12 @@ namespace HearthstonePayload
                 return null;
             }
 
-            if (!HasFriendlyChoiceUi(choiceCardMgr))
-                return null;
-
             var choiceState = GetFieldOrProp(choiceCardMgr, "m_lastShownChoiceState")
                 ?? GetFieldOrProp(choiceCardMgr, "lastShownChoiceState")
                 ?? GetFieldOrProp(choiceCardMgr, "LastShownChoiceState");
+            if (!HasFriendlyChoiceUi(choiceCardMgr, choiceState))
+                return null;
+
             return IsFriendlyChoiceStateActive(choiceState) ? choiceState : null;
         }
 
@@ -3841,40 +3846,57 @@ namespace HearthstonePayload
 
             var uiCardCount = GetChoiceUiCardCount(choiceCardMgr, choiceState);
             var sourceEntityId = GetChoiceSourceEntityId(choicePacket, choiceState);
-            AppendActionTrace(
+            var message =
                 label
                 + " responseMode=" + responseMode
                 + " choicePacketType=" + choicePacketType
                 + " uiCardCount=" + uiCardCount
                 + " sourceEntityId=" + sourceEntityId
-                + " detail=" + (detail ?? "null"));
+                + " detail=" + (detail ?? "null");
+            if (!ShouldAppendChoiceDecisionTrace(message))
+                return;
+
+            AppendActionTrace(message);
         }
 
         private static bool HasFriendlyChoiceUi(object choiceCardMgr)
         {
+            return HasFriendlyChoiceUi(choiceCardMgr, null);
+        }
+
+        private static bool HasFriendlyChoiceUi(object choiceCardMgr, object choiceState)
+        {
             if (choiceCardMgr == null)
                 return false;
 
-            if (TryInvokeBoolMethod(choiceCardMgr, "HasFriendlyChoices", out var hasFriendlyChoices) && hasFriendlyChoices)
+            if (GetChoiceUiCardCount(choiceCardMgr, choiceState) > 0)
                 return true;
 
-            if (TryInvokeBoolMethod(choiceCardMgr, "IsFriendlyShown", out var isFriendlyShown) && isFriendlyShown)
+            if (IsFriendlyChoiceStateActive(choiceState))
                 return true;
 
-            var shown = GetFieldOrProp(choiceCardMgr, "m_friendlyChoicesShown")
-                ?? GetFieldOrProp(choiceCardMgr, "FriendlyChoicesShown")
-                ?? GetFieldOrProp(choiceCardMgr, "friendlyChoicesShown");
+            return IsFriendlyChoiceState(choiceState)
+                && (IsChoiceStateWaitingToStart(choiceState) || IsChoiceStateRevealed(choiceState))
+                && !IsChoiceStateConcealed(choiceState);
+        }
 
-            if (shown is bool shownFlag)
-                return shownFlag;
-
-            try
-            {
-                return shown != null && Convert.ToBoolean(shown);
-            }
-            catch
-            {
+        private static bool ShouldAppendChoiceDecisionTrace(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
                 return false;
+
+            lock (_choiceDecisionTraceSync)
+            {
+                var nowTick = Environment.TickCount;
+                if (string.Equals(_lastChoiceDecisionTrace, message, StringComparison.Ordinal)
+                    && unchecked(nowTick - _lastChoiceDecisionTraceTick) < ChoiceDecisionTraceDedupWindowMs)
+                {
+                    return false;
+                }
+
+                _lastChoiceDecisionTrace = message;
+                _lastChoiceDecisionTraceTick = nowTick;
+                return true;
             }
         }
 
@@ -7888,13 +7910,13 @@ namespace HearthstonePayload
             }
 
             // 拖动：商店 -> 我方英雄购买区
-            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
             MouseSimulator.LeftDown();
-            yield return 0.08f;
-            foreach (var w in SmoothMove(dx, dy, 20, 0.012f)) yield return w;
-            yield return 0.06f;
+            yield return 0.05f;
+            foreach (var w in SmoothMove(dx, dy, 12, 0.008f)) yield return w;
+            yield return 0.04f;
             MouseSimulator.LeftUp();
-            yield return 0.35f;
+            yield return 0.20f;
 
             var buyConfirmed = false;
             for (var retry = 0; retry < 15; retry++)
@@ -7957,13 +7979,13 @@ namespace HearthstonePayload
             int tx = MouseSimulator.GetScreenWidth() / 2;
             int ty = (int)(MouseSimulator.GetScreenHeight() * 0.25f);
 
-            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
             MouseSimulator.LeftDown();
-            yield return 0.08f;
-            foreach (var w in SmoothMove(tx, ty, 20, 0.012f)) yield return w;
-            yield return 0.06f;
+            yield return 0.05f;
+            foreach (var w in SmoothMove(tx, ty, 12, 0.008f)) yield return w;
+            yield return 0.04f;
             MouseSimulator.LeftUp();
-            yield return 0.3f;
+            yield return 0.18f;
 
             _coroutine.SetResult("OK:BG_SELL:" + boardEntityId);
         }
@@ -7988,13 +8010,13 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            foreach (var w in SmoothMove(sx, sy, 6, 0.008f)) yield return w;
             MouseSimulator.LeftDown();
-            yield return 0.1f;
-            foreach (var w in SmoothMove(dx, dy, 18, 0.012f)) yield return w;
-            yield return 0.08f;
+            yield return 0.05f;
+            foreach (var w in SmoothMove(dx, dy, 10, 0.008f)) yield return w;
+            yield return 0.04f;
             MouseSimulator.LeftUp();
-            yield return 0.3f;
+            yield return 0.15f;
 
             _coroutine.SetResult("OK:BG_MOVE:" + boardEntityId + ":" + newIndex);
         }
@@ -8362,13 +8384,13 @@ namespace HearthstonePayload
                     yield break;
                 }
 
-                foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+                foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
                 MouseSimulator.LeftDown();
-                yield return 0.06f;
-                foreach (var w in SmoothMove(directTargetX, directTargetY, 18, 0.012f)) yield return w;
                 yield return 0.04f;
+                foreach (var w in SmoothMove(directTargetX, directTargetY, 12, 0.008f)) yield return w;
+                yield return 0.03f;
                 MouseSimulator.LeftUp();
-                yield return 0.18f;
+                yield return 0.12f;
                 _coroutine.SetResult("OK:BG_PLAY:" + handEntityId + ":direct_target");
                 yield break;
             }
@@ -8381,24 +8403,24 @@ namespace HearthstonePayload
             }
 
             // 拖动手牌到场上
-            foreach (var w in SmoothMove(sx, sy, 12, 0.01f)) yield return w;
+            foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
             MouseSimulator.LeftDown();
-            yield return 0.08f;
-            foreach (var w in SmoothMove(dx, dy, 18, 0.012f)) yield return w;
-            yield return 0.06f;
+            yield return 0.05f;
+            foreach (var w in SmoothMove(dx, dy, 12, 0.008f)) yield return w;
+            yield return 0.04f;
             MouseSimulator.LeftUp();
-            yield return 0.3f;
+            yield return 0.18f;
 
             // 如果有目标（战吼等）
             if (targetEntityId > 0)
             {
                 if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out var tx, out var ty))
                 {
-                    foreach (var w in SmoothMove(tx, ty, 12, 0.012f)) yield return w;
+                    foreach (var w in SmoothMove(tx, ty, 8, 0.008f)) yield return w;
                     MouseSimulator.LeftDown();
-                    yield return 0.05f;
+                    yield return 0.04f;
                     MouseSimulator.LeftUp();
-                    yield return 0.3f;
+                    yield return 0.18f;
                 }
             }
 

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Linq;
 using BotMain;
@@ -154,6 +155,109 @@ namespace BotCore.Tests
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "PLAY|113|0|0", "OPTION|113|0|0|EX1_164a" }, result.Actions);
+        }
+
+        [Fact]
+        public void RecommendActions_MapsPlaySpecialWithEmbeddedSubOptionAndDeferredTarget()
+        {
+            var board = CreateTargetedChooseBoard(114, 205);
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "AT_037",
+                    cardName = "活体根须",
+                    position = 1
+                }),
+                Target = new HsBoxCardRef
+                {
+                    CardId = "CORE_CS2_231",
+                    CardName = "小精灵",
+                    Position = 5
+                },
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "AT_037a",
+                    CardName = "活体根须"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 18,
+                UpdatedAtMs = 520,
+                Raw = "play-special-with-targeted-suboption",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出1号位法术 活体根须 目标是我方5号位随从 小精灵 选择卡牌 活体根须",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|114|0|0", "OPTION|114|205|0|AT_037a" }, result.Actions);
+        }
+
+        [Fact]
+        public void RecommendActions_MapsChooseStepUsingPreviousPlaySourceAndDeferredTarget()
+        {
+            var board = CreateTargetedChooseBoard(115, 205);
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 19,
+                UpdatedAtMs = 530,
+                Raw = "play-then-choose-with-target",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出1号位法术 活体根须 目标是我方5号位随从 小精灵 选择卡牌 活体根须",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037",
+                                cardName = "活体根须",
+                                position = 1
+                            }),
+                            Target = new HsBoxCardRef
+                            {
+                                CardId = "CORE_CS2_231",
+                                CardName = "小精灵",
+                                Position = 5
+                            }
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "choose",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037a",
+                                cardName = "活体根须"
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|115|0|0", "OPTION|115|205|0|AT_037a" }, result.Actions);
         }
 
         [Fact]
@@ -625,6 +729,300 @@ namespace BotCore.Tests
             Assert.Equal("BG_FREEZE", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "freeze_choices" }, shopMap, boardMap, handMap));
         }
 
+        [Fact]
+        public void BattlegroundsBridge_BodyTextHeroPick_AcceptsCardWording()
+        {
+            var method = typeof(HsBoxBattlegroundsBridge).GetMethod(
+                "TryMapCommandsFromBodyText",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+
+            var args = new object[]
+            {
+                "选择3号位卡牌 摇滚教父沃恩",
+                new Dictionary<int, int>(),
+                new Dictionary<int, int>(),
+                new Dictionary<int, int>(),
+                true,
+                null,
+                null
+            };
+
+            var success = Assert.IsType<bool>(method.Invoke(null, args));
+
+            Assert.True(success);
+            Assert.Equal(new[] { "BG_HERO_PICK|3" }, Assert.IsType<List<string>>(args[5]));
+            Assert.Equal("hero_pick pos=3", Assert.IsType<string>(args[6]));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_MapStructuredCommands_SupportsShopSpellFollowedByChoose()
+        {
+            var shopMap = new Dictionary<int, int> { [5] = 905 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+            var steps = new List<HsBoxActionStep>
+            {
+                new HsBoxActionStep
+                {
+                    ActionName = "play_special",
+                    CardToken = JToken.FromObject(new
+                    {
+                        cardId = "BG_020",
+                        cardName = "无畏的食客",
+                        position = 5,
+                        zoneName = "baconshop"
+                    })
+                },
+                new HsBoxActionStep
+                {
+                    ActionName = "choose",
+                    CardToken = JToken.FromObject(new
+                    {
+                        cardId = "BG_020a",
+                        cardName = "大吃特吃"
+                    })
+                }
+            };
+
+            var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(steps, shopMap, boardMap, handMap);
+
+            Assert.Equal(new[] { "BG_BUY|905|5", "OPTION|905|0|0|BG_020a" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_MapStructuredCommands_SupportsShopSpellInlineSubOption()
+        {
+            var shopMap = new Dictionary<int, int> { [5] = 906 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_021",
+                    cardName = "无畏的食客",
+                    position = 5,
+                    zoneName = "baconshop"
+                }),
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "BG_021a",
+                    CardName = "大吃特吃"
+                }
+            };
+
+            var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(
+                new List<HsBoxActionStep> { step },
+                shopMap,
+                boardMap,
+                handMap);
+
+            Assert.Equal(new[] { "BG_BUY|906|5", "OPTION|906|0|0|BG_021a" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_MapStructuredCommands_DefersInlineSubOptionTargetToOption()
+        {
+            var shopMap = new Dictionary<int, int>();
+            var boardMap = new Dictionary<int, int> { [4] = 11257 };
+            var handMap = new Dictionary<int, int> { [1] = 8635 };
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG27_084",
+                    cardName = "机变甲虫",
+                    position = 1,
+                    zoneName = "hand"
+                }),
+                Target = new HsBoxCardRef
+                {
+                    CardId = "TB_BaconUps_135",
+                    CardName = "巨大的金刚鹦鹉",
+                    Position = 4,
+                    ZoneName = "play"
+                },
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "BG27_084t2",
+                    CardName = "机变加强"
+                }
+            };
+
+            var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(
+                new List<HsBoxActionStep> { step },
+                shopMap,
+                boardMap,
+                handMap);
+
+            Assert.Equal(new[] { "BG_PLAY|8635|0|1", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_MapStructuredCommands_DefersChooseTargetToOption()
+        {
+            var shopMap = new Dictionary<int, int>();
+            var boardMap = new Dictionary<int, int> { [4] = 11257 };
+            var handMap = new Dictionary<int, int> { [1] = 8635 };
+            var steps = new List<HsBoxActionStep>
+            {
+                new HsBoxActionStep
+                {
+                    ActionName = "play",
+                    CardToken = JToken.FromObject(new
+                    {
+                        cardId = "BG27_084",
+                        cardName = "机变甲虫",
+                        position = 1,
+                        zoneName = "hand"
+                    }),
+                    Target = new HsBoxCardRef
+                    {
+                        CardId = "TB_BaconUps_135",
+                        CardName = "巨大的金刚鹦鹉",
+                        Position = 4,
+                        ZoneName = "play"
+                    }
+                },
+                new HsBoxActionStep
+                {
+                    ActionName = "choose",
+                    CardToken = JToken.FromObject(new
+                    {
+                        cardId = "BG27_084t2",
+                        cardName = "机变加强"
+                    })
+                }
+            };
+
+            var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(steps, shopMap, boardMap, handMap);
+
+            Assert.Equal(new[] { "BG_PLAY|8635|0|1", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_MapStructuredCommands_SplitsShopTargetIntoStandaloneTargetClick()
+        {
+            var shopMap = new Dictionary<int, int> { [1] = 4979 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int> { [1] = 3686 };
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG27_084",
+                    cardName = "机变甲虫",
+                    position = 1,
+                    zoneName = "hand"
+                }),
+                Target = new HsBoxCardRef
+                {
+                    CardId = "BG26_801",
+                    CardName = "重金属双头飞龙",
+                    Position = 1,
+                    ZoneName = "baconshop"
+                },
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "BG27_084t",
+                    CardName = "机变精修"
+                }
+            };
+
+            var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(
+                new List<HsBoxActionStep> { step },
+                shopMap,
+                boardMap,
+                handMap);
+
+            Assert.Equal(new[] { "BG_PLAY|3686|0|1", "OPTION|3686|0|0|BG27_084t", "OPTION|4979|0|0" }, commands);
+        }
+
+        [Fact]
+        public void RecommendBattlegroundsActionResult_ReturnsBridgeMetadata()
+        {
+            var expected = new BattlegroundActionRecommendationResult(
+                new[] { "BG_BUY|905|5", "OPTION|905|0|0|BG_020a" },
+                "bg_actions count=2",
+                sourceUpdatedAtMs: 777,
+                sourcePayloadSignature: "SIG_BG_ACTION");
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(),
+                new FakeBattlegroundsBridge(expected),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            var actual = provider.RecommendBattlegroundsActionResult("PHASE=RECRUIT|TURN=7");
+
+            Assert.Equal(expected.Actions, actual.Actions);
+            Assert.Equal(777, actual.SourceUpdatedAtMs);
+            Assert.Equal("SIG_BG_ACTION", actual.SourcePayloadSignature);
+            Assert.Equal("bg_actions count=2", actual.Detail);
+        }
+
+        [Fact]
+        public void ShouldTreatBattlegroundRecommendationAsConsumed_ReleasesAfterThreeIdenticalRecommendations()
+        {
+            long lastConsumedUpdatedAtMs = 700;
+            string lastConsumedPayloadSignature = "SIG_REPEAT";
+            string lastConsumedCommandSummary = BattlegroundRecommendationConsumptionTracker.SummarizeActions(new[] { "BG_BUY|905|5" });
+            var repeatedRecommendationCount = 0;
+
+            var firstRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_BUY|905|5" },
+                "same recommendation",
+                sourceUpdatedAtMs: 701,
+                sourcePayloadSignature: "SIG_REPEAT");
+            var secondRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_BUY|905|5" },
+                "same recommendation",
+                sourceUpdatedAtMs: 702,
+                sourcePayloadSignature: "SIG_REPEAT");
+            var thirdRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_BUY|905|5" },
+                "same recommendation",
+                sourceUpdatedAtMs: 703,
+                sourcePayloadSignature: "SIG_REPEAT");
+
+            Assert.True(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                firstRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedFirst));
+            Assert.False(releasedFirst);
+            Assert.Equal(1, repeatedRecommendationCount);
+
+            Assert.True(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                secondRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedSecond));
+            Assert.False(releasedSecond);
+            Assert.Equal(2, repeatedRecommendationCount);
+
+            Assert.False(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                thirdRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedThird));
+            Assert.True(releasedThird);
+            Assert.Equal(0, repeatedRecommendationCount);
+            Assert.Equal(0, lastConsumedUpdatedAtMs);
+            Assert.Equal(string.Empty, lastConsumedPayloadSignature);
+            Assert.Equal(string.Empty, lastConsumedCommandSummary);
+        }
+
         private static HsBoxRecommendationState CreateState(
             long updatedAtMs,
             string raw,
@@ -678,6 +1076,35 @@ namespace BotCore.Tests
             return template;
         }
 
+        private static Board CreateTargetedChooseBoard(int handEntityId, int targetEntityId)
+        {
+            return new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(handEntityId, Card.Cards.AT_037, "活体根须", "Living Roots")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(201, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(202, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(203, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(204, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(targetEntityId, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+        }
+
+        private static Card CreateCard(int entityId, Card.Cards id, string nameCn, string name)
+        {
+            return new Card
+            {
+                Id = entityId,
+                IsFriend = true,
+                Template = CreateTemplate(id, nameCn, name)
+            };
+        }
+
         private sealed class FakeBridge : IHsBoxRecommendationBridge
         {
             private readonly Queue<HsBoxRecommendationState> _states;
@@ -696,6 +1123,28 @@ namespace BotCore.Tests
                 state = _lastState;
                 detail = state?.Detail ?? "hsbox_state_null";
                 return state != null;
+            }
+        }
+
+        private sealed class FakeBattlegroundsBridge : IHsBoxBattlegroundsBridge
+        {
+            private readonly BattlegroundActionRecommendationResult _result;
+
+            public FakeBattlegroundsBridge(BattlegroundActionRecommendationResult result)
+            {
+                _result = result;
+            }
+
+            public Action<string> OnLog { get; set; }
+
+            public ChoiceRecommendationResult GetChoiceRecommendation(ChoiceRecommendationRequest request)
+            {
+                return new ChoiceRecommendationResult(Array.Empty<int>(), "fake_bg_choice");
+            }
+
+            public BattlegroundActionRecommendationResult GetRecommendedActionResult(string bgStateData)
+            {
+                return _result;
             }
         }
 

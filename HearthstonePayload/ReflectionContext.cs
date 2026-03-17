@@ -249,8 +249,9 @@ namespace HearthstonePayload
 
             // 后台线程遍历 Map<int, Entity> 时，主线程可能正在修改它
             // （例如 Discover 结算添加新实体），导致 InvalidOperationException。
-            // 先尝试获取 Values 集合的快照以减少竞态窗口，并做最多 3 次重试。
-            const int maxRetries = 3;
+            // 先尝试获取 Values 集合的快照以减少竞态窗口。
+            // Discover 后 entity map 变动持续时间较长，增加重试次数和延迟。
+            const int maxRetries = 5;
             for (int attempt = 0; attempt < maxRetries; attempt++)
             {
                 try
@@ -283,7 +284,7 @@ namespace HearthstonePayload
                 {
                     // 集合在遍历中被修改，短暂等待后重试
                     if (attempt < maxRetries - 1)
-                        System.Threading.Thread.Sleep(15);
+                        System.Threading.Thread.Sleep(30);
                 }
             }
             return new List<object>();
