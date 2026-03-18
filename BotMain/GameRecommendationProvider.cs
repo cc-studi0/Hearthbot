@@ -75,6 +75,52 @@ namespace BotMain
         public bool Selected { get; }
     }
 
+    internal enum CardOriginKind
+    {
+        Unknown = 0,
+        DeckDrawn,
+        StartingHand,
+        Discover,
+        Generated,
+        Copied,
+        Transformed
+    }
+
+    internal class CardProvenance
+    {
+        public CardOriginKind OriginKind { get; set; } = CardOriginKind.Unknown;
+        public int SourceEntityId { get; set; }
+        public string SourceCardId { get; set; } = string.Empty;
+        public int AcquireTurn { get; set; }
+        public string ChoiceMode { get; set; } = string.Empty;
+    }
+
+    internal sealed class EntityContextSnapshot
+    {
+        public int EntityId { get; set; }
+        public string CardId { get; set; } = string.Empty;
+        public string Zone { get; set; } = string.Empty;
+        public int ZonePosition { get; set; }
+        public bool IsGenerated { get; set; }
+        public int CreatorEntityId { get; set; }
+        public IReadOnlyDictionary<int, int> TagsSubset { get; set; } = new Dictionary<int, int>();
+        public CardProvenance Provenance { get; set; }
+    }
+
+    internal sealed class MatchContextSnapshot
+    {
+        public string MatchId { get; set; } = string.Empty;
+        public int TurnCount { get; set; }
+        public long ObservedAtMs { get; set; }
+    }
+
+    internal sealed class PendingAcquisitionContext : CardProvenance
+    {
+        public int ChoiceId { get; set; }
+        public long CreatedAtMs { get; set; }
+        public IReadOnlyList<string> ExpectedCardIds { get; set; } = Array.Empty<string>();
+    }
+
     internal sealed class ActionRecommendationRequest
     {
         public ActionRecommendationRequest(
@@ -85,7 +131,9 @@ namespace BotMain
             long minimumUpdatedAtMs = 0,
             string deckName = null,
             string deckSignature = null,
-            IReadOnlyList<ApiCard.Cards> remainingDeckCards = null)
+            IReadOnlyList<ApiCard.Cards> remainingDeckCards = null,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
+            MatchContextSnapshot matchContext = null)
         {
             Seed = seed ?? string.Empty;
             PlanningBoard = planningBoard;
@@ -95,6 +143,8 @@ namespace BotMain
             DeckName = deckName ?? string.Empty;
             DeckSignature = deckSignature ?? string.Empty;
             RemainingDeckCards = remainingDeckCards ?? deckCards ?? Array.Empty<ApiCard.Cards>();
+            FriendlyEntities = friendlyEntities ?? Array.Empty<EntityContextSnapshot>();
+            MatchContext = matchContext ?? new MatchContextSnapshot();
         }
 
         public string Seed { get; }
@@ -105,6 +155,8 @@ namespace BotMain
         public string DeckName { get; }
         public string DeckSignature { get; }
         public IReadOnlyList<ApiCard.Cards> RemainingDeckCards { get; }
+        public IReadOnlyList<EntityContextSnapshot> FriendlyEntities { get; }
+        public MatchContextSnapshot MatchContext { get; }
     }
 
     internal sealed class ActionRecommendationResult
@@ -321,7 +373,9 @@ namespace BotMain
             long lastConsumedUpdatedAtMs = 0,
             string lastConsumedPayloadSignature = null,
             string deckName = null,
-            string deckSignature = null)
+            string deckSignature = null,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
+            PendingAcquisitionContext pendingOrigin = null)
         {
             SnapshotId = snapshotId ?? string.Empty;
             ChoiceId = choiceId;
@@ -338,6 +392,8 @@ namespace BotMain
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
             DeckName = deckName ?? string.Empty;
             DeckSignature = deckSignature ?? string.Empty;
+            FriendlyEntities = friendlyEntities ?? Array.Empty<EntityContextSnapshot>();
+            PendingOrigin = pendingOrigin;
         }
 
         public string SnapshotId { get; }
@@ -355,6 +411,8 @@ namespace BotMain
         public string LastConsumedPayloadSignature { get; }
         public string DeckName { get; }
         public string DeckSignature { get; }
+        public IReadOnlyList<EntityContextSnapshot> FriendlyEntities { get; }
+        public PendingAcquisitionContext PendingOrigin { get; }
 
         public IReadOnlyList<string> ChoiceCardIds => Options.Select(option => option?.CardId ?? string.Empty).ToList();
         public IReadOnlyList<int> ChoiceEntityIds => Options.Select(option => option?.EntityId ?? 0).ToList();
@@ -399,7 +457,9 @@ namespace BotMain
             long lastConsumedUpdatedAtMs = 0,
             string lastConsumedPayloadSignature = null,
             string deckName = null,
-            string deckSignature = null)
+            string deckSignature = null,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
+            PendingAcquisitionContext pendingOrigin = null)
         {
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
@@ -412,6 +472,8 @@ namespace BotMain
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
             DeckName = deckName ?? string.Empty;
             DeckSignature = deckSignature ?? string.Empty;
+            FriendlyEntities = friendlyEntities ?? Array.Empty<EntityContextSnapshot>();
+            PendingOrigin = pendingOrigin;
         }
 
         public string OriginCardId { get; }
@@ -425,6 +487,8 @@ namespace BotMain
         public string LastConsumedPayloadSignature { get; }
         public string DeckName { get; }
         public string DeckSignature { get; }
+        public IReadOnlyList<EntityContextSnapshot> FriendlyEntities { get; }
+        public PendingAcquisitionContext PendingOrigin { get; }
 
         public ChoiceRecommendationRequest ToChoiceRecommendationRequest()
         {
@@ -448,7 +512,9 @@ namespace BotMain
                 LastConsumedUpdatedAtMs,
                 LastConsumedPayloadSignature,
                 DeckName,
-                DeckSignature);
+                DeckSignature,
+                FriendlyEntities,
+                PendingOrigin);
         }
     }
 

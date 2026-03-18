@@ -10,19 +10,22 @@ namespace BotMain.Learning
         private const double TeacherPositiveDelta = 1.0;
         private const double LocalMismatchPenalty = -0.65;
         private const double GenericBucketScale = 0.35;
+        private const double AnySourceScale = 0.45;
+        private const double DeckOverlayScale = 0.35;
         private const double MulliganPairScale = 0.25;
 
         public bool TryBuildActionTraining(ActionLearningSample sample, out ActionTrainingRecord record, out string detail)
         {
             record = null;
             detail = "action_sample_invalid";
-            if (sample == null || sample.PlanningBoard == null || string.IsNullOrWhiteSpace(sample.DeckSignature))
+            if (sample == null || sample.PlanningBoard == null)
                 return false;
 
             if (!LearnedStrategyFeatureExtractor.TryDescribeAction(
                     sample.PlanningBoard,
                     sample.TeacherAction,
                     sample.RemainingDeckCards,
+                    sample.FriendlyEntities,
                     out var teacherObservation))
             {
                 detail = "teacher_action_unsupported";
@@ -33,6 +36,7 @@ namespace BotMain.Learning
                 sample.PlanningBoard,
                 sample.LocalAction,
                 sample.RemainingDeckCards,
+                sample.FriendlyEntities,
                 out var localObservation);
 
             var boardFingerprint = LearnedStrategyFeatureExtractor.BuildBoardFingerprint(sample.Seed);
@@ -61,8 +65,8 @@ namespace BotMain.Learning
             }
 
             ConsolidateActionDeltas(record);
-            detail = $"action_rules={record.Deltas.Count}";
-            return record.Deltas.Count > 0;
+            detail = $"global_action_rules={record.GlobalDeltas.Count}, deck_action_rules={record.DeckDeltas.Count}";
+            return record.GlobalDeltas.Count > 0 || record.DeckDeltas.Count > 0;
         }
 
         public bool TryBuildMulliganTraining(MulliganLearningSample sample, out MulliganTrainingRecord record, out string detail)
@@ -118,7 +122,7 @@ namespace BotMain.Learning
             }
 
             ConsolidateMulliganDeltas(record);
-            detail = $"mulligan_rules={record.Deltas.Count}";
+            detail = $"deck_mulligan_rules={record.Deltas.Count}";
             return record.Deltas.Count > 0;
         }
 
@@ -127,7 +131,6 @@ namespace BotMain.Learning
             record = null;
             detail = "choice_sample_invalid";
             if (sample == null
-                || string.IsNullOrWhiteSpace(sample.DeckSignature)
                 || sample.Options == null
                 || sample.Options.Count == 0)
             {
@@ -182,12 +185,11 @@ namespace BotMain.Learning
                     delta -= 0.45;
 
                 AddChoiceDelta(record, sample, option.CardId, boardBucket, delta);
-                AddChoiceDelta(record, sample, option.CardId, LearnedStrategyFeatureExtractor.AnyBoardBucket, delta * GenericBucketScale);
             }
 
             ConsolidateChoiceDeltas(record);
-            detail = $"choice_rules={record.Deltas.Count}";
-            return record.Deltas.Count > 0;
+            detail = $"global_choice_rules={record.GlobalDeltas.Count}, deck_choice_rules={record.DeckDeltas.Count}";
+            return record.GlobalDeltas.Count > 0 || record.DeckDeltas.Count > 0;
         }
 
         private static void AddActionObservation(
@@ -199,62 +201,98 @@ namespace BotMain.Learning
             if (record == null || observation == null || observation.Scope == LearnedActionScope.Unknown)
                 return;
 
+            AddActionDelta(record, deckSignature, observation, observation.BoardBucket, observation.SourceProvenance, delta);
             AddActionDelta(
                 record,
                 deckSignature,
-                observation.Scope,
-                observation.SourceCardId,
-                observation.TargetCardId,
-                observation.BoardBucket,
-                delta);
-            AddActionDelta(
-                record,
-                deckSignature,
-                observation.Scope,
-                observation.SourceCardId,
-                observation.TargetCardId,
+                observation,
                 LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                observation.SourceProvenance,
                 delta * GenericBucketScale);
+
+            var anySource = CloneAsAnySource(observation.SourceProvenance);
+            AddActionDelta(
+                record,
+                deckSignature,
+                observation,
+                observation.BoardBucket,
+                anySource,
+                delta * AnySourceScale);
+            AddActionDelta(
+                record,
+                deckSignature,
+                observation,
+                LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                anySource,
+                delta * GenericBucketScale * AnySourceScale);
         }
 
         private static void AddActionDelta(
             ActionTrainingRecord record,
             string deckSignature,
-            LearnedActionScope scope,
-            string sourceCardId,
-            string targetCardId,
+            LearnedActionObservation observation,
             string boardBucket,
+            CardProvenance provenance,
             double delta)
         {
-            if (record == null || string.IsNullOrWhiteSpace(deckSignature) || string.IsNullOrWhiteSpace(sourceCardId))
+            if (record == null || observation == null || string.IsNullOrWhiteSpace(observation.SourceCardId))
                 return;
 
             var safeBucket = string.IsNullOrWhiteSpace(boardBucket)
                 ? LearnedStrategyFeatureExtractor.AnyBoardBucket
                 : boardBucket;
-            var ruleKey = string.Join(
+            var originKind = provenance?.OriginKind ?? CardOriginKind.Unknown;
+            var originSourceCardId = LearnedStrategyFeatureExtractor.NormalizeOriginSourceCardId(provenance);
+
+            var globalRuleKey = string.Join(
                 "|",
-                deckSignature,
                 safeBucket,
-                scope,
-                sourceCardId ?? string.Empty,
-                targetCardId ?? string.Empty);
-            record.Deltas.Add(new ActionRuleDelta
+                observation.Scope,
+                observation.SourceCardId ?? string.Empty,
+                observation.TargetCardId ?? string.Empty,
+                originKind,
+                originSourceCardId);
+            record.GlobalDeltas.Add(new GlobalActionRuleDelta
             {
-                RuleKey = ruleKey,
-                DeckSignature = deckSignature,
+                RuleKey = globalRuleKey,
                 BoardBucket = safeBucket,
-                Scope = scope,
-                SourceCardId = sourceCardId ?? string.Empty,
-                TargetCardId = targetCardId ?? string.Empty,
+                Scope = observation.Scope,
+                SourceCardId = observation.SourceCardId ?? string.Empty,
+                TargetCardId = observation.TargetCardId ?? string.Empty,
+                OriginKind = originKind,
+                OriginSourceCardId = originSourceCardId,
                 WeightDelta = delta
             });
             record.RuleImpacts.Add(new LearnedRuleImpact
             {
-                RuleKind = "action",
-                RuleKey = ruleKey,
+                RuleKind = "global_action",
+                RuleKey = globalRuleKey,
                 Delta = delta
             });
+
+            if (!string.IsNullOrWhiteSpace(deckSignature))
+            {
+                var deckDelta = delta * DeckOverlayScale;
+                var deckRuleKey = string.Join("|", deckSignature, globalRuleKey);
+                record.DeckDeltas.Add(new DeckActionRuleDelta
+                {
+                    RuleKey = deckRuleKey,
+                    DeckSignature = deckSignature,
+                    BoardBucket = safeBucket,
+                    Scope = observation.Scope,
+                    SourceCardId = observation.SourceCardId ?? string.Empty,
+                    TargetCardId = observation.TargetCardId ?? string.Empty,
+                    OriginKind = originKind,
+                    OriginSourceCardId = originSourceCardId,
+                    WeightDelta = deckDelta
+                });
+                record.RuleImpacts.Add(new LearnedRuleImpact
+                {
+                    RuleKind = "deck_action",
+                    RuleKey = deckRuleKey,
+                    Delta = deckDelta
+                });
+            }
         }
 
         private static void AddMulliganDelta(
@@ -274,7 +312,7 @@ namespace BotMain.Learning
                 sample.HasCoin ? 1 : 0,
                 cardId,
                 contextCardId ?? string.Empty);
-            record.Deltas.Add(new MulliganRuleDelta
+            record.Deltas.Add(new DeckMulliganRuleDelta
             {
                 RuleKey = ruleKey,
                 DeckSignature = sample.DeckSignature,
@@ -286,7 +324,7 @@ namespace BotMain.Learning
             });
             record.RuleImpacts.Add(new LearnedRuleImpact
             {
-                RuleKind = "mulligan",
+                RuleKind = "deck_mulligan",
                 RuleKey = ruleKey,
                 Delta = delta
             });
@@ -301,7 +339,6 @@ namespace BotMain.Learning
         {
             if (record == null
                 || sample == null
-                || string.IsNullOrWhiteSpace(sample.DeckSignature)
                 || string.IsNullOrWhiteSpace(optionCardId))
             {
                 return;
@@ -310,40 +347,119 @@ namespace BotMain.Learning
             var safeBucket = string.IsNullOrWhiteSpace(boardBucket)
                 ? LearnedStrategyFeatureExtractor.AnyBoardBucket
                 : boardBucket;
-            var safeMode = string.IsNullOrWhiteSpace(sample.Mode) ? "DISCOVER" : sample.Mode.Trim().ToUpperInvariant();
-            var ruleKey = string.Join(
+            var safeMode = LearnedStrategyFeatureExtractor.NormalizeMode(sample.Mode);
+            var exactOrigin = sample.PendingOrigin ?? new PendingAcquisitionContext();
+            var anySourceOrigin = CloneAsAnySource(exactOrigin);
+
+            AddChoiceDeltaVariant(record, sample.DeckSignature, safeMode, sample.OriginCardId, optionCardId, safeBucket, exactOrigin, delta);
+            AddChoiceDeltaVariant(record, sample.DeckSignature, safeMode, sample.OriginCardId, optionCardId, LearnedStrategyFeatureExtractor.AnyBoardBucket, exactOrigin, delta * GenericBucketScale);
+            AddChoiceDeltaVariant(record, sample.DeckSignature, safeMode, sample.OriginCardId, optionCardId, safeBucket, anySourceOrigin, delta * AnySourceScale);
+            AddChoiceDeltaVariant(record, sample.DeckSignature, safeMode, sample.OriginCardId, optionCardId, LearnedStrategyFeatureExtractor.AnyBoardBucket, anySourceOrigin, delta * GenericBucketScale * AnySourceScale);
+        }
+
+        private static void AddChoiceDeltaVariant(
+            ChoiceTrainingRecord record,
+            string deckSignature,
+            string mode,
+            string originCardId,
+            string optionCardId,
+            string boardBucket,
+            CardProvenance provenance,
+            double delta)
+        {
+            var originKind = provenance?.OriginKind ?? CardOriginKind.Unknown;
+            var originSourceCardId = LearnedStrategyFeatureExtractor.NormalizeOriginSourceCardId(provenance);
+            var globalRuleKey = string.Join(
                 "|",
-                sample.DeckSignature,
-                safeMode,
-                sample.OriginCardId ?? string.Empty,
-                optionCardId,
-                safeBucket);
-            record.Deltas.Add(new ChoiceRuleDelta
+                mode ?? string.Empty,
+                originCardId ?? string.Empty,
+                optionCardId ?? string.Empty,
+                boardBucket ?? string.Empty,
+                originKind,
+                originSourceCardId);
+            record.GlobalDeltas.Add(new GlobalChoiceRuleDelta
             {
-                RuleKey = ruleKey,
-                DeckSignature = sample.DeckSignature,
-                Mode = safeMode,
-                OriginCardId = sample.OriginCardId ?? string.Empty,
-                OptionCardId = optionCardId,
-                BoardBucket = safeBucket,
+                RuleKey = globalRuleKey,
+                Mode = mode ?? string.Empty,
+                OriginCardId = originCardId ?? string.Empty,
+                OptionCardId = optionCardId ?? string.Empty,
+                BoardBucket = boardBucket ?? string.Empty,
+                OriginKind = originKind,
+                OriginSourceCardId = originSourceCardId,
                 WeightDelta = delta
             });
             record.RuleImpacts.Add(new LearnedRuleImpact
             {
-                RuleKind = "choice",
-                RuleKey = ruleKey,
+                RuleKind = "global_choice",
+                RuleKey = globalRuleKey,
                 Delta = delta
             });
+
+            if (!string.IsNullOrWhiteSpace(deckSignature))
+            {
+                var deckDelta = delta * DeckOverlayScale;
+                var deckRuleKey = string.Join("|", deckSignature, globalRuleKey);
+                record.DeckDeltas.Add(new DeckChoiceRuleDelta
+                {
+                    RuleKey = deckRuleKey,
+                    DeckSignature = deckSignature,
+                    Mode = mode ?? string.Empty,
+                    OriginCardId = originCardId ?? string.Empty,
+                    OptionCardId = optionCardId ?? string.Empty,
+                    BoardBucket = boardBucket ?? string.Empty,
+                    OriginKind = originKind,
+                    OriginSourceCardId = originSourceCardId,
+                    WeightDelta = deckDelta
+                });
+                record.RuleImpacts.Add(new LearnedRuleImpact
+                {
+                    RuleKind = "deck_choice",
+                    RuleKey = deckRuleKey,
+                    Delta = deckDelta
+                });
+            }
+        }
+
+        private static PendingAcquisitionContext CloneAsAnySource(CardProvenance provenance)
+        {
+            return new PendingAcquisitionContext
+            {
+                OriginKind = provenance?.OriginKind ?? CardOriginKind.Unknown,
+                SourceEntityId = provenance?.SourceEntityId ?? 0,
+                SourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                AcquireTurn = provenance?.AcquireTurn ?? 0,
+                ChoiceMode = provenance?.ChoiceMode ?? string.Empty
+            };
         }
 
         private static void ConsolidateActionDeltas(ActionTrainingRecord record)
         {
-            var combined = record.Deltas
+            var combinedGlobal = record.GlobalDeltas
                 .GroupBy(delta => delta.RuleKey, StringComparer.Ordinal)
                 .Select(group =>
                 {
                     var first = group.First();
-                    return new ActionRuleDelta
+                    return new GlobalActionRuleDelta
+                    {
+                        RuleKey = first.RuleKey,
+                        BoardBucket = first.BoardBucket,
+                        Scope = first.Scope,
+                        SourceCardId = first.SourceCardId,
+                        TargetCardId = first.TargetCardId,
+                        OriginKind = first.OriginKind,
+                        OriginSourceCardId = first.OriginSourceCardId,
+                        WeightDelta = group.Sum(delta => delta.WeightDelta)
+                    };
+                })
+                .Where(delta => Math.Abs(delta.WeightDelta) > 0.001)
+                .ToList();
+
+            var combinedDeck = record.DeckDeltas
+                .GroupBy(delta => delta.RuleKey, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    var first = group.First();
+                    return new DeckActionRuleDelta
                     {
                         RuleKey = first.RuleKey,
                         DeckSignature = first.DeckSignature,
@@ -351,14 +467,18 @@ namespace BotMain.Learning
                         Scope = first.Scope,
                         SourceCardId = first.SourceCardId,
                         TargetCardId = first.TargetCardId,
+                        OriginKind = first.OriginKind,
+                        OriginSourceCardId = first.OriginSourceCardId,
                         WeightDelta = group.Sum(delta => delta.WeightDelta)
                     };
                 })
                 .Where(delta => Math.Abs(delta.WeightDelta) > 0.001)
                 .ToList();
 
-            record.Deltas.Clear();
-            record.Deltas.AddRange(combined);
+            record.GlobalDeltas.Clear();
+            record.GlobalDeltas.AddRange(combinedGlobal);
+            record.DeckDeltas.Clear();
+            record.DeckDeltas.AddRange(combinedDeck);
             ConsolidateImpacts(record.RuleImpacts);
         }
 
@@ -369,7 +489,7 @@ namespace BotMain.Learning
                 .Select(group =>
                 {
                     var first = group.First();
-                    return new MulliganRuleDelta
+                    return new DeckMulliganRuleDelta
                     {
                         RuleKey = first.RuleKey,
                         DeckSignature = first.DeckSignature,
@@ -390,12 +510,32 @@ namespace BotMain.Learning
 
         private static void ConsolidateChoiceDeltas(ChoiceTrainingRecord record)
         {
-            var combined = record.Deltas
+            var combinedGlobal = record.GlobalDeltas
                 .GroupBy(delta => delta.RuleKey, StringComparer.Ordinal)
                 .Select(group =>
                 {
                     var first = group.First();
-                    return new ChoiceRuleDelta
+                    return new GlobalChoiceRuleDelta
+                    {
+                        RuleKey = first.RuleKey,
+                        Mode = first.Mode,
+                        OriginCardId = first.OriginCardId,
+                        OptionCardId = first.OptionCardId,
+                        BoardBucket = first.BoardBucket,
+                        OriginKind = first.OriginKind,
+                        OriginSourceCardId = first.OriginSourceCardId,
+                        WeightDelta = group.Sum(delta => delta.WeightDelta)
+                    };
+                })
+                .Where(delta => Math.Abs(delta.WeightDelta) > 0.001)
+                .ToList();
+
+            var combinedDeck = record.DeckDeltas
+                .GroupBy(delta => delta.RuleKey, StringComparer.Ordinal)
+                .Select(group =>
+                {
+                    var first = group.First();
+                    return new DeckChoiceRuleDelta
                     {
                         RuleKey = first.RuleKey,
                         DeckSignature = first.DeckSignature,
@@ -403,14 +543,18 @@ namespace BotMain.Learning
                         OriginCardId = first.OriginCardId,
                         OptionCardId = first.OptionCardId,
                         BoardBucket = first.BoardBucket,
+                        OriginKind = first.OriginKind,
+                        OriginSourceCardId = first.OriginSourceCardId,
                         WeightDelta = group.Sum(delta => delta.WeightDelta)
                     };
                 })
                 .Where(delta => Math.Abs(delta.WeightDelta) > 0.001)
                 .ToList();
 
-            record.Deltas.Clear();
-            record.Deltas.AddRange(combined);
+            record.GlobalDeltas.Clear();
+            record.GlobalDeltas.AddRange(combinedGlobal);
+            record.DeckDeltas.Clear();
+            record.DeckDeltas.AddRange(combinedDeck);
             ConsolidateImpacts(record.RuleImpacts);
         }
 

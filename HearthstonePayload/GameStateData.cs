@@ -143,4 +143,15 @@ namespace HearthstonePayload
 
         public Dictionary<int, int> Tags = new Dictionary<int, int>();
     }
+
+    public class FriendlyEntityContextEntry
+    {
+        public int EntityId;
+        public string CardId;
+        public string Zone;
+        public int ZonePosition;
+        public bool IsGenerated;
+        public int CreatorEntityId;
+        public Dictionary<int, int> Tags = new Dictionary<int, int>();
+    }
 }

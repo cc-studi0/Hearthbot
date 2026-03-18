@@ -202,6 +202,7 @@ namespace BotMain
         private volatile bool _useLearnedLocalStrategy;
         private volatile bool _saveHsBoxCallbacks;
         private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
+        private readonly MatchEntityProvenanceRegistry _matchEntityProvenanceRegistry = new MatchEntityProvenanceRegistry();
         private readonly Dictionary<string, DeckDefinition> _deckDefinitionsByDisplayName = new(StringComparer.OrdinalIgnoreCase);
         private LearnedDeckContext _currentDeckContext;
         private string _currentLearningMatchId = string.Empty;
@@ -733,7 +734,6 @@ namespace BotMain
         {
             if (request == null
                 || request.PlanningBoard == null
-                || string.IsNullOrWhiteSpace(request.DeckSignature)
                 || teacherRecommendation?.ShouldRetryWithoutAction == true)
             {
                 return;
@@ -753,6 +753,8 @@ namespace BotMain
                 Seed = request.Seed,
                 PlanningBoard = request.PlanningBoard,
                 RemainingDeckCards = request.RemainingDeckCards ?? Array.Empty<ApiCard.Cards>(),
+                FriendlyEntities = request.FriendlyEntities ?? Array.Empty<EntityContextSnapshot>(),
+                MatchContext = request.MatchContext ?? new MatchContextSnapshot(),
                 TeacherAction = teacherAction,
                 LocalAction = localAction ?? string.Empty
             });
@@ -798,7 +800,6 @@ namespace BotMain
             ChoiceRecommendationResult localRecommendation)
         {
             if (request == null
-                || string.IsNullOrWhiteSpace(request.DeckSignature)
                 || request.Options == null
                 || request.Options.Count == 0
                 || teacherRecommendation?.ShouldRetryWithoutAction == true)
@@ -819,6 +820,7 @@ namespace BotMain
                 Mode = request.Mode,
                 OriginCardId = request.SourceCardId,
                 Seed = request.Seed,
+                PendingOrigin = request.PendingOrigin,
                 Options = request.Options
                     .Select(option => new ChoiceLearningOption
                     {
@@ -837,7 +839,6 @@ namespace BotMain
             DiscoverRecommendationResult localRecommendation)
         {
             if (request == null
-                || string.IsNullOrWhiteSpace(request.DeckSignature)
                 || request.ChoiceEntityIds == null
                 || request.ChoiceCardIds == null
                 || request.ChoiceEntityIds.Count == 0
@@ -865,6 +866,7 @@ namespace BotMain
                 Mode = request.IsRewindChoice ? "TIMELINE" : "DISCOVER",
                 OriginCardId = request.OriginCardId,
                 Seed = request.Seed,
+                PendingOrigin = request.PendingOrigin,
                 Options = request.ChoiceCardIds
                     .Zip(request.ChoiceEntityIds, (cardId, entityId) => new ChoiceLearningOption
                     {
@@ -884,6 +886,183 @@ namespace BotMain
                 !string.IsNullOrWhiteSpace(action)
                 && !action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
                 && !action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private MatchContextSnapshot BuildMatchContext(Board board)
+        {
+            return new MatchContextSnapshot
+            {
+                MatchId = _currentLearningMatchId ?? string.Empty,
+                TurnCount = board?.TurnCount ?? GetCurrentObservedTurn(),
+                ObservedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
+            };
+        }
+
+        private List<EntityContextSnapshot> RefreshFriendlyEntityContext(PipeServer pipe, int currentTurn, string scope)
+        {
+            if (!TryGetFriendlyEntityContext(pipe, 1200, out var entities, out var detail))
+            {
+                if (!string.IsNullOrWhiteSpace(detail) && !detail.StartsWith("NO_", StringComparison.OrdinalIgnoreCase))
+                    Log($"[Learning] friendly_context_unavailable scope={scope} detail={detail}");
+                return new List<EntityContextSnapshot>();
+            }
+
+            _matchEntityProvenanceRegistry.Refresh(entities, currentTurn);
+            return entities;
+        }
+
+        private bool TryGetFriendlyEntityContext(PipeServer pipe, int timeoutMs, out List<EntityContextSnapshot> entities, out string detail)
+        {
+            entities = new List<EntityContextSnapshot>();
+            detail = "pipe_disconnected";
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            string response;
+            try
+            {
+                response = pipe.SendAndReceive("GET_FRIENDLY_ENTITY_CONTEXT", timeoutMs);
+            }
+            catch (Exception ex)
+            {
+                detail = ex.Message;
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(response))
+            {
+                detail = "NO_RESPONSE";
+                return false;
+            }
+
+            if (!response.StartsWith("FRIENDLY_ENTITY_CONTEXT:", StringComparison.Ordinal))
+            {
+                detail = response;
+                return false;
+            }
+
+            try
+            {
+                var payload = response.Substring("FRIENDLY_ENTITY_CONTEXT:".Length);
+                var array = JArray.Parse(payload);
+                foreach (var token in array.OfType<JObject>())
+                {
+                    var tags = new Dictionary<int, int>();
+                    var tagsObject = token["tags"] as JObject;
+                    if (tagsObject != null)
+                    {
+                        foreach (var property in tagsObject.Properties())
+                        {
+                            if (int.TryParse(property.Name, out var tagKey))
+                                tags[tagKey] = property.Value?.Value<int?>() ?? 0;
+                        }
+                    }
+
+                    entities.Add(new EntityContextSnapshot
+                    {
+                        EntityId = token.Value<int?>("entityId") ?? 0,
+                        CardId = token.Value<string>("cardId") ?? string.Empty,
+                        Zone = token.Value<string>("zone") ?? string.Empty,
+                        ZonePosition = token.Value<int?>("zonePosition") ?? 0,
+                        IsGenerated = token.Value<bool?>("isGenerated") ?? false,
+                        CreatorEntityId = token.Value<int?>("creatorEntityId") ?? 0,
+                        TagsSubset = tags
+                    });
+                }
+
+                detail = $"count={entities.Count}";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                detail = ex.Message;
+                return false;
+            }
+        }
+
+        private PendingAcquisitionContext ResolvePendingOrigin(int sourceEntityId, string sourceCardId)
+        {
+            var provenance = _matchEntityProvenanceRegistry.ResolveProvenance(sourceEntityId, sourceCardId);
+            return new PendingAcquisitionContext
+            {
+                OriginKind = provenance.OriginKind,
+                SourceEntityId = provenance.SourceEntityId > 0 ? provenance.SourceEntityId : sourceEntityId,
+                SourceCardId = !string.IsNullOrWhiteSpace(provenance.SourceCardId) ? provenance.SourceCardId : (sourceCardId ?? string.Empty),
+                AcquireTurn = provenance.AcquireTurn,
+                ChoiceMode = provenance.ChoiceMode ?? string.Empty
+            };
+        }
+
+        private void RememberPendingAcquisition(
+            string mode,
+            int choiceId,
+            int sourceEntityId,
+            string sourceCardId,
+            IEnumerable<string> expectedCardIds)
+        {
+            var expected = expectedCardIds?
+                .Where(cardId => !string.IsNullOrWhiteSpace(cardId))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (expected == null || expected.Count == 0)
+                return;
+
+            _matchEntityProvenanceRegistry.ArmPendingAcquisition(new PendingAcquisitionContext
+            {
+                OriginKind = ResolveAcquiredOriginKind(mode),
+                SourceEntityId = sourceEntityId,
+                SourceCardId = sourceCardId ?? string.Empty,
+                AcquireTurn = GetCurrentObservedTurn(),
+                ChoiceMode = mode ?? string.Empty,
+                ChoiceId = choiceId,
+                CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ExpectedCardIds = expected
+            });
+        }
+
+        private int GetCurrentObservedTurn()
+        {
+            return GetTurnCountFromSeed(GetLastObservedSeed());
+        }
+
+        private string GetLastObservedSeed()
+        {
+            return !string.IsNullOrWhiteSpace(_lastObservedSeedResponse)
+                && _lastObservedSeedResponse.StartsWith("SEED:", StringComparison.Ordinal)
+                ? _lastObservedSeedResponse.Substring("SEED:".Length)
+                : string.Empty;
+        }
+
+        private static int GetTurnCountFromSeed(string seed)
+        {
+            if (string.IsNullOrWhiteSpace(seed))
+                return 0;
+
+            try
+            {
+                return Board.FromSeed(seed)?.TurnCount ?? 0;
+            }
+            catch
+            {
+                return 0;
+            }
+        }
+
+        private static CardOriginKind ResolveAcquiredOriginKind(string mode)
+        {
+            return IsDiscoverLikeChoiceMode(mode)
+                ? CardOriginKind.Discover
+                : CardOriginKind.Generated;
+        }
+
+        private static bool IsDiscoverLikeChoiceMode(string mode)
+        {
+            return string.Equals(mode, "DISCOVER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "DREDGE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "ADAPT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "TIMELINE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "TRINKET_DISCOVER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(mode, "SHOP_CHOICE", StringComparison.OrdinalIgnoreCase);
         }
 
         private LearnedDeckContext ResolveDeckContext(IReadOnlyList<ApiCard.Cards> remainingDeckCards)
@@ -1049,6 +1228,8 @@ namespace BotMain
                 _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, learnedOutcome);
                 _currentLearningMatchId = string.Empty;
             }
+
+            _matchEntityProvenanceRegistry.Reset();
         }
 
         private void CheckRunLimits()
@@ -1490,6 +1671,7 @@ namespace BotMain
                             _postGameSinceUtc = null;
                             _postGameLobbyConfirmCount = 0;
                             _currentLearningMatchId = Guid.NewGuid().ToString("N");
+                            _matchEntityProvenanceRegistry.Reset();
                             _currentDeckContext = ResolveDeckContext(null);
                             HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                             _pluginSystem?.FireOnGameBegin();
@@ -1635,6 +1817,7 @@ namespace BotMain
                     _postGameSinceUtc = null;
                     _postGameLobbyConfirmCount = 0;
                     _currentLearningMatchId = Guid.NewGuid().ToString("N");
+                    _matchEntityProvenanceRegistry.Reset();
                     _currentDeckContext = ResolveDeckContext(null);
                     HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                     _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
@@ -1721,6 +1904,7 @@ namespace BotMain
                 catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
                 _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
+                var friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
                 var actionRequest = new ActionRecommendationRequest(
                     seed,
                     planningBoard,
@@ -1731,7 +1915,9 @@ namespace BotMain
                         : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
                     _currentDeckContext?.DeckName,
                     _currentDeckContext?.DeckSignature,
-                    deckCards);
+                    deckCards,
+                    friendlyEntities,
+                    BuildMatchContext(planningBoard));
 
                 var sw = Stopwatch.StartNew();
                 var recommendation = RecommendActionsWithLearning(actionRequest);
@@ -3810,6 +3996,8 @@ namespace BotMain
                     return false;
 
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                var friendlyEntities = RefreshFriendlyEntityContext(pipe, GetTurnCountFromSeed(strategySeed), "Choice");
+                var pendingOrigin = ResolvePendingOrigin(currentState.SourceEntityId, currentState.SourceCardId);
                 var recommendation = RecommendChoiceWithLearning(
                     new ChoiceRecommendationRequest(
                         currentState.SnapshotId,
@@ -3828,7 +4016,9 @@ namespace BotMain
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
                         _lastConsumedHsBoxChoicePayloadSignature,
                         _currentDeckContext?.DeckName,
-                        _currentDeckContext?.DeckSignature));
+                        _currentDeckContext?.DeckSignature,
+                        friendlyEntities,
+                        pendingOrigin));
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
                 if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
@@ -3860,6 +4050,10 @@ namespace BotMain
                 }
 
                 Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
+                RememberPendingAcquisition(currentState.Mode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, currentState.Options
+                    .Where(option => option != null && selectedEntityIds.Contains(option.EntityId))
+                    .Select(option => option.CardId)
+                    .ToList());
 
                 if (!TryGetChoiceStateResponse(pipe, 2, 80, out var response, 1200)
                     || string.Equals(response, "NO_CHOICE", StringComparison.Ordinal))
@@ -3953,6 +4147,8 @@ namespace BotMain
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb");
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
+                var friendlyEntities = RefreshFriendlyEntityContext(pipe, GetTurnCountFromSeed(strategySeed), "Discover");
+                var pendingOrigin = ResolvePendingOrigin(currentState.SourceEntityId, currentState.SourceCardId);
                 var recommendation = RecommendDiscoverWithLearning(
                     new DiscoverRecommendationRequest(
                         originCardId,
@@ -3965,7 +4161,9 @@ namespace BotMain
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
                         _lastConsumedHsBoxChoicePayloadSignature,
                         _currentDeckContext?.DeckName,
-                        _currentDeckContext?.DeckSignature));
+                        _currentDeckContext?.DeckSignature,
+                        friendlyEntities,
+                        pendingOrigin));
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     Log($"[Choice] wait_retry origin={originCardId} detail={recommendation.Detail}");
@@ -4012,6 +4210,7 @@ namespace BotMain
                 Log($"[Choice] 选择了 {pickedCardName} ({pickedCardId})");
                 Log($"[Choice] mode={choiceMode} origin={originCardId} choices=[{string.Join(",", choiceCardIds)}] " +
                     $"picked={pickedCardId} -> {pickResult}, confirm={confirmDetail}");
+                RememberPendingAcquisition(choiceMode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, new[] { pickedCardId });
 
                 Thread.Sleep(150);
                 WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
@@ -4098,6 +4297,8 @@ namespace BotMain
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
                 var maintainIdx = currentState.ChoiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && currentState.ChoiceCardIds.Contains("TIME_000tb");
+                var friendlyEntities = RefreshFriendlyEntityContext(pipe, GetTurnCountFromSeed(strategySeed), "Discover");
+                var pendingOrigin = ResolvePendingOrigin(currentState.SourceEntityId, currentState.SourceCardId);
                 var recommendation = RecommendDiscoverWithLearning(
                     new DiscoverRecommendationRequest(
                         currentState.SourceCardId,
@@ -4110,7 +4311,9 @@ namespace BotMain
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
                         _lastConsumedHsBoxChoicePayloadSignature,
                         _currentDeckContext?.DeckName,
-                        _currentDeckContext?.DeckSignature));
+                        _currentDeckContext?.DeckSignature,
+                        friendlyEntities,
+                        pendingOrigin));
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     Log($"[Discover] wait_retry choiceId={currentState.ChoiceId} source={currentState.SourceCardId} detail={recommendation.Detail}");
@@ -4137,6 +4340,8 @@ namespace BotMain
 
                 if (!pickResponse.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     return false;
+
+                RememberPendingAcquisition("DISCOVER", currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, new[] { pickedCardId });
 
                 if (string.Equals(pickResponse, "OK:CLOSED", StringComparison.OrdinalIgnoreCase))
                 {
@@ -4748,7 +4953,9 @@ namespace BotMain
                     request.LastConsumedUpdatedAtMs,
                     request.LastConsumedPayloadSignature,
                     request.DeckName,
-                    request.DeckSignature));
+                    request.DeckSignature,
+                    request.FriendlyEntities,
+                    request.PendingOrigin));
                 var pickedIndex = discoverResult?.PickedIndex ?? 0;
                 if (pickedIndex < 0 || pickedIndex >= request.Options.Count)
                     pickedIndex = 0;
@@ -5914,6 +6121,7 @@ namespace BotMain
             playActionFailStreakByEntity.Clear();
             _currentDeckContext = null;
             _currentLearningMatchId = string.Empty;
+            _matchEntityProvenanceRegistry.Reset();
             HsBoxCallbackCapture.EndMatchSession();
             AutoQueue(pipe);
         }

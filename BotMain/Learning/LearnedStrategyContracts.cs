@@ -43,6 +43,7 @@ namespace BotMain.Learning
         public string SourceCardId { get; set; } = string.Empty;
         public string TargetCardId { get; set; } = string.Empty;
         public string ActionText { get; set; } = string.Empty;
+        public CardProvenance SourceProvenance { get; set; } = new CardProvenance();
     }
 
     internal sealed class ActionLearningSample
@@ -54,6 +55,8 @@ namespace BotMain.Learning
         public string Seed { get; set; } = string.Empty;
         public Board PlanningBoard { get; set; }
         public IReadOnlyList<ApiCard.Cards> RemainingDeckCards { get; set; } = Array.Empty<ApiCard.Cards>();
+        public IReadOnlyList<EntityContextSnapshot> FriendlyEntities { get; set; } = Array.Empty<EntityContextSnapshot>();
+        public MatchContextSnapshot MatchContext { get; set; } = new MatchContextSnapshot();
         public string TeacherAction { get; set; } = string.Empty;
         public string LocalAction { get; set; } = string.Empty;
     }
@@ -93,6 +96,7 @@ namespace BotMain.Learning
         public string Mode { get; set; } = string.Empty;
         public string OriginCardId { get; set; } = string.Empty;
         public string Seed { get; set; } = string.Empty;
+        public PendingAcquisitionContext PendingOrigin { get; set; }
         public IReadOnlyList<ChoiceLearningOption> Options { get; set; } = Array.Empty<ChoiceLearningOption>();
         public IReadOnlyList<int> TeacherSelectedEntityIds { get; set; } = Array.Empty<int>();
         public IReadOnlyList<int> LocalSelectedEntityIds { get; set; } = Array.Empty<int>();
@@ -105,18 +109,24 @@ namespace BotMain.Learning
         public double Delta { get; set; }
     }
 
-    internal sealed class ActionRuleDelta
+    internal class GlobalActionRuleDelta
     {
         public string RuleKey { get; set; } = string.Empty;
-        public string DeckSignature { get; set; } = string.Empty;
         public string BoardBucket { get; set; } = string.Empty;
         public LearnedActionScope Scope { get; set; }
         public string SourceCardId { get; set; } = string.Empty;
         public string TargetCardId { get; set; } = string.Empty;
+        public CardOriginKind OriginKind { get; set; }
+        public string OriginSourceCardId { get; set; } = string.Empty;
         public double WeightDelta { get; set; }
     }
 
-    internal sealed class MulliganRuleDelta
+    internal sealed class DeckActionRuleDelta : GlobalActionRuleDelta
+    {
+        public string DeckSignature { get; set; } = string.Empty;
+    }
+
+    internal sealed class DeckMulliganRuleDelta
     {
         public string RuleKey { get; set; } = string.Empty;
         public string DeckSignature { get; set; } = string.Empty;
@@ -127,15 +137,21 @@ namespace BotMain.Learning
         public double WeightDelta { get; set; }
     }
 
-    internal sealed class ChoiceRuleDelta
+    internal class GlobalChoiceRuleDelta
     {
         public string RuleKey { get; set; } = string.Empty;
-        public string DeckSignature { get; set; } = string.Empty;
         public string Mode { get; set; } = string.Empty;
         public string OriginCardId { get; set; } = string.Empty;
         public string OptionCardId { get; set; } = string.Empty;
         public string BoardBucket { get; set; } = string.Empty;
+        public CardOriginKind OriginKind { get; set; }
+        public string OriginSourceCardId { get; set; } = string.Empty;
         public double WeightDelta { get; set; }
+    }
+
+    internal sealed class DeckChoiceRuleDelta : GlobalChoiceRuleDelta
+    {
+        public string DeckSignature { get; set; } = string.Empty;
     }
 
     internal sealed class ActionTrainingRecord
@@ -146,7 +162,8 @@ namespace BotMain.Learning
         public string DeckSignature { get; set; } = string.Empty;
         public string BoardFingerprint { get; set; } = string.Empty;
         public long CreatedAtMs { get; set; }
-        public List<ActionRuleDelta> Deltas { get; } = new List<ActionRuleDelta>();
+        public List<GlobalActionRuleDelta> GlobalDeltas { get; } = new List<GlobalActionRuleDelta>();
+        public List<DeckActionRuleDelta> DeckDeltas { get; } = new List<DeckActionRuleDelta>();
         public List<LearnedRuleImpact> RuleImpacts { get; } = new List<LearnedRuleImpact>();
     }
 
@@ -157,7 +174,7 @@ namespace BotMain.Learning
         public string DeckSignature { get; set; } = string.Empty;
         public string SnapshotSignature { get; set; } = string.Empty;
         public long CreatedAtMs { get; set; }
-        public List<MulliganRuleDelta> Deltas { get; } = new List<MulliganRuleDelta>();
+        public List<DeckMulliganRuleDelta> Deltas { get; } = new List<DeckMulliganRuleDelta>();
         public List<LearnedRuleImpact> RuleImpacts { get; } = new List<LearnedRuleImpact>();
     }
 
@@ -169,23 +186,30 @@ namespace BotMain.Learning
         public string DeckSignature { get; set; } = string.Empty;
         public string BoardFingerprint { get; set; } = string.Empty;
         public long CreatedAtMs { get; set; }
-        public List<ChoiceRuleDelta> Deltas { get; } = new List<ChoiceRuleDelta>();
+        public List<GlobalChoiceRuleDelta> GlobalDeltas { get; } = new List<GlobalChoiceRuleDelta>();
+        public List<DeckChoiceRuleDelta> DeckDeltas { get; } = new List<DeckChoiceRuleDelta>();
         public List<LearnedRuleImpact> RuleImpacts { get; } = new List<LearnedRuleImpact>();
     }
 
-    internal sealed class LearnedActionRule
+    internal class GlobalLearnedActionRule
     {
         public string RuleKey { get; set; } = string.Empty;
-        public string DeckSignature { get; set; } = string.Empty;
         public string BoardBucket { get; set; } = string.Empty;
         public LearnedActionScope Scope { get; set; }
         public string SourceCardId { get; set; } = string.Empty;
         public string TargetCardId { get; set; } = string.Empty;
+        public CardOriginKind OriginKind { get; set; }
+        public string OriginSourceCardId { get; set; } = string.Empty;
         public double Weight { get; set; }
         public int SampleCount { get; set; }
     }
 
-    internal sealed class LearnedMulliganRule
+    internal sealed class DeckOverlayActionRule : GlobalLearnedActionRule
+    {
+        public string DeckSignature { get; set; } = string.Empty;
+    }
+
+    internal sealed class DeckLearnedMulliganRule
     {
         public string RuleKey { get; set; } = string.Empty;
         public string DeckSignature { get; set; } = string.Empty;
@@ -197,23 +221,31 @@ namespace BotMain.Learning
         public int SampleCount { get; set; }
     }
 
-    internal sealed class LearnedChoiceRule
+    internal class GlobalLearnedChoiceRule
     {
         public string RuleKey { get; set; } = string.Empty;
-        public string DeckSignature { get; set; } = string.Empty;
         public string Mode { get; set; } = string.Empty;
         public string OriginCardId { get; set; } = string.Empty;
         public string OptionCardId { get; set; } = string.Empty;
         public string BoardBucket { get; set; } = string.Empty;
+        public CardOriginKind OriginKind { get; set; }
+        public string OriginSourceCardId { get; set; } = string.Empty;
         public double Weight { get; set; }
         public int SampleCount { get; set; }
     }
 
+    internal sealed class DeckOverlayChoiceRule : GlobalLearnedChoiceRule
+    {
+        public string DeckSignature { get; set; } = string.Empty;
+    }
+
     internal sealed class LearnedStrategySnapshot
     {
-        public List<LearnedActionRule> ActionRules { get; } = new List<LearnedActionRule>();
-        public List<LearnedMulliganRule> MulliganRules { get; } = new List<LearnedMulliganRule>();
-        public List<LearnedChoiceRule> ChoiceRules { get; } = new List<LearnedChoiceRule>();
+        public List<GlobalLearnedActionRule> GlobalActionRules { get; } = new List<GlobalLearnedActionRule>();
+        public List<DeckOverlayActionRule> DeckActionRules { get; } = new List<DeckOverlayActionRule>();
+        public List<DeckLearnedMulliganRule> DeckMulliganRules { get; } = new List<DeckLearnedMulliganRule>();
+        public List<GlobalLearnedChoiceRule> GlobalChoiceRules { get; } = new List<GlobalLearnedChoiceRule>();
+        public List<DeckOverlayChoiceRule> DeckChoiceRules { get; } = new List<DeckOverlayChoiceRule>();
     }
 
     internal interface ILearnedStrategyStore

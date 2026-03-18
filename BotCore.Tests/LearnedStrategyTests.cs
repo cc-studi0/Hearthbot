@@ -6,6 +6,7 @@ using System.Runtime.CompilerServices;
 using BotMain;
 using BotMain.AI;
 using BotMain.Learning;
+using Microsoft.Data.Sqlite;
 using SmartBot.Database;
 using SmartBot.Plugins.API;
 using SmartBotProfiles;
@@ -35,7 +36,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void SqliteStore_DedupesSamplesAndLoadsRules()
+        public void SqliteStore_DedupesSamplesAndLoadsDualLayerRules()
         {
             var dbPath = Path.Combine(Path.GetTempPath(), "teacher-tests-" + Guid.NewGuid().ToString("N") + ".db");
             try
@@ -50,47 +51,141 @@ namespace BotCore.Tests
                     BoardFingerprint = "board-1",
                     CreatedAtMs = 123
                 };
-                record.Deltas.Add(new ActionRuleDelta
+                record.GlobalDeltas.Add(new GlobalActionRuleDelta
                 {
-                    RuleKey = "deck-1|ANY|CastMinion|CORE_CS2_231|",
+                    RuleKey = "ANY|CastMinion|CORE_CS2_231||Unknown|ANY_SOURCE",
+                    BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                    Scope = LearnedActionScope.CastMinion,
+                    SourceCardId = Card.Cards.CORE_CS2_231.ToString(),
+                    OriginKind = CardOriginKind.Unknown,
+                    OriginSourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                    WeightDelta = 1.25
+                });
+                record.DeckDeltas.Add(new DeckActionRuleDelta
+                {
+                    RuleKey = "deck-1|ANY|CastMinion|CORE_CS2_231||Unknown|ANY_SOURCE",
                     DeckSignature = "deck-1",
                     BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
                     Scope = LearnedActionScope.CastMinion,
                     SourceCardId = Card.Cards.CORE_CS2_231.ToString(),
-                    WeightDelta = 1.25
+                    OriginKind = CardOriginKind.Unknown,
+                    OriginSourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                    WeightDelta = 0.45
                 });
                 record.RuleImpacts.Add(new LearnedRuleImpact
                 {
-                    RuleKind = "action",
-                    RuleKey = "deck-1|ANY|CastMinion|CORE_CS2_231|",
+                    RuleKind = "global_action",
+                    RuleKey = record.GlobalDeltas[0].RuleKey,
                     Delta = 1.25
+                });
+                record.RuleImpacts.Add(new LearnedRuleImpact
+                {
+                    RuleKind = "deck_action",
+                    RuleKey = record.DeckDeltas[0].RuleKey,
+                    Delta = 0.45
                 });
 
                 Assert.True(store.TryStoreActionTraining(record, out _));
                 Assert.False(store.TryStoreActionTraining(record, out _));
 
                 var snapshot = store.LoadSnapshot();
-                var rule = Assert.Single(snapshot.ActionRules);
-                Assert.Equal("deck-1", rule.DeckSignature);
-                Assert.Equal(LearnedActionScope.CastMinion, rule.Scope);
-                Assert.Equal(1.25, rule.Weight, 3);
-                Assert.Equal(1, rule.SampleCount);
+                var globalRule = Assert.Single(snapshot.GlobalActionRules);
+                var deckRule = Assert.Single(snapshot.DeckActionRules);
+                Assert.Equal(LearnedActionScope.CastMinion, globalRule.Scope);
+                Assert.Equal("deck-1", deckRule.DeckSignature);
+                Assert.Equal(1.25, globalRule.Weight, 3);
+                Assert.Equal(0.45, deckRule.Weight, 3);
             }
             finally
             {
-                try
-                {
-                    if (File.Exists(dbPath))
-                        File.Delete(dbPath);
-                }
-                catch
-                {
-                }
+                TryDelete(dbPath);
             }
         }
 
         [Fact]
-        public void Runtime_ApplyActionPatch_IncreasesProfileScoreForLearnedCard()
+        public void SqliteStore_MigratesLegacyDeckScopedRules()
+        {
+            var dbPath = Path.Combine(Path.GetTempPath(), "teacher-legacy-" + Guid.NewGuid().ToString("N") + ".db");
+            try
+            {
+                using (var connection = new SqliteConnection($"Data Source={dbPath}"))
+                {
+                    connection.Open();
+                    using (var command = connection.CreateCommand())
+                    {
+                        command.CommandText =
+                            @"CREATE TABLE action_rules (
+                                rule_key TEXT PRIMARY KEY,
+                                deck_signature TEXT NOT NULL,
+                                board_bucket TEXT NOT NULL,
+                                scope TEXT NOT NULL,
+                                source_card_id TEXT NOT NULL,
+                                target_card_id TEXT NOT NULL,
+                                weight REAL NOT NULL,
+                                sample_count INTEGER NOT NULL,
+                                updated_at_ms INTEGER NOT NULL
+                            );
+                            CREATE TABLE mulligan_rules (
+                                rule_key TEXT PRIMARY KEY,
+                                deck_signature TEXT NOT NULL,
+                                enemy_class INTEGER NOT NULL,
+                                has_coin INTEGER NOT NULL,
+                                card_id TEXT NOT NULL,
+                                context_card_id TEXT NOT NULL,
+                                weight REAL NOT NULL,
+                                sample_count INTEGER NOT NULL,
+                                updated_at_ms INTEGER NOT NULL
+                            );
+                            CREATE TABLE choice_rules (
+                                rule_key TEXT PRIMARY KEY,
+                                deck_signature TEXT NOT NULL,
+                                mode TEXT NOT NULL,
+                                origin_card_id TEXT NOT NULL,
+                                option_card_id TEXT NOT NULL,
+                                board_bucket TEXT NOT NULL,
+                                weight REAL NOT NULL,
+                                sample_count INTEGER NOT NULL,
+                                updated_at_ms INTEGER NOT NULL
+                            );
+                            CREATE TABLE samples (
+                                sample_key TEXT PRIMARY KEY,
+                                match_id TEXT,
+                                sample_kind TEXT NOT NULL,
+                                payload_signature TEXT NOT NULL,
+                                deck_signature TEXT NOT NULL,
+                                board_fingerprint TEXT NOT NULL,
+                                snapshot_signature TEXT NOT NULL,
+                                rule_impacts_json TEXT NOT NULL,
+                                outcome_applied INTEGER NOT NULL DEFAULT 0,
+                                created_at_ms INTEGER NOT NULL
+                            );
+                            INSERT INTO action_rules VALUES ('deck-1|ANY|CastMinion|CORE_CS2_231|', 'deck-1', 'ANY', 'CastMinion', 'CORE_CS2_231', '', 1.2, 2, 1);
+                            INSERT INTO mulligan_rules VALUES ('deck-1|2|1|CORE_EX1_169|', 'deck-1', 2, 1, 'CORE_EX1_169', '', 0.8, 2, 1);
+                            INSERT INTO choice_rules VALUES ('deck-1|DISCOVER|SRC_001|CARD_B|ANY', 'deck-1', 'DISCOVER', 'SRC_001', 'CARD_B', 'ANY', 1.5, 3, 1);";
+                        command.ExecuteNonQuery();
+                    }
+                }
+
+                var store = new SqliteLearnedStrategyStore(dbPath);
+                var snapshot = store.LoadSnapshot();
+
+                var migratedAction = Assert.Single(snapshot.DeckActionRules);
+                var migratedMulligan = Assert.Single(snapshot.DeckMulliganRules);
+                var migratedChoice = Assert.Single(snapshot.DeckChoiceRules);
+
+                Assert.Equal(CardOriginKind.Unknown, migratedAction.OriginKind);
+                Assert.Equal(LearnedStrategyFeatureExtractor.AnySourceCardId, migratedAction.OriginSourceCardId);
+                Assert.Equal("deck-1", migratedMulligan.DeckSignature);
+                Assert.Equal("CARD_B", migratedChoice.OptionCardId);
+            }
+            finally
+            {
+                TryDelete(dbPath);
+            }
+        }
+
+        [Fact]
+        public void Runtime_ApplyActionPatch_UsesGlobalRuleAcrossDecks()
         {
             var board = new Board
             {
@@ -109,18 +204,34 @@ namespace BotCore.Tests
                 board,
                 null,
                 new List<Card.Cards>(),
-                deckName: "Test Deck",
-                deckSignature: "deck-1");
+                deckName: "Any Deck",
+                deckSignature: "deck-A",
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 101,
+                        CardId = Card.Cards.CORE_CS2_231.ToString(),
+                        Zone = "HAND",
+                        ZonePosition = 1,
+                        Provenance = new CardProvenance
+                        {
+                            OriginKind = CardOriginKind.Discover,
+                            SourceCardId = "SRC_DISCOVER"
+                        }
+                    }
+                });
             var runtime = new LearnedStrategyRuntime();
             var bucket = LearnedStrategyFeatureExtractor.BuildBoardBucket(board, request.RemainingDeckCards);
             var snapshot = new LearnedStrategySnapshot();
-            snapshot.ActionRules.Add(new LearnedActionRule
+            snapshot.GlobalActionRules.Add(new GlobalLearnedActionRule
             {
-                RuleKey = $"deck-1|{bucket}|{LearnedActionScope.CastMinion}|{Card.Cards.CORE_CS2_231}|",
-                DeckSignature = "deck-1",
+                RuleKey = $"ANY|{LearnedActionScope.CastMinion}|{Card.Cards.CORE_CS2_231}||Discover|SRC_DISCOVER",
                 BoardBucket = bucket,
                 Scope = LearnedActionScope.CastMinion,
                 SourceCardId = Card.Cards.CORE_CS2_231.ToString(),
+                OriginKind = CardOriginKind.Discover,
+                OriginSourceCardId = "SRC_DISCOVER",
                 Weight = 2.0,
                 SampleCount = 3
             });
@@ -141,74 +252,19 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void Runtime_MulliganPrefersStoredKeepAndReplaceRules()
+        public void Runtime_ChoicePrefersGlobalRuleAcrossDecks()
         {
             var runtime = new LearnedStrategyRuntime();
             var snapshot = new LearnedStrategySnapshot();
-            snapshot.MulliganRules.Add(new LearnedMulliganRule
+            snapshot.GlobalChoiceRules.Add(new GlobalLearnedChoiceRule
             {
-                RuleKey = "deck-1|2|1|CORE_EX1_169|",
-                DeckSignature = "deck-1",
-                EnemyClass = 2,
-                HasCoin = true,
-                CardId = "CORE_EX1_169",
-                ContextCardId = string.Empty,
-                Weight = 1.4,
-                SampleCount = 2
-            });
-            snapshot.MulliganRules.Add(new LearnedMulliganRule
-            {
-                RuleKey = "deck-1|2|1|CORE_CS2_029|",
-                DeckSignature = "deck-1",
-                EnemyClass = 2,
-                HasCoin = true,
-                CardId = "CORE_CS2_029",
-                ContextCardId = string.Empty,
-                Weight = -1.1,
-                SampleCount = 2
-            });
-            runtime.Reload(snapshot);
-
-            var request = new MulliganRecommendationRequest(
-                3,
-                2,
-                new List<RecommendationChoiceState>
-                {
-                    new RecommendationChoiceState("CORE_EX1_169", 11),
-                    new RecommendationChoiceState("CORE_CS2_029", 12)
-                },
-                deckName: "Test Deck",
-                deckSignature: "deck-1",
-                hasCoin: true);
-
-            Assert.True(runtime.TryRecommendMulligan(request, out var result));
-            Assert.Equal(new[] { 12 }, result.ReplaceEntityIds);
-        }
-
-        [Fact]
-        public void Runtime_ChoicePrefersHighestWeightedOption()
-        {
-            var runtime = new LearnedStrategyRuntime();
-            var snapshot = new LearnedStrategySnapshot();
-            snapshot.ChoiceRules.Add(new LearnedChoiceRule
-            {
-                RuleKey = "deck-1|DISCOVER|SRC_001|CARD_A|ANY",
-                DeckSignature = "deck-1",
-                Mode = "DISCOVER",
-                OriginCardId = "SRC_001",
-                OptionCardId = "CARD_A",
-                BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
-                Weight = -0.2,
-                SampleCount = 1
-            });
-            snapshot.ChoiceRules.Add(new LearnedChoiceRule
-            {
-                RuleKey = "deck-1|DISCOVER|SRC_001|CARD_B|ANY",
-                DeckSignature = "deck-1",
+                RuleKey = "DISCOVER|SRC_001|CARD_B|ANY|Discover|SRC_DISCOVER",
                 Mode = "DISCOVER",
                 OriginCardId = "SRC_001",
                 OptionCardId = "CARD_B",
                 BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                OriginKind = CardOriginKind.Discover,
+                OriginSourceCardId = "SRC_DISCOVER",
                 Weight = 2.3,
                 SampleCount = 4
             });
@@ -229,11 +285,123 @@ namespace BotCore.Tests
                 },
                 Array.Empty<int>(),
                 "seed",
-                deckName: "Test Deck",
-                deckSignature: "deck-1");
+                deckName: "Other Deck",
+                deckSignature: "deck-2",
+                pendingOrigin: new PendingAcquisitionContext
+                {
+                    OriginKind = CardOriginKind.Discover,
+                    SourceCardId = "SRC_DISCOVER"
+                });
 
             Assert.True(runtime.TryRecommendChoice(request, out var result));
             Assert.Equal(new[] { 202 }, result.SelectedEntityIds);
+        }
+
+        [Fact]
+        public void Runtime_DeckOverlayChoiceAdjustsGlobalPreference()
+        {
+            var runtime = new LearnedStrategyRuntime();
+            var snapshot = new LearnedStrategySnapshot();
+            snapshot.GlobalChoiceRules.Add(new GlobalLearnedChoiceRule
+            {
+                RuleKey = "DISCOVER|SRC_001|CARD_A|ANY|Unknown|ANY_SOURCE",
+                Mode = "DISCOVER",
+                OriginCardId = "SRC_001",
+                OptionCardId = "CARD_A",
+                BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                OriginKind = CardOriginKind.Unknown,
+                OriginSourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                Weight = 1.2,
+                SampleCount = 4
+            });
+            snapshot.GlobalChoiceRules.Add(new GlobalLearnedChoiceRule
+            {
+                RuleKey = "DISCOVER|SRC_001|CARD_B|ANY|Unknown|ANY_SOURCE",
+                Mode = "DISCOVER",
+                OriginCardId = "SRC_001",
+                OptionCardId = "CARD_B",
+                BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                OriginKind = CardOriginKind.Unknown,
+                OriginSourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                Weight = 0.8,
+                SampleCount = 4
+            });
+            snapshot.DeckChoiceRules.Add(new DeckOverlayChoiceRule
+            {
+                RuleKey = "deck-1|DISCOVER|SRC_001|CARD_B|ANY|Unknown|ANY_SOURCE",
+                DeckSignature = "deck-1",
+                Mode = "DISCOVER",
+                OriginCardId = "SRC_001",
+                OptionCardId = "CARD_B",
+                BoardBucket = LearnedStrategyFeatureExtractor.AnyBoardBucket,
+                OriginKind = CardOriginKind.Unknown,
+                OriginSourceCardId = LearnedStrategyFeatureExtractor.AnySourceCardId,
+                Weight = 1.5,
+                SampleCount = 3
+            });
+            runtime.Reload(snapshot);
+
+            var deckOneRequest = CreateChoiceRequest("deck-1");
+            Assert.True(runtime.TryRecommendChoice(deckOneRequest, out var deckOneResult));
+            Assert.Equal(new[] { 202 }, deckOneResult.SelectedEntityIds);
+
+            var deckTwoRequest = CreateChoiceRequest("deck-2");
+            Assert.True(runtime.TryRecommendChoice(deckTwoRequest, out var deckTwoResult));
+            Assert.Equal(new[] { 201 }, deckTwoResult.SelectedEntityIds);
+        }
+
+        [Fact]
+        public void MatchEntityProvenanceRegistry_BindsPendingDiscoverToNewHandCard()
+        {
+            var registry = new MatchEntityProvenanceRegistry();
+            registry.ArmPendingAcquisition(new PendingAcquisitionContext
+            {
+                OriginKind = CardOriginKind.Discover,
+                SourceEntityId = 77,
+                SourceCardId = "SRC_DISCOVER",
+                ChoiceMode = "DISCOVER",
+                ChoiceId = 9,
+                CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+                ExpectedCardIds = new[] { "CARD_X" }
+            });
+
+            var entities = new List<EntityContextSnapshot>
+            {
+                new EntityContextSnapshot
+                {
+                    EntityId = 301,
+                    CardId = "CARD_X",
+                    Zone = "HAND",
+                    ZonePosition = 1
+                }
+            };
+
+            registry.Refresh(entities, 4);
+
+            Assert.Equal(CardOriginKind.Discover, entities[0].Provenance.OriginKind);
+            Assert.Equal("SRC_DISCOVER", entities[0].Provenance.SourceCardId);
+        }
+
+        private static ChoiceRecommendationRequest CreateChoiceRequest(string deckSignature)
+        {
+            return new ChoiceRecommendationRequest(
+                "snapshot-1",
+                1,
+                "DISCOVER",
+                "SRC_001",
+                0,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(201, "CARD_A"),
+                    new ChoiceRecommendationOption(202, "CARD_B")
+                },
+                Array.Empty<int>(),
+                "seed",
+                deckName: "Test Deck",
+                deckSignature: deckSignature,
+                pendingOrigin: new PendingAcquisitionContext());
         }
 
         private static Card CreateCard(int entityId, Card.Cards cardId, Card.CType type)
@@ -261,6 +429,18 @@ namespace BotCore.Tests
         private static ProfileParameters CreateProfileParameters()
         {
             return (ProfileParameters)RuntimeHelpers.GetUninitializedObject(typeof(ProfileParameters));
+        }
+
+        private static void TryDelete(string path)
+        {
+            try
+            {
+                if (File.Exists(path))
+                    File.Delete(path);
+            }
+            catch
+            {
+            }
         }
     }
 }

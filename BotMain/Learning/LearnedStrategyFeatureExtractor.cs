@@ -11,6 +11,7 @@ namespace BotMain.Learning
     internal static class LearnedStrategyFeatureExtractor
     {
         internal const string AnyBoardBucket = "ANY";
+        internal const string AnySourceCardId = "ANY_SOURCE";
 
         internal static string ComputeDeckSignature(IEnumerable<ApiCard.Cards> cards)
         {
@@ -133,8 +134,10 @@ namespace BotMain.Learning
             return HashComposite(
                 sample.PayloadSignature ?? string.Empty,
                 sample.DeckSignature ?? string.Empty,
-                sample.Mode ?? string.Empty,
+                NormalizeMode(sample.Mode),
                 sample.OriginCardId ?? string.Empty,
+                NormalizeOriginKind(sample.PendingOrigin),
+                NormalizeOriginSourceCardId(sample.PendingOrigin),
                 string.Join(",", options),
                 string.Join(",", picked));
         }
@@ -143,6 +146,7 @@ namespace BotMain.Learning
             Board board,
             string actionText,
             IReadOnlyList<ApiCard.Cards> remainingDeckCards,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             out LearnedActionObservation observation)
         {
             observation = null;
@@ -198,9 +202,55 @@ namespace BotMain.Learning
                 BoardBucket = BuildBoardBucket(board, remainingDeckCards),
                 SourceCardId = sourceCardId,
                 TargetCardId = targetCardId ?? string.Empty,
-                ActionText = trimmed
+                ActionText = trimmed,
+                SourceProvenance = ResolveProvenance(friendlyEntities, sourceEntityId, sourceCardId)
             };
             return true;
+        }
+
+        internal static string NormalizeMode(string mode)
+        {
+            return string.IsNullOrWhiteSpace(mode) ? "DISCOVER" : mode.Trim().ToUpperInvariant();
+        }
+
+        internal static string NormalizeOriginSourceCardId(CardProvenance provenance)
+        {
+            if (provenance == null)
+                return AnySourceCardId;
+
+            return string.IsNullOrWhiteSpace(provenance.SourceCardId)
+                ? AnySourceCardId
+                : provenance.SourceCardId.Trim().ToUpperInvariant();
+        }
+
+        internal static string NormalizeOriginKind(CardProvenance provenance)
+        {
+            return (provenance?.OriginKind ?? CardOriginKind.Unknown).ToString();
+        }
+
+        internal static CardProvenance ResolveProvenance(
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            int entityId,
+            string fallbackCardId)
+        {
+            if (friendlyEntities != null)
+            {
+                var byEntity = friendlyEntities.FirstOrDefault(entity => entity != null && entity.EntityId == entityId);
+                if (byEntity?.Provenance != null)
+                    return CloneProvenance(byEntity.Provenance);
+
+                if (!string.IsNullOrWhiteSpace(fallbackCardId))
+                {
+                    var byCard = friendlyEntities.FirstOrDefault(entity =>
+                        entity != null
+                        && string.Equals(entity.CardId, fallbackCardId, StringComparison.OrdinalIgnoreCase)
+                        && entity.Provenance != null);
+                    if (byCard?.Provenance != null)
+                        return CloneProvenance(byCard.Provenance);
+                }
+            }
+
+            return new CardProvenance();
         }
 
         internal static string HashComposite(params string[] parts)
@@ -211,6 +261,21 @@ namespace BotMain.Learning
 
             var hashBytes = SHA256.HashData(Encoding.UTF8.GetBytes(payload));
             return Convert.ToHexString(hashBytes);
+        }
+
+        private static CardProvenance CloneProvenance(CardProvenance provenance)
+        {
+            if (provenance == null)
+                return new CardProvenance();
+
+            return new CardProvenance
+            {
+                OriginKind = provenance.OriginKind,
+                SourceEntityId = provenance.SourceEntityId,
+                SourceCardId = provenance.SourceCardId ?? string.Empty,
+                AcquireTurn = provenance.AcquireTurn,
+                ChoiceMode = provenance.ChoiceMode ?? string.Empty
+            };
         }
 
         private static string BucketHealth(int health)

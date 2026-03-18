@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
@@ -544,6 +546,11 @@ namespace HearthstonePayload
                 var state = stateResult as string ?? string.Empty;
                 _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_CHOICE" : "CHOICE:" + state);
             }
+            else if (cmd == "GET_FRIENDLY_ENTITY_CONTEXT")
+            {
+                var entries = reader.ReadFriendlyEntityContext();
+                _pipe.Write("FRIENDLY_ENTITY_CONTEXT:" + SerializeFriendlyEntityContext(entries));
+            }
             else if (cmd == "GET_DECK_STATE")
             {
                 // 返回我方牌库中剩余每张牌的 CardId，用 | 分隔
@@ -597,6 +604,87 @@ namespace HearthstonePayload
         {
             var header = string.Format("===== Session {0:yyyy/MM/dd HH:mm:ss.fff} =====", DateTime.Now);
             AppendLogRecord(GetStartupLogPath(), header);
+        }
+
+        private static string SerializeFriendlyEntityContext(List<FriendlyEntityContextEntry> entries)
+        {
+            var list = entries ?? new List<FriendlyEntityContextEntry>();
+            var sb = new StringBuilder();
+            sb.Append('[');
+            for (var i = 0; i < list.Count; i++)
+            {
+                if (i > 0)
+                    sb.Append(',');
+
+                var entry = list[i] ?? new FriendlyEntityContextEntry();
+                sb.Append('{');
+                AppendJsonProperty(sb, "entityId", entry.EntityId.ToString(CultureInfo.InvariantCulture), isString: false, appendComma: true);
+                AppendJsonProperty(sb, "cardId", entry.CardId ?? string.Empty, isString: true, appendComma: true);
+                AppendJsonProperty(sb, "zone", entry.Zone ?? string.Empty, isString: true, appendComma: true);
+                AppendJsonProperty(sb, "zonePosition", entry.ZonePosition.ToString(CultureInfo.InvariantCulture), isString: false, appendComma: true);
+                AppendJsonProperty(sb, "isGenerated", entry.IsGenerated ? "true" : "false", isString: false, appendComma: true);
+                AppendJsonProperty(sb, "creatorEntityId", entry.CreatorEntityId.ToString(CultureInfo.InvariantCulture), isString: false, appendComma: true);
+                sb.Append("\"tags\":");
+                SerializeTags(sb, entry.Tags);
+                sb.Append('}');
+            }
+
+            sb.Append(']');
+            return sb.ToString();
+        }
+
+        private static void SerializeTags(StringBuilder sb, Dictionary<int, int> tags)
+        {
+            sb.Append('{');
+            var first = true;
+            foreach (var kv in tags ?? new Dictionary<int, int>())
+            {
+                if (!first)
+                    sb.Append(',');
+
+                first = false;
+                sb.Append('"');
+                sb.Append(kv.Key.ToString(CultureInfo.InvariantCulture));
+                sb.Append('"');
+                sb.Append(':');
+                sb.Append(kv.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            sb.Append('}');
+        }
+
+        private static void AppendJsonProperty(StringBuilder sb, string name, string value, bool isString, bool appendComma)
+        {
+            sb.Append('"');
+            sb.Append(name);
+            sb.Append('"');
+            sb.Append(':');
+            if (isString)
+            {
+                sb.Append('"');
+                sb.Append(EscapeJson(value));
+                sb.Append('"');
+            }
+            else
+            {
+                sb.Append(value);
+            }
+
+            if (appendComma)
+                sb.Append(',');
+        }
+
+        private static string EscapeJson(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+
+            return value
+                .Replace("\\", "\\\\")
+                .Replace("\"", "\\\"")
+                .Replace("\r", "\\r")
+                .Replace("\n", "\\n")
+                .Replace("\t", "\\t");
         }
 
         private static void LogStartupInfo(string phase, string message)
