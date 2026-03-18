@@ -7,6 +7,14 @@ using System.Threading;
 
 namespace BotMain
 {
+    public enum PipeConnectionWaitResult
+    {
+        Connected,
+        Timeout,
+        ListenerStartFailed,
+        Cancelled
+    }
+
     /// <summary>
     /// TCP 服务端，与注入的 Payload 通信
     /// </summary>
@@ -19,6 +27,8 @@ namespace BotMain
         private StreamWriter _writer;
         // 缓存上次超时未完成的 ReadLineAsync，避免下次调用启动新 Task 导致消息错位
         private System.Threading.Tasks.Task<string> _pendingRead;
+
+        public string LastWaitDetail { get; private set; }
 
         public bool IsConnected
         {
@@ -33,43 +43,67 @@ namespace BotMain
         /// <summary>
         /// 等待 Payload 连接
         /// </summary>
-        public bool WaitForConnection(CancellationToken ct = default, int timeoutMs = Timeout.Infinite)
+        public PipeConnectionWaitResult WaitForConnection(CancellationToken ct = default, int timeoutMs = Timeout.Infinite)
         {
+            LastWaitDetail = null;
             try
             {
                 _listener = new TcpListener(IPAddress.Loopback, Port);
                 _listener.Start(1);
+            }
+            catch (Exception ex)
+            {
+                LastWaitDetail = "listener_start_failed:" + SummarizeException(ex);
+                Dispose();
+                return PipeConnectionWaitResult.ListenerStartFailed;
+            }
 
+            try
+            {
                 var task = _listener.AcceptTcpClientAsync();
 
-                if (timeoutMs != Timeout.Infinite && timeoutMs >= 0)
+                using (ct.Register(() =>
                 {
-                    using (ct.Register(() => _listener.Stop()))
+                    try { _listener?.Stop(); } catch { }
+                }))
+                {
+                    if (timeoutMs != Timeout.Infinite && timeoutMs >= 0)
                     {
                         if (!task.Wait(timeoutMs))
                         {
+                            LastWaitDetail = string.Format("accept timeout after {0}ms", timeoutMs);
                             Dispose();
-                            return false;
+                            return PipeConnectionWaitResult.Timeout;
                         }
                     }
-                }
-                else
-                {
-                    using (ct.Register(() => _listener.Stop()))
+                    else
+                    {
                         task.GetAwaiter().GetResult();
+                    }
                 }
 
                 _client = task.Result;
                 var stream = _client.GetStream();
                 _reader = new StreamReader(stream, Encoding.UTF8);
                 _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
-                _listener.Stop();
-                return true;
+                try { _listener.Stop(); } catch { }
+                _listener = null;
+                LastWaitDetail = "connected";
+                return PipeConnectionWaitResult.Connected;
             }
-            catch
+            catch (Exception ex)
             {
+                var baseEx = ex is AggregateException ? ex.GetBaseException() : ex;
+                if (ct.IsCancellationRequested || IsCancellationException(baseEx))
+                {
+                    LastWaitDetail = "listener wait cancelled";
+                    Dispose();
+                    return PipeConnectionWaitResult.Cancelled;
+                }
+
+                LastWaitDetail = "accept_failed:" + SummarizeException(baseEx);
                 Dispose();
-                return false;
+                return PipeConnectionWaitResult.ListenerStartFailed;
             }
         }
 
@@ -174,6 +208,38 @@ namespace BotMain
             _reader = null;
             _writer = null;
             _client = null;
+        }
+
+        private static bool IsCancellationException(Exception ex)
+        {
+            if (ex == null)
+                return false;
+
+            if (ex is OperationCanceledException || ex is ObjectDisposedException)
+                return true;
+
+            var socketEx = ex as SocketException;
+            if (socketEx == null)
+                return false;
+
+            return socketEx.SocketErrorCode == SocketError.OperationAborted
+                || socketEx.SocketErrorCode == SocketError.Interrupted;
+        }
+
+        private static string SummarizeException(Exception ex)
+        {
+            if (ex == null)
+                return "unknown";
+
+            var socketEx = ex as SocketException;
+            if (socketEx != null)
+                return string.Format("SocketException:{0}:{1}", socketEx.SocketErrorCode, socketEx.Message);
+
+            var baseEx = ex.GetBaseException();
+            if (!ReferenceEquals(baseEx, ex))
+                return string.Format("{0}:{1}", baseEx.GetType().Name, baseEx.Message);
+
+            return string.Format("{0}:{1}", ex.GetType().Name, ex.Message);
         }
     }
 }

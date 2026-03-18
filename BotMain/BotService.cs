@@ -852,9 +852,18 @@ namespace BotMain
                     Log("Waiting payload connection (BepInEx)...");
                     try { _pipe?.Dispose(); } catch { }
                     _pipe = new PipeServer("HearthstoneBot");
-                    if (!_pipe.WaitForConnection(_cts?.Token ?? CancellationToken.None, PipeConnectTimeoutMs))
+                    var waitResult = _pipe.WaitForConnection(_cts?.Token ?? CancellationToken.None, PipeConnectTimeoutMs);
+                    if (waitResult != PipeConnectionWaitResult.Connected)
                     {
-                        Log($"Payload connection timeout ({PipeConnectTimeoutMs / 1000}s).");
+                        var waitDetail = _pipe.LastWaitDetail ?? "no_detail";
+                        if (waitResult == PipeConnectionWaitResult.Timeout)
+                            Log($"Payload connection failed: result=Timeout timeoutSeconds={PipeConnectTimeoutMs / 1000} detail={waitDetail}");
+                        else if (waitResult == PipeConnectionWaitResult.ListenerStartFailed)
+                            Log($"Payload connection failed: result=ListenerStartFailed detail={waitDetail}");
+                        else if (waitResult == PipeConnectionWaitResult.Cancelled)
+                            Log($"Payload connection failed: result=Cancelled detail={waitDetail}");
+                        else
+                            Log($"Payload connection failed: result={waitResult} detail={waitDetail}");
                         _prepared = false;
                         _decksLoaded = false;
                         return false;

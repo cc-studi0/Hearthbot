@@ -1,8 +1,10 @@
 using System;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using BepInEx;
+using BepInEx.Logging;
 using HarmonyLib;
 
 namespace HearthstonePayload
@@ -11,43 +13,68 @@ namespace HearthstonePayload
     public class Plugin : BaseUnityPlugin
     {
         private const string EndgamePending = "ENDGAME_PENDING";
+        private static readonly object _mainThreadLock = new object();
+        private static readonly object _runtimeInitLock = new object();
+        private static readonly object _logFileLock = new object();
+        private static readonly ManualResetEventSlim _actionReady = new ManualResetEventSlim(false);
+        private static readonly ManualResetEventSlim _resultReady = new ManualResetEventSlim(false);
+
         private static bool _running;
         private static PipeClient _pipe;
         private static CoroutineExecutor _coroutine;
+        private static ManualLogSource _logSource;
+
+        private static GameReader _reader;
+        private static BattlegroundStateReader _bgReader;
+        private static SceneNavigator _nav;
+        private static BackgroundKeepAliveClicker _keepAliveClicker;
+        private static bool _payloadRuntimeInitialized;
+
         private static string _lastGameResult = "NONE";
         private static bool _lastGameConceded;
-
         private static Func<object> _pendingAction;
         private static object _pendingResult;
-        private static readonly ManualResetEventSlim _actionReady = new ManualResetEventSlim(false);
-        private static readonly ManualResetEventSlim _resultReady = new ManualResetEventSlim(false);
-        // 防止多个后台调用者并发写入 _pendingAction 导致覆盖
-        private static readonly object _mainThreadLock = new object();
+
+        private static bool _wasPipeConnected;
+        private static DateTime _lastConnectWaitLogUtc = DateTime.MinValue;
+        private static DateTime _lastRuntimeInitFailureLogUtc = DateTime.MinValue;
+        private static string _lastRuntimeInitFailureDetail = string.Empty;
+        private static string _currentPhase = "idle";
+        private static string _currentCommand = string.Empty;
 
         private void Awake()
         {
             try
             {
+                _logSource = Logger;
+                StartStartupLogSession();
+                SetPhase("awake");
+                LogStartupInfo("awake", "Plugin Awake started.");
+
                 UnityEngine.Application.runInBackground = true;
                 var harmony = new Harmony("com.bot.hearthstone");
                 AntiCheatPatches.Apply(harmony);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
                 Logger.LogInfo("Harmony patches applied.");
+                LogStartupInfo("awake", "Harmony patches applied.");
 
                 _running = true;
                 _pipe = new PipeClient("HearthstoneBot");
                 _coroutine = new CoroutineExecutor();
                 ActionExecutor.Init(_coroutine);
+                LogStartupInfo("awake", "Pipe client and coroutine executor initialized.");
 
-                var thread = new Thread(MainLoop) { IsBackground = true };
+                var thread = new Thread(MainLoop) { IsBackground = true, Name = "HearthstonePayload.MainLoop" };
                 thread.Start();
+                LogStartupInfo("awake", "Main loop thread started.");
 
                 Logger.LogInfo("HearthstoneBot plugin started.");
             }
             catch (Exception ex)
             {
-                Logger.LogError($"Plugin startup failed: {ex}");
+                LogStartupException("awake_failed", ex);
+                Logger.LogError("Plugin startup failed: " + ex);
             }
         }
 
@@ -59,7 +86,8 @@ namespace HearthstonePayload
                 deltaTime = 0.016f;
             _coroutine?.Tick(deltaTime);
 
-            if (!_actionReady.IsSet) return;
+            if (!_actionReady.IsSet)
+                return;
 
             _actionReady.Reset();
             try
@@ -87,345 +115,602 @@ namespace HearthstonePayload
 
         private static void MainLoop()
         {
-            var reader = new GameReader();
-            var bgReader = new BattlegroundStateReader();
-            var nav = new SceneNavigator();
-            var keepAliveClicker = new BackgroundKeepAliveClicker(reader, nav);
-            nav.SetCoroutine(_coroutine);
-            nav.SetMainThreadRunner(f => RunOnMainThread(f));
+            SetPhase("thread_start");
+            LogStartupInfo("thread_start", "Payload main loop thread entered.");
 
+            try
+            {
+                MainLoopCore();
+            }
+            catch (ThreadAbortException)
+            {
+                LogStartupInfo("thread_abort", "Payload main loop thread aborted.");
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogStartupException("main_loop_fatal", ex);
+            }
+        }
+
+        private static void MainLoopCore()
+        {
             while (_running)
             {
                 try
                 {
-                    if (!_pipe.IsConnected)
+                    EnsurePipeConnected();
+                    if (_pipe == null || !_pipe.IsConnected)
                     {
-                        _pipe.Connect();
                         Thread.Sleep(1000);
                         continue;
                     }
 
+                    EnsurePayloadRuntimeInitialized();
+
+                    SetPhase("read_command");
                     var cmd = _pipe.Read();
                     if (string.IsNullOrEmpty(cmd))
                     {
+                        _currentCommand = string.Empty;
                         Thread.Sleep(200);
                         continue;
                     }
 
-                    if (cmd == "GET_SEED")
-                    {
-                        var state = reader.ReadGameState();
-                        if (state == null)
-                        {
-                            // ReadGameState 在切场/结算过渡帧可能短暂返回 null，不能直接当作 NO_GAME。
-                            var endScreenShown = reader.IsEndGameScreenShown(out var endScreenClass);
-                            if (endScreenShown)
-                            {
-                                if (!string.IsNullOrWhiteSpace(endScreenClass))
-                                {
-                                    var lower = endScreenClass.ToLowerInvariant();
-                                    if (lower.Contains("victory")) _lastGameResult = "WIN";
-                                    else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
-                                    else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
-                                }
-                                _pipe.Write("NO_GAME");
-                            }
-                            else
-                            {
-                                var scene = nav.GetScene();
-                                if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                                    _pipe.Write("NOT_OUR_TURN");
-                                else
-                                    _pipe.Write("NO_GAME");
-                            }
-                        }
-                        else
-                        {
-                            if (state.IsGameOver || state.Result != GameResult.None)
-                            {
-                                // 优先使用 GameState 的结果
-                                if (state.Result != GameResult.None)
-                                {
-                                    _lastGameResult = state.Result.ToString().ToUpper();
-                                }
-                                else if (_lastGameResult == "NONE")
-                                {
-                                    // IsGameOver 为 true 但 Result 还是 None —— playstate 可能尚未更新。
-                                    // 短暂重试几次，让游戏逻辑有时间写入 playstate 标签。
-                                    for (var retry = 0; retry < 8 && _lastGameResult == "NONE"; retry++)
-                                    {
-                                        Thread.Sleep(120);
-                                        var retryState = reader.ReadGameState();
-                                        if (retryState != null && retryState.Result != GameResult.None)
-                                        {
-                                            _lastGameResult = retryState.Result.ToString().ToUpper();
-                                            if (retryState.FriendlyConceded)
-                                                _lastGameConceded = true;
-                                        }
-                                    }
-                                }
-
-                                // 记录投降状态
-                                if (state.FriendlyConceded)
-                                    _lastGameConceded = true;
-
-                                // 兜底：通过结算页类名判断
-                                if (_lastGameResult == "NONE" || string.IsNullOrWhiteSpace(_lastGameResult))
-                                {
-                                    var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
-                                    if (endScreenShown && !string.IsNullOrWhiteSpace(endClass))
-                                    {
-                                        var lower = endClass.ToLowerInvariant();
-                                        if (lower.Contains("victory")) _lastGameResult = "WIN";
-                                        else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
-                                        else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
-                                    }
-                                }
-
-                                // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
-                                var endScreenShown2 = reader.IsEndGameScreenShown(out _);
-                                if (endScreenShown2)
-                                {
-                                    _pipe.Write("NO_GAME");
-                                }
-                                else
-                                {
-                                    var scene = nav.GetScene();
-                                    if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                                        _pipe.Write(EndgamePending);
-                                    else
-                                        _pipe.Write("NO_GAME");
-                                }
-                                continue;
-                            }
-                            if (state.IsMulliganPhase)
-                                _pipe.Write("MULLIGAN");
-                            else if (!state.IsOurTurn)
-                                _pipe.Write("NOT_OUR_TURN");
-                            else
-                                _pipe.Write("SEED:" + SeedBuilder.Build(state));
-                        }
-                    }
-                    else if (cmd == "GET_ENDGAME_STATE")
-                    {
-                        var shown = reader.IsEndGameScreenShown(out var endClass);
-                        _pipe.Write("ENDGAME:" + (shown ? "1" : "0") + ":" + (endClass ?? string.Empty));
-                    }
-                    else if (cmd == "GET_RESULT")
-                    {
-                        if (_lastGameResult == "NONE")
-                        {
-                            for (var i = 0; i < 20; i++)
-                            {
-                                var state = reader.ReadGameState();
-                                if (state != null && state.Result != GameResult.None)
-                                {
-                                    _lastGameResult = state.Result.ToString().ToUpper();
-                                    if (state.FriendlyConceded)
-                                        _lastGameConceded = true;
-                                    break;
-                                }
-
-                                // state 存在且确认未 GameOver —— 可能已经是新对局，不再重试
-                                if (state != null && !state.IsGameOver)
-                                    break;
-
-                                // 通过 EndGameScreen 类名兜底判断
-                                if (reader.IsEndGameScreenShown(out var endClass)
-                                    && !string.IsNullOrWhiteSpace(endClass))
-                                {
-                                    var lower = endClass.ToLowerInvariant();
-                                    if (lower.Contains("victory")) { _lastGameResult = "WIN"; break; }
-                                    else if (lower.Contains("defeat")) { _lastGameResult = "LOSS"; break; }
-                                    else if (lower.Contains("tie") || lower.Contains("draw")) { _lastGameResult = "TIE"; break; }
-                                }
-
-                                Thread.Sleep(100);
-                            }
-                        }
-                        var resultPayload = _lastGameConceded
-                            ? "RESULT:" + _lastGameResult + ":CONCEDED"
-                            : "RESULT:" + _lastGameResult;
-                        _pipe.Write(resultPayload);
-                        // 仅在成功获取到有效结果后才重置，避免 NONE 时消费掉后续重试的机会
-                        if (_lastGameResult != "NONE")
-                        {
-                            _lastGameResult = "NONE";
-                            _lastGameConceded = false;
-                        }
-                    }
-                    else if (cmd == "GET_BG_STATE")
-                    {
-                        var bgState = bgReader.ReadState();
-                        if (bgState == null)
-                            _pipe.Write("NO_BG_STATE");
-                        else
-                            _pipe.Write("BG_STATE:" + bgState.Serialize());
-                    }
-                    else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(ActionExecutor.Execute(reader, cmd.Substring(7)));
-                    }
-                    else if (cmd == "GET_DECKS")
-                    {
-                        var decks = DeckReader.ReadDecks();
-                        if (decks != null)
-                            _pipe.Write("DECKS:" + decks);
-                        else
-                            _pipe.Write("NO_DECKS:" + (DeckReader.LastError ?? "unknown"));
-                    }
-                    else if (cmd == "GET_MULLIGAN_STATE")
-                    {
-                        var state = reader.ReadGameState();
-                        if (state == null || !state.IsMulliganPhase)
-                        {
-                            _pipe.Write("NO_MULLIGAN");
-                        }
-                        else
-                        {
-                            // 仅使用留牌管理器的选择（可替换的卡牌），避免泄露不可替换的卡牌（如硬币）。
-                            // 必须在主线程访问 MulliganManager，否则后台线程反射访问 Unity 对象会导致闪退
-                            var cardsResult = RunOnMainThread(() =>
-                                (object)(ActionExecutor.GetMulliganChoiceCards() ?? string.Empty));
-                            var cards = cardsResult as string ?? string.Empty;
-
-                            _pipe.Write($"MULLIGAN_STATE:{state.FriendClass}|{state.EnemyClass}|{cards}");
-                        }
-                    }
-                    else if (cmd.StartsWith("APPLY_MULLIGAN:", StringComparison.Ordinal))
-                    {
-                        var payload = cmd.Length > "APPLY_MULLIGAN:".Length
-                            ? cmd.Substring("APPLY_MULLIGAN:".Length)
-                            : string.Empty;
-                        // 交由协程在主线程逐帧执行鼠标点击与确认逻辑
-                        _pipe.Write(ActionExecutor.ApplyMulligan(payload));
-                    }
-                    else if (cmd == "GET_SCENE")
-                    {
-                        _pipe.Write("SCENE:" + nav.GetScene());
-                    }
-                    else if (cmd == "GET_HUB_BUTTONS")
-                    {
-                        _pipe.Write(nav.GetHubButtons());
-                    }
-                    else if (cmd.StartsWith("CLICK_HUB_BUTTON:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.ClickHubButton(cmd.Substring("CLICK_HUB_BUTTON:".Length)));
-                    }
-                    else if (cmd == "GET_OTHER_MODE_BUTTONS")
-                    {
-                        _pipe.Write(nav.GetOtherModeButtons());
-                    }
-                    else if (cmd == "GET_BLOCKING_DIALOG")
-                    {
-                        _pipe.Write(nav.GetBlockingDialog());
-                    }
-                    else if (cmd == "DISMISS_BLOCKING_DIALOG")
-                    {
-                        _pipe.Write(nav.DismissBlockingDialog());
-                    }
-                    else if (cmd.StartsWith("NAV_TO:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.NavigateTo(cmd.Substring(7)));
-                    }
-                    else if (cmd.StartsWith("GET_DECK_ID:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.GetDeckId(cmd.Substring(12)));
-                    }
-                    else if (cmd.StartsWith("SET_FORMAT:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.SetFormat(int.Parse(cmd.Substring(11))));
-                    }
-                    else if (cmd.StartsWith("SELECT_DECK:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.SelectDeck(long.Parse(cmd.Substring(12))));
-                    }
-                    else if (cmd == "CLICK_PLAY")
-                    {
-                        _pipe.Write(nav.ClickPlay());
-                    }
-                    else if (cmd == "CLICK_DISMISS")
-                    {
-                        _pipe.Write(nav.ClickDismiss());
-                    }
-                    else if (cmd == "CLICK_KEEPALIVE")
-                    {
-                        _pipe.Write(keepAliveClicker.Click());
-                    }
-                    else if (cmd == "IS_FINDING")
-                    {
-                        _pipe.Write(nav.IsFindingGame() ? "YES" : "NO");
-                    }
-                    else if (cmd == "IS_BACON_READY")
-                    {
-                        _pipe.Write(nav.IsBattlegroundsLobbyReady());
-                    }
-                    else if (cmd == "GET_CHOICE_STATE")
-                    {
-                        var stateResult = RunOnMainThread(() =>
-                            (object)(ChoiceController.GetChoiceState() ?? string.Empty));
-                        var state = stateResult as string ?? string.Empty;
-                        _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_CHOICE" : "CHOICE:" + state);
-                    }
-                    else if (cmd == "GET_DECK_STATE")
-                    {
-                        // 返回我方牌库中剩余每张牌的 CardId，用 | 分隔
-                        var state = reader.ReadGameState();
-                        if (state == null || state.FriendDeck == null || state.FriendDeck.Count == 0)
-                            _pipe.Write("DECK_STATE:");   // 空牌库或读取失败
-                        else
-                            _pipe.Write("DECK_STATE:" + string.Join("|", state.FriendDeck));
-                    }
-                    else if (cmd.StartsWith("APPLY_CHOICE:", StringComparison.Ordinal))
-                    {
-                        var payload = cmd.Substring("APPLY_CHOICE:".Length).Split(new[] { ':' }, 2);
-                        if (payload.Length == 2)
-                        {
-                            _pipe.Write(ChoiceController.ApplyChoice(payload[0], payload[1]));
-                        }
-                        else
-                        {
-                            _pipe.Write("FAIL:bad_args");
-                        }
-                    }
-                    else if (cmd.StartsWith("CLICK_SCREEN:", StringComparison.Ordinal))
-                    {
-                        var xy = cmd.Substring("CLICK_SCREEN:".Length).Split(',');
-                        if (xy.Length == 2
-                            && float.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var rx)
-                            && float.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ry))
-                            _pipe.Write(ActionExecutor.ClickScreen(rx, ry));
-                        else
-                            _pipe.Write("ERROR:CLICK_SCREEN:bad_args");
-                    }
-                                        else if (cmd == "WAIT_READY")
-                    {
-                        _pipe.Write(ActionExecutor.IsGameReady() ? "READY" : "BUSY");
-                    }
-                    else if (cmd == "PING")
-                    {
-                        _pipe.Write("PONG");
-                    }
-                    else if (cmd.StartsWith("REFLECT:", StringComparison.Ordinal))
-                    {
-                        _pipe.Write(nav.Reflect(cmd.Substring(8)));
-                    }
-                    else if (cmd == "STOP")
-                    {
-                        _running = false;
-                    }
+                    _currentCommand = cmd;
+                    SetPhase("dispatch:" + GetCommandName(cmd));
+                    DispatchCommand(cmd);
+                    _currentCommand = string.Empty;
+                }
+                catch (ThreadAbortException)
+                {
+                    LogStartupInfo("thread_abort", "Payload main loop thread aborted during phase=" + _currentPhase + ".");
+                    throw;
                 }
                 catch (Exception ex)
                 {
-                    var logDir = System.IO.Path.GetDirectoryName(typeof(Plugin).Assembly.Location);
-                    var logPath = string.IsNullOrWhiteSpace(logDir)
-                        ? "payload_error.log"
-                        : System.IO.Path.Combine(logDir, "payload_error.log");
-                    System.IO.File.AppendAllText(logPath,
-                        DateTime.Now + ": " + ex.Message + Environment.NewLine);
+                    LogRuntimeException(ex, _currentPhase, _currentCommand);
+                    _currentCommand = string.Empty;
                     Thread.Sleep(2000);
                 }
             }
+        }
+
+        private static void EnsurePipeConnected()
+        {
+            SetPhase("connect");
+            if (_pipe == null)
+            {
+                _pipe = new PipeClient("HearthstoneBot");
+                LogStartupInfo("connect", "PipeClient recreated.");
+            }
+
+            if (_pipe.IsConnected)
+            {
+                if (!_wasPipeConnected)
+                {
+                    _wasPipeConnected = true;
+                    _lastConnectWaitLogUtc = DateTime.MinValue;
+                    LogStartupInfo("connect", "Connected to BotMain at 127.0.0.1:59723.");
+                }
+                return;
+            }
+
+            if (_wasPipeConnected)
+            {
+                _wasPipeConnected = false;
+                LogStartupInfo("connect", "Connection to BotMain lost; retrying.");
+            }
+            else if (ShouldLogHeartbeat(ref _lastConnectWaitLogUtc, 15))
+            {
+                var detail = string.IsNullOrWhiteSpace(_pipe.LastErrorSummary)
+                    ? "none"
+                    : _pipe.LastErrorSummary;
+                LogStartupInfo("connect_wait", "Waiting for BotMain at 127.0.0.1:59723. lastError=" + detail);
+            }
+
+            _pipe.Connect();
+            if (_pipe.IsConnected)
+            {
+                _wasPipeConnected = true;
+                _lastConnectWaitLogUtc = DateTime.MinValue;
+                LogStartupInfo("connect", "Connected to BotMain at 127.0.0.1:59723.");
+            }
+        }
+
+        private static void EnsurePayloadRuntimeInitialized()
+        {
+            if (_payloadRuntimeInitialized)
+                return;
+
+            lock (_runtimeInitLock)
+            {
+                if (_payloadRuntimeInitialized)
+                    return;
+
+                try
+                {
+                    SetPhase("runtime_init");
+                    LogStartupInfo("runtime_init", "Initializing payload runtime components.");
+
+                    var reader = new GameReader();
+                    var bgReader = new BattlegroundStateReader();
+                    var nav = new SceneNavigator();
+                    nav.SetCoroutine(_coroutine);
+                    nav.SetMainThreadRunner(f => RunOnMainThread(f));
+
+                    var ctx = ReflectionContext.Instance;
+                    if (!ctx.Init())
+                        throw new InvalidOperationException("ReflectionContext.Init returned false. " + DescribeReflectionContext(ctx));
+                    if (!nav.Init())
+                        throw new InvalidOperationException("SceneNavigator.Init returned false. " + DescribeReflectionContext(ctx));
+
+                    var keepAliveClicker = new BackgroundKeepAliveClicker(reader, nav);
+
+                    _reader = reader;
+                    _bgReader = bgReader;
+                    _nav = nav;
+                    _keepAliveClicker = keepAliveClicker;
+                    _payloadRuntimeInitialized = true;
+                    _lastRuntimeInitFailureLogUtc = DateTime.MinValue;
+                    _lastRuntimeInitFailureDetail = string.Empty;
+
+                    LogStartupInfo("runtime_init", "Payload runtime components initialized.");
+                }
+                catch (Exception ex)
+                {
+                    var failureKey = ex.GetType().Name + ":" + ex.Message;
+                    if (!string.Equals(failureKey, _lastRuntimeInitFailureDetail, StringComparison.Ordinal)
+                        || ShouldLogHeartbeat(ref _lastRuntimeInitFailureLogUtc, 15))
+                    {
+                        _lastRuntimeInitFailureDetail = failureKey;
+                        LogStartupException("runtime_init_failed", ex);
+                    }
+
+                    throw;
+                }
+            }
+        }
+
+        private static void DispatchCommand(string cmd)
+        {
+            var reader = _reader;
+            var bgReader = _bgReader;
+            var nav = _nav;
+            var keepAliveClicker = _keepAliveClicker;
+
+            if (reader == null || bgReader == null || nav == null || keepAliveClicker == null)
+                throw new InvalidOperationException("Payload runtime components are not initialized.");
+
+            if (cmd == "GET_SEED")
+            {
+                var state = reader.ReadGameState();
+                if (state == null)
+                {
+                    // ReadGameState 在切场/结算过渡帧可能短暂返回 null，不能直接当作 NO_GAME。
+                    var endScreenShown = reader.IsEndGameScreenShown(out var endScreenClass);
+                    if (endScreenShown)
+                    {
+                        if (!string.IsNullOrWhiteSpace(endScreenClass))
+                        {
+                            var lower = endScreenClass.ToLowerInvariant();
+                            if (lower.Contains("victory")) _lastGameResult = "WIN";
+                            else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
+                            else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
+                        }
+                        _pipe.Write("NO_GAME");
+                    }
+                    else
+                    {
+                        var scene = nav.GetScene();
+                        if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                            _pipe.Write("NOT_OUR_TURN");
+                        else
+                            _pipe.Write("NO_GAME");
+                    }
+                }
+                else
+                {
+                    if (state.IsGameOver || state.Result != GameResult.None)
+                    {
+                        // 优先使用 GameState 的结果
+                        if (state.Result != GameResult.None)
+                        {
+                            _lastGameResult = state.Result.ToString().ToUpper();
+                        }
+                        else if (_lastGameResult == "NONE")
+                        {
+                            // IsGameOver 为 true 但 Result 还是 None —— playstate 可能尚未更新。
+                            // 短暂重试几次，让游戏逻辑有时间写入 playstate 标签。
+                            for (var retry = 0; retry < 8 && _lastGameResult == "NONE"; retry++)
+                            {
+                                Thread.Sleep(120);
+                                var retryState = reader.ReadGameState();
+                                if (retryState != null && retryState.Result != GameResult.None)
+                                {
+                                    _lastGameResult = retryState.Result.ToString().ToUpper();
+                                    if (retryState.FriendlyConceded)
+                                        _lastGameConceded = true;
+                                }
+                            }
+                        }
+
+                        // 记录投降状态
+                        if (state.FriendlyConceded)
+                            _lastGameConceded = true;
+
+                        // 兜底：通过结算页类名判断
+                        if (_lastGameResult == "NONE" || string.IsNullOrWhiteSpace(_lastGameResult))
+                        {
+                            var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
+                            if (endScreenShown && !string.IsNullOrWhiteSpace(endClass))
+                            {
+                                var lower = endClass.ToLowerInvariant();
+                                if (lower.Contains("victory")) _lastGameResult = "WIN";
+                                else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
+                                else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
+                            }
+                        }
+
+                        // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
+                        var endScreenShown2 = reader.IsEndGameScreenShown(out _);
+                        if (endScreenShown2)
+                        {
+                            _pipe.Write("NO_GAME");
+                        }
+                        else
+                        {
+                            var scene = nav.GetScene();
+                            if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                                _pipe.Write(EndgamePending);
+                            else
+                                _pipe.Write("NO_GAME");
+                        }
+                        return;
+                    }
+                    if (state.IsMulliganPhase)
+                        _pipe.Write("MULLIGAN");
+                    else if (!state.IsOurTurn)
+                        _pipe.Write("NOT_OUR_TURN");
+                    else
+                        _pipe.Write("SEED:" + SeedBuilder.Build(state));
+                }
+            }
+            else if (cmd == "GET_ENDGAME_STATE")
+            {
+                var shown = reader.IsEndGameScreenShown(out var endClass);
+                _pipe.Write("ENDGAME:" + (shown ? "1" : "0") + ":" + (endClass ?? string.Empty));
+            }
+            else if (cmd == "GET_RESULT")
+            {
+                if (_lastGameResult == "NONE")
+                {
+                    for (var i = 0; i < 20; i++)
+                    {
+                        var state = reader.ReadGameState();
+                        if (state != null && state.Result != GameResult.None)
+                        {
+                            _lastGameResult = state.Result.ToString().ToUpper();
+                            if (state.FriendlyConceded)
+                                _lastGameConceded = true;
+                            break;
+                        }
+
+                        // state 存在且确认未 GameOver —— 可能已经是新对局，不再重试
+                        if (state != null && !state.IsGameOver)
+                            break;
+
+                        // 通过 EndGameScreen 类名兜底判断
+                        if (reader.IsEndGameScreenShown(out var endClass)
+                            && !string.IsNullOrWhiteSpace(endClass))
+                        {
+                            var lower = endClass.ToLowerInvariant();
+                            if (lower.Contains("victory")) { _lastGameResult = "WIN"; break; }
+                            else if (lower.Contains("defeat")) { _lastGameResult = "LOSS"; break; }
+                            else if (lower.Contains("tie") || lower.Contains("draw")) { _lastGameResult = "TIE"; break; }
+                        }
+
+                        Thread.Sleep(100);
+                    }
+                }
+                var resultPayload = _lastGameConceded
+                    ? "RESULT:" + _lastGameResult + ":CONCEDED"
+                    : "RESULT:" + _lastGameResult;
+                _pipe.Write(resultPayload);
+                // 仅在成功获取到有效结果后才重置，避免 NONE 时消费掉后续重试的机会
+                if (_lastGameResult != "NONE")
+                {
+                    _lastGameResult = "NONE";
+                    _lastGameConceded = false;
+                }
+            }
+            else if (cmd == "GET_BG_STATE")
+            {
+                var bgState = bgReader.ReadState();
+                if (bgState == null)
+                    _pipe.Write("NO_BG_STATE");
+                else
+                    _pipe.Write("BG_STATE:" + bgState.Serialize());
+            }
+            else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
+            {
+                _pipe.Write(ActionExecutor.Execute(reader, cmd.Substring(7)));
+            }
+            else if (cmd == "GET_DECKS")
+            {
+                var decks = DeckReader.ReadDecks();
+                if (decks != null)
+                    _pipe.Write("DECKS:" + decks);
+                else
+                    _pipe.Write("NO_DECKS:" + (DeckReader.LastError ?? "unknown"));
+            }
+            else if (cmd == "GET_MULLIGAN_STATE")
+            {
+                var state = reader.ReadGameState();
+                if (state == null || !state.IsMulliganPhase)
+                {
+                    _pipe.Write("NO_MULLIGAN");
+                }
+                else
+                {
+                    // 仅使用留牌管理器的选择（可替换的卡牌），避免泄露不可替换的卡牌（如硬币）。
+                    // 必须在主线程访问 MulliganManager，否则后台线程反射访问 Unity 对象会导致闪退
+                    var cardsResult = RunOnMainThread(() =>
+                        (object)(ActionExecutor.GetMulliganChoiceCards() ?? string.Empty));
+                    var cards = cardsResult as string ?? string.Empty;
+
+                    _pipe.Write(string.Format("MULLIGAN_STATE:{0}|{1}|{2}", state.FriendClass, state.EnemyClass, cards));
+                }
+            }
+            else if (cmd.StartsWith("APPLY_MULLIGAN:", StringComparison.Ordinal))
+            {
+                var payload = cmd.Length > "APPLY_MULLIGAN:".Length
+                    ? cmd.Substring("APPLY_MULLIGAN:".Length)
+                    : string.Empty;
+                // 交由协程在主线程逐帧执行鼠标点击与确认逻辑
+                _pipe.Write(ActionExecutor.ApplyMulligan(payload));
+            }
+            else if (cmd == "GET_SCENE")
+            {
+                _pipe.Write("SCENE:" + nav.GetScene());
+            }
+            else if (cmd == "GET_HUB_BUTTONS")
+            {
+                _pipe.Write(nav.GetHubButtons());
+            }
+            else if (cmd.StartsWith("CLICK_HUB_BUTTON:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.ClickHubButton(cmd.Substring("CLICK_HUB_BUTTON:".Length)));
+            }
+            else if (cmd == "GET_OTHER_MODE_BUTTONS")
+            {
+                _pipe.Write(nav.GetOtherModeButtons());
+            }
+            else if (cmd == "GET_BLOCKING_DIALOG")
+            {
+                _pipe.Write(nav.GetBlockingDialog());
+            }
+            else if (cmd == "DISMISS_BLOCKING_DIALOG")
+            {
+                _pipe.Write(nav.DismissBlockingDialog());
+            }
+            else if (cmd.StartsWith("NAV_TO:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.NavigateTo(cmd.Substring(7)));
+            }
+            else if (cmd.StartsWith("GET_DECK_ID:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.GetDeckId(cmd.Substring(12)));
+            }
+            else if (cmd.StartsWith("SET_FORMAT:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.SetFormat(int.Parse(cmd.Substring(11))));
+            }
+            else if (cmd.StartsWith("SELECT_DECK:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.SelectDeck(long.Parse(cmd.Substring(12))));
+            }
+            else if (cmd == "CLICK_PLAY")
+            {
+                _pipe.Write(nav.ClickPlay());
+            }
+            else if (cmd == "CLICK_DISMISS")
+            {
+                _pipe.Write(nav.ClickDismiss());
+            }
+            else if (cmd == "CLICK_KEEPALIVE")
+            {
+                _pipe.Write(keepAliveClicker.Click());
+            }
+            else if (cmd == "IS_FINDING")
+            {
+                _pipe.Write(nav.IsFindingGame() ? "YES" : "NO");
+            }
+            else if (cmd == "IS_BACON_READY")
+            {
+                _pipe.Write(nav.IsBattlegroundsLobbyReady());
+            }
+            else if (cmd == "GET_CHOICE_STATE")
+            {
+                var stateResult = RunOnMainThread(() =>
+                    (object)(ChoiceController.GetChoiceState() ?? string.Empty));
+                var state = stateResult as string ?? string.Empty;
+                _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_CHOICE" : "CHOICE:" + state);
+            }
+            else if (cmd == "GET_DECK_STATE")
+            {
+                // 返回我方牌库中剩余每张牌的 CardId，用 | 分隔
+                var state = reader.ReadGameState();
+                if (state == null || state.FriendDeck == null || state.FriendDeck.Count == 0)
+                    _pipe.Write("DECK_STATE:");
+                else
+                    _pipe.Write("DECK_STATE:" + string.Join("|", state.FriendDeck));
+            }
+            else if (cmd.StartsWith("APPLY_CHOICE:", StringComparison.Ordinal))
+            {
+                var payload = cmd.Substring("APPLY_CHOICE:".Length).Split(new[] { ':' }, 2);
+                if (payload.Length == 2)
+                {
+                    _pipe.Write(ChoiceController.ApplyChoice(payload[0], payload[1]));
+                }
+                else
+                {
+                    _pipe.Write("FAIL:bad_args");
+                }
+            }
+            else if (cmd.StartsWith("CLICK_SCREEN:", StringComparison.Ordinal))
+            {
+                var xy = cmd.Substring("CLICK_SCREEN:".Length).Split(',');
+                if (xy.Length == 2
+                    && float.TryParse(xy[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var rx)
+                    && float.TryParse(xy[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ry))
+                    _pipe.Write(ActionExecutor.ClickScreen(rx, ry));
+                else
+                    _pipe.Write("ERROR:CLICK_SCREEN:bad_args");
+            }
+            else if (cmd == "WAIT_READY")
+            {
+                _pipe.Write(ActionExecutor.IsGameReady() ? "READY" : "BUSY");
+            }
+            else if (cmd == "PING")
+            {
+                _pipe.Write("PONG");
+            }
+            else if (cmd.StartsWith("REFLECT:", StringComparison.Ordinal))
+            {
+                _pipe.Write(nav.Reflect(cmd.Substring(8)));
+            }
+            else if (cmd == "STOP")
+            {
+                _running = false;
+            }
+        }
+
+        private static void StartStartupLogSession()
+        {
+            var header = string.Format("===== Session {0:yyyy/MM/dd HH:mm:ss.fff} =====", DateTime.Now);
+            AppendLogRecord(GetStartupLogPath(), header);
+        }
+
+        private static void LogStartupInfo(string phase, string message)
+        {
+            var record = string.Format("{0:yyyy/MM/dd HH:mm:ss.fff} [{1}] {2}", DateTime.Now, phase, message);
+            AppendLogRecord(GetStartupLogPath(), record);
+            try { _logSource?.LogInfo(record); } catch { }
+        }
+
+        private static void LogStartupException(string phase, Exception ex)
+        {
+            var record =
+                string.Format("{0:yyyy/MM/dd HH:mm:ss.fff} [{1}] {2}", DateTime.Now, phase, BuildExceptionRecord(ex));
+            AppendLogRecord(GetStartupLogPath(), record);
+            try { _logSource?.LogError(record); } catch { }
+        }
+
+        private static void LogRuntimeException(Exception ex, string phase, string command)
+        {
+            var record =
+                string.Format(
+                    "{0:yyyy/MM/dd HH:mm:ss.fff} phase={1} command={2}{3}{4}",
+                    DateTime.Now,
+                    phase ?? "unknown",
+                    SanitizeForLog(command),
+                    Environment.NewLine,
+                    BuildExceptionRecord(ex));
+            AppendLogRecord(GetRuntimeErrorLogPath(), record);
+            try { _logSource?.LogError(record); } catch { }
+        }
+
+        private static string BuildExceptionRecord(Exception ex)
+        {
+            if (ex == null)
+                return "unknown exception";
+
+            return string.Format(
+                "type={0} message={1}{2}{3}",
+                ex.GetType().FullName,
+                ex.Message,
+                Environment.NewLine,
+                ex);
+        }
+
+        private static void AppendLogRecord(string path, string record)
+        {
+            lock (_logFileLock)
+            {
+                File.AppendAllText(path, record + Environment.NewLine, System.Text.Encoding.UTF8);
+            }
+        }
+
+        private static string GetStartupLogPath()
+        {
+            return Path.Combine(GetPluginLogDirectory(), "payload_startup.log");
+        }
+
+        private static string GetRuntimeErrorLogPath()
+        {
+            return Path.Combine(GetPluginLogDirectory(), "payload_error.log");
+        }
+
+        private static string GetPluginLogDirectory()
+        {
+            var logDir = Path.GetDirectoryName(typeof(Plugin).Assembly.Location);
+            return string.IsNullOrWhiteSpace(logDir)
+                ? AppDomain.CurrentDomain.BaseDirectory
+                : logDir;
+        }
+
+        private static bool ShouldLogHeartbeat(ref DateTime lastLogUtc, int throttleSeconds)
+        {
+            var now = DateTime.UtcNow;
+            if (lastLogUtc != DateTime.MinValue
+                && now - lastLogUtc < TimeSpan.FromSeconds(throttleSeconds))
+                return false;
+
+            lastLogUtc = now;
+            return true;
+        }
+
+        private static string GetCommandName(string cmd)
+        {
+            if (string.IsNullOrWhiteSpace(cmd))
+                return "empty";
+
+            var idx = cmd.IndexOf(':');
+            var name = idx >= 0 ? cmd.Substring(0, idx) : cmd;
+            return SanitizeForLog(name);
+        }
+
+        private static string SanitizeForLog(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "(none)";
+
+            var sanitized = value.Replace("\r", " ").Replace("\n", " ").Trim();
+            if (sanitized.Length > 160)
+                sanitized = sanitized.Substring(0, 160) + "...";
+            return sanitized;
+        }
+
+        private static void SetPhase(string phase)
+        {
+            _currentPhase = string.IsNullOrWhiteSpace(phase) ? "unknown" : phase;
+        }
+
+        private static string DescribeReflectionContext(ReflectionContext ctx)
+        {
+            if (ctx == null)
+                return "ctx=null";
+
+            return string.Format(
+                "IsReady={0}, AsmCSharp={1}, GameStateType={2}, EntityType={3}, SceneMgrType={4}, GameMgrType={5}, CollMgrType={6}",
+                ctx.IsReady,
+                ctx.AsmCSharp != null,
+                ctx.GameStateType != null,
+                ctx.EntityType != null,
+                ctx.SceneMgrType != null,
+                ctx.GameMgrType != null,
+                ctx.CollMgrType != null);
         }
     }
 }

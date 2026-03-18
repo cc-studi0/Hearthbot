@@ -1025,6 +1025,43 @@ namespace HearthstonePayload
             catch { return 0; }
         }
 
+        private int TryGetMaxTagValueSafe(string tagName, params object[] candidates)
+        {
+            var max = 0;
+            if (candidates == null || candidates.Length == 0)
+                return max;
+
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                var value = TryGetTagValueSafe(candidate, tagName);
+                if (value > max)
+                    max = value;
+            }
+
+            return max;
+        }
+
+        private int TryGetFirstPositiveTagValueSafe(string tagName, params object[] candidates)
+        {
+            if (candidates == null || candidates.Length == 0)
+                return 0;
+
+            foreach (var candidate in candidates)
+            {
+                if (candidate == null)
+                    continue;
+
+                var value = TryGetTagValueSafe(candidate, tagName);
+                if (value > 0)
+                    return value;
+            }
+
+            return 0;
+        }
+
         private void TryAddHeroPower(object heroPowerLike, int fallbackIndex, BattlegroundStateData data)
         {
             if (heroPowerLike == null || data == null)
@@ -1044,17 +1081,24 @@ namespace HearthstonePayload
                 if (string.IsNullOrWhiteSpace(cardId))
                     cardId = ResolveCardId(heroPowerLike) ?? string.Empty;
 
-                var exhausted = TryGetTagValueSafe(entity, "EXHAUSTED");
-                var resolvedIndex = TryGetTagValueSafe(entity, "ADDITIONAL_HERO_POWER_INDEX");
+                // Additional hero powers do not always expose every tag on the same reflected object.
+                // Probe both the resolved entity and the original hero-power/card wrapper so duplicated
+                // hero powers can still be distinguished after one of them is exhausted.
+                var exhausted = TryGetMaxTagValueSafe("EXHAUSTED", entity, heroPowerLike);
+                var resolvedIndex = TryGetFirstPositiveTagValueSafe("ADDITIONAL_HERO_POWER_INDEX", entity, heroPowerLike);
                 if (resolvedIndex <= 0)
                     resolvedIndex = fallbackIndex;
+
+                var cost = TryGetFirstPositiveTagValueSafe("COST", entity, heroPowerLike);
 
                 data.HeroPowers.Add(new BgHeroPowerData
                 {
                     EntityId = entityId,
                     CardId = cardId,
-                    Cost = TryGetTagValueSafe(entity, "COST"),
-                    IsAvailable = exhausted == 0 && data.Phase == "RECRUIT",
+                    Cost = cost,
+                    // Availability is used to disambiguate same-card hero powers. Rely on the instance
+                    // readiness tag instead of the inferred phase, which can briefly lag during recruit.
+                    IsAvailable = exhausted == 0,
                     Index = resolvedIndex
                 });
             }

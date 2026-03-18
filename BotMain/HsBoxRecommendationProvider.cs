@@ -573,7 +573,13 @@ namespace BotMain
 
                     var stationToken = dto["stationData"];
                     var envelope = dataToken?.Type == JTokenType.Null ? null : dataToken?.ToObject<HsBoxRecommendationEnvelope>();
-                    var steps = envelope?.Data ?? new List<HsBoxActionStep>();
+                    var allSteps = envelope?.Data ?? new List<HsBoxActionStep>();
+
+                    // HsBox 的 data.data 数组中每个元素对应一个"打法参考"（A/B/C...），
+                    // 它们是**备选方案**而非连续步骤。只取第一个（打法参考A）。
+                    var steps = allSteps.Count > 0
+                        ? new List<HsBoxActionStep> { allSteps[0] }
+                        : new List<HsBoxActionStep>();
 
                     #if false
                     if (dataToken == null || dataToken.Type == JTokenType.Null)
@@ -619,10 +625,8 @@ namespace BotMain
                         heroPowerRefs,
                         msg => Log(msg));
 
-                    if (commands.Count == 0 && stationCommands.Count > 0)
-                    {
-                        commands.AddRange(stationCommands);
-                    }
+                    // 站位调整只在所有操作完成后执行（由 TryInsertStationCommandsBeforeEndTurn 插入到 BG_END_TURN 前），
+                    // 不能在没有买卖操作时独立执行，否则会在操作前提前调整站位。
 
                     if (commands.Count == 0
                         && TryMapCommandsFromBodyText(effectiveText, shopMap, boardMap, handMap, isHeroPick, out var bodyCommands, out var bodyDetail))
@@ -631,6 +635,10 @@ namespace BotMain
                     }
 
                     TryInsertStationCommandsBeforeEndTurn(commands, stationCommands, out var stationEndTurnDetail);
+
+                    // 战旗模式不需要主动结束回合，招募阶段时间到了会自动进入战斗阶段。
+                    // BG_END_TURN 仅作为 station 命令插入的锚点，实际不需要执行。
+                    commands.RemoveAll(c => string.Equals(c, "BG_END_TURN", StringComparison.OrdinalIgnoreCase));
 
                     // ── 日志去重：只有推荐内容变化时才输出详细日志 ──
                     var commandSummary = string.Join(">", commands);
@@ -646,13 +654,17 @@ namespace BotMain
                         Log($"[BgBridge] ok={ok}, reason={reason}, count={count}, stationCount={stationCount}, source={sourceCallback}");
                         if (dataToken != null && dataToken.Type != JTokenType.Null)
                             Log($"[BgBridge] data 原始: {dataToken.ToString(Formatting.None).Substring(0, Math.Min(dataToken.ToString(Formatting.None).Length, 300))}");
-                        if (steps.Count > 0)
+                        if (allSteps.Count > 0)
                         {
-                            Log($"[BgBridge] 收到 {steps.Count} 条推荐步骤");
-                            foreach (var step in steps)
+                            Log($"[BgBridge] 原始 step 数={allSteps.Count}, 当前采纳 step 数={steps.Count}");
+                            if (allSteps.Count != steps.Count)
+                                Log($"[BgBridge] 当前策略：仅使用参考A；若原始后续 step 为连续动作，可据此排查 payload 是否被截断");
+
+                            for (var i = 0; i < allSteps.Count; i++)
                             {
+                                var step = allSteps[i];
                                 var ci = step.GetPrimaryCard();
-                                Log($"[BgBridge]   step: actionName={step.ActionName}, card={ci?.CardId}(pos={ci?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()}, zone={step.Target?.ZoneName}), sub={step.SubOption?.CardId}");
+                                Log($"[BgBridge]   rawStep[{i}]: actionName={step.ActionName}, card={ci?.CardId}(pos={ci?.GetZonePosition()}), target={step.Target?.CardId}(pos={step.Target?.GetZonePosition()}, zone={step.Target?.ZoneName}), oppTarget={step.OppTarget?.CardId}(pos={step.OppTarget?.GetZonePosition()}, zone={step.OppTarget?.ZoneName}), sub={step.SubOption?.CardId}");
                             }
                         }
                         Log($"[BgBridge] 映射表: shop={shopMap.Count}条, board={boardMap.Count}条, hand={handMap.Count}条, heroPowers={heroPowerRefs.Count}条, heroPower={heroPowerEntityId}");
@@ -759,9 +771,7 @@ namespace BotMain
                         targetEntityId = ResolveBgTargetEntityId(target, boardMap, shopMap, preferBoard: true);
                     }
 
-                    // 场上放置位置应使用 step.Position（HSBox 推荐的板面插槽），而非手牌 ZonePosition
-                    // 这对磁力随从尤为关键：磁力需要放在目标机械的左侧位置
-                    var boardPosition = step.Position > 0 ? step.Position : pos;
+                    var boardPosition = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
                     if (cardEntityId > 0)
                         return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{boardPosition}";
                     return null;
@@ -829,6 +839,28 @@ namespace BotMain
                 default:
                     return null;
             }
+        }
+
+        private static int ResolveBattlegroundPlayPosition(HsBoxActionStep step, HsBoxCardRef target, int fallbackPosition)
+        {
+            var position = step?.Position > 0 ? step.Position : 0;
+            if (position > 0)
+                return position;
+
+            // 磁力/指向性随从兜底：当来源明确在 hand，且回退位次已经超过战旗最大站位 7 时，
+            // 这个数字更可能是“手牌槽位”而不是“板面落位”。此时应使用目标随从当前位次，
+            // 表示“插入到它左侧的缝隙”。
+            var sourceZoneName = step?.GetPrimaryCard()?.ZoneName ?? string.Empty;
+            var fallbackLooksLikeHandSlot = string.Equals(sourceZoneName, "hand", StringComparison.OrdinalIgnoreCase)
+                && fallbackPosition > 7;
+            var targetIsBoardMinion = string.Equals(target?.ZoneName, "play", StringComparison.OrdinalIgnoreCase);
+            var targetZonePos = targetIsBoardMinion && fallbackLooksLikeHandSlot
+                ? (target?.GetZonePosition() ?? 0)
+                : 0;
+            if (targetZonePos > 0)
+                return targetZonePos;
+
+            return fallbackPosition > 0 ? fallbackPosition : 0;
         }
 
         internal static List<string> MapStructuredCommands(
@@ -1361,21 +1393,31 @@ namespace BotMain
 
             var primaryCard = step.GetPrimaryCard();
             var desiredCardId = primaryCard?.CardId ?? string.Empty;
+            var desiredPosition = primaryCard?.GetZonePosition() ?? step.Position;
             if (!string.IsNullOrWhiteSpace(desiredCardId))
             {
-                var exactAvailable = heroPowers.FirstOrDefault(power =>
-                    power.IsAvailable
-                    && string.Equals(power.CardId, desiredCardId, StringComparison.OrdinalIgnoreCase));
+                var exactMatches = heroPowers
+                    .Where(power => string.Equals(power.CardId, desiredCardId, StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(power => power.Index)
+                    .ThenBy(power => power.EntityId)
+                    .ToList();
+
+                var exactAvailable = exactMatches.FirstOrDefault(power => power.IsAvailable);
                 if (exactAvailable != null)
                     return exactAvailable.EntityId;
 
-                var exact = heroPowers.FirstOrDefault(power =>
-                    string.Equals(power.CardId, desiredCardId, StringComparison.OrdinalIgnoreCase));
+                if (desiredPosition > 0)
+                {
+                    var positionedExact = exactMatches.FirstOrDefault(power => power.Index == desiredPosition);
+                    if (positionedExact != null)
+                        return positionedExact.EntityId;
+                }
+
+                var exact = exactMatches.FirstOrDefault();
                 if (exact != null)
                     return exact.EntityId;
             }
 
-            var desiredPosition = primaryCard?.GetZonePosition() ?? step.Position;
             if (desiredPosition > 0 && desiredPosition <= heroPowers.Count)
                 return heroPowers[desiredPosition - 1].EntityId;
 
@@ -1607,18 +1649,29 @@ namespace BotMain
                 .Select(m => m.EntityId)
                 .ToList();
 
-            // ── 第3步：从左到右，把每个位置调整到期望的 entityId ──
-            //   对于位置 i (0-based)，如果当前模拟棋盘的 simBoard[i] != desiredEntityOrder[i]，
-            //   就找到目标 entityId 在模拟棋盘中的当前位置，生成 BG_MOVE，
-            //   然后模拟这次"移除 + 插入"操作。
+            // HSBox 偶尔会漏掉部分场上随从（常见于完全相同的复制体）。
+            // 这些未匹配到的随从保留当前相对顺序，追加到目标序列末尾，
+            // 避免把"只识别到前几个目标"误当成"前缀必须重排"。
+            var desiredEntitySet = new HashSet<int>(desiredEntityOrder);
+            foreach (var entityId in simBoard)
+            {
+                if (desiredEntitySet.Add(entityId))
+                    desiredEntityOrder.Add(entityId);
+            }
+
+            // ── 第3步：找出当前已处于正确相对顺序的一批随从（LIS/LCS）──
+            // 保留这些锚点不动，只移动其余随从，可显著减少拖拽次数。
+            var anchorEntityIds = FindStationAnchorEntityIds(simBoard, desiredEntityOrder);
+
+            // ── 第4步：从左到右，仅把非锚点随从插入到目标位置 ──
             for (var i = 0; i < desiredEntityOrder.Count && i < simBoard.Count; i++)
             {
                 var wantedEntityId = desiredEntityOrder[i];
-                if (simBoard[i] == wantedEntityId)
+                if (anchorEntityIds.Contains(wantedEntityId))
                     continue;
 
                 var currentIndex = simBoard.IndexOf(wantedEntityId);
-                if (currentIndex < 0)
+                if (currentIndex < 0 || currentIndex == i)
                     continue;
 
                 // 生成命令：目标位置是 1-based
@@ -1631,6 +1684,70 @@ namespace BotMain
             }
 
             return commands;
+        }
+
+        private static HashSet<int> FindStationAnchorEntityIds(
+            IReadOnlyList<int> currentOrder,
+            IReadOnlyList<int> desiredOrder)
+        {
+            var anchors = new HashSet<int>();
+            if (currentOrder == null || desiredOrder == null || currentOrder.Count == 0 || desiredOrder.Count == 0)
+                return anchors;
+
+            var currentIndexByEntityId = new Dictionary<int, int>();
+            for (var i = 0; i < currentOrder.Count; i++)
+                currentIndexByEntityId[currentOrder[i]] = i;
+
+            var filteredDesiredOrder = new List<int>(desiredOrder.Count);
+            var currentIndicesInDesiredOrder = new List<int>(desiredOrder.Count);
+            foreach (var entityId in desiredOrder)
+            {
+                if (!currentIndexByEntityId.TryGetValue(entityId, out var currentIndex))
+                    continue;
+
+                filteredDesiredOrder.Add(entityId);
+                currentIndicesInDesiredOrder.Add(currentIndex);
+            }
+
+            if (filteredDesiredOrder.Count == 0)
+                return anchors;
+
+            var count = filteredDesiredOrder.Count;
+            var bestLength = new int[count];
+            var previousIndex = new int[count];
+            Array.Fill(previousIndex, -1);
+
+            var longestLength = 0;
+            var longestEndIndex = -1;
+            for (var i = 0; i < count; i++)
+            {
+                bestLength[i] = 1;
+                for (var j = 0; j < i; j++)
+                {
+                    if (currentIndicesInDesiredOrder[j] >= currentIndicesInDesiredOrder[i])
+                        continue;
+
+                    if (bestLength[j] + 1 <= bestLength[i])
+                        continue;
+
+                    bestLength[i] = bestLength[j] + 1;
+                    previousIndex[i] = j;
+                }
+
+                if (bestLength[i] > longestLength)
+                {
+                    longestLength = bestLength[i];
+                    longestEndIndex = i;
+                }
+            }
+
+            while (longestEndIndex >= 0)
+            {
+                anchors.Add(filteredDesiredOrder[longestEndIndex]);
+                longestEndIndex = previousIndex[longestEndIndex];
+            }
+
+            return anchors;
         }
 
         internal static bool TryInsertStationCommandsBeforeEndTurn(
@@ -3627,7 +3744,7 @@ namespace BotMain
                     if (entityId <= 0 && card != null)
                         entityId = card.GetZonePosition();
                     var target = TryGetExtraEntityId(step, "target");
-                    var position = step.Position > 0 ? step.Position : 0;
+                    var position = ResolveBattlegroundPlayPosition(step, step.Target, fallbackPosition: 0);
                     actions.Add($"BG_PLAY|{entityId}|{target}|{position}");
                 }
                 else
@@ -3658,6 +3775,28 @@ namespace BotMain
             return 0;
         }
 
+        private static int ResolveBattlegroundPlayPosition(HsBoxActionStep step, HsBoxCardRef target, int fallbackPosition)
+        {
+            var position = step?.Position > 0 ? step.Position : 0;
+            if (position > 0)
+                return position;
+
+            // 磁力/指向性随从兜底：当来源明确在 hand，且回退位次已经超过战旗最大站位 7 时，
+            // 这个数字更可能是“手牌槽位”而不是“板面落位”。此时应使用目标随从当前位次，
+            // 表示“插入到它左侧的缝隙”。
+            var sourceZoneName = step?.GetPrimaryCard()?.ZoneName ?? string.Empty;
+            var fallbackLooksLikeHandSlot = string.Equals(sourceZoneName, "hand", StringComparison.OrdinalIgnoreCase)
+                && fallbackPosition > 7;
+            var targetIsBoardMinion = string.Equals(target?.ZoneName, "play", StringComparison.OrdinalIgnoreCase);
+            var targetZonePos = targetIsBoardMinion && fallbackLooksLikeHandSlot
+                ? (target?.GetZonePosition() ?? 0)
+                : 0;
+            if (targetZonePos > 0)
+                return targetZonePos;
+
+            return fallbackPosition > 0 ? fallbackPosition : 0;
+        }
+
         private static bool TryMapPlayAction(HsBoxActionStep step, Board board, out string command, out string reason)
         {
             command = null;
@@ -3671,9 +3810,14 @@ namespace BotMain
             var target = ResolveTargetEntityId(board, step);
             var position = step.Position > 0 ? step.Position : 0;
 
-            // 磁力随从兜底：如果有友方目标（磁力附着机械）但 position 未指定，
-            // 用目标的 ZonePosition 作为放置位置（放在其左侧触发磁力附着）
-            if (position <= 0 && target > 0 && step.Target != null)
+            // 普通模式里只有当 payload 明确标出“手牌 -> 场上”时，
+            // 才把目标随从位置当作落位兜底，避免把普通指向性法术
+            // 的目标位次误写进 PLAY 的落位参数。
+            if (position <= 0
+                && target > 0
+                && step.Target != null
+                && string.Equals(step.GetPrimaryCard()?.ZoneName, "hand", StringComparison.OrdinalIgnoreCase)
+                && string.Equals(step.Target.ZoneName, "play", StringComparison.OrdinalIgnoreCase))
             {
                 var targetZonePos = step.Target.GetZonePosition();
                 if (targetZonePos > 0)

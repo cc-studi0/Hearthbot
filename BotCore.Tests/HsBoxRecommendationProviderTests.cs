@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using Newtonsoft.Json.Linq;
@@ -538,14 +539,22 @@ namespace BotCore.Tests
             };
 
             // First call: no prior consumption
-            var provider1 = new HsBoxGameRecommendationProvider(new FakeBridge(firstState), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var provider1 = new HsBoxGameRecommendationProvider(
+                new FakeBridge(firstState),
+                new FakeBattlegroundsBridge(new BattlegroundActionRecommendationResult(Array.Empty<string>(), "fake_bg_actions")),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
             var result1 = provider1.RecommendChoice(new ChoiceRecommendationRequest(
                 "snap-1", 1, "DISCOVER", "SRC", 100, 1, 1, options, Array.Empty<int>(), "seed"));
             Assert.Equal(new[] { 402 }, result1.SelectedEntityIds);
             Assert.Contains("text_choice", result1.Detail);
 
             // Second call: same updatedAt as consumed, but different payload
-            var provider2 = new HsBoxGameRecommendationProvider(new FakeBridge(secondState), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var provider2 = new HsBoxGameRecommendationProvider(
+                new FakeBridge(secondState),
+                new FakeBattlegroundsBridge(new BattlegroundActionRecommendationResult(Array.Empty<string>(), "fake_bg_actions")),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
             var result2 = provider2.RecommendChoice(new ChoiceRecommendationRequest(
                 "snap-2", 2, "DISCOVER", "SRC", 100, 1, 1, options, Array.Empty<int>(), "seed",
                 lastConsumedUpdatedAtMs: result1.SourceUpdatedAtMs,
@@ -727,6 +736,74 @@ namespace BotCore.Tests
             Assert.Equal("BG_TAVERN_UP", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "tavern_up" }, shopMap, boardMap, handMap));
             Assert.Equal("BG_REROLL", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "reroll_choices" }, shopMap, boardMap, handMap));
             Assert.Equal("BG_FREEZE", HsBoxBattlegroundsBridge.ConvertStepToCommand(new HsBoxActionStep { ActionName = "freeze_choices" }, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStationsToCommands_UsesMinimumMoveCount()
+        {
+            var bgStateData = CreateBattlegroundBoardState(
+                (101, "BG_A", 1, 1, 1),
+                (102, "BG_B", 1, 1, 2),
+                (103, "BG_C", 1, 1, 3),
+                (104, "BG_D", 1, 1, 4));
+
+            var stationToken = CreateStationToken(
+                ("BG_B", 1, 1),
+                ("BG_C", 1, 1),
+                ("BG_D", 1, 1),
+                ("BG_A", 1, 1));
+
+            var commands = HsBoxBattlegroundsBridge.ConvertStationsToCommands(stationToken, bgStateData);
+
+            Assert.Equal(new[] { "BG_MOVE|101|4" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStationsToCommands_AppendsUnmatchedBoardMinions()
+        {
+            var bgStateData = CreateBattlegroundBoardState(
+                (101, "BG_A", 1, 1, 1),
+                (102, "BG_B", 1, 1, 2),
+                (103, "BG_C", 1, 1, 3),
+                (104, "BG_D", 1, 1, 4));
+
+            var stationToken = CreateStationToken(
+                ("BG_B", 1, 1),
+                ("BG_C", 1, 1),
+                ("BG_D", 1, 1));
+
+            var commands = HsBoxBattlegroundsBridge.ConvertStationsToCommands(stationToken, bgStateData);
+
+            Assert.Equal(new[] { "BG_MOVE|101|4" }, commands);
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_UsesTargetZonePositionForMagneticPlay()
+        {
+            var shopMap = new Dictionary<int, int>();
+            var boardMap = new Dictionary<int, int> { [7] = 7007 };
+            var handMap = new Dictionary<int, int> { [9] = 9009 };
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_DEEP_015",
+                    cardName = "义肢假手",
+                    position = 9,
+                    zoneName = "hand"
+                }),
+                Target = new HsBoxCardRef
+                {
+                    CardId = "BG34_Giant_590",
+                    CardName = "时空扭曲烂肠",
+                    Position = 7,
+                    ZoneName = "play"
+                }
+            };
+
+            Assert.Equal("BG_PLAY|9009|7007|7", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -1103,6 +1180,29 @@ namespace BotCore.Tests
                 IsFriend = true,
                 Template = CreateTemplate(id, nameCn, name)
             };
+        }
+
+        private static string CreateBattlegroundBoardState(params (int EntityId, string CardId, int Attack, int Health, int Position)[] minions)
+        {
+            var boardEntries = string.Join(";", minions.Select(minion =>
+                $"{minion.EntityId},{minion.CardId},{minion.Attack},{minion.Health},1,{minion.Position},0,0"));
+            return $"PHASE=RECRUIT|BOARD={boardEntries}|";
+        }
+
+        private static JToken CreateStationToken(params (string CardId, int Attack, int Health)[] minions)
+        {
+            return JToken.FromObject(new
+            {
+                rearrange = new
+                {
+                    data = minions.Select(minion => new
+                    {
+                        cardId = minion.CardId,
+                        attack = minion.Attack,
+                        health = minion.Health
+                    }).ToArray()
+                }
+            });
         }
 
         private sealed class FakeBridge : IHsBoxRecommendationBridge

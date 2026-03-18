@@ -15,6 +15,8 @@ namespace HearthstonePayload
         private StreamReader _reader;
         private StreamWriter _writer;
 
+        public string LastErrorSummary { get; private set; }
+
         public bool IsConnected
         {
             get
@@ -35,9 +37,11 @@ namespace HearthstonePayload
                 var stream = _tcp.GetStream();
                 _reader = new StreamReader(stream, Encoding.UTF8);
                 _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
+                LastErrorSummary = null;
             }
-            catch
+            catch (Exception ex)
             {
+                LastErrorSummary = SummarizeException(ex);
                 Disconnect();
             }
         }
@@ -112,6 +116,22 @@ namespace HearthstonePayload
                 Disconnect();
                 return false;
             }
+        }
+
+        private static string SummarizeException(Exception ex)
+        {
+            if (ex == null)
+                return "unknown";
+
+            var socketEx = ex as SocketException;
+            if (socketEx != null)
+                return string.Format("SocketException:{0}:{1}", socketEx.SocketErrorCode, socketEx.Message);
+
+            var baseEx = ex.GetBaseException();
+            if (!ReferenceEquals(baseEx, ex))
+                return string.Format("{0}:{1}", baseEx.GetType().Name, baseEx.Message);
+
+            return string.Format("{0}:{1}", ex.GetType().Name, ex.Message);
         }
     }
 }

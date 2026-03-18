@@ -20,6 +20,14 @@ namespace HearthstonePayload
 
         public static void NewFrame() { FrameCount++; }
 
+        public static void ResetSimulationState()
+        {
+            Simulating = false;
+            LeftHeld = false;
+            PressFrame = -1;
+            ReleaseFrame = -1;
+        }
+
         public static void Apply(Harmony harmony)
         {
             var inputType = AppDomain.CurrentDomain.GetAssemblies()
@@ -119,13 +127,17 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 完全阻止 HearthstoneApplication.OnApplicationFocus 执行，
-        /// 使游戏永远认为自己处于聚焦状态，PegUI.m_hasFocus 始终为 true。
-        /// 参考 HsMod 的实现方式。
+        /// 模拟输入时拦截失焦，避免在后台保留按住状态；
+        /// 非模拟期间让游戏自行处理焦点变更。
         /// </summary>
         static bool OnApplicationFocusPre(bool focus)
         {
-            return false; // 跳过原方法，阻止焦点状态变更
+            if (!focus)
+            {
+                ResetSimulationState();
+            }
+
+            return !Simulating;
         }
     }
 }

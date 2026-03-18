@@ -92,13 +92,13 @@ namespace HearthstonePayload
                 _waitRemaining = 0;
                 _result = "ERROR:coroutine_timeout";
             }
-            InputHook.Simulating = false;
+            InputHook.ResetSimulationState();
             _done.Set();
         }
 
         private void Complete(string result)
         {
-            InputHook.Simulating = false;
+            InputHook.ResetSimulationState();
             if (_result == null) _result = result;
             _current = null;
             _done.Set();
