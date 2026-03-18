@@ -881,8 +881,7 @@ namespace BotMain
 
         private string GetFirstLearnableAction(IReadOnlyList<string> actions)
         {
-            var normalized = NormalizeRecommendedActions(actions?.ToList());
-            return normalized.FirstOrDefault(action =>
+            return (actions ?? Array.Empty<string>()).FirstOrDefault(action =>
                 !string.IsNullOrWhiteSpace(action)
                 && !action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
                 && !action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase));
