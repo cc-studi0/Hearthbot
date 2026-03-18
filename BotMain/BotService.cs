@@ -1715,14 +1715,8 @@ namespace BotMain
                             nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
                         }
 
-                        if (mulliganHandled && mulliganStreak > 15)
-                        {
-                            Log("[MainLoop] mulligan was marked handled but still in mulligan phase, retrying...");
-                            mulliganHandled = false;
-                            mulliganStreak = 1;
-                            mulliganPhaseStartedUtc = DateTime.UtcNow;
-                            nextMulliganAttemptUtc = DateTime.MinValue;
-                        }
+                        if (mulliganHandled && mulliganStreak > 15 && mulliganStreak % 10 == 0)
+                            Log("[MainLoop] mulligan already applied; waiting for mulligan phase to end...");
 
                         if (!mulliganHandled && DateTime.UtcNow >= nextMulliganAttemptUtc)
                         {
@@ -3319,6 +3313,15 @@ namespace BotMain
             if (!_followHsBoxRecommendations || actions.Count <= 1)
                 return actions;
 
+            var sanitizedActions = RemovePrematureEndTurnActions(actions, out var sanitizeReason, out var removedCount);
+            if (removedCount > 0)
+            {
+                Log($"[FollowBox] sanitize_follow_box_actions reason={sanitizeReason} removed={removedCount} before={string.Join(">", actions)} after={string.Join(">", sanitizedActions)}");
+                actions = sanitizedActions;
+                if (actions.Count <= 1)
+                    return actions;
+            }
+
             var firstAction = actions[0];
             var secondAction = actions[1];
             if (TryMatchFollowHsBoxPlayOptionPair(firstAction, secondAction, out var sharedSourceEntityId, out var reason))
@@ -3329,6 +3332,49 @@ namespace BotMain
 
             Log($"[FollowBox] trim_follow_box_actions reason={reason} total={actions.Count} dropped={Math.Max(0, actions.Count - 1)} keep={firstAction} second={secondAction}");
             return new List<string> { firstAction };
+        }
+
+        private static List<string> RemovePrematureEndTurnActions(IReadOnlyList<string> actions, out string reason, out int removedCount)
+        {
+            reason = "not_needed";
+            removedCount = 0;
+
+            if (actions == null || actions.Count <= 1)
+                return actions?.ToList() ?? new List<string>();
+
+            var lastActionableIndex = -1;
+            for (var i = 0; i < actions.Count; i++)
+            {
+                if (!IsEndTurnAction(actions[i]))
+                    lastActionableIndex = i;
+            }
+
+            if (lastActionableIndex <= 0)
+                return actions.ToList();
+
+            var sanitized = new List<string>(actions.Count);
+            for (var i = 0; i < actions.Count; i++)
+            {
+                if (i < lastActionableIndex && IsEndTurnAction(actions[i]))
+                {
+                    removedCount++;
+                    continue;
+                }
+
+                sanitized.Add(actions[i]);
+            }
+
+            if (removedCount == 0)
+                return actions.ToList();
+
+            reason = "premature_end_turn";
+            return sanitized;
+        }
+
+        private static bool IsEndTurnAction(string action)
+        {
+            return !string.IsNullOrWhiteSpace(action)
+                   && action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryMatchFollowHsBoxPlayOptionPair(

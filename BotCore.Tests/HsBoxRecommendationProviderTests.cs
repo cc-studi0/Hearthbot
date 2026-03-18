@@ -50,6 +50,59 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_RemovesPrematureEndTurn_WhenStructuredSequenceStartsWithIt()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 113,
+                        IsFriend = true,
+                        Template = CreateTemplate(Card.Cards.EX1_164, "滋养", "Nourish")
+                    }
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 2,
+                UpdatedAtMs = 420,
+                Raw = "end-turn-then-play",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出7号位法术 滋养",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep { ActionName = "end_turn" },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "EX1_164",
+                                cardName = "滋养",
+                                position = 7
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|113|0|0" }, result.Actions);
+            Assert.Contains("sanitize=drop_premature_end_turn", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_MapsChooseStepUsingPreviousPlaySource()
         {
             var board = new Board

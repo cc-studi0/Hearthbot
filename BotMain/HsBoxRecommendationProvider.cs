@@ -83,18 +83,45 @@ namespace BotMain
                 out var waitDetail,
                 out var lastObservedState);
 
+            List<string> structuredActions = null;
+            string structuredDetail = null;
+            bool structuredHadPrematureEndTurn = false;
+            var hasStructured = state != null
+                && TryGetStructuredActions(state, request, out structuredActions, out structuredDetail, out structuredHadPrematureEndTurn);
+            if (hasStructured)
+                lastStructuredDetail = structuredDetail;
+
+            List<string> bodyActions = null;
+            string bodyDetail = null;
+            var hasBody = state != null
+                && TryGetBodyActions(state, request, out bodyActions, out bodyDetail);
+            if (hasBody)
+                lastBodyDetail = bodyDetail;
+
+            if (hasStructured
+                && structuredHadPrematureEndTurn
+                && hasBody
+                && StartsWithActionableCommand(bodyActions))
+            {
+                return new ActionRecommendationResult(
+                    null,
+                    bodyActions,
+                    $"hsbox_actions prefer=body_over_json_premature_end_turn; {lastBodyDetail}; {lastStructuredDetail}",
+                    sourceUpdatedAtMs: state.UpdatedAtMs,
+                    sourcePayloadSignature: state.PayloadSignature);
+            }
+
             // 优先尝试结构化动作 —— titan_power / forge 等动作可以
             // 成功映射为 OPTION 命令，即使它们也通过了
             // LooksLikeChoiceRecommendation 检查。如果将它们延迟为"选择"，它们
             // 永远不会被执行，因为在玩家点击场上的泰坦随从之前
             // 不会出现选择 UI。
-            if (state != null
-                && TryGetStructuredActions(state, request, out var actions, out var structuredDetail))
+            if (hasStructured)
             {
                 return new ActionRecommendationResult(
                     null,
-                    actions,
-                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}",
+                    structuredActions,
+                    $"hsbox_actions {lastStructuredDetail}; {lastBodyDetail}",
                     sourceUpdatedAtMs: state.UpdatedAtMs,
                     sourcePayloadSignature: state.PayloadSignature);
             }
@@ -111,13 +138,12 @@ namespace BotMain
                     sourcePayloadSignature: state.PayloadSignature);
             }
 
-            if (state != null
-                && TryGetBodyActions(state, request, out var bodyActions, out var bodyDetail))
+            if (hasBody)
             {
                 return new ActionRecommendationResult(
                     null,
                     bodyActions,
-                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}",
+                    $"hsbox_actions {lastBodyDetail}; {lastStructuredDetail}",
                     sourceUpdatedAtMs: state.UpdatedAtMs,
                     sourcePayloadSignature: state.PayloadSignature);
             }
@@ -280,7 +306,7 @@ namespace BotMain
             out string structuredDetail,
             out string bodyDetail)
         {
-            var hasStructured = TryGetStructuredActions(state, request, out structuredActions, out structuredDetail);
+            var hasStructured = TryGetStructuredActions(state, request, out structuredActions, out structuredDetail, out _);
             var hasBody = TryGetBodyActions(state, request, out bodyActions, out bodyDetail);
             return hasStructured || hasBody;
         }
@@ -289,9 +315,11 @@ namespace BotMain
             HsBoxRecommendationState state,
             ActionRecommendationRequest request,
             out List<string> actions,
-            out string detail)
+            out string detail,
+            out bool hadPrematureEndTurn)
         {
             actions = null;
+            hadPrematureEndTurn = false;
             if (state == null || state.UpdatedAtMs <= 0)
             {
                 detail = "json=state_invalid";
@@ -304,7 +332,10 @@ namespace BotMain
                 return false;
             }
 
-            detail = $"json=ok({mapDetail})";
+            actions = SanitizeStructuredActions(actions, out var sanitizeDetail, out hadPrematureEndTurn);
+            detail = hadPrematureEndTurn
+                ? $"json=ok({mapDetail}; {sanitizeDetail})"
+                : $"json=ok({mapDetail})";
             return true;
         }
 
@@ -329,6 +360,59 @@ namespace BotMain
 
             detail = $"body=ok({bodyDetail})";
             return true;
+        }
+
+        private static List<string> SanitizeStructuredActions(List<string> actions, out string detail, out bool hadPrematureEndTurn)
+        {
+            hadPrematureEndTurn = false;
+            detail = "sanitize=not_needed";
+
+            if (actions == null || actions.Count <= 1)
+                return actions;
+
+            var lastActionableIndex = -1;
+            for (var i = 0; i < actions.Count; i++)
+            {
+                if (!IsEndTurnAction(actions[i]))
+                    lastActionableIndex = i;
+            }
+
+            if (lastActionableIndex <= 0)
+                return actions;
+
+            var sanitized = new List<string>(actions.Count);
+            var removed = 0;
+            for (var i = 0; i < actions.Count; i++)
+            {
+                if (i < lastActionableIndex && IsEndTurnAction(actions[i]))
+                {
+                    removed++;
+                    continue;
+                }
+
+                sanitized.Add(actions[i]);
+            }
+
+            if (removed == 0)
+                return actions;
+
+            hadPrematureEndTurn = true;
+            detail = $"sanitize=drop_premature_end_turn({removed})";
+            return sanitized;
+        }
+
+        private static bool StartsWithActionableCommand(IReadOnlyList<string> actions)
+        {
+            return actions != null
+                   && actions.Count > 0
+                   && !IsEndTurnAction(actions[0]);
+        }
+
+        private static bool IsEndTurnAction(string action)
+        {
+            return !string.IsNullOrWhiteSpace(action)
+                   && (action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
+                       || action.StartsWith("BG_END_TURN", StringComparison.OrdinalIgnoreCase));
         }
 
 
