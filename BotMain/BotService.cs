@@ -675,12 +675,31 @@ namespace BotMain
             _suppressAiLogs = true;
             try
             {
+                using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
                 return _localRecommendationProvider.RecommendActions(request);
             }
             finally
             {
                 _suppressAiLogs = previous;
             }
+        }
+
+        private MulliganRecommendationResult RecommendLocalMulliganSilently(MulliganRecommendationRequest request)
+        {
+            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
+            return _localRecommendationProvider.RecommendMulligan(request);
+        }
+
+        private ChoiceRecommendationResult RecommendLocalChoiceSilently(ChoiceRecommendationRequest request)
+        {
+            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
+            return _localRecommendationProvider.RecommendChoice(request);
+        }
+
+        private DiscoverRecommendationResult RecommendLocalDiscoverSilently(DiscoverRecommendationRequest request)
+        {
+            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
+            return RecommendLocalDiscover(request);
         }
 
         private MulliganRecommendationResult RecommendMulliganWithLearning(MulliganRecommendationRequest request)
@@ -692,7 +711,9 @@ namespace BotMain
             MulliganRecommendationResult teacherRecommendation = null;
 
             if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _localRecommendationProvider.RecommendMulligan(request);
+                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
+                    ? RecommendLocalMulliganSilently(request)
+                    : _localRecommendationProvider.RecommendMulligan(request);
 
             if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
                 teacherRecommendation = _hsBoxRecommendationProvider.RecommendMulligan(request);
@@ -714,7 +735,9 @@ namespace BotMain
             ChoiceRecommendationResult teacherRecommendation = null;
 
             if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _localRecommendationProvider.RecommendChoice(request);
+                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
+                    ? RecommendLocalChoiceSilently(request)
+                    : _localRecommendationProvider.RecommendChoice(request);
 
             if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
                 teacherRecommendation = _hsBoxRecommendationProvider.RecommendChoice(request);
@@ -736,7 +759,9 @@ namespace BotMain
             DiscoverRecommendationResult teacherRecommendation = null;
 
             if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = RecommendLocalDiscover(request);
+                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
+                    ? RecommendLocalDiscoverSilently(request)
+                    : RecommendLocalDiscover(request);
 
             if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
                 teacherRecommendation = _hsBoxRecommendationProvider.RecommendDiscover(request);

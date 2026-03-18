@@ -16,6 +16,63 @@ namespace BotMain
         private readonly Action<string> _log;
         private readonly BotService _service;
         private static readonly bool ForwardProfileBotLogs = false;
+        private static readonly string[] SuppressibleFlagNames =
+        {
+            "_log",
+            "_startBot",
+            "_stopBot",
+            "_suspendBot",
+            "_resumeBot",
+            "_finishBot",
+            "_closeHs",
+            "_closeBot",
+            "_concede",
+            "_changeDeck",
+            "_changeProfile",
+            "_changeMulligan",
+            "_changeMode",
+            "_changeAfterArenaMode",
+            "_changeArenaProfile",
+            "_changeDiscoverProfile",
+            "_refreshDecks",
+            "_refreshProfiles",
+            "_refreshMulligans",
+            "_refresArenaProfiles",
+            "_refresDiscoverProfiles",
+            "_refreshArchetypes",
+            "_reloadPlugins",
+            "_setMinRank",
+            "_setMaxRank",
+            "_setMaxWins",
+            "_setMaxLosses",
+            "_setMaxHours",
+            "_setCloseHs",
+            "_setAutoConcede",
+            "_setAutoConcedeAlternative",
+            "_setAutoConcedeMaxRank",
+            "_setConcedeWhenLethal",
+            "_setThinkingRoutineEnabled",
+            "_setHoverRoutineEnabled",
+            "_setLatencySamplingRate",
+            "_acceptRequest",
+            "_declineRequest",
+            "_removeFriend",
+            "_whisperFriend",
+            "_switchAccount",
+            "_cancelQuest",
+            "_startRelogger",
+            "_stopRelogger",
+            "_sendEmote",
+            "_squelch",
+            "_unsquelch",
+            "_hover",
+            "_arrow",
+            "_sendRandomArrowFromHand",
+            "_sendRandomArrowFromBoard",
+            "_sendRandomHoverOnHand",
+            "_sendRandomHoverOnFriendlyMinions",
+            "_sendRandomHoverOnEnemyMinions"
+        };
         private readonly Dictionary<string, FieldInfo> _botFields = new();
 
         public BotApiHandler(BotService service, Action<string> log)
@@ -190,6 +247,11 @@ namespace BotMain
             PollSettingFlags();
             PollSocialFlags();
             PollEmoteFlags();
+        }
+
+        internal IDisposable BeginSuppressedSideEffects()
+        {
+            return new SuppressedSideEffectsScope(this);
         }
 
         private void PollLogs()
@@ -469,6 +531,46 @@ namespace BotMain
             3 => Bot.Mode.Casual,
             _ => Bot.Mode.Standard
         };
+
+        private sealed class SuppressedSideEffectsScope : IDisposable
+        {
+            private readonly BotApiHandler _owner;
+            private readonly Dictionary<string, bool> _flagSnapshot = new();
+            private readonly Queue<string> _logQueue;
+            private readonly List<string> _logSnapshot = new();
+
+            public SuppressedSideEffectsScope(BotApiHandler owner)
+            {
+                _owner = owner;
+                foreach (var flagName in SuppressibleFlagNames)
+                    _flagSnapshot[flagName] = owner.GetField(flagName, false);
+
+                _logQueue = owner.GetField<Queue<string>>("_logValue");
+                if (_logQueue != null)
+                {
+                    lock (_logQueue)
+                    {
+                        _logSnapshot.AddRange(_logQueue.ToList());
+                    }
+                }
+            }
+
+            public void Dispose()
+            {
+                foreach (var pair in _flagSnapshot)
+                    _owner.SetField(pair.Key, pair.Value);
+
+                if (_logQueue == null)
+                    return;
+
+                lock (_logQueue)
+                {
+                    _logQueue.Clear();
+                    foreach (var entry in _logSnapshot)
+                        _logQueue.Enqueue(entry);
+                }
+            }
+        }
     }
 }
 
