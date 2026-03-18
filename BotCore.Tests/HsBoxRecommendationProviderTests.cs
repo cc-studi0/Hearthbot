@@ -778,7 +778,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void BattlegroundsBridge_ConvertStepToCommand_UsesTargetZonePositionForMagneticPlay()
+        public void BattlegroundsBridge_ConvertStepToCommand_UsesTargetZonePositionAsReferenceForMagneticPlay()
         {
             var shopMap = new Dictionary<int, int>();
             var boardMap = new Dictionary<int, int> { [7] = 7007 };
@@ -804,6 +804,36 @@ namespace BotCore.Tests
             };
 
             Assert.Equal("BG_PLAY|9009|7007|7", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_MagneticPlay_PreservesExplicitReferencePosition()
+        {
+            var shopMap = new Dictionary<int, int>();
+            var boardMap = new Dictionary<int, int> { [7] = 7007 };
+            var handMap = new Dictionary<int, int> { [9] = 9009 };
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play",
+                Position = 2,
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_DEEP_015",
+                    cardName = "义肢假手",
+                    position = 9,
+                    zoneName = "hand"
+                }),
+                Target = new HsBoxCardRef
+                {
+                    CardId = "BG34_Giant_590",
+                    CardName = "时空扭曲烂肠",
+                    Position = 7,
+                    ZoneName = "play"
+                }
+            };
+
+            Assert.Equal("BG_PLAY|9009|7007|2", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]

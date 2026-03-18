@@ -771,9 +771,11 @@ namespace BotMain
                         targetEntityId = ResolveBgTargetEntityId(target, boardMap, shopMap, preferBoard: true);
                     }
 
-                    var boardPosition = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
+                    // BG_PLAY 第 4 段仅保留普通 board-drop 参考位。
+                    // 磁力的“贴到目标左侧”最终落点由 payload 执行层按运行时坐标再解析。
+                    var dropPositionReference = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
                     if (cardEntityId > 0)
-                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{boardPosition}";
+                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}";
                     return null;
                 }
                 case "hero_skill":
@@ -847,9 +849,10 @@ namespace BotMain
             if (position > 0)
                 return position;
 
-            // 磁力/指向性随从兜底：当来源明确在 hand，且回退位次已经超过战旗最大站位 7 时，
-            // 这个数字更可能是“手牌槽位”而不是“板面落位”。此时应使用目标随从当前位次，
-            // 表示“插入到它左侧的缝隙”。
+            // 战旗桥接层只负责给 BG_PLAY 提供一个“普通落位参考位”。
+            // 若来源明确在 hand，且 fallback 看起来像手牌槽位，则回退成目标当前位次，
+            // 让执行层至少拿到与目标相关的 board-drop 参考值。
+            // 真正的磁力贴合坐标由 payload 执行层在运行时按目标左侧解析，不在这里编码。
             var sourceZoneName = step?.GetPrimaryCard()?.ZoneName ?? string.Empty;
             var fallbackLooksLikeHandSlot = string.Equals(sourceZoneName, "hand", StringComparison.OrdinalIgnoreCase)
                 && fallbackPosition > 7;
@@ -3781,9 +3784,8 @@ namespace BotMain
             if (position > 0)
                 return position;
 
-            // 磁力/指向性随从兜底：当来源明确在 hand，且回退位次已经超过战旗最大站位 7 时，
-            // 这个数字更可能是“手牌槽位”而不是“板面落位”。此时应使用目标随从当前位次，
-            // 表示“插入到它左侧的缝隙”。
+            // 战旗桥接层只保留普通 board-drop 参考位，不在协议层编码磁力的最终贴合坐标。
+            // 当 fallback 更像手牌槽位时，回退成目标当前位次，供 payload 执行层继续解析。
             var sourceZoneName = step?.GetPrimaryCard()?.ZoneName ?? string.Empty;
             var fallbackLooksLikeHandSlot = string.Equals(sourceZoneName, "hand", StringComparison.OrdinalIgnoreCase)
                 && fallbackPosition > 7;

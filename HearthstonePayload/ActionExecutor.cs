@@ -568,6 +568,7 @@ namespace HearthstonePayload
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
                         int targetHeroSide = -1; // -1: 非英雄目标, 0: 我方英雄, 1: 敌方英雄
                         bool sourceUsesBoardDrop = false;
+                        bool isMagneticPlay = false;
 
                         try
                         {
@@ -580,11 +581,14 @@ namespace HearthstonePayload
 
                             var gs = GetGameState();
                             if (gs != null)
+                            {
                                 TryUsesBoardDropForPlay(gs, handEntityId, out sourceUsesBoardDrop);
+                                isMagneticPlay = IsBattlegroundMagneticPlay(gs, handEntityId, targetEntityId);
+                            }
                         }
                         catch { }
 
-                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position, targetHeroSide, sourceUsesBoardDrop));
+                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position, targetHeroSide, sourceUsesBoardDrop, isMagneticPlay));
                     }
                 case "BG_HERO_PICK":
                     {
@@ -8212,6 +8216,100 @@ namespace HearthstonePayload
             return 0;
         }
 
+        private static bool IsBattlegroundMagneticPlay(object gameState, int handEntityId, int targetEntityId)
+        {
+            if (gameState == null || handEntityId <= 0 || targetEntityId <= 0)
+                return false;
+
+            if (!TryGetFriendlyBattlefieldEntityZonePosition(gameState, targetEntityId, out _))
+                return false;
+
+            var sourceEntity = GetEntity(gameState, handEntityId);
+            if (sourceEntity == null)
+                return false;
+
+            return HasSourceEntityTag(sourceEntity, "MAGNETIC")
+                || SourceHasMechanic(sourceEntity, "MAGNETIC");
+        }
+
+        private static bool TryGetFriendlyBattlefieldCards(object gameState, out IEnumerable cards)
+        {
+            cards = null;
+            if (gameState == null)
+                return false;
+
+            var friendly = Invoke(gameState, "GetFriendlySidePlayer") ?? Invoke(gameState, "GetFriendlyPlayer");
+            if (friendly == null)
+                return false;
+
+            var zone = Invoke(friendly, "GetBattlefieldZone") ?? Invoke(friendly, "GetPlayZone");
+            if (zone == null)
+                return false;
+
+            cards = Invoke(zone, "GetCards") as IEnumerable
+                ?? GetFieldOrProp(zone, "m_cards") as IEnumerable
+                ?? zone as IEnumerable;
+            return cards != null;
+        }
+
+        private static bool TryGetFriendlyBattlefieldEntityZonePosition(object gameState, int entityId, out int zonePosition)
+        {
+            zonePosition = 0;
+            if (entityId <= 0 || !TryGetFriendlyBattlefieldCards(gameState, out var cards) || cards == null)
+                return false;
+
+            foreach (var rawCard in cards)
+            {
+                if (rawCard == null)
+                    continue;
+
+                var entity = Invoke(rawCard, "GetEntity")
+                    ?? GetFieldOrProp(rawCard, "Entity")
+                    ?? rawCard;
+                if (entity == null || ResolveEntityId(entity) != entityId)
+                    continue;
+
+                zonePosition = ResolveEntityZonePosition(gameState, entityId);
+                return zonePosition > 0;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveBattlegroundsMagneticDropScreenPos(
+            object gameState,
+            int targetEntityId,
+            int totalMinions,
+            out int x,
+            out int y,
+            out int targetZonePosition,
+            out int leftGapX,
+            out int leftGapY)
+        {
+            x = y = 0;
+            leftGapX = leftGapY = 0;
+            targetZonePosition = 0;
+
+            if (gameState == null || targetEntityId <= 0 || totalMinions <= 0)
+                return false;
+
+            if (!TryGetFriendlyBattlefieldEntityZonePosition(gameState, targetEntityId, out targetZonePosition)
+                || targetZonePosition <= 0)
+            {
+                return false;
+            }
+
+            if (!GameObjectFinder.GetEntityScreenPos(targetEntityId, out var targetX, out var targetY))
+                return false;
+
+            if (!GameObjectFinder.GetBoardDropZoneScreenPos(targetZonePosition, totalMinions, out leftGapX, out leftGapY))
+                return false;
+
+            x = (int)Math.Round(leftGapX * 0.35d + targetX * 0.65d, MidpointRounding.AwayFromZero);
+            y = (int)Math.Round(leftGapY * 0.25d + targetY * 0.75d, MidpointRounding.AwayFromZero);
+            return true;
+        }
+
         private static IEnumerator<float> BgPickHero(int choiceIndex)
         {
             InputHook.Simulating = true;
@@ -8557,7 +8655,7 @@ namespace HearthstonePayload
         /// <summary>
         /// 战旗打出手牌：从手牌拖到场上，可选带目标
         /// </summary>
-        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop)
+        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop, bool isMagneticPlay)
         {
             InputHook.Simulating = true;
 
@@ -8587,7 +8685,42 @@ namespace HearthstonePayload
             }
 
             int totalMinions = GetFriendlyMinionCount();
-            if (!TryResolveBattlegroundsBoardDropScreenPos(position, totalMinions, out var dx, out var dy))
+            var dx = 0;
+            var dy = 0;
+            var usedMagneticDrop = false;
+            if (sourceUsesBoardDrop && targetEntityId > 0 && isMagneticPlay)
+            {
+                var gsBeforeDrop = GetGameState();
+                if (TryResolveBattlegroundsMagneticDropScreenPos(
+                        gsBeforeDrop,
+                        targetEntityId,
+                        totalMinions,
+                        out dx,
+                        out dy,
+                        out var targetZonePosition,
+                        out var leftGapX,
+                        out var leftGapY))
+                {
+                    usedMagneticDrop = true;
+                    AppendActionTrace(
+                        "BG_PLAY magnetic_drop sourceEntityId=" + handEntityId
+                        + " targetEntityId=" + targetEntityId
+                        + " targetZonePosition=" + targetZonePosition
+                        + " leftGap=" + leftGapX + "," + leftGapY
+                        + " finalDrop=" + dx + "," + dy);
+                }
+                else
+                {
+                    AppendActionTrace(
+                        "BG_PLAY magnetic_drop fallback sourceEntityId=" + handEntityId
+                        + " targetEntityId=" + targetEntityId
+                        + " positionRef=" + position
+                        + " totalMinions=" + totalMinions);
+                }
+            }
+
+            if (!usedMagneticDrop
+                && !TryResolveBattlegroundsBoardDropScreenPos(position, totalMinions, out dx, out dy))
             {
                 dx = MouseSimulator.GetScreenWidth() / 2;
                 dy = (int)(MouseSimulator.GetScreenHeight() * 0.72f);
@@ -8620,55 +8753,57 @@ namespace HearthstonePayload
                     yield return 0.05f;
                 }
 
-                // 对“打出后再选目标”的战旗随从，目标确认态有时出现得比鼠标释放更慢。
-                // 这里先确认来源实体已经离开手牌，再主动解析并点击目标，随后再验证确认态是否关闭。
-                var targetConfirmed = false;
-                for (var attempt = 0; attempt < 2; attempt++)
+                if (!usedMagneticDrop)
                 {
-                    var gotTarget = false;
-                    var tx = 0;
-                    var ty = 0;
-                    for (var retry = 0; retry < 6 && !gotTarget; retry++)
+                    // 非磁力的“打出后再选目标”随从，仍沿用先落位再点击目标的旧逻辑。
+                    var targetConfirmed = false;
+                    for (var attempt = 0; attempt < 2; attempt++)
                     {
-                        if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out tx, out ty))
+                        var gotTarget = false;
+                        var tx = 0;
+                        var ty = 0;
+                        for (var retry = 0; retry < 6 && !gotTarget; retry++)
                         {
-                            gotTarget = true;
-                            break;
+                            if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out tx, out ty))
+                            {
+                                gotTarget = true;
+                                break;
+                            }
+
+                            if (retry < 5)
+                                yield return 0.1f;
                         }
 
-                        if (retry < 5)
-                            yield return 0.1f;
-                    }
-
-                    if (!gotTarget)
-                    {
-                        _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
-                        yield break;
-                    }
-
-                    foreach (var w in SmoothMove(tx, ty, 8, 0.008f)) yield return w;
-                    MouseSimulator.LeftDown();
-                    yield return 0.04f;
-                    MouseSimulator.LeftUp();
-
-                    for (var retry = 0; retry < 6; retry++)
-                    {
-                        if (!IsPlayTargetConfirmationPending(handEntityId))
+                        if (!gotTarget)
                         {
-                            targetConfirmed = true;
-                            break;
+                            _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
+                            yield break;
                         }
 
-                        yield return 0.06f;
+                        foreach (var w in SmoothMove(tx, ty, 8, 0.008f)) yield return w;
+                        MouseSimulator.LeftDown();
+                        yield return 0.04f;
+                        MouseSimulator.LeftUp();
+
+                        for (var retry = 0; retry < 6; retry++)
+                        {
+                            if (!IsPlayTargetConfirmationPending(handEntityId))
+                            {
+                                targetConfirmed = true;
+                                break;
+                            }
+
+                            yield return 0.06f;
+                        }
+
+                        if (targetConfirmed)
+                            break;
                     }
 
-                    if (targetConfirmed)
-                        break;
+                    targetConfirmationPending = !targetConfirmed
+                        && sourceLeftHand
+                        && IsPlayTargetConfirmationPending(handEntityId);
                 }
-
-                targetConfirmationPending = !targetConfirmed
-                    && sourceLeftHand
-                    && IsPlayTargetConfirmationPending(handEntityId);
             }
 
             yield return 0.2f;
@@ -8683,7 +8818,7 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            if (targetEntityId > 0)
+            if (targetEntityId > 0 && !usedMagneticDrop)
             {
                 if (!targetConfirmationPending)
                 {
