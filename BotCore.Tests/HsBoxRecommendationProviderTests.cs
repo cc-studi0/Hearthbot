@@ -739,6 +739,115 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_PlayFromHand_DoesNotFallbackToShopWhenHandMissing()
+        {
+            var shopMap = new Dictionary<int, int> { [4] = 404 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG21_005_G",
+                    cardName = "饥饿的魔蝠",
+                    position = 4,
+                    zoneName = "hand"
+                })
+            };
+
+            Assert.Null(HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_PlayMinionWithoutZone_DoesNotFallbackToShopWhenHandMissing()
+        {
+            var shopMap = new Dictionary<int, int> { [4] = 404 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play_minion",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_002",
+                    cardName = "测试随从",
+                    position = 4
+                })
+            };
+
+            Assert.Null(HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_PlayMinionFromHand_StillMapsToBgPlay()
+        {
+            var shopMap = new Dictionary<int, int> { [4] = 404 };
+            var boardMap = new Dictionary<int, int> { [1] = 601 };
+            var handMap = new Dictionary<int, int> { [4] = 504 };
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play_minion",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_002",
+                    cardName = "测试随从",
+                    position = 4,
+                    zoneName = "hand"
+                }),
+                Position = 1
+            };
+
+            Assert.Equal("BG_PLAY|504|0|1", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_PlaySpecialFromShop_StillMapsToBgBuy()
+        {
+            var shopMap = new Dictionary<int, int> { [4] = 404 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_SPELL_001",
+                    cardName = "测试法术",
+                    position = 4,
+                    zoneName = "baconshop"
+                })
+            };
+
+            Assert.Equal("BG_BUY|404|4", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
+        public void BattlegroundsBridge_ConvertStepToCommand_PlaySpecialWithoutZone_KeepsShopFallback()
+        {
+            var shopMap = new Dictionary<int, int> { [4] = 404 };
+            var boardMap = new Dictionary<int, int>();
+            var handMap = new Dictionary<int, int>();
+
+            var playStep = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "BG_SPELL_001",
+                    cardName = "测试法术",
+                    position = 4
+                })
+            };
+
+            Assert.Equal("BG_BUY|404|4", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+        }
+
+        [Fact]
         public void BattlegroundsBridge_ConvertStationsToCommands_UsesMinimumMoveCount()
         {
             var bgStateData = CreateBattlegroundBoardState(

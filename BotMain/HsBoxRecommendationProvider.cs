@@ -707,7 +707,8 @@ namespace BotMain
             Dictionary<int, int> boardMap,
             Dictionary<int, int> handMap,
             bool isHeroPick = false,
-            IReadOnlyList<BgHeroPowerRef> heroPowers = null)
+            IReadOnlyList<BgHeroPowerRef> heroPowers = null,
+            Action<string> log = null)
         {
             if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
                 return null;
@@ -741,27 +742,45 @@ namespace BotMain
                 case "play_special":
                 {
                     var pos = card?.GetZonePosition() ?? 0;
+                    var isStandardPlay = string.Equals(name, "play", StringComparison.Ordinal)
+                        || string.Equals(name, "play_minion", StringComparison.Ordinal);
+                    var isSpecialPlay = string.Equals(name, "special", StringComparison.Ordinal)
+                        || string.Equals(name, "play_special", StringComparison.Ordinal);
                     int cardEntityId = 0;
                     var cardZone = card?.ZoneName?.Trim().ToLowerInvariant() ?? string.Empty;
                     if (pos > 0)
                     {
-                        if (cardZone == "baconshop")
+                        var hasHandMatch = handMap.TryGetValue(pos, out var handEntityId);
+                        var hasShopMatch = shopMap.TryGetValue(pos, out var shopEntityId);
+                        if (cardZone == "hand")
                         {
-                            // 卡牌在商店区域（如特殊法术/任务奖励），优先查 shopMap，当作 BG_BUY
-                            if (shopMap.TryGetValue(pos, out var shopEntityId))
+                            cardEntityId = hasHandMatch ? handEntityId : 0;
+                        }
+                        else if (cardZone == "baconshop")
+                        {
+                            // 只有 special / play_special 才允许明确从商店区映射成购买。
+                            if (isSpecialPlay && hasShopMatch)
                                 return $"BG_BUY|{shopEntityId}|{pos}";
-                            // 回退查 handMap
-                            handMap.TryGetValue(pos, out cardEntityId);
+                            cardEntityId = 0;
                         }
                         else
                         {
-                            // 默认优先查 handMap
-                            if (!handMap.TryGetValue(pos, out cardEntityId))
+                            if (hasHandMatch)
                             {
-                                // 手牌中没找到，回退查 shopMap（有些 special 可能在商店）
-                                if (shopMap.TryGetValue(pos, out var shopFallbackEntityId))
-                                    return $"BG_BUY|{shopFallbackEntityId}|{pos}";
+                                cardEntityId = handEntityId;
                             }
+                            else if (isSpecialPlay && hasShopMatch)
+                            {
+                                // special / play_special 在区域缺失时保留旧兼容逻辑。
+                                return $"BG_BUY|{shopEntityId}|{pos}";
+                            }
+                        }
+
+                        if (cardEntityId <= 0 && isStandardPlay)
+                        {
+                            log?.Invoke(
+                                $"[BgBridge] 安全跳过 play: actionName={step.ActionName}, cardId={card?.CardId}, pos={pos}, zone={card?.ZoneName ?? string.Empty}, handHit={(hasHandMatch ? 1 : 0)}, shopHit={(hasShopMatch ? 1 : 0)}");
+                            return null;
                         }
                     }
 
@@ -866,6 +885,24 @@ namespace BotMain
             return fallbackPosition > 0 ? fallbackPosition : 0;
         }
 
+        private static bool IsSafelySkippedBattlegroundPlayStep(
+            HsBoxActionStep step,
+            Dictionary<int, int> handMap)
+        {
+            if (step == null)
+                return false;
+
+            var actionName = step.ActionName?.Trim().ToLowerInvariant();
+            if (!string.Equals(actionName, "play", StringComparison.Ordinal)
+                && !string.Equals(actionName, "play_minion", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var position = step.GetPrimaryCard()?.GetZonePosition() ?? 0;
+            return position > 0 && !handMap.ContainsKey(position);
+        }
+
         internal static List<string> MapStructuredCommands(
             IReadOnlyList<HsBoxActionStep> steps,
             Dictionary<int, int> shopMap,
@@ -892,7 +929,7 @@ namespace BotMain
                 if (stepName == "freeze" || stepName == "unfreeze")
                     sawFreezeLikeAction = true;
 
-                var cmd = ConvertStepToCommand(step, shopMap, boardMap, handMap, isHeroPick, heroPowers);
+                var cmd = ConvertStepToCommand(step, shopMap, boardMap, handMap, isHeroPick, heroPowers, log);
                 if (!string.IsNullOrWhiteSpace(cmd))
                 {
                     var stepTargetEntityId = ResolveBattlegroundStepTargetEntityId(step, boardMap, shopMap);
@@ -990,8 +1027,11 @@ namespace BotMain
                     }
                     else
                     {
-                        var cardInfo = step?.GetPrimaryCard();
-                        log?.Invoke($"[BgBridge]   映射失败: {step?.ActionName}, cardPos={cardInfo?.GetZonePosition()}, cardId={cardInfo?.CardId}");
+                        if (!IsSafelySkippedBattlegroundPlayStep(step, handMap))
+                        {
+                            var cardInfo = step?.GetPrimaryCard();
+                            log?.Invoke($"[BgBridge]   映射失败: {step?.ActionName}, cardPos={cardInfo?.GetZonePosition()}, cardId={cardInfo?.CardId}");
+                        }
                         pendingChoiceSourceId = 0;
                         pendingChoiceTargetEntityId = 0;
                     }
