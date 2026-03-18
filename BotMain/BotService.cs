@@ -1922,6 +1922,7 @@ namespace BotMain
 
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
+                RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
 
                 _pluginSystem?.FireOnSimulation();
 
@@ -3788,6 +3789,48 @@ namespace BotMain
             }
 
             return fallbackSeed;
+        }
+
+        private void RefreshPlanningBoardAfterReady(PipeServer pipe, ref string seed, ref Board planningBoard)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return;
+
+            if (!TryGetSeedProbe(pipe, 1200, out var refreshedResponse, "ActionPostReady")
+                || string.IsNullOrWhiteSpace(refreshedResponse)
+                || !refreshedResponse.StartsWith("SEED:", StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            var refreshedSeed = refreshedResponse.Substring("SEED:".Length);
+            if (string.IsNullOrWhiteSpace(refreshedSeed))
+                return;
+
+            try
+            {
+                var refreshedBoard = Board.FromSeed(refreshedSeed);
+                if (refreshedBoard == null)
+                    return;
+
+                var previousHandCount = planningBoard?.Hand?.Count ?? 0;
+                var previousMana = planningBoard?.ManaAvailable ?? 0;
+                seed = refreshedSeed;
+                planningBoard = refreshedBoard;
+                _botApiHandler?.SetCurrentBoard(planningBoard);
+                OnBoardUpdated?.Invoke(planningBoard);
+
+                var refreshedHandCount = planningBoard.Hand?.Count ?? 0;
+                var refreshedMana = planningBoard.ManaAvailable;
+                if (previousHandCount != refreshedHandCount || previousMana != refreshedMana)
+                {
+                    Log($"[Action] refreshed board after ready: hand {previousHandCount}->{refreshedHandCount}, mana {previousMana}->{refreshedMana}, turn={planningBoard.TurnCount}");
+                }
+            }
+            catch
+            {
+                // keep the pre-ready board if the refreshed seed is malformed.
+            }
         }
 
         private bool TryHandlePendingDiscoverBeforePlanning(PipeServer pipe, string seed)
