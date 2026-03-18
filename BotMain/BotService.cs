@@ -6,6 +6,8 @@ using System.Linq;
 using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using BotMain.AI;
+using BotMain.Learning;
 using Newtonsoft.Json.Linq;
 using SmartBot.Arena;
 using SmartBot.Database;
@@ -196,7 +198,22 @@ namespace BotMain
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
         private volatile bool _followHsBoxRecommendations;
+        private volatile bool _learnFromHsBoxRecommendations;
+        private volatile bool _useLearnedLocalStrategy;
         private volatile bool _saveHsBoxCallbacks;
+        private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
+        private readonly Dictionary<string, DeckDefinition> _deckDefinitionsByDisplayName = new(StringComparer.OrdinalIgnoreCase);
+        private LearnedDeckContext _currentDeckContext;
+        private string _currentLearningMatchId = string.Empty;
+
+        private sealed class DeckDefinition
+        {
+            public string Name { get; set; } = string.Empty;
+            public string ClassName { get; set; } = string.Empty;
+            public string DisplayName { get; set; } = string.Empty;
+            public List<ApiCard.Cards> FullDeckCards { get; } = new List<ApiCard.Cards>();
+            public string DeckSignature { get; set; } = string.Empty;
+        }
 
         private sealed class MulliganChoiceState
         {
@@ -208,6 +225,7 @@ namespace BotMain
         {
             public int OwnClass { get; set; }
             public int EnemyClass { get; set; }
+            public bool HasCoin { get; set; }
             public List<MulliganChoiceState> Choices { get; } = new();
         }
 
@@ -260,6 +278,8 @@ namespace BotMain
                 RecommendLocalChoice);
             _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
             _hsBoxRecommendationProvider.SetBgLog(msg => Log(msg));
+            _learnedStrategyCoordinator = new LearnedStrategyCoordinator();
+            _learnedStrategyCoordinator.OnLog = msg => Log(msg);
         }
 
         public void RefreshProfiles()
@@ -394,6 +414,20 @@ namespace BotMain
             Log($"[Settings] FollowHsBoxRecommendations={value}");
             if (value)
                 ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
+        }
+
+        public void SetLearnFromHsBoxRecommendations(bool value)
+        {
+            _learnFromHsBoxRecommendations = value;
+            Log($"[Settings] LearnFromHsBoxRecommendations={value}");
+            if (value)
+                ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
+        }
+
+        public void SetUseLearnedLocalStrategy(bool value)
+        {
+            _useLearnedLocalStrategy = value;
+            Log($"[Settings] UseLearnedLocalStrategy={value}");
         }
 
         public void SetHsBoxExecutablePath(string path)
@@ -604,6 +638,327 @@ namespace BotMain
                 : _localRecommendationProvider;
         }
 
+        private ActionRecommendationResult RecommendActionsWithLearning(ActionRecommendationRequest request)
+        {
+            if (request == null)
+                return new ActionRecommendationResult(null, Array.Empty<string>(), "request_null", shouldRetryWithoutAction: true);
+
+            ActionRecommendationResult localRecommendation = null;
+            ActionRecommendationResult teacherRecommendation = null;
+
+            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                localRecommendation = _localRecommendationProvider.RecommendActions(request);
+
+            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                teacherRecommendation = _hsBoxRecommendationProvider.RecommendActions(request);
+
+            if (_learnFromHsBoxRecommendations)
+                TryEnqueueActionLearning(request, teacherRecommendation, localRecommendation);
+
+            return _followHsBoxRecommendations
+                ? teacherRecommendation ?? localRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "teacher_missing", shouldRetryWithoutAction: true)
+                : localRecommendation ?? teacherRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "local_missing", shouldRetryWithoutAction: true);
+        }
+
+        private MulliganRecommendationResult RecommendMulliganWithLearning(MulliganRecommendationRequest request)
+        {
+            if (request == null)
+                return new MulliganRecommendationResult(Array.Empty<int>(), "request_null");
+
+            MulliganRecommendationResult localRecommendation = null;
+            MulliganRecommendationResult teacherRecommendation = null;
+
+            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                localRecommendation = _localRecommendationProvider.RecommendMulligan(request);
+
+            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                teacherRecommendation = _hsBoxRecommendationProvider.RecommendMulligan(request);
+
+            if (_learnFromHsBoxRecommendations)
+                TryEnqueueMulliganLearning(request, teacherRecommendation, localRecommendation);
+
+            return _followHsBoxRecommendations
+                ? teacherRecommendation ?? localRecommendation ?? new MulliganRecommendationResult(Array.Empty<int>(), "teacher_missing")
+                : localRecommendation ?? teacherRecommendation ?? new MulliganRecommendationResult(Array.Empty<int>(), "local_missing");
+        }
+
+        private ChoiceRecommendationResult RecommendChoiceWithLearning(ChoiceRecommendationRequest request)
+        {
+            if (request == null)
+                return new ChoiceRecommendationResult(Array.Empty<int>(), "request_null");
+
+            ChoiceRecommendationResult localRecommendation = null;
+            ChoiceRecommendationResult teacherRecommendation = null;
+
+            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                localRecommendation = _localRecommendationProvider.RecommendChoice(request);
+
+            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                teacherRecommendation = _hsBoxRecommendationProvider.RecommendChoice(request);
+
+            if (_learnFromHsBoxRecommendations)
+                TryEnqueueChoiceLearning(request, teacherRecommendation, localRecommendation);
+
+            return _followHsBoxRecommendations
+                ? teacherRecommendation ?? localRecommendation ?? new ChoiceRecommendationResult(Array.Empty<int>(), "teacher_missing")
+                : localRecommendation ?? teacherRecommendation ?? new ChoiceRecommendationResult(Array.Empty<int>(), "local_missing");
+        }
+
+        private DiscoverRecommendationResult RecommendDiscoverWithLearning(DiscoverRecommendationRequest request)
+        {
+            if (request == null)
+                return new DiscoverRecommendationResult(0, "request_null");
+
+            DiscoverRecommendationResult localRecommendation = null;
+            DiscoverRecommendationResult teacherRecommendation = null;
+
+            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                localRecommendation = RecommendLocalDiscover(request);
+
+            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+                teacherRecommendation = _hsBoxRecommendationProvider.RecommendDiscover(request);
+
+            if (_learnFromHsBoxRecommendations)
+                TryEnqueueDiscoverLearning(request, teacherRecommendation, localRecommendation);
+
+            return _followHsBoxRecommendations
+                ? teacherRecommendation ?? localRecommendation ?? new DiscoverRecommendationResult(0, "teacher_missing")
+                : localRecommendation ?? teacherRecommendation ?? new DiscoverRecommendationResult(0, "local_missing");
+        }
+
+        private void TryEnqueueActionLearning(
+            ActionRecommendationRequest request,
+            ActionRecommendationResult teacherRecommendation,
+            ActionRecommendationResult localRecommendation)
+        {
+            if (request == null
+                || request.PlanningBoard == null
+                || string.IsNullOrWhiteSpace(request.DeckSignature)
+                || teacherRecommendation?.ShouldRetryWithoutAction == true)
+            {
+                return;
+            }
+
+            var teacherAction = GetFirstLearnableAction(teacherRecommendation?.Actions);
+            if (string.IsNullOrWhiteSpace(teacherAction))
+                return;
+
+            var localAction = GetFirstLearnableAction(localRecommendation?.Actions);
+            _learnedStrategyCoordinator.EnqueueActionSample(new ActionLearningSample
+            {
+                MatchId = _currentLearningMatchId,
+                PayloadSignature = teacherRecommendation.SourcePayloadSignature,
+                DeckName = request.DeckName,
+                DeckSignature = request.DeckSignature,
+                Seed = request.Seed,
+                PlanningBoard = request.PlanningBoard,
+                RemainingDeckCards = request.RemainingDeckCards ?? Array.Empty<ApiCard.Cards>(),
+                TeacherAction = teacherAction,
+                LocalAction = localAction ?? string.Empty
+            });
+        }
+
+        private void TryEnqueueMulliganLearning(
+            MulliganRecommendationRequest request,
+            MulliganRecommendationResult teacherRecommendation,
+            MulliganRecommendationResult localRecommendation)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.DeckSignature)
+                || request.Choices == null
+                || request.Choices.Count == 0)
+            {
+                return;
+            }
+
+            _learnedStrategyCoordinator.EnqueueMulliganSample(new MulliganLearningSample
+            {
+                MatchId = _currentLearningMatchId,
+                DeckName = request.DeckName,
+                DeckSignature = request.DeckSignature,
+                FullDeckCards = request.FullDeckCards ?? Array.Empty<ApiCard.Cards>(),
+                OwnClass = request.OwnClass,
+                EnemyClass = request.EnemyClass,
+                HasCoin = request.HasCoin,
+                Choices = request.Choices
+                    .Select(choice => new MulliganLearningChoice
+                    {
+                        CardId = choice.CardId,
+                        EntityId = choice.EntityId
+                    })
+                    .ToList(),
+                TeacherReplaceEntityIds = teacherRecommendation?.ReplaceEntityIds?.ToList() ?? new List<int>(),
+                LocalReplaceEntityIds = localRecommendation?.ReplaceEntityIds?.ToList() ?? new List<int>()
+            });
+        }
+
+        private void TryEnqueueChoiceLearning(
+            ChoiceRecommendationRequest request,
+            ChoiceRecommendationResult teacherRecommendation,
+            ChoiceRecommendationResult localRecommendation)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.DeckSignature)
+                || request.Options == null
+                || request.Options.Count == 0
+                || teacherRecommendation?.ShouldRetryWithoutAction == true)
+            {
+                return;
+            }
+
+            var teacherSelected = teacherRecommendation?.SelectedEntityIds?.ToList() ?? new List<int>();
+            if (teacherSelected.Count == 0)
+                return;
+
+            _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
+            {
+                MatchId = _currentLearningMatchId,
+                PayloadSignature = teacherRecommendation?.SourcePayloadSignature ?? string.Empty,
+                DeckName = request.DeckName,
+                DeckSignature = request.DeckSignature,
+                Mode = request.Mode,
+                OriginCardId = request.SourceCardId,
+                Seed = request.Seed,
+                Options = request.Options
+                    .Select(option => new ChoiceLearningOption
+                    {
+                        EntityId = option.EntityId,
+                        CardId = option.CardId
+                    })
+                    .ToList(),
+                TeacherSelectedEntityIds = teacherSelected,
+                LocalSelectedEntityIds = localRecommendation?.SelectedEntityIds?.ToList() ?? new List<int>()
+            });
+        }
+
+        private void TryEnqueueDiscoverLearning(
+            DiscoverRecommendationRequest request,
+            DiscoverRecommendationResult teacherRecommendation,
+            DiscoverRecommendationResult localRecommendation)
+        {
+            if (request == null
+                || string.IsNullOrWhiteSpace(request.DeckSignature)
+                || request.ChoiceEntityIds == null
+                || request.ChoiceCardIds == null
+                || request.ChoiceEntityIds.Count == 0
+                || request.ChoiceCardIds.Count == 0
+                || teacherRecommendation?.ShouldRetryWithoutAction == true)
+            {
+                return;
+            }
+
+            var teacherIndex = teacherRecommendation.PickedIndex;
+            if (teacherIndex < 0 || teacherIndex >= Math.Min(request.ChoiceEntityIds.Count, request.ChoiceCardIds.Count))
+                return;
+
+            var localSelectedIds = new List<int>();
+            var localIndex = localRecommendation?.PickedIndex ?? -1;
+            if (localIndex >= 0 && localIndex < request.ChoiceEntityIds.Count)
+                localSelectedIds.Add(request.ChoiceEntityIds[localIndex]);
+
+            _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
+            {
+                MatchId = _currentLearningMatchId,
+                PayloadSignature = teacherRecommendation?.SourcePayloadSignature ?? string.Empty,
+                DeckName = request.DeckName,
+                DeckSignature = request.DeckSignature,
+                Mode = request.IsRewindChoice ? "TIMELINE" : "DISCOVER",
+                OriginCardId = request.OriginCardId,
+                Seed = request.Seed,
+                Options = request.ChoiceCardIds
+                    .Zip(request.ChoiceEntityIds, (cardId, entityId) => new ChoiceLearningOption
+                    {
+                        CardId = cardId,
+                        EntityId = entityId
+                    })
+                    .ToList(),
+                TeacherSelectedEntityIds = new List<int> { request.ChoiceEntityIds[teacherIndex] },
+                LocalSelectedEntityIds = localSelectedIds
+            });
+        }
+
+        private string GetFirstLearnableAction(IReadOnlyList<string> actions)
+        {
+            var normalized = NormalizeRecommendedActions(actions?.ToList());
+            return normalized.FirstOrDefault(action =>
+                !string.IsNullOrWhiteSpace(action)
+                && !action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
+                && !action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private LearnedDeckContext ResolveDeckContext(IReadOnlyList<ApiCard.Cards> remainingDeckCards)
+        {
+            DeckDefinition selectedDefinition = null;
+            lock (_deckDefinitionsByDisplayName)
+            {
+                if (!string.IsNullOrWhiteSpace(_selectedDeck)
+                    && !string.Equals(_selectedDeck, "(auto)", StringComparison.OrdinalIgnoreCase)
+                    && _deckDefinitionsByDisplayName.TryGetValue(_selectedDeck, out var configured))
+                {
+                    selectedDefinition = configured;
+                }
+                else if (_deckDefinitionsByDisplayName.Count == 1)
+                {
+                    selectedDefinition = _deckDefinitionsByDisplayName.Values.FirstOrDefault();
+                }
+                else if (remainingDeckCards != null && remainingDeckCards.Count > 0)
+                {
+                    selectedDefinition = _deckDefinitionsByDisplayName.Values
+                        .Select(definition => new
+                        {
+                            Definition = definition,
+                            Score = CountDeckSubsetMatches(definition.FullDeckCards, remainingDeckCards)
+                        })
+                        .Where(item => item.Score >= remainingDeckCards.Count)
+                        .OrderByDescending(item => item.Score)
+                        .ThenBy(item => item.Definition.DisplayName, StringComparer.OrdinalIgnoreCase)
+                        .Select(item => item.Definition)
+                        .FirstOrDefault();
+                }
+            }
+
+            if (selectedDefinition == null)
+                return null;
+
+            return new LearnedDeckContext
+            {
+                DeckName = selectedDefinition.DisplayName,
+                DeckSignature = selectedDefinition.DeckSignature,
+                FullDeckCards = selectedDefinition.FullDeckCards.ToList(),
+                RemainingDeckCards = remainingDeckCards != null
+                    ? remainingDeckCards.ToList()
+                    : (IReadOnlyList<ApiCard.Cards>)Array.Empty<ApiCard.Cards>()
+            };
+        }
+
+        private static int CountDeckSubsetMatches(IReadOnlyList<ApiCard.Cards> deckCards, IReadOnlyList<ApiCard.Cards> remainingDeckCards)
+        {
+            if (deckCards == null || remainingDeckCards == null || remainingDeckCards.Count == 0)
+                return 0;
+
+            var counts = new Dictionary<ApiCard.Cards, int>();
+            foreach (var card in deckCards)
+            {
+                if (card == 0)
+                    continue;
+
+                counts.TryGetValue(card, out var current);
+                counts[card] = current + 1;
+            }
+
+            var matched = 0;
+            foreach (var card in remainingDeckCards)
+            {
+                if (card == 0 || !counts.TryGetValue(card, out var current) || current <= 0)
+                    return -1;
+
+                counts[card] = current - 1;
+                matched++;
+            }
+
+            return matched;
+        }
+
         public void ReloadPlugins()
         {
             _pluginSystem?.Dispose();
@@ -648,6 +1003,7 @@ namespace BotMain
             var result = parts[0];
             var concedeFromGame = parts.Length > 1
                 && string.Equals(parts[1], "CONCEDED", StringComparison.OrdinalIgnoreCase);
+            var learnedOutcome = LearnedMatchOutcome.Unknown;
 
             Log($"[GameResult] 解析结果: {result}{(concedeFromGame ? " (投降)" : "")}");
 
@@ -659,6 +1015,7 @@ namespace BotMain
                 _pluginSystem?.FireOnVictory();
                 Log("[Game] Victory");
                 PublishStatsChanged();
+                learnedOutcome = LearnedMatchOutcome.Win;
             }
             else if (result == "LOSS")
             {
@@ -673,16 +1030,24 @@ namespace BotMain
                 _pluginSystem?.FireOnDefeat();
                 Log("[Game] Defeat");
                 PublishStatsChanged();
+                learnedOutcome = LearnedMatchOutcome.Loss;
             }
             else if (result == "TIE")
             {
                 Log("[GameResult] 平局，不计入胜负");
                 ClearPendingConcedeLoss();
+                learnedOutcome = LearnedMatchOutcome.Tie;
             }
             else
             {
                 Log($"[GameResult] 未知结果类型: {result}");
                 ClearPendingConcedeLoss();
+            }
+
+            if (!string.IsNullOrWhiteSpace(_currentLearningMatchId))
+            {
+                _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, learnedOutcome);
+                _currentLearningMatchId = string.Empty;
             }
         }
 
@@ -1124,6 +1489,8 @@ namespace BotMain
                             _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                             _postGameSinceUtc = null;
                             _postGameLobbyConfirmCount = 0;
+                            _currentLearningMatchId = Guid.NewGuid().ToString("N");
+                            _currentDeckContext = ResolveDeckContext(null);
                             HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                             _pluginSystem?.FireOnGameBegin();
                         }
@@ -1267,6 +1634,8 @@ namespace BotMain
                     _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
                     _postGameSinceUtc = null;
                     _postGameLobbyConfirmCount = 0;
+                    _currentLearningMatchId = Guid.NewGuid().ToString("N");
+                    _currentDeckContext = ResolveDeckContext(null);
                     HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
                     _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
                     _pluginSystem?.FireOnGameBegin();
@@ -1351,16 +1720,21 @@ namespace BotMain
                 }
                 catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
+                _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
+                var actionRequest = new ActionRecommendationRequest(
+                    seed,
+                    planningBoard,
+                    _selectedProfile,
+                    deckCards,
+                    currentTurnStartedUtc == DateTime.MinValue
+                        ? 0
+                        : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
+                    _currentDeckContext?.DeckName,
+                    _currentDeckContext?.DeckSignature,
+                    deckCards);
+
                 var sw = Stopwatch.StartNew();
-                var recommendation = GetRecommendationProvider().RecommendActions(
-                    new ActionRecommendationRequest(
-                        seed,
-                        planningBoard,
-                        _selectedProfile,
-                        deckCards,
-                        currentTurnStartedUtc == DateTime.MinValue
-                            ? 0
-                            : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds()));
+                var recommendation = RecommendActionsWithLearning(actionRequest);
                 var decision = recommendation?.DecisionPlan;
                 var actions = recommendation?.Actions?.ToList();
 
@@ -3436,7 +3810,7 @@ namespace BotMain
                     return false;
 
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                var recommendation = GetRecommendationProvider().RecommendChoice(
+                var recommendation = RecommendChoiceWithLearning(
                     new ChoiceRecommendationRequest(
                         currentState.SnapshotId,
                         currentState.ChoiceId,
@@ -3452,7 +3826,9 @@ namespace BotMain
                         strategySeed,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
-                        _lastConsumedHsBoxChoicePayloadSignature));
+                        _lastConsumedHsBoxChoicePayloadSignature,
+                        _currentDeckContext?.DeckName,
+                        _currentDeckContext?.DeckSignature));
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
                 if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
@@ -3577,7 +3953,7 @@ namespace BotMain
                 var maintainIdx = choiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && choiceCardIds.Contains("TIME_000tb");
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
-                var recommendation = GetRecommendationProvider().RecommendDiscover(
+                var recommendation = RecommendDiscoverWithLearning(
                     new DiscoverRecommendationRequest(
                         originCardId,
                         choiceCardIds,
@@ -3587,7 +3963,9 @@ namespace BotMain
                         maintainIdx,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
-                        _lastConsumedHsBoxChoicePayloadSignature));
+                        _lastConsumedHsBoxChoicePayloadSignature,
+                        _currentDeckContext?.DeckName,
+                        _currentDeckContext?.DeckSignature));
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     Log($"[Choice] wait_retry origin={originCardId} detail={recommendation.Detail}");
@@ -3720,7 +4098,7 @@ namespace BotMain
                 var strategySeed = GetLatestSeedForDiscover(pipe, seed);
                 var maintainIdx = currentState.ChoiceCardIds.IndexOf("TIME_000ta");
                 var isRewindChoice = maintainIdx >= 0 && currentState.ChoiceCardIds.Contains("TIME_000tb");
-                var recommendation = GetRecommendationProvider().RecommendDiscover(
+                var recommendation = RecommendDiscoverWithLearning(
                     new DiscoverRecommendationRequest(
                         currentState.SourceCardId,
                         currentState.ChoiceCardIds,
@@ -3730,7 +4108,9 @@ namespace BotMain
                         maintainIdx,
                         new DateTimeOffset(DateTime.UtcNow).ToUnixTimeMilliseconds(),
                         _lastConsumedHsBoxChoiceUpdatedAtMs,
-                        _lastConsumedHsBoxChoicePayloadSignature));
+                        _lastConsumedHsBoxChoicePayloadSignature,
+                        _currentDeckContext?.DeckName,
+                        _currentDeckContext?.DeckSignature));
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     Log($"[Discover] wait_retry choiceId={currentState.ChoiceId} source={currentState.SourceCardId} detail={recommendation.Detail}");
@@ -4188,7 +4568,21 @@ namespace BotMain
 
         private ActionRecommendationResult RecommendLocalActions(ActionRecommendationRequest request)
         {
-            var decision = _ai.DecideActionPlan(request.Seed, request.SelectedProfile, request.DeckCards?.ToList());
+            Action<Board, SimBoard, ProfileParameters> parameterMutator = null;
+            if (_useLearnedLocalStrategy)
+            {
+                parameterMutator = (board, simBoard, parameters) =>
+                {
+                    if (_learnedStrategyCoordinator.Runtime.TryApplyActionPatch(request, board, simBoard, parameters, out var learnedDetail))
+                        Log($"[Learned] {learnedDetail}");
+                };
+            }
+
+            var decision = _ai.DecideActionPlan(
+                request.Seed,
+                request.SelectedProfile,
+                request.DeckCards?.ToList(),
+                parameterMutator);
             var actions = decision?.Actions?.ToList() ?? new List<string>();
             var detail = request.SelectedProfile?.GetType().Name ?? "no_profile";
 
@@ -4270,10 +4664,17 @@ namespace BotMain
 
         private MulliganRecommendationResult RecommendLocalMulligan(MulliganRecommendationRequest request)
         {
+            if (_useLearnedLocalStrategy
+                && _learnedStrategyCoordinator.Runtime.TryRecommendMulligan(request, out var learnedResult))
+            {
+                return learnedResult;
+            }
+
             var snapshot = new MulliganStateSnapshot
             {
                 OwnClass = request.OwnClass,
-                EnemyClass = request.EnemyClass
+                EnemyClass = request.EnemyClass,
+                HasCoin = request.HasCoin
             };
 
             foreach (var choice in request.Choices ?? Array.Empty<RecommendationChoiceState>())
@@ -4293,6 +4694,12 @@ namespace BotMain
         {
             if (request == null || request.ChoiceCardIds == null || request.ChoiceCardIds.Count == 0)
                 return new DiscoverRecommendationResult(0, "discover fallback:first choice");
+
+            if (_useLearnedLocalStrategy
+                && _learnedStrategyCoordinator.Runtime.TryRecommendDiscover(request, out var learnedResult))
+            {
+                return learnedResult;
+            }
 
             if (request.IsRewindChoice && request.MaintainIndex >= 0 && request.MaintainIndex < request.ChoiceCardIds.Count)
             {
@@ -4314,6 +4721,12 @@ namespace BotMain
             if (request == null || request.Options == null || request.Options.Count == 0)
                 return new ChoiceRecommendationResult(Array.Empty<int>(), "choice fallback:none");
 
+            if (_useLearnedLocalStrategy
+                && _learnedStrategyCoordinator.Runtime.TryRecommendChoice(request, out var learnedResult))
+            {
+                return learnedResult;
+            }
+
             var discoverLikeMode =
                 string.Equals(request.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(request.Mode, "DREDGE", StringComparison.OrdinalIgnoreCase)
@@ -4332,7 +4745,10 @@ namespace BotMain
                     request.IsRewindChoice,
                     request.MaintainIndex,
                     request.MinimumUpdatedAtMs,
-                    request.LastConsumedUpdatedAtMs));
+                    request.LastConsumedUpdatedAtMs,
+                    request.LastConsumedPayloadSignature,
+                    request.DeckName,
+                    request.DeckSignature));
                 var pickedIndex = discoverResult?.PickedIndex ?? 0;
                 if (pickedIndex < 0 || pickedIndex >= request.Options.Count)
                     pickedIndex = 0;
@@ -5496,6 +5912,8 @@ namespace BotMain
             nextMulliganAttemptUtc = DateTime.MinValue;
             mulliganPhaseStartedUtc = DateTime.MinValue;
             playActionFailStreakByEntity.Clear();
+            _currentDeckContext = null;
+            _currentLearningMatchId = string.Empty;
             HsBoxCallbackCapture.EndMatchSession();
             AutoQueue(pipe);
         }
@@ -5554,7 +5972,8 @@ namespace BotMain
                     return false;
                 }
 
-                var recommendation = GetRecommendationProvider().RecommendMulligan(
+                _currentDeckContext = ResolveDeckContext(null) ?? _currentDeckContext;
+                var recommendation = RecommendMulliganWithLearning(
                     new MulliganRecommendationRequest(
                         snapshot.OwnClass,
                         snapshot.EnemyClass,
@@ -5563,7 +5982,11 @@ namespace BotMain
                             .ToList(),
                         mulliganPhaseStartedUtc == DateTime.MinValue
                             ? 0
-                            : new DateTimeOffset(mulliganPhaseStartedUtc).ToUnixTimeMilliseconds()));
+                            : new DateTimeOffset(mulliganPhaseStartedUtc).ToUnixTimeMilliseconds(),
+                        _currentDeckContext?.DeckName,
+                        _currentDeckContext?.DeckSignature,
+                        _currentDeckContext?.FullDeckCards,
+                        snapshot.HasCoin));
                 var replaceEntityIds = recommendation?.ReplaceEntityIds?.ToList() ?? new List<int>();
                 var decisionInfo = recommendation?.Detail ?? string.Empty;
 
@@ -5675,7 +6098,8 @@ namespace BotMain
             snapshot = new MulliganStateSnapshot
             {
                 OwnClass = parsed.OwnClass,
-                EnemyClass = parsed.EnemyClass
+                EnemyClass = parsed.EnemyClass,
+                HasCoin = parsed.HasCoin
             };
 
             foreach (var choice in parsed.Choices)
@@ -6184,16 +6608,48 @@ namespace BotMain
                 var resp = _pipe?.SendAndReceive("GET_DECKS", 4000);
                 if (resp != null && resp.StartsWith("DECKS:", StringComparison.Ordinal))
                 {
-                    var deckNames = resp.Substring(6)
-                        .Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries)
-                        .Select(d => d.Split('|'))
-                        .Where(p => p.Length >= 2 && !string.IsNullOrWhiteSpace(p[0]))
-                        .Select(p => $"{p[0]} ({p[1]})")
-                        .Distinct()
+                    var definitions = new Dictionary<string, DeckDefinition>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var rawDeck in resp.Substring(6).Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var parts = rawDeck.Split('|');
+                        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[0]))
+                            continue;
+
+                        var displayName = $"{parts[0]} ({parts[1]})";
+                        var definition = new DeckDefinition
+                        {
+                            Name = parts[0],
+                            ClassName = parts[1],
+                            DisplayName = displayName
+                        };
+
+                        if (parts.Length >= 3 && !string.IsNullOrWhiteSpace(parts[2]))
+                        {
+                            foreach (var rawCardId in parts[2].Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                            {
+                                if (TryParseCardId(rawCardId, out var card))
+                                    definition.FullDeckCards.Add(card);
+                            }
+                        }
+
+                        definition.DeckSignature = LearnedStrategyFeatureExtractor.ComputeDeckSignature(definition.FullDeckCards);
+                        definitions[displayName] = definition;
+                    }
+
+                    var deckNames = definitions.Keys
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
                         .ToList();
 
                     if (deckNames.Count > 0)
                     {
+                        lock (_deckDefinitionsByDisplayName)
+                        {
+                            _deckDefinitionsByDisplayName.Clear();
+                            foreach (var entry in definitions)
+                                _deckDefinitionsByDisplayName[entry.Key] = entry.Value;
+                        }
+
                         _decksLoaded = true;
                         Log($"Loaded {deckNames.Count} deck(s).");
                         OnDecksLoaded?.Invoke(deckNames);

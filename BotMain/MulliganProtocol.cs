@@ -13,6 +13,7 @@ namespace BotMain
     {
         public int OwnClass { get; set; }
         public int EnemyClass { get; set; }
+        public bool HasCoin { get; set; }
         public List<MulliganProtocolChoice> Choices { get; } = new List<MulliganProtocolChoice>();
     }
 
@@ -79,6 +80,12 @@ namespace BotMain
                 OwnClass = ownClass,
                 EnemyClass = enemyClass
             };
+
+            if (parts.Length >= 4)
+            {
+                snapshot.HasCoin = string.Equals(parts[3], "1", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(parts[3], "true", StringComparison.OrdinalIgnoreCase);
+            }
 
             if (parts.Length < 3 || string.IsNullOrWhiteSpace(parts[2]))
                 return true;

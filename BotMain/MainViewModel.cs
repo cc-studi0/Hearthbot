@@ -35,6 +35,8 @@ namespace BotMain
         private string _savedSmartBotRoot;
         private bool _settingsLoaded;
         private bool _followHsBoxOperation;
+        private bool _learnFromHsBox;
+        private bool _useLearnedLocalStrategy;
         private bool _saveHsBoxCallbacks;
         private string _hearthstoneExecutablePath;
         private string _hsBoxExecutablePath;
@@ -264,6 +266,34 @@ namespace BotMain
 
                 _saveHsBoxCallbacks = value;
                 _bot.SetSaveHsBoxCallbacks(value);
+                Notify();
+                AutoSave();
+            }
+        }
+        public bool LearnFromHsBox
+        {
+            get => _learnFromHsBox;
+            set
+            {
+                if (_learnFromHsBox == value)
+                    return;
+
+                _learnFromHsBox = value;
+                _bot.SetLearnFromHsBoxRecommendations(value);
+                Notify();
+                AutoSave();
+            }
+        }
+        public bool UseLearnedLocalStrategy
+        {
+            get => _useLearnedLocalStrategy;
+            set
+            {
+                if (_useLearnedLocalStrategy == value)
+                    return;
+
+                _useLearnedLocalStrategy = value;
+                _bot.SetUseLearnedLocalStrategy(value);
                 Notify();
                 AutoSave();
             }
@@ -550,6 +580,8 @@ namespace BotMain
                 dict["HearthstoneExecutablePath"] = JsonSerializer.SerializeToElement(HearthstoneExecutablePath);
                 dict["HsBoxExecutablePath"] = JsonSerializer.SerializeToElement(HsBoxExecutablePath);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
+                dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
+                dict["UseLearnedLocalStrategy"] = JsonSerializer.SerializeToElement(UseLearnedLocalStrategy);
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
@@ -600,6 +632,8 @@ namespace BotMain
                         if (dict.TryGetValue("HearthstoneExecutablePath", out v)) HearthstoneExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("HsBoxExecutablePath", out v)) HsBoxExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
+                        if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
+                        if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) UseLearnedLocalStrategy = v.GetBoolean();
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
@@ -617,6 +651,8 @@ namespace BotMain
             _bot.SetHearthstoneExecutablePath(HearthstoneExecutablePath);
             _bot.SetHsBoxExecutablePath(HsBoxExecutablePath);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
+            _bot.SetLearnFromHsBoxRecommendations(LearnFromHsBox);
+            _bot.SetUseLearnedLocalStrategy(UseLearnedLocalStrategy);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
         }
 

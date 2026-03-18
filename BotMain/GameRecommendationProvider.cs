@@ -82,13 +82,19 @@ namespace BotMain
             Board planningBoard,
             Profile selectedProfile,
             IReadOnlyList<ApiCard.Cards> deckCards,
-            long minimumUpdatedAtMs = 0)
+            long minimumUpdatedAtMs = 0,
+            string deckName = null,
+            string deckSignature = null,
+            IReadOnlyList<ApiCard.Cards> remainingDeckCards = null)
         {
             Seed = seed ?? string.Empty;
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
+            DeckName = deckName ?? string.Empty;
+            DeckSignature = deckSignature ?? string.Empty;
+            RemainingDeckCards = remainingDeckCards ?? deckCards ?? Array.Empty<ApiCard.Cards>();
         }
 
         public string Seed { get; }
@@ -96,6 +102,9 @@ namespace BotMain
         public Profile SelectedProfile { get; }
         public IReadOnlyList<ApiCard.Cards> DeckCards { get; }
         public long MinimumUpdatedAtMs { get; }
+        public string DeckName { get; }
+        public string DeckSignature { get; }
+        public IReadOnlyList<ApiCard.Cards> RemainingDeckCards { get; }
     }
 
     internal sealed class ActionRecommendationResult
@@ -104,18 +113,24 @@ namespace BotMain
             AIDecisionPlan decisionPlan,
             IReadOnlyList<string> actions,
             string detail,
-            bool shouldRetryWithoutAction = false)
+            bool shouldRetryWithoutAction = false,
+            long sourceUpdatedAtMs = 0,
+            string sourcePayloadSignature = null)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
             Detail = detail ?? string.Empty;
             ShouldRetryWithoutAction = shouldRetryWithoutAction;
+            SourceUpdatedAtMs = sourceUpdatedAtMs;
+            SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
         public IReadOnlyList<string> Actions { get; }
         public string Detail { get; }
         public bool ShouldRetryWithoutAction { get; }
+        public long SourceUpdatedAtMs { get; }
+        public string SourcePayloadSignature { get; }
     }
 
     internal sealed class BattlegroundActionRecommendationResult
@@ -251,18 +266,30 @@ namespace BotMain
             int ownClass,
             int enemyClass,
             IReadOnlyList<RecommendationChoiceState> choices,
-            long minimumUpdatedAtMs = 0)
+            long minimumUpdatedAtMs = 0,
+            string deckName = null,
+            string deckSignature = null,
+            IReadOnlyList<ApiCard.Cards> fullDeckCards = null,
+            bool hasCoin = false)
         {
             OwnClass = ownClass;
             EnemyClass = enemyClass;
             Choices = choices ?? Array.Empty<RecommendationChoiceState>();
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
+            DeckName = deckName ?? string.Empty;
+            DeckSignature = deckSignature ?? string.Empty;
+            FullDeckCards = fullDeckCards ?? Array.Empty<ApiCard.Cards>();
+            HasCoin = hasCoin;
         }
 
         public int OwnClass { get; }
         public int EnemyClass { get; }
         public IReadOnlyList<RecommendationChoiceState> Choices { get; }
         public long MinimumUpdatedAtMs { get; }
+        public string DeckName { get; }
+        public string DeckSignature { get; }
+        public IReadOnlyList<ApiCard.Cards> FullDeckCards { get; }
+        public bool HasCoin { get; }
     }
 
     internal sealed class MulliganRecommendationResult
@@ -292,7 +319,9 @@ namespace BotMain
             string seed,
             long minimumUpdatedAtMs = 0,
             long lastConsumedUpdatedAtMs = 0,
-            string lastConsumedPayloadSignature = null)
+            string lastConsumedPayloadSignature = null,
+            string deckName = null,
+            string deckSignature = null)
         {
             SnapshotId = snapshotId ?? string.Empty;
             ChoiceId = choiceId;
@@ -307,6 +336,8 @@ namespace BotMain
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
+            DeckName = deckName ?? string.Empty;
+            DeckSignature = deckSignature ?? string.Empty;
         }
 
         public string SnapshotId { get; }
@@ -322,6 +353,8 @@ namespace BotMain
         public long MinimumUpdatedAtMs { get; }
         public long LastConsumedUpdatedAtMs { get; }
         public string LastConsumedPayloadSignature { get; }
+        public string DeckName { get; }
+        public string DeckSignature { get; }
 
         public IReadOnlyList<string> ChoiceCardIds => Options.Select(option => option?.CardId ?? string.Empty).ToList();
         public IReadOnlyList<int> ChoiceEntityIds => Options.Select(option => option?.EntityId ?? 0).ToList();
@@ -364,7 +397,9 @@ namespace BotMain
             int maintainIndex,
             long minimumUpdatedAtMs = 0,
             long lastConsumedUpdatedAtMs = 0,
-            string lastConsumedPayloadSignature = null)
+            string lastConsumedPayloadSignature = null,
+            string deckName = null,
+            string deckSignature = null)
         {
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
@@ -375,6 +410,8 @@ namespace BotMain
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
+            DeckName = deckName ?? string.Empty;
+            DeckSignature = deckSignature ?? string.Empty;
         }
 
         public string OriginCardId { get; }
@@ -386,6 +423,8 @@ namespace BotMain
         public long MinimumUpdatedAtMs { get; }
         public long LastConsumedUpdatedAtMs { get; }
         public string LastConsumedPayloadSignature { get; }
+        public string DeckName { get; }
+        public string DeckSignature { get; }
 
         public ChoiceRecommendationRequest ToChoiceRecommendationRequest()
         {
@@ -407,7 +446,9 @@ namespace BotMain
                 Seed,
                 MinimumUpdatedAtMs,
                 LastConsumedUpdatedAtMs,
-                LastConsumedPayloadSignature);
+                LastConsumedPayloadSignature,
+                DeckName,
+                DeckSignature);
         }
     }
 

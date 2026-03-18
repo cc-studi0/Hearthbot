@@ -94,7 +94,9 @@ namespace BotMain
                 return new ActionRecommendationResult(
                     null,
                     actions,
-                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}");
+                    $"hsbox_actions {structuredDetail}; {lastBodyDetail}",
+                    sourceUpdatedAtMs: state.UpdatedAtMs,
+                    sourcePayloadSignature: state.PayloadSignature);
             }
 
             if (state != null
@@ -104,7 +106,9 @@ namespace BotMain
                     null,
                     Array.Empty<string>(),
                     $"hsbox_actions choice_deferred ({state.Detail})",
-                    shouldRetryWithoutAction: true);
+                    shouldRetryWithoutAction: true,
+                    sourceUpdatedAtMs: state.UpdatedAtMs,
+                    sourcePayloadSignature: state.PayloadSignature);
             }
 
             if (state != null
@@ -113,7 +117,9 @@ namespace BotMain
                 return new ActionRecommendationResult(
                     null,
                     bodyActions,
-                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}");
+                    $"hsbox_actions {bodyDetail}; {lastStructuredDetail}",
+                    sourceUpdatedAtMs: state.UpdatedAtMs,
+                    sourcePayloadSignature: state.PayloadSignature);
             }
 
             return new ActionRecommendationResult(

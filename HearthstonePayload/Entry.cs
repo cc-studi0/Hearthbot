@@ -458,8 +458,15 @@ namespace HearthstonePayload
                     var cardsResult = RunOnMainThread(() =>
                         (object)(ActionExecutor.GetMulliganChoiceCards() ?? string.Empty));
                     var cards = cardsResult as string ?? string.Empty;
+                    var hasCoinResult = RunOnMainThread(() => (object)ActionExecutor.GetMulliganHasCoinFlag());
+                    var hasCoin = hasCoinResult is bool boolValue && boolValue;
 
-                    _pipe.Write(string.Format("MULLIGAN_STATE:{0}|{1}|{2}", state.FriendClass, state.EnemyClass, cards));
+                    _pipe.Write(string.Format(
+                        "MULLIGAN_STATE:{0}|{1}|{2}|{3}",
+                        state.FriendClass,
+                        state.EnemyClass,
+                        cards,
+                        hasCoin ? 1 : 0));
                 }
             }
             else if (cmd.StartsWith("APPLY_MULLIGAN:", StringComparison.Ordinal))

@@ -2516,6 +2516,21 @@ namespace HearthstonePayload
             return string.Join(";", snapshot.ChoiceParts);
         }
 
+        public static bool GetMulliganHasCoinFlag()
+        {
+            if (!EnsureTypes())
+                return false;
+
+            var gs = GetGameState();
+            if (gs == null)
+                return false;
+
+            if (!TryGetMulliganReadySnapshot(out var snapshot, out _))
+                return false;
+
+            return snapshot.StartingCards.Count >= 4;
+        }
+
         private static List<int> GetMulliganStartingHandEntityIds()
         {
             var result = new List<int>();

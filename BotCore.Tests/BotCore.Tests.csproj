@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -23,6 +24,7 @@
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
+    <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
   </ItemGroup>

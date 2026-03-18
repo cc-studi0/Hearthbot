@@ -14,6 +14,7 @@ namespace BotCore.Tests
             Assert.NotNull(snapshot);
             Assert.Equal(3, snapshot.OwnClass);
             Assert.Equal(8, snapshot.EnemyClass);
+            Assert.False(snapshot.HasCoin);
             Assert.Collection(
                 snapshot.Choices,
                 choice =>
@@ -29,11 +30,11 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void TryParseState_IgnoresAppendedFields()
+        public void TryParseState_ParsesHasCoinAndIgnoresLaterFields()
         {
             Assert.True(
                 MulliganProtocol.TryParseState(
-                    "2|4|CORE_EX1_169,17;CORE_CS2_029,23|ready=1|detail=manager",
+                    "2|4|CORE_EX1_169,17;CORE_CS2_029,23|1|detail=manager",
                     out var snapshot,
                     out var error));
 
@@ -41,6 +42,7 @@ namespace BotCore.Tests
             Assert.NotNull(snapshot);
             Assert.Equal(2, snapshot.OwnClass);
             Assert.Equal(4, snapshot.EnemyClass);
+            Assert.True(snapshot.HasCoin);
             Assert.Equal(2, snapshot.Choices.Count);
             Assert.Equal("CORE_EX1_169", snapshot.Choices[0].CardId);
             Assert.Equal(17, snapshot.Choices[0].EntityId);

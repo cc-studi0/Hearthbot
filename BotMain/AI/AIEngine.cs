@@ -47,12 +47,20 @@ namespace BotMain
             _lethalFinder.OnLog += msg => OnLog?.Invoke(msg);
         }
 
-        public List<string> DecideActions(string seed, Profile profile = null, List<Card.Cards> deckCards = null)
+        public List<string> DecideActions(
+            string seed,
+            Profile profile = null,
+            List<Card.Cards> deckCards = null,
+            Action<Board, SimBoard, ProfileParameters> parameterMutator = null)
         {
-            return DecideActionPlan(seed, profile, deckCards).Actions;
+            return DecideActionPlan(seed, profile, deckCards, parameterMutator).Actions;
         }
 
-        public AIDecisionPlan DecideActionPlan(string seed, Profile profile = null, List<Card.Cards> deckCards = null)
+        public AIDecisionPlan DecideActionPlan(
+            string seed,
+            Profile profile = null,
+            List<Card.Cards> deckCards = null,
+            Action<Board, SimBoard, ProfileParameters> parameterMutator = null)
         {
             var decisionPlan = new AIDecisionPlan();
             try
@@ -79,6 +87,17 @@ namespace BotMain
                 }
 
                 var simBoard = SimBoard.FromBoard(board);
+                if (param != null && parameterMutator != null)
+                {
+                    try
+                    {
+                        parameterMutator(board, simBoard, param);
+                    }
+                    catch (Exception ex)
+                    {
+                        OnLog?.Invoke($"[AI] parameter mutator failed: {ex.Message}");
+                    }
+                }
 
                 // 注入牌库剩余卡牌列表
                 if (deckCards != null && deckCards.Count > 0)

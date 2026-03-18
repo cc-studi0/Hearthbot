@@ -102,6 +102,10 @@
                 <StackPanel Grid.Column="1" Margin="12,0,0,0">
                     <CheckBox Content="Follow HSBox" FontSize="11" IsChecked="{Binding FollowHsBoxOperation}" Margin="0,0,0,2"
                               ToolTip="动作、留牌、发现跟随 HSBox 推荐，不走本地 profile / mulligan / discover"/>
+                    <CheckBox Content="Learn From HSBox" FontSize="11" IsChecked="{Binding LearnFromHsBox}" Margin="0,0,0,2"
+                              ToolTip="保留本地 shadow 决策，把 HSBox 教师推荐蒸馏到本地 SQLite 策略库"/>
+                    <CheckBox Content="Use Learned Local" FontSize="11" IsChecked="{Binding UseLearnedLocalStrategy}" Margin="0,0,0,2"
+                              ToolTip="本地 profile / mulligan / discover 先叠加学习到的策略补丁，再回退到原逻辑"/>
                     <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}" Margin="0,0,0,2"
                               ToolTip="保存 HSBox 回调到 Logs/HsBoxCallbacks"/>
                     <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,2"/>
