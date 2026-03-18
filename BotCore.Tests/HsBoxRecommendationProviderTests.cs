@@ -50,6 +50,39 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesFriendlyEntityContext_WhenPlanningBoardHandIsEmpty()
+        {
+            var state = CreateState(
+                410,
+                raw: "coin-from-friendly-entities",
+                actionName: "play_special",
+                cardId: "GAME_005",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                new Board { Hand = new List<Card>() },
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_RemovesPrematureEndTurn_WhenStructuredSequenceStartsWithIt()
         {
             var board = new Board

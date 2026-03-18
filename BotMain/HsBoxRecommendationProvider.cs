@@ -326,7 +326,7 @@ namespace BotMain
                 return false;
             }
 
-            if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, out actions, out var mapDetail))
+            if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var mapDetail))
             {
                 detail = $"json=map_failed({mapDetail})";
                 return false;
@@ -352,7 +352,7 @@ namespace BotMain
                 return false;
             }
 
-            if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, out actions, out var bodyDetail))
+            if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var bodyDetail))
             {
                 detail = $"body=map_failed({bodyDetail})";
                 return false;
@@ -3005,7 +3005,12 @@ namespace BotMain
             }
         }
 
-        public static bool TryMapActions(HsBoxRecommendationState state, Board board, out List<string> actions, out string detail)
+        public static bool TryMapActions(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
         {
             actions = new List<string>();
             detail = "hsbox_action_state_invalid";
@@ -3034,9 +3039,9 @@ namespace BotMain
                     continue;
                 }
 
-                if (!TryMapSingleAction(step, board, lastChoiceCapableSourceEntityId, out var command, out var reason))
+                if (!TryMapSingleAction(step, board, friendlyEntities, lastChoiceCapableSourceEntityId, out var command, out var reason))
                 {
-                    detail = $"map_failed:{step.ActionName}:{reason}; {DescribeStepFailureContext(step, board)}; {state.Detail}";
+                    detail = $"map_failed:{step.ActionName}:{reason}; {DescribeStepFailureContext(step, board, friendlyEntities)}; {state.Detail}";
                     return false;
                 }
 
@@ -3111,7 +3116,12 @@ namespace BotMain
             return true;
         }
 
-        public static bool TryMapActionsFromBodyText(HsBoxRecommendationState state, Board board, out List<string> actions, out string detail)
+        public static bool TryMapActionsFromBodyText(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
         {
             actions = new List<string>();
             detail = "hsbox_action_text_state_invalid";
@@ -3125,7 +3135,7 @@ namespace BotMain
 
             var normalizedText = NormalizeBodyText(bodyText);
 
-            if (TryMapPlayActionFromBodyText(normalizedText, board, out var playCommand, out var playDetail))
+            if (TryMapPlayActionFromBodyText(normalizedText, board, friendlyEntities, out var playCommand, out var playDetail))
             {
                 actions.Add(playCommand);
                 detail = $"text_fallback {playDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
@@ -3683,6 +3693,7 @@ namespace BotMain
         private static bool TryMapSingleAction(
             HsBoxActionStep step,
             Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             int fallbackChoiceSourceEntityId,
             out string command,
             out string reason)
@@ -3700,26 +3711,26 @@ namespace BotMain
                 case "play_weapon":
                 case "play_hero":
                 case "play_location":
-                    return TryMapPlayAction(step, board, out command, out reason);
+                    return TryMapPlayAction(step, board, friendlyEntities, out command, out reason);
                 case "trade":
-                    return TryMapTradeAction(step, board, out command, out reason);
+                    return TryMapTradeAction(step, board, friendlyEntities, out command, out reason);
                 case "hero_attack":
                     return TryMapHeroAttack(step, board, out command, out reason);
                 case "minion_attack":
                     return TryMapMinionAttack(step, board, out command, out reason);
                 case "hero_skill":
-                    return TryMapHeroPower(step, board, out command, out reason);
+                    return TryMapHeroPower(step, board, friendlyEntities, out command, out reason);
                 case "location_power":
-                    return TryMapUseLocation(step, board, out command, out reason);
+                    return TryMapUseLocation(step, board, friendlyEntities, out command, out reason);
                 case "choose":
                 case "choice":
                 case "discard":
-                    return TryMapChoiceAction(step, board, fallbackChoiceSourceEntityId, out command, out reason);
+                    return TryMapChoiceAction(step, board, friendlyEntities, fallbackChoiceSourceEntityId, out command, out reason);
                 case "forge":
                 case "titan_power":
                 case "launch_starship":
                 case "common_action":
-                    return TryMapOptionAction(step, board, out command, out reason);
+                    return TryMapOptionAction(step, board, friendlyEntities, out command, out reason);
 
                 // ── 战旗模式动作 ──
                 case "buy_minion":
@@ -3856,7 +3867,7 @@ namespace BotMain
                 // 战旗动词
                 if (IsBattlegroundsActionName(name) || name == "end_turn" || name == "hero_skill")
                 {
-                    if (!TryMapSingleAction(step, null, 0, out var cmd, out var reason))
+                    if (!TryMapSingleAction(step, null, null, 0, out var cmd, out var reason))
                     {
                         detail = $"bg_map_failed:{name}:{reason}";
                         return false;
@@ -3929,10 +3940,15 @@ namespace BotMain
             return fallbackPosition > 0 ? fallbackPosition : 0;
         }
 
-        private static bool TryMapPlayAction(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapPlayAction(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, step.GetPrimaryCard());
+            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "play_source_not_found";
@@ -3961,10 +3977,15 @@ namespace BotMain
             return true;
         }
 
-        private static bool TryMapTradeAction(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapTradeAction(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, step.GetPrimaryCard());
+            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "trade_source_not_found";
@@ -4000,7 +4021,7 @@ namespace BotMain
         private static bool TryMapMinionAttack(HsBoxActionStep step, Board board, out string command, out string reason)
         {
             command = null;
-            var source = ResolveFriendlyBoardEntityId(board, step.GetPrimaryCard());
+            var source = ResolveFriendlyBoardEntityId(board, null, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "minion_attack_source_not_found";
@@ -4019,25 +4040,36 @@ namespace BotMain
             return true;
         }
 
-        private static bool TryMapHeroPower(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapHeroPower(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string reason)
         {
             command = null;
-            if (board?.Ability == null)
+            var source = ResolveFriendlyHeroPowerEntityId(board, friendlyEntities, step.GetPrimaryCard());
+            if (source <= 0)
             {
                 reason = "hero_power_not_found";
                 return false;
             }
 
             var target = ResolveTargetEntityId(board, step);
-            command = $"HERO_POWER|{board.Ability.Id}|{target}";
+            command = $"HERO_POWER|{source}|{target}";
             reason = "ok";
             return true;
         }
 
-        private static bool TryMapUseLocation(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapUseLocation(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string reason)
         {
             command = null;
-            var source = ResolveFriendlyBoardEntityId(board, step.GetPrimaryCard());
+            var source = ResolveFriendlyBoardEntityId(board, friendlyEntities, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "location_source_not_found";
@@ -4053,18 +4085,19 @@ namespace BotMain
         private static bool TryMapChoiceAction(
             HsBoxActionStep step,
             Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             int fallbackChoiceSourceEntityId,
             out string command,
             out string reason)
         {
-            if (TryMapOptionAction(step, board, out command, out reason))
+            if (TryMapOptionAction(step, board, friendlyEntities, out command, out reason))
             {
                 reason = "choice_as_option";
                 return true;
             }
 
             if (fallbackChoiceSourceEntityId > 0
-                && TryMapOptionActionWithFallbackSource(step, board, fallbackChoiceSourceEntityId, out command, out reason))
+                && TryMapOptionActionWithFallbackSource(step, board, friendlyEntities, fallbackChoiceSourceEntityId, out command, out reason))
             {
                 reason = "choice_as_option_with_previous_source";
                 return true;
@@ -4073,10 +4106,15 @@ namespace BotMain
             return false;
         }
 
-        private static bool TryMapOptionAction(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapOptionAction(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string reason)
         {
             command = null;
-            var source = ResolveFlexibleFriendlyEntityId(board, step.GetPrimaryCard());
+            var source = ResolveFlexibleFriendlyEntityId(board, friendlyEntities, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "option_source_not_found";
@@ -4096,6 +4134,7 @@ namespace BotMain
         private static bool TryMapOptionActionWithFallbackSource(
             HsBoxActionStep step,
             Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             int fallbackSourceEntityId,
             out string command,
             out string reason)
@@ -4261,37 +4300,75 @@ namespace BotMain
             return 0;
         }
 
-        private static int ResolveFriendlyHandEntityId(Board board, HsBoxCardRef card)
+        private static int ResolveFriendlyHandEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card)
         {
-            return ResolveOrderedEntityId(board?.Hand, card);
+            var source = ResolveOrderedEntityId(board?.Hand, card);
+            if (source > 0)
+                return source;
+
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "HAND", card, allowAnyCardIdMatch: false);
         }
 
-        private static int ResolveFriendlyBoardEntityId(Board board, HsBoxCardRef card)
+        private static int ResolveFriendlyBoardEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card)
         {
-            return ResolveBoardEntityId(board?.MinionFriend, card);
+            var source = ResolveBoardEntityId(board?.MinionFriend, card);
+            if (source > 0)
+                return source;
+
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowAnyCardIdMatch: true);
         }
 
-        private static int ResolveFlexibleFriendlyEntityId(Board board, HsBoxCardRef card)
+        private static int ResolveFlexibleFriendlyEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card)
         {
-            if (card == null || board == null)
+            if (card == null)
                 return 0;
 
-            var fromHand = ResolveOrderedEntityId(board.Hand, card);
+            var fromHand = ResolveFriendlyHandEntityId(board, friendlyEntities, card);
             if (fromHand > 0)
                 return fromHand;
 
-            var fromBoard = ResolveBoardEntityId(board.MinionFriend, card);
+            var fromBoard = ResolveFriendlyBoardEntityId(board, friendlyEntities, card);
             if (fromBoard > 0)
                 return fromBoard;
 
-            if (MatchesCardId(board.Ability, card.CardId))
+            if (MatchesCardId(board?.Ability, card.CardId))
                 return board.Ability.Id;
-            if (MatchesCardId(board.HeroFriend, card.CardId))
+            if (MatchesCardId(board?.HeroFriend, card.CardId))
                 return board.HeroFriend.Id;
-            if (MatchesCardId(board.WeaponFriend, card.CardId))
+            if (MatchesCardId(board?.WeaponFriend, card.CardId))
                 return board.WeaponFriend.Id;
 
+            if (friendlyEntities != null)
+            {
+                var heroPower = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "PLAY", 0, card.CardId);
+                if (heroPower > 0)
+                    return heroPower;
+            }
+
             return 0;
+        }
+
+        private static int ResolveFriendlyHeroPowerEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card)
+        {
+            if (board?.Ability != null
+                && (card == null || string.IsNullOrWhiteSpace(card.CardId) || MatchesCardId(board.Ability, card.CardId)))
+            {
+                return board.Ability.Id;
+            }
+
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowAnyCardIdMatch: true);
         }
 
         private static int ResolveBoardEntityId(IReadOnlyList<Card> cards, HsBoxCardRef card)
@@ -4313,6 +4390,70 @@ namespace BotMain
             }
 
             return cards.FirstOrDefault(candidate => MatchesCardId(candidate, card.CardId))?.Id ?? 0;
+        }
+
+        private static int ResolveFriendlyEntityIdFromSnapshots(
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            string zone,
+            HsBoxCardRef card,
+            bool allowAnyCardIdMatch)
+        {
+            if (friendlyEntities == null || friendlyEntities.Count == 0 || card == null)
+                return 0;
+
+            var zonePosition = card.GetZonePosition();
+            return ResolveFriendlyEntityIdByZonePosition(
+                friendlyEntities,
+                zone,
+                zonePosition,
+                allowAnyCardIdMatch ? card.CardId : card.CardId);
+        }
+
+        private static int ResolveFriendlyEntityIdByZonePosition(
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            string zone,
+            int oneBasedIndex,
+            string cardId)
+        {
+            if (friendlyEntities == null || friendlyEntities.Count == 0)
+                return 0;
+
+            var candidates = friendlyEntities
+                .Where(entity => IsFriendlyZone(entity, zone))
+                .OrderBy(entity => entity.ZonePosition)
+                .ThenBy(entity => entity.EntityId)
+                .ToList();
+            if (candidates.Count == 0)
+                return 0;
+
+            if (oneBasedIndex > 0)
+            {
+                var positional = candidates.FirstOrDefault(entity =>
+                    entity.ZonePosition == oneBasedIndex
+                    && MatchesCardId(entity.CardId, cardId));
+                if (positional != null)
+                    return positional.EntityId;
+
+                positional = candidates.FirstOrDefault(entity => entity.ZonePosition == oneBasedIndex);
+                if (positional != null)
+                    return positional.EntityId;
+            }
+
+            if (!string.IsNullOrWhiteSpace(cardId))
+            {
+                var byCard = candidates.FirstOrDefault(entity => MatchesCardId(entity.CardId, cardId));
+                if (byCard != null)
+                    return byCard.EntityId;
+            }
+
+            return 0;
+        }
+
+        private static bool IsFriendlyZone(EntityContextSnapshot entity, string zone)
+        {
+            return entity != null
+                   && entity.EntityId > 0
+                   && string.Equals(entity.Zone ?? string.Empty, zone ?? string.Empty, StringComparison.OrdinalIgnoreCase);
         }
 
         private static int FindChoiceIndex(IReadOnlyList<RecommendationChoiceState> choices, HsBoxCardRef desiredCard, bool[] used)
@@ -4499,12 +4640,23 @@ namespace BotMain
             + @"|\u4f7f\u7528\u82f1\u96c4\u6280\u80fd"
             + @"|\u7ed3\u675f\u56de\u5408)";
 
-        private static bool TryMapPlayActionFromBodyText(string bodyText, Board board, out string command, out string detail)
+        private static bool TryMapPlayActionFromBodyText(
+            string bodyText,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string detail)
         {
             command = null;
             detail = "play_text_not_found";
 
-            if (board?.Hand == null || board.Hand.Count == 0 || string.IsNullOrWhiteSpace(bodyText))
+            if ((board?.Hand == null || board.Hand.Count == 0)
+                && (friendlyEntities == null || !friendlyEntities.Any(entity => IsFriendlyZone(entity, "HAND"))))
+            {
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(bodyText))
                 return false;
 
             var match = Regex.Match(
@@ -4521,6 +4673,8 @@ namespace BotMain
             }
 
             var source = ResolveEntityIdByZonePosition(board.Hand, oneBasedIndex);
+            if (source <= 0)
+                source = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "HAND", oneBasedIndex, null);
             if (source <= 0)
             {
                 detail = $"play_text_source_missing:{oneBasedIndex}";
@@ -4772,13 +4926,16 @@ namespace BotMain
             return cards[oneBasedIndex - 1]?.Id ?? 0;
         }
 
-        private static string DescribeStepFailureContext(HsBoxActionStep step, Board board)
+        private static string DescribeStepFailureContext(
+            HsBoxActionStep step,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities)
         {
             var card = step?.GetPrimaryCard();
             var cardId = card?.CardId ?? string.Empty;
             var cardName = NormalizeDetailText(card?.CardName);
             var zonePosition = card?.GetZonePosition() ?? 0;
-            return $"action={step?.ActionName ?? "null"},cardId={cardId},cardName={cardName},zonePosition={zonePosition},hand={DescribeFriendlyHand(board)}";
+            return $"action={step?.ActionName ?? "null"},cardId={cardId},cardName={cardName},zonePosition={zonePosition},hand={DescribeFriendlyHand(board)},entities={DescribeFriendlyEntities(friendlyEntities)}";
         }
 
         private static string DescribeFriendlyHand(Board board)
@@ -4793,6 +4950,19 @@ namespace BotMain
                 return $"{index + 1}:{cardId}:{cardName}";
             });
 
+            return "[" + string.Join(",", entries) + "]";
+        }
+
+        private static string DescribeFriendlyEntities(IReadOnlyList<EntityContextSnapshot> friendlyEntities)
+        {
+            if (friendlyEntities == null || friendlyEntities.Count == 0)
+                return "[]";
+
+            var entries = friendlyEntities
+                .Where(entity => entity != null && entity.EntityId > 0)
+                .OrderBy(entity => entity.Zone)
+                .ThenBy(entity => entity.ZonePosition)
+                .Select(entity => $"{entity.Zone}:{entity.ZonePosition}:{entity.EntityId}:{entity.CardId}");
             return "[" + string.Join(",", entries) + "]";
         }
 
