@@ -48,56 +48,113 @@ namespace HearthstonePayload
         {
             if (!Init()) return new List<FriendlyEntityContextEntry>();
 
+            var entries = new List<FriendlyEntityContextEntry>();
             try
             {
                 var gameState = _ctx.CallStaticAny(_ctx.GameStateType, "Get");
                 if (gameState == null)
-                    return new List<FriendlyEntityContextEntry>();
+                    return entries;
 
                 var friendly = GetFriendlyPlayer(gameState);
                 if (friendly == null)
-                    return new List<FriendlyEntityContextEntry>();
+                    return entries;
 
-                var entries = new List<FriendlyEntityContextEntry>();
+                TryAddFriendlyContextHero(entries, friendly);
+                TryAddFriendlyContextHeroPower(entries, friendly);
+                TryAddFriendlyContextWeapon(entries, friendly);
+                TryAddFriendlyContextBattlefield(entries, friendly);
+                TryAddFriendlyContextHand(entries, friendly);
+            }
+            catch
+            {
+            }
 
+            return entries
+                .Where(entry => entry != null && entry.EntityId > 0)
+                .GroupBy(entry => entry.EntityId)
+                .Select(group => group.First())
+                .OrderBy(entry => entry.ZonePosition)
+                .ThenBy(entry => entry.EntityId)
+                .ToList();
+        }
+
+        private void TryAddFriendlyContextHero(List<FriendlyEntityContextEntry> entries, object friendly)
+        {
+            try
+            {
                 var hero = _ctx.CallAny(friendly, "GetHero");
                 AddFriendlyContextEntry(entries, hero, "HERO");
+            }
+            catch { }
+        }
 
+        private void TryAddFriendlyContextHeroPower(List<FriendlyEntityContextEntry> entries, object friendly)
+        {
+            try
+            {
                 var heroPower = _ctx.CallAny(friendly, "GetHeroPower");
                 AddFriendlyContextEntry(entries, heroPower, "HERO_POWER");
+            }
+            catch { }
+        }
 
+        private void TryAddFriendlyContextWeapon(List<FriendlyEntityContextEntry> entries, object friendly)
+        {
+            try
+            {
                 var weaponCard = _ctx.CallAny(friendly, "GetWeaponCard", "GetWeapon");
                 var weaponEntity = GetEntity(weaponCard);
                 AddFriendlyContextEntry(entries, weaponEntity, "WEAPON");
+            }
+            catch { }
+        }
 
+        private void TryAddFriendlyContextBattlefield(List<FriendlyEntityContextEntry> entries, object friendly)
+        {
+            try
+            {
                 var battlefield = _ctx.CallAny(friendly,
                     "GetBattlefieldZone",
                     "GetBattlefield",
                     "BattlefieldZone",
                     "PlayZone",
                     "m_playZone");
-                if (battlefield != null)
-                {
-                    foreach (var card in _ctx.CallGetCards(battlefield))
-                        AddFriendlyContextEntry(entries, GetEntity(card), "PLAY");
-                }
+                if (battlefield == null)
+                    return;
 
+                foreach (var card in _ctx.CallGetCards(battlefield))
+                    AddFriendlyContextEntry(entries, GetEntity(card), "PLAY");
+            }
+            catch { }
+        }
+
+        private void TryAddFriendlyContextHand(List<FriendlyEntityContextEntry> entries, object friendly)
+        {
+            try
+            {
                 var playerId = ResolvePlayerId(friendly);
                 foreach (var entity in ReadHandEntitiesFromEntityMap(playerId))
                     AddFriendlyContextEntry(entries, entity, "HAND");
 
-                return entries
-                    .Where(entry => entry != null && entry.EntityId > 0)
-                    .GroupBy(entry => entry.EntityId)
-                    .Select(group => group.First())
-                    .OrderBy(entry => entry.ZonePosition)
-                    .ThenBy(entry => entry.EntityId)
-                    .ToList();
+                if (entries.Any(entry => string.Equals(entry.Zone, "HAND", StringComparison.OrdinalIgnoreCase)))
+                    return;
             }
-            catch
+            catch { }
+
+            try
             {
-                return new List<FriendlyEntityContextEntry>();
+                var handZone = _ctx.CallAny(friendly,
+                    "GetHandZone",
+                    "GetHand",
+                    "HandZone",
+                    "m_handZone");
+                if (handZone == null)
+                    return;
+
+                foreach (var card in _ctx.CallGetCards(handZone))
+                    AddFriendlyContextEntry(entries, GetEntity(card), "HAND");
             }
+            catch { }
         }
 
         private object GetFriendlyPlayer(object gameState)
@@ -1237,6 +1294,28 @@ namespace HearthstonePayload
                         result.Add(data);
                 }
 
+                if (result.Count == 0)
+                {
+                    foreach (var entity in entities)
+                    {
+                        if (entity == null)
+                            continue;
+
+                        if (_ctx.GetTagValue(entity, "ZONE") != 3)
+                            continue;
+
+                        var data = ReadEntity(entity);
+                        if (data == null
+                            || string.IsNullOrWhiteSpace(data.CardId)
+                            || data.ZonePosition <= 0)
+                        {
+                            continue;
+                        }
+
+                        result.Add(data);
+                    }
+                }
+
                 // 按 ZonePosition 排序（手牌顺序）
                 result.Sort((a, b) => a.ZonePosition.CompareTo(b.ZonePosition));
             }
@@ -1253,8 +1332,6 @@ namespace HearthstonePayload
         private List<object> ReadHandEntitiesFromEntityMap(int friendlyPlayerId)
         {
             var result = new List<object>();
-            if (friendlyPlayerId <= 0)
-                return result;
 
             try
             {
@@ -1270,10 +1347,23 @@ namespace HearthstonePayload
 
                     if (_ctx.GetTagValue(entity, "ZONE") != 3)
                         continue;
-                    if (_ctx.GetTagValue(entity, "CONTROLLER") != friendlyPlayerId)
-                        continue;
 
-                    result.Add(entity);
+                    var controller = _ctx.GetTagValue(entity, "CONTROLLER");
+                    var cardId = GetCardId(entity);
+                    if (friendlyPlayerId > 0)
+                    {
+                        if (controller == friendlyPlayerId)
+                        {
+                            result.Add(entity);
+                            continue;
+                        }
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(cardId)
+                        && _ctx.GetTagValue(entity, "ZONE_POSITION") > 0)
+                    {
+                        result.Add(entity);
+                    }
                 }
             }
             catch
