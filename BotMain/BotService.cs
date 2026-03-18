@@ -201,6 +201,7 @@ namespace BotMain
         private volatile bool _learnFromHsBoxRecommendations;
         private volatile bool _useLearnedLocalStrategy;
         private volatile bool _saveHsBoxCallbacks;
+        private volatile bool _suppressAiLogs;
         private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
         private readonly MatchEntityProvenanceRegistry _matchEntityProvenanceRegistry = new MatchEntityProvenanceRegistry();
         private readonly Dictionary<string, DeckDefinition> _deckDefinitionsByDisplayName = new(StringComparer.OrdinalIgnoreCase);
@@ -647,11 +648,18 @@ namespace BotMain
             ActionRecommendationResult localRecommendation = null;
             ActionRecommendationResult teacherRecommendation = null;
 
-            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _localRecommendationProvider.RecommendActions(request);
-
-            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
+            if (_followHsBoxRecommendations)
+            {
                 teacherRecommendation = _hsBoxRecommendationProvider.RecommendActions(request);
+                if (_learnFromHsBoxRecommendations)
+                    localRecommendation = RecommendLocalActionsSilently(request);
+            }
+            else
+            {
+                localRecommendation = _localRecommendationProvider.RecommendActions(request);
+                if (_learnFromHsBoxRecommendations)
+                    teacherRecommendation = _hsBoxRecommendationProvider.RecommendActions(request);
+            }
 
             if (_learnFromHsBoxRecommendations)
                 TryEnqueueActionLearning(request, teacherRecommendation, localRecommendation);
@@ -659,6 +667,20 @@ namespace BotMain
             return _followHsBoxRecommendations
                 ? teacherRecommendation ?? localRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "teacher_missing", shouldRetryWithoutAction: true)
                 : localRecommendation ?? teacherRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "local_missing", shouldRetryWithoutAction: true);
+        }
+
+        private ActionRecommendationResult RecommendLocalActionsSilently(ActionRecommendationRequest request)
+        {
+            var previous = _suppressAiLogs;
+            _suppressAiLogs = true;
+            try
+            {
+                return _localRecommendationProvider.RecommendActions(request);
+            }
+            finally
+            {
+                _suppressAiLogs = previous;
+            }
         }
 
         private MulliganRecommendationResult RecommendMulliganWithLearning(MulliganRecommendationRequest request)
@@ -1386,7 +1408,11 @@ namespace BotMain
             if (_ai == null)
             {
                 _ai = new AIEngine();
-                _ai.OnLog += Log;
+                _ai.OnLog += msg =>
+                {
+                    if (!_suppressAiLogs)
+                        Log(msg);
+                };
                 Log("AI initialized");
             }
 
