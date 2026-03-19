@@ -467,7 +467,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|114|0|0", "OPTION|114|205|0|AT_037a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|114|0|0", "OPTION|114|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -537,7 +537,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|305|0|AT_037a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -596,7 +596,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "HERO_POWER|901|0", "OPTION|901|205|0|HERO_POWER_OPTION_A" }, result.Actions);
+            Assert.Equal(new[] { "HERO_POWER|901|0", "OPTION|901|0|0|HERO_POWER_OPTION_A", "OPTION|205|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -670,7 +670,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|431|0|AT_037a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|0|0|AT_037a", "OPTION|431|0|0" }, result.Actions);
             Assert.Contains("merge=body_target_hint", result.Detail);
         }
 
@@ -796,7 +796,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|115|0|0", "OPTION|115|205|0|AT_037a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|115|0|0", "OPTION|115|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
         }
 
         [Fact]

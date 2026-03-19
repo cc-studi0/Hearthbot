@@ -497,10 +497,22 @@ namespace BotMain
                 if (hintedTargetEntityId <= 0)
                     continue;
 
-                if (!TrySetActionCommandTarget(current, hintedTargetEntityId, out var rewritten))
-                    continue;
+                if (HasActionCommandSubOption(current))
+                {
+                    if (i + 1 >= merged.Count
+                        || !IsActionTargetClickCommand(merged[i + 1], hintedTargetEntityId))
+                    {
+                        merged.Insert(i + 1, BuildActionTargetClickCommand(hintedTargetEntityId));
+                    }
+                }
+                else
+                {
+                    if (!TrySetActionCommandTarget(current, hintedTargetEntityId, out var rewritten))
+                        continue;
 
-                merged[i] = rewritten;
+                    merged[i] = rewritten;
+                }
+
                 mergedAny = true;
             }
 
@@ -623,6 +635,39 @@ namespace BotMain
             parts[2] = targetEntityId.ToString();
             rewrittenCommand = string.Join("|", parts);
             return true;
+        }
+
+        private static bool HasActionCommandSubOption(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 5
+                && string.Equals(parts[0], "OPTION", StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(parts[4]);
+        }
+
+        private static bool IsActionTargetClickCommand(string command, int expectedTargetEntityId)
+        {
+            if (string.IsNullOrWhiteSpace(command) || expectedTargetEntityId <= 0)
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 4
+                && string.Equals(parts[0], "OPTION", StringComparison.OrdinalIgnoreCase)
+                && int.TryParse(parts[1], out var sourceEntityId)
+                && sourceEntityId == expectedTargetEntityId
+                && (!int.TryParse(parts[2], out var targetEntityId) || targetEntityId <= 0)
+                && (!int.TryParse(parts[3], out var position) || position == 0)
+                && (parts.Length < 5 || string.IsNullOrWhiteSpace(parts[4]));
+        }
+
+        private static string BuildActionTargetClickCommand(int targetEntityId)
+        {
+            return targetEntityId > 0
+                ? $"OPTION|{targetEntityId}|0|0"
+                : null;
         }
 
 
@@ -3391,14 +3436,30 @@ namespace BotMain
                         command = deferredPlayCommand;
                     }
 
+                    string followUpTargetClickCommand = null;
                     if (deferredChoiceBinding.IsArmed
                         && deferredChoiceBinding.StepIndex == stepIndex
                         && TryGetCommandSourceEntityId(command, out var pendingChoiceSourceEntityId)
-                        && pendingChoiceSourceEntityId == deferredChoiceBinding.SourceEntityId
-                        && (!TryGetCommandTargetEntityId(command, out var currentChoiceTargetEntityId) || currentChoiceTargetEntityId <= 0)
-                        && TrySetCommandTarget(command, deferredChoiceBinding.DeferredTargetEntityId, out var deferredChoiceCommand))
+                        && pendingChoiceSourceEntityId == deferredChoiceBinding.SourceEntityId)
                     {
-                        command = deferredChoiceCommand;
+                        var deferredTargetEntityId = 0;
+                        if (TryGetCommandTargetEntityId(command, out var currentChoiceTargetEntityId)
+                            && currentChoiceTargetEntityId > 0)
+                        {
+                            deferredTargetEntityId = currentChoiceTargetEntityId;
+                        }
+                        else
+                        {
+                            deferredTargetEntityId = deferredChoiceBinding.DeferredTargetEntityId;
+                        }
+
+                        if (deferredTargetEntityId > 0)
+                        {
+                            if (TrySetCommandTarget(command, 0, out var normalizedDeferredChoiceCommand))
+                                command = normalizedDeferredChoiceCommand;
+
+                            followUpTargetClickCommand = BuildConstructedTargetClickCommand(deferredTargetEntityId);
+                        }
                     }
 
                     actions.Add(command);
@@ -3407,7 +3468,14 @@ namespace BotMain
                     if (hasEmbeddedSubOption
                         && TryGetCommandSourceEntityId(command, out var embeddedPlaySourceId))
                     {
-                        actions.Add(BuildOptionCommand(embeddedPlaySourceId, shouldDeferCommandTargetToOption ? stepTargetEntityId : 0, 0, step.SubOption.CardId));
+                        actions.Add(BuildOptionCommand(embeddedPlaySourceId, 0, 0, step.SubOption.CardId));
+                        if (shouldDeferCommandTargetToOption && stepTargetEntityId > 0)
+                            actions.Add(BuildConstructedTargetClickCommand(stepTargetEntityId));
+                    }
+                    else if (!string.IsNullOrWhiteSpace(followUpTargetClickCommand))
+                    {
+                        actions.Add(followUpTargetClickCommand);
+                        deferredChoiceBinding.Clear();
                     }
                     else if (shouldDeferCommandTargetToOption
                         && deferredChoiceStepIndex >= 0
@@ -4821,6 +4889,13 @@ namespace BotMain
             return string.IsNullOrWhiteSpace(subOptionCardId)
                 ? $"OPTION|{sourceEntityId}|{targetEntityId}|{position}"
                 : $"OPTION|{sourceEntityId}|{targetEntityId}|{position}|{subOptionCardId}";
+        }
+
+        private static string BuildConstructedTargetClickCommand(int targetEntityId)
+        {
+            return targetEntityId > 0
+                ? BuildOptionCommand(targetEntityId, 0, 0, null)
+                : null;
         }
 
         private static bool IsChoiceCapableCommand(string command)
