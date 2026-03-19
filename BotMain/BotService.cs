@@ -3533,18 +3533,18 @@ namespace BotMain
 
             var firstAction = actions[0];
             var secondAction = actions[1];
-            if (TryMatchFollowHsBoxPlayOptionPair(firstAction, secondAction, out var sharedSourceEntityId, out var reason))
+            if (TryMatchFollowHsBoxPrimaryOptionPair(firstAction, secondAction, out var sharedSourceEntityId, out var reason))
             {
                 var keptActions = new List<string> { firstAction, secondAction };
                 if (actions.Count >= 3
                     && TryMatchFollowHsBoxOptionTargetClick(secondAction, actions[2], out var targetEntityId, out var targetReason))
                 {
                     keptActions.Add(actions[2]);
-                    Log($"[FollowBox] keep_follow_box_chain play+option+target source={sharedSourceEntityId} target={targetEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction} third={actions[2]}");
+                    Log($"[FollowBox] keep_follow_box_chain primary+option+target source={sharedSourceEntityId} target={targetEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction} third={actions[2]}");
                     return keptActions;
                 }
 
-                Log($"[FollowBox] keep_follow_box_pair play+option source={sharedSourceEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction}");
+                Log($"[FollowBox] keep_follow_box_pair primary+option source={sharedSourceEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction}");
                 return keptActions;
             }
 
@@ -3595,14 +3595,14 @@ namespace BotMain
                    && action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool TryMatchFollowHsBoxPlayOptionPair(
+        private static bool TryMatchFollowHsBoxPrimaryOptionPair(
             string firstAction,
             string secondAction,
             out int sharedSourceEntityId,
             out string reason)
         {
             sharedSourceEntityId = 0;
-            reason = "not_play_option_pair";
+            reason = "not_primary_option_pair";
 
             if (string.IsNullOrWhiteSpace(firstAction))
             {
@@ -3616,9 +3616,9 @@ namespace BotMain
                 return false;
             }
 
-            if (!firstAction.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase))
+            if (!IsFollowHsBoxPrimaryAction(firstAction))
             {
-                reason = "first_not_play";
+                reason = "first_not_primary";
                 return false;
             }
 
@@ -3630,7 +3630,7 @@ namespace BotMain
 
             if (!TryGetActionSourceEntityId(firstAction, out var playSourceEntityId))
             {
-                reason = "play_source_missing";
+                reason = "primary_source_missing";
                 return false;
             }
 
@@ -3647,8 +3647,18 @@ namespace BotMain
             }
 
             sharedSourceEntityId = playSourceEntityId;
-            reason = "play_option_source_match";
+            reason = "action_option_source_match";
             return true;
+        }
+
+        private static bool IsFollowHsBoxPrimaryAction(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            return action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryMatchFollowHsBoxOptionTargetClick(
@@ -3739,7 +3749,7 @@ namespace BotMain
             if (!_followHsBoxRecommendations)
                 return false;
 
-            return TryMatchFollowHsBoxPlayOptionPair(
+            return TryMatchFollowHsBoxPrimaryOptionPair(
                 currentAction,
                 nextAction,
                 out sharedSourceEntityId,
