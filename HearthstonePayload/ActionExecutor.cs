@@ -99,11 +99,15 @@ namespace HearthstonePayload
         private const int FriendlyDrawFallbackDelayMs = 420;
         private const int FriendlyDrawRecentGuardWindowMs = 2500;
         private const int ChoiceDecisionTraceDedupWindowMs = 1200;
+        private const int PendingOptionTargetSourceWindowMs = 5000;
         private static readonly object _friendlyDrawGateSync = new object();
         private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
         private static readonly object _choiceDecisionTraceSync = new object();
+        private static readonly object _pendingOptionTargetSourceSync = new object();
         private static string _lastChoiceDecisionTrace = string.Empty;
         private static int _lastChoiceDecisionTraceTick;
+        private static int _pendingOptionTargetSourceEntityId;
+        private static int _pendingOptionTargetSourceUntilTick;
 
         public static void Init(CoroutineExecutor executor)
         {
@@ -123,16 +127,19 @@ namespace HearthstonePayload
 
             if (!needsStructuredOption)
             {
-                if (WaitForTargetSelectionReady(3000))
+                var pendingSourceEntityId = GetPendingOptionTargetSourceEntityId();
+                if (WaitForPendingOptionTargetReady(pendingSourceEntityId, 3000))
                 {
-                    var targetClickResult = TryClickPendingTarget(sourceId);
+                    var targetClickResult = TryClickPendingTarget(sourceId, pendingSourceEntityId);
                     if (targetClickResult != null)
+                    {
+                        if (targetClickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            ClearPendingOptionTargetSource("target_click_confirmed");
                         return targetClickResult;
+                    }
                 }
 
-                if (TryGetCurrentChoiceSnapshotForEntity(sourceId, out _, out _))
-                    return _coroutine.RunAndWait(MouseClickChoice(sourceId, allowApiFallback: false));
-
+                ClearPendingOptionTargetSource("target_mode_not_ready");
                 return "FAIL:OPTION:target_mode_not_ready:" + sourceId;
             }
 
@@ -164,13 +171,19 @@ namespace HearthstonePayload
                 {
                     var chooseOneResult = TryResolveAndClickSubOption(sourceId, subOptionCardId);
                     if (chooseOneResult != null)
+                    {
+                        RememberPendingOptionTargetSource(sourceId, "suboption_inline");
                         return chooseOneResult;
+                    }
                 }
 
                 // SubOption UI 未自动弹出 —— 尝试泰坦/锻造等需要先点击实体才弹出选择 UI 的路径
                 var titanResult = TryExecuteTitanStyleOption(sourceId, subOptionCardId);
                 if (titanResult != null)
+                {
+                    RememberPendingOptionTargetSource(sourceId, "suboption_titan");
                     return titanResult;
+                }
 
                 return "FAIL:OPTION:suboption_not_found:" + sourceId + ":" + subOptionCardId;
             }
@@ -280,6 +293,27 @@ namespace HearthstonePayload
             return false;
         }
 
+        private static bool WaitForPendingOptionTargetReady(int sourceEntityId, int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount - deadline < 0)
+            {
+                if (HasTargetSelectionReady())
+                    return true;
+
+                if (sourceEntityId > 0
+                    && HasPendingTargetSelection(sourceEntityId)
+                    && !IsSubOptionUiReady())
+                {
+                    return true;
+                }
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
         private static bool HasPendingTargetSelection(int sourceId)
         {
             try
@@ -360,12 +394,15 @@ namespace HearthstonePayload
             return false;
         }
 
-        private static string TryClickPendingTarget(int targetId)
+        private static string TryClickPendingTarget(int targetId, int sourceEntityId)
         {
             if (targetId <= 0)
                 return null;
 
-            if (!HasTargetSelectionReady())
+            var canClickPendingTarget =
+                HasTargetSelectionReady()
+                || (sourceEntityId > 0 && HasPendingTargetSelection(sourceEntityId) && !IsSubOptionUiReady());
+            if (!canClickPendingTarget)
                 return null;
 
             var targetHeroSide = -1;
@@ -374,23 +411,77 @@ namespace HearthstonePayload
             else if (IsEnemyHeroEntityId(targetId))
                 targetHeroSide = 1;
 
-            if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
-                return "FAIL:OPTION_TARGET:pos_not_found:" + targetId;
-
-            var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
-            if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
-                return clickResult ?? "FAIL:OPTION_TARGET:click_failed:" + targetId;
-
-            var deadline = Environment.TickCount + 1800;
-            while (Environment.TickCount < deadline)
+            for (var attempt = 1; attempt <= 2; attempt++)
             {
-                if (!HasTargetSelectionReady())
-                    return "OK:OPTION:target_click:" + targetId;
+                if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
+                    return "FAIL:OPTION_TARGET:pos_not_found:" + targetId;
 
-                Thread.Sleep(60);
+                var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
+                if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                    return clickResult ?? "FAIL:OPTION_TARGET:click_failed:" + targetId;
+
+                var deadline = Environment.TickCount + 1800;
+                while (Environment.TickCount - deadline < 0)
+                {
+                    var stillPending =
+                        sourceEntityId > 0
+                        ? HasPendingTargetSelection(sourceEntityId)
+                        : HasTargetSelectionReady();
+                    if (!stillPending)
+                        return "OK:OPTION:target_click:" + targetId + ":mouse" + attempt;
+
+                    Thread.Sleep(60);
+                }
             }
 
             return "FAIL:OPTION_TARGET:not_confirmed:" + targetId;
+        }
+
+        private static void RememberPendingOptionTargetSource(int sourceEntityId, string reason)
+        {
+            if (sourceEntityId <= 0)
+                return;
+
+            lock (_pendingOptionTargetSourceSync)
+            {
+                _pendingOptionTargetSourceEntityId = sourceEntityId;
+                _pendingOptionTargetSourceUntilTick = Environment.TickCount + PendingOptionTargetSourceWindowMs;
+            }
+
+            AppendActionTrace("option_target_source remember source=" + sourceEntityId + " reason=" + (reason ?? "unknown"));
+        }
+
+        private static int GetPendingOptionTargetSourceEntityId()
+        {
+            lock (_pendingOptionTargetSourceSync)
+            {
+                if (_pendingOptionTargetSourceEntityId <= 0)
+                    return 0;
+
+                if (_pendingOptionTargetSourceUntilTick != 0
+                    && Environment.TickCount - _pendingOptionTargetSourceUntilTick >= 0)
+                {
+                    _pendingOptionTargetSourceEntityId = 0;
+                    _pendingOptionTargetSourceUntilTick = 0;
+                    return 0;
+                }
+
+                return _pendingOptionTargetSourceEntityId;
+            }
+        }
+
+        private static void ClearPendingOptionTargetSource(string reason)
+        {
+            int clearedSourceId;
+            lock (_pendingOptionTargetSourceSync)
+            {
+                clearedSourceId = _pendingOptionTargetSourceEntityId;
+                _pendingOptionTargetSourceEntityId = 0;
+                _pendingOptionTargetSourceUntilTick = 0;
+            }
+
+            if (clearedSourceId > 0)
+                AppendActionTrace("option_target_source clear source=" + clearedSourceId + " reason=" + (reason ?? "unknown"));
         }
 
         private static IEnumerator<float> MouseClickTargetCoroutine(int x, int y)
