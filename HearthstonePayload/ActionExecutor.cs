@@ -8299,11 +8299,13 @@ namespace HearthstonePayload
             out int y,
             out int targetZonePosition,
             out int leftGapX,
-            out int leftGapY)
+            out int leftGapY,
+            out string gapSource)
         {
             x = y = 0;
             leftGapX = leftGapY = 0;
             targetZonePosition = 0;
+            gapSource = string.Empty;
 
             if (gameState == null || targetEntityId <= 0 || totalMinions <= 0)
                 return false;
@@ -8317,11 +8319,52 @@ namespace HearthstonePayload
             if (!GameObjectFinder.GetEntityScreenPos(targetEntityId, out var targetX, out var targetY))
                 return false;
 
-            if (!GameObjectFinder.GetBoardDropZoneScreenPos(targetZonePosition, totalMinions, out leftGapX, out leftGapY))
-                return false;
+            var hasFallbackGap = GameObjectFinder.GetBoardDropZoneScreenPos(
+                targetZonePosition,
+                totalMinions,
+                out var fallbackGapX,
+                out var fallbackGapY);
 
-            x = (int)Math.Round(leftGapX * 0.35d + targetX * 0.65d, MidpointRounding.AwayFromZero);
-            y = (int)Math.Round(leftGapY * 0.25d + targetY * 0.75d, MidpointRounding.AwayFromZero);
+            var leftNeighborEntityId = ResolveFriendlyBoardEntityIdAtPosition(
+                gameState,
+                targetZonePosition - 1,
+                targetEntityId);
+            var leftNeighborX = 0;
+            var leftNeighborY = 0;
+            var hasLeftNeighbor = leftNeighborEntityId > 0
+                && GameObjectFinder.GetEntityScreenPos(leftNeighborEntityId, out leftNeighborX, out leftNeighborY);
+
+            var rightNeighborEntityId = ResolveFriendlyBoardEntityIdAtPosition(
+                gameState,
+                targetZonePosition + 1,
+                targetEntityId);
+            var rightNeighborX = 0;
+            var rightNeighborY = 0;
+            var hasRightNeighbor = rightNeighborEntityId > 0
+                && GameObjectFinder.GetEntityScreenPos(rightNeighborEntityId, out rightNeighborX, out rightNeighborY);
+
+            if (!BattlegroundsMagneticDropMath.TryResolveGapScreenPos(
+                    targetZonePosition,
+                    targetX,
+                    targetY,
+                    hasFallbackGap,
+                    fallbackGapX,
+                    fallbackGapY,
+                    hasLeftNeighbor,
+                    leftNeighborX,
+                    leftNeighborY,
+                    hasRightNeighbor,
+                    rightNeighborX,
+                    rightNeighborY,
+                    out leftGapX,
+                    out leftGapY,
+                    out gapSource))
+            {
+                return false;
+            }
+
+            x = leftGapX;
+            y = leftGapY;
             return true;
         }
 
@@ -8815,13 +8858,15 @@ namespace HearthstonePayload
                             out dy,
                             out var targetZonePosition,
                             out var leftGapX,
-                            out var leftGapY))
+                            out var leftGapY,
+                            out var gapSource))
                     {
                         usedMagneticDrop = true;
                         AppendActionTrace(
                             "BG_PLAY magnetic_drop sourceEntityId=" + handEntityId
                             + " targetEntityId=" + targetEntityId
                             + " targetZonePosition=" + targetZonePosition
+                            + " gapSource=" + gapSource
                             + " leftGap=" + leftGapX + "," + leftGapY
                             + " finalDrop=" + dx + "," + dy);
                     }
