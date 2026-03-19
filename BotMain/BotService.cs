@@ -3535,8 +3535,17 @@ namespace BotMain
             var secondAction = actions[1];
             if (TryMatchFollowHsBoxPlayOptionPair(firstAction, secondAction, out var sharedSourceEntityId, out var reason))
             {
-                Log($"[FollowBox] keep_follow_box_pair play+option source={sharedSourceEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - 2)} first={firstAction} second={secondAction}");
-                return new List<string> { firstAction, secondAction };
+                var keptActions = new List<string> { firstAction, secondAction };
+                if (actions.Count >= 3
+                    && TryMatchFollowHsBoxOptionTargetClick(secondAction, actions[2], out var targetEntityId, out var targetReason))
+                {
+                    keptActions.Add(actions[2]);
+                    Log($"[FollowBox] keep_follow_box_chain play+option+target source={sharedSourceEntityId} target={targetEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction} third={actions[2]}");
+                    return keptActions;
+                }
+
+                Log($"[FollowBox] keep_follow_box_pair play+option source={sharedSourceEntityId} total={actions.Count} dropped={Math.Max(0, actions.Count - keptActions.Count)} first={firstAction} second={secondAction}");
+                return keptActions;
             }
 
             Log($"[FollowBox] trim_follow_box_actions reason={reason} total={actions.Count} dropped={Math.Max(0, actions.Count - 1)} keep={firstAction} second={secondAction}");
@@ -3639,6 +3648,85 @@ namespace BotMain
 
             sharedSourceEntityId = playSourceEntityId;
             reason = "play_option_source_match";
+            return true;
+        }
+
+        private static bool TryMatchFollowHsBoxOptionTargetClick(
+            string optionAction,
+            string thirdAction,
+            out int targetEntityId,
+            out string reason)
+        {
+            targetEntityId = 0;
+            reason = "not_option_target_chain";
+
+            if (string.IsNullOrWhiteSpace(optionAction))
+            {
+                reason = "option_empty";
+                return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(thirdAction))
+            {
+                reason = "third_empty";
+                return false;
+            }
+
+            if (!optionAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "option_not_option";
+                return false;
+            }
+
+            if (!thirdAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+            {
+                reason = "third_not_option";
+                return false;
+            }
+
+            var optionParts = optionAction.Split('|');
+            if (optionParts.Length < 5 || string.IsNullOrWhiteSpace(optionParts[4]))
+            {
+                reason = "option_has_no_suboption";
+                return false;
+            }
+
+            var thirdParts = thirdAction.Split('|');
+            if (thirdParts.Length < 4)
+            {
+                reason = "third_invalid";
+                return false;
+            }
+
+            if (!int.TryParse(thirdParts[1], out targetEntityId) || targetEntityId <= 0)
+            {
+                targetEntityId = 0;
+                reason = "third_target_missing";
+                return false;
+            }
+
+            if (thirdParts.Length >= 5 && !string.IsNullOrWhiteSpace(thirdParts[4]))
+            {
+                reason = "third_has_suboption";
+                targetEntityId = 0;
+                return false;
+            }
+
+            if (int.TryParse(thirdParts[2], out var thirdTargetEntityId) && thirdTargetEntityId > 0)
+            {
+                reason = "third_is_not_target_click";
+                targetEntityId = 0;
+                return false;
+            }
+
+            if (int.TryParse(thirdParts[3], out var thirdPosition) && thirdPosition > 0)
+            {
+                reason = "third_has_position";
+                targetEntityId = 0;
+                return false;
+            }
+
+            reason = "option_target_click_match";
             return true;
         }
 
