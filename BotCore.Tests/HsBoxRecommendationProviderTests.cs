@@ -616,6 +616,77 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MergesBodyTargetHintIntoStructuredStandalonePlay()
+        {
+            var board = new Board
+            {
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 61,
+                        IsFriend = false,
+                        Template = CreateTemplate(Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                    }
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "TLC_230",
+                    cardName = "树群来袭",
+                    ZONE_POSITION = 5
+                }),
+                OppTarget = new HsBoxCardRef
+                {
+                    CardId = "CATA_525",
+                    CardName = "装甲放血纳迦",
+                    Position = 1
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 41,
+                UpdatedAtMs = 561,
+                Raw = "merge-body-target-hint-into-structured-play",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出5号位法术 树群来袭 目标是对方1号位随从 装甲放血纳迦",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 95,
+                        CardId = "TLC_230",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|95|61|0" }, result.Actions);
+            Assert.Contains("merge=body_target_hint", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_MapsChooseStepUsingPreviousPlaySourceAndDeferredTarget()
         {
             var board = CreateTargetedChooseBoard(115, 205);

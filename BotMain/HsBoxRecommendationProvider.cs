@@ -462,7 +462,7 @@ namespace BotMain
             out string detail)
         {
             detail = null;
-            if (structuredActions == null || structuredActions.Count < 2 || bodyActions == null || bodyActions.Count == 0)
+            if (structuredActions == null || structuredActions.Count == 0 || bodyActions == null || bodyActions.Count == 0)
                 return structuredActions;
 
             var merged = new List<string>(structuredActions);
@@ -504,10 +504,65 @@ namespace BotMain
                 mergedAny = true;
             }
 
+            for (var i = 0; i < merged.Count; i++)
+            {
+                var current = merged[i];
+                if (!current.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                    && !current.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                    && !current.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (!TryGetActionCommandSourceEntityId(current, out var currentSourceEntityId)
+                    || currentSourceEntityId <= 0)
+                {
+                    continue;
+                }
+
+                if (TryGetActionCommandTargetEntityId(current, out var currentTargetEntityId) && currentTargetEntityId > 0)
+                    continue;
+
+                // 抉择 / 发现链路会在后续 OPTION 命令里补目标，不能把 body 的目标直接灌回 PLAY。
+                if (HasDeferredOptionForSource(merged, i, currentSourceEntityId))
+                    continue;
+
+                var hintedTargetEntityId = FindBodyTargetHintForSource(bodyActions, currentSourceEntityId);
+                if (hintedTargetEntityId <= 0)
+                    continue;
+
+                if (!TrySetActionCommandTarget(current, hintedTargetEntityId, out var rewritten))
+                    continue;
+
+                merged[i] = rewritten;
+                mergedAny = true;
+            }
+
             if (mergedAny)
                 detail = "merge=body_target_hint";
 
             return mergedAny ? merged : structuredActions;
+        }
+
+        private static bool HasDeferredOptionForSource(IReadOnlyList<string> actions, int currentIndex, int sourceEntityId)
+        {
+            if (actions == null || currentIndex < 0 || sourceEntityId <= 0)
+                return false;
+
+            for (var i = currentIndex + 1; i < actions.Count; i++)
+            {
+                var candidate = actions[i];
+                if (!candidate.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (TryGetActionCommandSourceEntityId(candidate, out var optionSourceEntityId)
+                    && optionSourceEntityId == sourceEntityId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int FindBodyTargetHintForSource(IReadOnlyList<string> bodyActions, int sourceEntityId)
