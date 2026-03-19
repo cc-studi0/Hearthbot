@@ -120,6 +120,76 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesOnlyPrimaryStructuredRecommendation_WhenBodyTextHasNoReferenceMarkers()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 57,
+                UpdatedAtMs = 601,
+                Raw = "structured-primary-only-without-body-references",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打出3号位法术 伊瑟拉苏醒",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "DREAM_02",
+                                cardName = "伊瑟拉苏醒",
+                                ZONE_POSITION = 3
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "location_power",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "FIR_907",
+                                cardName = "阿梅达希尔",
+                                ZONE_POSITION = 1
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 101,
+                        CardId = "DREAM_02",
+                        Zone = "HAND",
+                        ZonePosition = 3
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 201,
+                        CardId = "FIR_907",
+                        Zone = "PLAY",
+                        ZonePosition = 1
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
+            Assert.Contains("scope=primary_action", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_BodyFallbackUsesOnlyReferenceA_WhenLaterRecommendationsContainPlayableAction()
         {
             var state = CreateState(

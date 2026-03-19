@@ -4983,10 +4983,11 @@ namespace BotMain
             if (steps == null)
                 return null;
 
-            if (!ShouldUsePrimaryRecommendationOnly(state) || steps.Count <= 1)
+            if (steps.Count <= 1)
                 return steps;
 
             var primarySteps = new List<HsBoxActionStep>();
+            var skippedPrematureEndTurnCount = 0;
             foreach (var step in steps)
             {
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
@@ -4994,6 +4995,12 @@ namespace BotMain
 
                 if (primarySteps.Count == 0)
                 {
+                    if (IsPrematureEndTurnRecommendation(step.ActionName, steps))
+                    {
+                        skippedPrematureEndTurnCount++;
+                        continue;
+                    }
+
                     primarySteps.Add(step);
                     continue;
                 }
@@ -5010,7 +5017,14 @@ namespace BotMain
             if (primarySteps.Count == 0)
                 return steps;
 
-            scopeDetail = $"scope=reference_a({primarySteps.Count}/{steps.Count})";
+            if (primarySteps.Count >= steps.Count)
+                return steps;
+
+            scopeDetail = ShouldUsePrimaryRecommendationOnly(state)
+                ? $"scope=reference_a({primarySteps.Count}/{steps.Count})"
+                : $"scope=primary_action({primarySteps.Count}/{steps.Count})";
+            if (skippedPrematureEndTurnCount > 0)
+                scopeDetail += $"; sanitize=drop_premature_end_turn({skippedPrematureEndTurnCount})";
             return primarySteps;
         }
 
@@ -5031,6 +5045,29 @@ namespace BotMain
                 default:
                     return false;
             }
+        }
+
+        private static bool IsPrematureEndTurnRecommendation(string actionName, IReadOnlyList<HsBoxActionStep> steps)
+        {
+            if (!string.Equals(actionName, "end_turn", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (steps == null || steps.Count <= 1)
+                return false;
+
+            foreach (var step in steps)
+            {
+                var candidateActionName = step?.ActionName;
+                if (string.IsNullOrWhiteSpace(candidateActionName))
+                    continue;
+
+                if (string.Equals(candidateActionName, "end_turn", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                return true;
+            }
+
+            return false;
         }
 
         private static int ResolveTargetEntityId(Board board, HsBoxActionStep step)
