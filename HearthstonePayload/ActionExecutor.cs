@@ -123,14 +123,17 @@ namespace HearthstonePayload
 
             if (!needsStructuredOption)
             {
-                if (WaitForTargetSelectionReady(1200))
+                if (WaitForTargetSelectionReady(3000))
                 {
                     var targetClickResult = TryClickPendingTarget(sourceId);
                     if (targetClickResult != null)
                         return targetClickResult;
                 }
 
-                return _coroutine.RunAndWait(MouseClickChoice(sourceId, allowApiFallback: false));
+                if (TryGetCurrentChoiceSnapshotForEntity(sourceId, out _, out _))
+                    return _coroutine.RunAndWait(MouseClickChoice(sourceId, allowApiFallback: false));
+
+                return "FAIL:OPTION:target_mode_not_ready:" + sourceId;
             }
 
             var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
