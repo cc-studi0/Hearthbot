@@ -135,7 +135,7 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
             MatchContextSnapshot matchContext = null)
         {
-            Seed = seed ?? string.Empty;
+            Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
@@ -386,7 +386,7 @@ namespace BotMain
             CountMax = countMax;
             Options = options ?? Array.Empty<ChoiceRecommendationOption>();
             SelectedEntityIds = selectedEntityIds ?? Array.Empty<int>();
-            Seed = seed ?? string.Empty;
+            Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             MinimumUpdatedAtMs = minimumUpdatedAtMs;
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
@@ -464,7 +464,7 @@ namespace BotMain
             OriginCardId = originCardId ?? string.Empty;
             ChoiceCardIds = choiceCardIds ?? Array.Empty<string>();
             ChoiceEntityIds = choiceEntityIds ?? Array.Empty<int>();
-            Seed = seed ?? string.Empty;
+            Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             IsRewindChoice = isRewindChoice;
             MaintainIndex = maintainIndex;
             MinimumUpdatedAtMs = minimumUpdatedAtMs;

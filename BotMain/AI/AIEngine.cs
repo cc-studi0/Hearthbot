@@ -65,7 +65,11 @@ namespace BotMain
             var decisionPlan = new AIDecisionPlan();
             try
             {
-                var board = Board.FromSeed(seed);
+                var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out var compatibilityDetail);
+                if (!string.IsNullOrWhiteSpace(compatibilityDetail))
+                    OnLog?.Invoke($"[AI] {compatibilityDetail}");
+
+                var board = Board.FromSeed(compatibleSeed);
                 ProfileParameters param = null;
                 try
                 {
@@ -136,7 +140,7 @@ namespace BotMain
 
                     if (param == null)
                     {
-                        var fallback = _fallbackAi.DecideActions(seed);
+                        var fallback = _fallbackAi.DecideActions(compatibleSeed);
                         if (fallback.Count > 1)
                         {
                             OnLog?.Invoke($"[AI] fallback applied with {fallback.Count} action(s).");
@@ -161,7 +165,8 @@ namespace BotMain
                 OnLog?.Invoke($"[AI] DecideActions failed: {ex}");
                 try
                 {
-                    var fallback = _fallbackAi.DecideActions(seed);
+                    var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out _);
+                    var fallback = _fallbackAi.DecideActions(compatibleSeed);
                     OnLog?.Invoke($"[AI] exception fallback applied with {fallback.Count} action(s).");
                     decisionPlan.Actions = NormalizeActionPlan(fallback);
                 }

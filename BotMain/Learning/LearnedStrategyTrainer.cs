@@ -154,7 +154,8 @@ namespace BotMain.Learning
             {
                 try
                 {
-                    boardBucket = LearnedStrategyFeatureExtractor.BuildBoardBucket(Board.FromSeed(sample.Seed));
+                    var compatibleSeed = SeedCompatibility.GetCompatibleSeed(sample.Seed, out _);
+                    boardBucket = LearnedStrategyFeatureExtractor.BuildBoardBucket(Board.FromSeed(compatibleSeed));
                 }
                 catch
                 {

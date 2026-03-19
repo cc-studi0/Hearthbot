@@ -1109,7 +1109,8 @@ namespace BotMain
 
             try
             {
-                return Board.FromSeed(seed)?.TurnCount ?? 0;
+                var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out _);
+                return Board.FromSeed(compatibleSeed)?.TurnCount ?? 0;
             }
             catch
             {
@@ -4045,23 +4046,34 @@ namespace BotMain
 
             try
             {
+                var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out var compatibilityDetail);
                 if (emitDebugEvents)
-                    InvokeDebugEvent("OnBeforeBoardReceived", seed);
-                planningBoard = Board.FromSeed(seed);
+                    InvokeDebugEvent("OnBeforeBoardReceived", compatibleSeed);
+                planningBoard = Board.FromSeed(compatibleSeed);
                 if (emitDebugEvents)
-                    InvokeDebugEvent("OnAfterBoardReceived", seed);
+                    InvokeDebugEvent("OnAfterBoardReceived", compatibleSeed);
                 if (planningBoard == null)
                 {
-                    detail = $"{scope}: board_null";
+                    detail = string.IsNullOrWhiteSpace(compatibilityDetail)
+                        ? $"{scope}: board_null"
+                        : $"{scope}: board_null ({compatibilityDetail})";
                     return false;
                 }
 
-                detail = $"{scope}: ok";
+                detail = string.IsNullOrWhiteSpace(compatibilityDetail)
+                    ? $"{scope}: ok"
+                    : $"{scope}: ok ({compatibilityDetail})";
                 return true;
             }
             catch (Exception ex)
             {
+                var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out var compatibilityDetail);
                 detail = $"{scope}: {ex.GetType().Name}: {TrimForLog(ex.Message ?? string.Empty, 200)}";
+                if (!string.IsNullOrWhiteSpace(compatibilityDetail)
+                    && !string.Equals(compatibleSeed, seed, StringComparison.Ordinal))
+                {
+                    detail += $" ({compatibilityDetail})";
+                }
                 return false;
             }
         }
@@ -4819,7 +4831,14 @@ namespace BotMain
             Board board = null;
             if (!string.IsNullOrWhiteSpace(seed))
             {
-                try { board = Board.FromSeed(seed); } catch { }
+                try
+                {
+                    var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out _);
+                    board = Board.FromSeed(compatibleSeed);
+                }
+                catch
+                {
+                }
             }
 
             ProfileParameters param;
@@ -5164,7 +5183,14 @@ namespace BotMain
                 }
 
                 Board board = null;
-                try { board = Board.FromSeed(seed); } catch { }
+                try
+                {
+                    var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seed, out _);
+                    board = Board.FromSeed(compatibleSeed);
+                }
+                catch
+                {
+                }
 
                 var picked = handler.HandlePickDecision(origin, choices, board);
                 var idx = choices.IndexOf(picked);
@@ -5541,7 +5567,8 @@ namespace BotMain
                 Board liveBoard;
                 try
                 {
-                    liveBoard = Board.FromSeed(seedResp.Substring(5));
+                    var liveSeed = SeedCompatibility.GetCompatibleSeed(seedResp.Substring(5), out _);
+                    liveBoard = Board.FromSeed(liveSeed);
                 }
                 catch
                 {

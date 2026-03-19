@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <Compile Include="..\BotMain\AI\**\*.cs" Link="AI\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
     <Compile Include="..\BotMain\SimpleAI.cs" Link="SimpleAI.cs" />
     <Compile Include="..\CardEffects\**\*.cs" Link="CardEffects\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
