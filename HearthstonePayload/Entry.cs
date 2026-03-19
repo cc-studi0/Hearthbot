@@ -439,6 +439,16 @@ namespace HearthstonePayload
                 else
                     _pipe.Write("BG_STATE:" + bgState.Serialize());
             }
+            else if (cmd.StartsWith("GET_RANK_INFO:", StringComparison.Ordinal))
+            {
+                var formatName = cmd.Length > "GET_RANK_INFO:".Length
+                    ? cmd.Substring("GET_RANK_INFO:".Length)
+                    : string.Empty;
+                var rankInfoResult = RunOnMainThread(
+                    () => (object)reader.ReadRankInfoResponse(formatName),
+                    5000);
+                _pipe.Write(rankInfoResult as string ?? "NO_RANK_INFO:main_thread");
+            }
             else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
             {
                 _pipe.Write(ActionExecutor.Execute(reader, cmd.Substring(7)));

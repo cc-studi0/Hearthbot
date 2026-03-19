@@ -124,6 +124,18 @@
                         <TextBlock Text="s" FontSize="11" VerticalAlignment="Center" Margin="3,0,0,0"/>
                     </StackPanel>
                     <StackPanel Margin="0,2,0,0">
+                        <CheckBox Content="达到段位后停止" FontSize="11" IsChecked="{Binding StopAfterReachRankEnabled}" Margin="0,0,0,2"
+                                  ToolTip="仅在 Standard / Wild 排名模式生效；达到目标段位后，在当前对局结算后停止脚本"/>
+                        <ComboBox Width="179" Height="22"
+                                  ItemsSource="{Binding RankStopOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedValuePath="StarLevel"
+                                  SelectedValue="{Binding StopAfterReachRankStarLevel}"
+                                  IsEnabled="{Binding StopAfterReachRankTargetEnabled}"
+                                  FontSize="11"
+                                  ToolTip="目标段位"/>
+                    </StackPanel>
+                    <StackPanel Margin="0,2,0,0">
                         <TextBlock Text="Hearthstone.exe:" FontSize="11" Margin="0,0,0,2"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBox Width="155" Height="20"

@@ -44,6 +44,62 @@ namespace HearthstonePayload
             }
         }
 
+        public string ReadRankInfoResponse(string formatName)
+        {
+            if (!Init())
+                return "NO_RANK_INFO:init_failed";
+
+            if (string.IsNullOrWhiteSpace(formatName))
+                return "NO_RANK_INFO:missing_format";
+
+            try
+            {
+                var rankMgrType = _ctx.AsmCSharp != null ? _ctx.AsmCSharp.GetType("RankMgr") : null;
+                if (rankMgrType == null)
+                    return "NO_RANK_INFO:no_rank_mgr";
+
+                var rankMgr = _ctx.CallStaticAny(rankMgrType, "Get");
+                if (rankMgr == null)
+                    return "NO_RANK_INFO:no_rank_mgr_instance";
+
+                var translator = _ctx.CallAny(rankMgr, "GetLocalPlayerMedalInfo");
+                if (translator == null)
+                    return "NO_RANK_INFO:no_translator";
+
+                var getCurrentMedal = translator.GetType()
+                    .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    .FirstOrDefault(m => m.Name == "GetCurrentMedal" && m.GetParameters().Length == 1);
+                if (getCurrentMedal == null)
+                    return "NO_RANK_INFO:no_get_current_medal";
+
+                var parameterType = getCurrentMedal.GetParameters()[0].ParameterType;
+                if (parameterType == null || !parameterType.IsEnum)
+                    return "NO_RANK_INFO:bad_format_type";
+
+                var formatValue = Enum.Parse(parameterType, formatName, true);
+                var medal = getCurrentMedal.Invoke(translator, new[] { formatValue });
+                if (medal == null)
+                    return "NO_RANK_INFO:no_medal";
+
+                var starLevel = ReadRankFieldInt(medal, "starLevel", "StarLevel", "m_starLevel");
+                if (starLevel <= 0)
+                    return "NO_RANK_INFO:invalid_star_level";
+
+                var earnedStars = ReadRankFieldInt(medal, "earnedStars", "EarnedStars", "m_earnedStars");
+                var legendIndex = ReadRankFieldInt(medal, "legendIndex", "LegendIndex", "m_legendIndex");
+
+                return string.Format("RANK_INFO:{0}|{1}|{2}", starLevel, earnedStars, legendIndex);
+            }
+            catch (ArgumentException)
+            {
+                return "NO_RANK_INFO:unsupported_format";
+            }
+            catch (Exception ex)
+            {
+                return "NO_RANK_INFO:" + ex.GetType().Name;
+            }
+        }
+
         public List<FriendlyEntityContextEntry> ReadFriendlyEntityContext()
         {
             if (!Init()) return new List<FriendlyEntityContextEntry>();
@@ -163,6 +219,22 @@ namespace HearthstonePayload
                 "GetFriendlySidePlayer",
                 "GetFriendlyPlayer",
                 "GetLocalPlayer");
+        }
+
+        private int ReadRankFieldInt(object medal, params string[] names)
+        {
+            if (medal == null)
+                return 0;
+
+            try
+            {
+                var value = _ctx.GetFieldOrPropertyAny(medal, names);
+                return value != null ? Convert.ToInt32(value) : 0;
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private object GetOpposingPlayer(object gameState)

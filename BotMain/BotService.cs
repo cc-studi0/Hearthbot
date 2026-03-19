@@ -136,10 +136,12 @@ namespace BotMain
         private DateTime? _postGameSinceUtc;
         private int _postGameLobbyConfirmCount;
         private const int MatchLoadGracePeriodSeconds = 30;
+        private static readonly TimeSpan RankLimitCheckInterval = TimeSpan.FromSeconds(5);
         private DateTime _lastActionCommandUtc = DateTime.UtcNow;
         private string _lastObservedSeedResponse = string.Empty;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+        private DateTime _nextRankLimitCheckUtc = DateTime.MinValue;
 
         // 运行限制设置
         private int _maxWins;
@@ -518,6 +520,7 @@ namespace BotMain
             State = BotState.Running;
             _running = true;
             _finishAfterGame = false;
+            _nextRankLimitCheckUtc = DateTime.MinValue;
             ClearPendingConcedeLoss();
             _cts = new CancellationTokenSource();
             StatusChanged("Starting");
@@ -1364,6 +1367,8 @@ namespace BotMain
 
                 _pluginSystem?.FireOnStarted();
                 StatusChanged("Running");
+                if (CheckRankStopLimit(_pipe, force: true))
+                    return;
                 MainLoop();
             }
             catch (OperationCanceledException)
@@ -1591,6 +1596,9 @@ namespace BotMain
                 while (_suspended && _running)
                     Thread.Sleep(500);
                 if (!_running) break;
+
+                if (!wasInGame && CheckRankStopLimit(pipe))
+                    break;
 
                 _botApiHandler?.Poll();
                 _botApiHandler?.UpdateBotState(
@@ -6538,6 +6546,8 @@ namespace BotMain
                 HandleGameResult(resultResp);
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
+                if (CheckRankStopLimit(pipe, force: true))
+                    return;
             }
 
             currentTurnStartedUtc = DateTime.MinValue;
@@ -6556,6 +6566,59 @@ namespace BotMain
             _matchEntityProvenanceRegistry.Reset();
             HsBoxCallbackCapture.EndMatchSession();
             AutoQueue(pipe);
+        }
+
+        private bool CheckRankStopLimit(PipeServer pipe, bool force = false)
+        {
+            if (_maxRank <= 0 || pipe == null || !pipe.IsConnected)
+                return false;
+
+            var formatName = GetRankFormatNameForCurrentMode();
+            if (string.IsNullOrWhiteSpace(formatName))
+                return false;
+
+            var now = DateTime.UtcNow;
+            if (!force && now < _nextRankLimitCheckUtc)
+                return false;
+
+            _nextRankLimitCheckUtc = now.Add(RankLimitCheckInterval);
+
+            var gotResp = TrySendAndReceiveExpected(
+                pipe,
+                "GET_RANK_INFO:" + formatName,
+                2500,
+                r => !string.IsNullOrWhiteSpace(r)
+                    && (r.StartsWith("RANK_INFO:", StringComparison.Ordinal)
+                        || r.StartsWith("NO_RANK_INFO:", StringComparison.Ordinal)
+                        || r.StartsWith("ERROR:", StringComparison.Ordinal)),
+                out var rankResp,
+                "RankLimit");
+
+            if (!gotResp || string.IsNullOrWhiteSpace(rankResp))
+                return false;
+
+            if (!RankHelper.TryParseRankInfoResponse(rankResp, out var currentStarLevel, out var currentEarnedStars, out var currentLegendIndex))
+                return false;
+
+            if (currentStarLevel < _maxRank)
+                return false;
+
+            Log($"[Limit] TargetRank={RankHelper.FormatRank(_maxRank)} reached ({RankHelper.FormatRank(currentStarLevel, currentEarnedStars, currentLegendIndex)}), stopping.");
+            _running = false;
+            return true;
+        }
+
+        private string GetRankFormatNameForCurrentMode()
+        {
+            switch (_modeIndex)
+            {
+                case 0:
+                    return "FT_STANDARD";
+                case 1:
+                    return "FT_WILD";
+                default:
+                    return null;
+            }
         }
 
         private bool TryApplyMulligan(PipeServer pipe, DateTime mulliganPhaseStartedUtc, out string result)

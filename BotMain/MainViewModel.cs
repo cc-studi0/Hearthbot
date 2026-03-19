@@ -38,6 +38,8 @@ namespace BotMain
         private bool _learnFromHsBox;
         private bool _useLearnedLocalStrategy;
         private bool _saveHsBoxCallbacks;
+        private bool _stopAfterReachRankEnabled;
+        private int _stopAfterReachRankStarLevel = RankHelper.LegendStarLevel;
         private string _hearthstoneExecutablePath;
         private string _hsBoxExecutablePath;
         private int _matchmakingTimeoutSeconds = 60;
@@ -192,6 +194,8 @@ namespace BotMain
                 Notify(nameof(LocalRecommendationControlsEnabled));
                 Notify(nameof(DeckSelectionVisible));
                 Notify(nameof(TopStatusText));
+                Notify(nameof(StopAfterReachRankSupportedMode));
+                Notify(nameof(StopAfterReachRankTargetEnabled));
                 AutoSave();
             }
         }
@@ -240,6 +244,39 @@ namespace BotMain
                 AutoSave();
             }
         }
+        public bool StopAfterReachRankEnabled
+        {
+            get => _stopAfterReachRankEnabled;
+            set
+            {
+                if (_stopAfterReachRankEnabled == value)
+                    return;
+
+                _stopAfterReachRankEnabled = value;
+                ApplyRankStopSettings();
+                Notify();
+                Notify(nameof(StopAfterReachRankTargetEnabled));
+                AutoSave();
+            }
+        }
+        public int StopAfterReachRankStarLevel
+        {
+            get => _stopAfterReachRankStarLevel;
+            set
+            {
+                var normalized = value > 0 ? value : RankHelper.LegendStarLevel;
+                if (_stopAfterReachRankStarLevel == normalized)
+                    return;
+
+                _stopAfterReachRankStarLevel = normalized;
+                ApplyRankStopSettings();
+                Notify();
+                AutoSave();
+            }
+        }
+        public bool StopAfterReachRankSupportedMode => ModeIndex == 0 || ModeIndex == 1;
+        public bool StopAfterReachRankTargetEnabled => StopAfterReachRankEnabled && StopAfterReachRankSupportedMode;
+        public ObservableCollection<RankTargetOption> RankStopOptions { get; } = new ObservableCollection<RankTargetOption>(RankHelper.BuildTargetOptions());
         public bool FollowHsBoxOperation
         {
             get => _followHsBoxOperation;
@@ -555,6 +592,11 @@ namespace BotMain
 
         private void AutoSave() { if (_settingsLoaded) SaveSettings(); }
 
+        private void ApplyRankStopSettings()
+        {
+            _bot.SetMaxRank(StopAfterReachRankEnabled ? StopAfterReachRankStarLevel : 0);
+        }
+
         public void SaveSettings()
         {
             try
@@ -583,6 +625,8 @@ namespace BotMain
                 dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
                 dict["UseLearnedLocalStrategy"] = JsonSerializer.SerializeToElement(UseLearnedLocalStrategy);
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
+                dict["StopAfterReachRankEnabled"] = JsonSerializer.SerializeToElement(StopAfterReachRankEnabled);
+                dict["StopAfterReachRankStarLevel"] = JsonSerializer.SerializeToElement(StopAfterReachRankStarLevel);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -635,6 +679,8 @@ namespace BotMain
                         if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
                         if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) UseLearnedLocalStrategy = v.GetBoolean();
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
+                        if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) StopAfterReachRankEnabled = v.GetBoolean();
+                        if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) StopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
@@ -654,6 +700,7 @@ namespace BotMain
             _bot.SetLearnFromHsBoxRecommendations(LearnFromHsBox);
             _bot.SetUseLearnedLocalStrategy(UseLearnedLocalStrategy);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
+            ApplyRankStopSettings();
         }
 
         private static string ReadOptionalString(JsonElement element)
