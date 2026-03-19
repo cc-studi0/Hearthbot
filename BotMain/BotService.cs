@@ -1348,7 +1348,7 @@ namespace BotMain
             }
             catch (Exception ex)
             {
-                Log($"Error: {ex.Message}");
+                Log("Error: " + ex);
             }
             finally
             {
@@ -1924,12 +1924,21 @@ namespace BotMain
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
                 RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
 
+                if (planningBoard == null)
+                {
+                    Log($"[MainLoop] planning board unavailable after ready; seedLength={(seed?.Length ?? 0)}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}");
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                var recommendationStage = "plugin_simulation";
                 _pluginSystem?.FireOnSimulation();
 
                 // 查询牌库剩余卡牌
                 List<Card.Cards> deckCards = null;
                 try
                 {
+                    recommendationStage = "deck_state";
                     var deckResp = pipe.SendAndReceive("GET_DECK_STATE", 3000);
                     if (deckResp != null && deckResp.StartsWith("DECK_STATE:", StringComparison.Ordinal))
                     {
@@ -1948,8 +1957,11 @@ namespace BotMain
                 }
                 catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
+                recommendationStage = "resolve_deck_context";
                 _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
+                recommendationStage = "friendly_entity_context";
                 var friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
+                recommendationStage = "build_action_request";
                 var actionRequest = new ActionRecommendationRequest(
                     seed,
                     planningBoard,
@@ -1964,8 +1976,20 @@ namespace BotMain
                     friendlyEntities,
                     BuildMatchContext(planningBoard));
 
+                recommendationStage = "recommend_actions";
                 var sw = Stopwatch.StartNew();
-                var recommendation = RecommendActionsWithLearning(actionRequest);
+                ActionRecommendationResult recommendation;
+                try
+                {
+                    recommendation = RecommendActionsWithLearning(actionRequest);
+                }
+                catch (Exception ex)
+                {
+                    Log($"[ErrorContext] stage={recommendationStage}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}, learn={_learnFromHsBoxRecommendations}, boardHand={planningBoard?.Hand?.Count ?? 0}, friendlyEntities={friendlyEntities?.Count ?? 0}, deckCards={deckCards?.Count ?? 0}");
+                    Log("[ErrorContext] recommendation exception: " + ex);
+                    Thread.Sleep(300);
+                    continue;
+                }
                 var decision = recommendation?.DecisionPlan;
                 var actions = recommendation?.Actions?.ToList();
 

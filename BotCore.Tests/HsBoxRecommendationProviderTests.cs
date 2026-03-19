@@ -83,6 +83,82 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesFriendlyEntityContext_WhenPlanningBoardIsNullAndBodyFallbackParsesPlay()
+        {
+            var state = CreateState(
+                411,
+                raw: "coin-body-fallback-null-board",
+                actionName: "unknown_action",
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+            Assert.Contains("body=ok", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_PrefersFriendlyEntityContextOverPlanningBoardHandWhenHandSlotsDisagree()
+        {
+            var state = CreateState(
+                412,
+                raw: "coin-prefers-friendly-hand-slot",
+                actionName: "play_special",
+                cardId: "GAME_005",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(19, Card.Cards.GAME_005, "幸运币", "The Coin"),
+                    CreateCard(20, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(21, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(22, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(23, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_RemovesPrematureEndTurn_WhenStructuredSequenceStartsWithIt()
         {
             var board = new Board

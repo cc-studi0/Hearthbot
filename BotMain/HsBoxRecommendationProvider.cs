@@ -326,17 +326,26 @@ namespace BotMain
                 return false;
             }
 
-            if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var mapDetail))
+            try
             {
-                detail = $"json=map_failed({mapDetail})";
+                if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var mapDetail))
+                {
+                    detail = $"json=map_failed({mapDetail})";
+                    return false;
+                }
+
+                actions = SanitizeStructuredActions(actions, out var sanitizeDetail, out hadPrematureEndTurn);
+                detail = hadPrematureEndTurn
+                    ? $"json=ok({mapDetail}; {sanitizeDetail})"
+                    : $"json=ok({mapDetail})";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                detail = $"json=exception({FormatRecommendationException(ex)})";
+                actions = null;
                 return false;
             }
-
-            actions = SanitizeStructuredActions(actions, out var sanitizeDetail, out hadPrematureEndTurn);
-            detail = hadPrematureEndTurn
-                ? $"json=ok({mapDetail}; {sanitizeDetail})"
-                : $"json=ok({mapDetail})";
-            return true;
         }
 
         private static bool TryGetBodyActions(
@@ -352,14 +361,36 @@ namespace BotMain
                 return false;
             }
 
-            if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var bodyDetail))
+            try
             {
-                detail = $"body=map_failed({bodyDetail})";
+                if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var bodyDetail))
+                {
+                    detail = $"body=map_failed({bodyDetail})";
+                    return false;
+                }
+
+                detail = $"body=ok({bodyDetail})";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                detail = $"body=exception({FormatRecommendationException(ex)})";
+                actions = null;
                 return false;
             }
+        }
 
-            detail = $"body=ok({bodyDetail})";
-            return true;
+        private static string FormatRecommendationException(Exception ex)
+        {
+            if (ex == null)
+                return "null";
+
+            var message = ex.Message ?? string.Empty;
+            message = message.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            if (message.Length > 160)
+                message = message.Substring(0, 160);
+
+            return $"{ex.GetType().Name}:{message}";
         }
 
         private static List<string> SanitizeStructuredActions(List<string> actions, out string detail, out bool hadPrematureEndTurn)
@@ -4305,11 +4336,11 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             HsBoxCardRef card)
         {
-            var source = ResolveOrderedEntityId(board?.Hand, card);
+            var source = ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "HAND", card, allowAnyCardIdMatch: false);
             if (source > 0)
                 return source;
 
-            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "HAND", card, allowAnyCardIdMatch: false);
+            return ResolveOrderedEntityId(board?.Hand, card);
         }
 
         private static int ResolveFriendlyBoardEntityId(
@@ -4672,9 +4703,9 @@ namespace BotMain
                 return false;
             }
 
-            var source = ResolveEntityIdByZonePosition(board.Hand, oneBasedIndex);
+            var source = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "HAND", oneBasedIndex, null);
             if (source <= 0)
-                source = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "HAND", oneBasedIndex, null);
+                source = ResolveEntityIdByZonePosition(board?.Hand, oneBasedIndex);
             if (source <= 0)
             {
                 detail = $"play_text_source_missing:{oneBasedIndex}";
