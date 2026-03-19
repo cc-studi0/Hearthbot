@@ -8674,170 +8674,303 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
-            if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var sx, out var sy))
+            var gsBeforePlay = GetGameState();
+            var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
+            var sourceCardId = ResolveEntityCardId(gsBeforePlay, handEntityId);
+            var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, handEntityId);
+
+            bool grabbedViaAPI = false;
+            string apiGrabMethod = "none";
+            string apiGrabDetail = string.Empty;
+            int apiHeldEntityId = 0;
+
+            for (int attempt = 1; attempt <= 3; attempt++)
             {
-                _coroutine.SetResult("FAIL:BG_PLAY:hand_pos:" + handEntityId);
+                if (TryGrabCardViaAPI(
+                        handEntityId,
+                        sourceZonePosition,
+                        out apiGrabMethod,
+                        out apiHeldEntityId,
+                        out apiGrabDetail))
+                {
+                    grabbedViaAPI = true;
+                    break;
+                }
+
+                TryResetHeldCard();
+                yield return 0.06f;
+            }
+
+            if (!grabbedViaAPI)
+            {
+                AppendActionTrace(
+                    "BG_PLAY API grab failed expected=" + handEntityId
+                    + " zonePos=" + sourceZonePosition
+                    + " cardId=" + sourceCardId
+                    + " detail=" + apiGrabDetail);
+                _coroutine.SetResult("FAIL:BG_PLAY:grab_api_failed:" + handEntityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
                 yield break;
             }
 
+            AppendActionTrace(
+                "BG_PLAY API grabbed card expected=" + handEntityId
+                + " held=" + apiHeldEntityId
+                + " zonePos=" + sourceZonePosition
+                + " cardId=" + sourceCardId
+                + " via=" + apiGrabMethod);
+
+            int sx = 0;
+            int sy = 0;
+            if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out sx, out sy))
+            {
+                var screenWidth = MouseSimulator.GetScreenWidth();
+                var screenHeight = MouseSimulator.GetScreenHeight();
+                sx = MouseSimulator.CurX > 0 ? MouseSimulator.CurX : Math.Max(0, screenWidth / 2);
+                sy = MouseSimulator.CurY > 0 ? MouseSimulator.CurY : (screenHeight > 0 ? (int)(screenHeight * 0.84f) : 0);
+            }
+
+            foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+
+            int totalMinions = GetFriendlyMinionCount();
+            int dx = 0;
+            int dy = 0;
+            bool usedMagneticDrop = false;
+            bool targetConfirmationPending = false;
+
             if (targetEntityId > 0 && !sourceUsesBoardDrop)
             {
-                if (!TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out var directTargetX, out var directTargetY))
+                bool gotTarget = false;
+                int targetX = 0;
+                int targetY = 0;
+                for (int retry = 0; retry < 6 && !gotTarget; retry++)
                 {
+                    if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out targetX, out targetY))
+                    {
+                        gotTarget = true;
+                        break;
+                    }
+
+                    if (retry < 5)
+                        yield return 0.1f;
+                }
+
+                if (!gotTarget)
+                {
+                    MouseSimulator.LeftUp();
+                    TryResetHeldCard();
                     _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
                     yield break;
                 }
 
-                foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
-                MouseSimulator.LeftDown();
-                yield return 0.04f;
-                foreach (var w in SmoothMove(directTargetX, directTargetY, 12, 0.008f)) yield return w;
-                yield return 0.03f;
+                foreach (var w in SmoothMove(targetX, targetY, 12, 0.008f)) yield return w;
                 MouseSimulator.LeftUp();
-                yield return 0.12f;
-                _coroutine.SetResult("OK:BG_PLAY:" + handEntityId + ":direct_target");
-                yield break;
-            }
+                yield return 0.14f;
 
-            int totalMinions = GetFriendlyMinionCount();
-            var dx = 0;
-            var dy = 0;
-            var usedMagneticDrop = false;
-            if (sourceUsesBoardDrop && targetEntityId > 0 && isMagneticPlay)
-            {
-                var gsBeforeDrop = GetGameState();
-                if (TryResolveBattlegroundsMagneticDropScreenPos(
-                        gsBeforeDrop,
-                        targetEntityId,
-                        totalMinions,
-                        out dx,
-                        out dy,
-                        out var targetZonePosition,
-                        out var leftGapX,
-                        out var leftGapY))
+                targetConfirmationPending = IsPlayTargetConfirmationPending(handEntityId);
+                if (targetConfirmationPending)
                 {
-                    usedMagneticDrop = true;
-                    AppendActionTrace(
-                        "BG_PLAY magnetic_drop sourceEntityId=" + handEntityId
-                        + " targetEntityId=" + targetEntityId
-                        + " targetZonePosition=" + targetZonePosition
-                        + " leftGap=" + leftGapX + "," + leftGapY
-                        + " finalDrop=" + dx + "," + dy);
-                }
-                else
-                {
-                    AppendActionTrace(
-                        "BG_PLAY magnetic_drop fallback sourceEntityId=" + handEntityId
-                        + " targetEntityId=" + targetEntityId
-                        + " positionRef=" + position
-                        + " totalMinions=" + totalMinions);
-                }
-            }
-
-            if (!usedMagneticDrop
-                && !TryResolveBattlegroundsBoardDropScreenPos(position, totalMinions, out dx, out dy))
-            {
-                dx = MouseSimulator.GetScreenWidth() / 2;
-                dy = (int)(MouseSimulator.GetScreenHeight() * 0.72f);
-            }
-
-            // 拖动手牌到场上
-            foreach (var w in SmoothMove(sx, sy, 8, 0.008f)) yield return w;
-            MouseSimulator.LeftDown();
-            yield return 0.05f;
-            foreach (var w in SmoothMove(dx, dy, 12, 0.008f)) yield return w;
-            yield return 0.04f;
-            MouseSimulator.LeftUp();
-            yield return 0.18f;
-
-            var targetConfirmationPending = false;
-            // 如果有目标（战吼等）
-            if (targetEntityId > 0)
-            {
-                var sourceLeftHand = false;
-                for (var retry = 0; retry < 12; retry++)
-                {
-                    var gs = GetGameState();
-                    if (gs != null && TryIsEntityInFriendlyHand(gs, handEntityId, out var inHandAfterDrop))
+                    for (int attempt = 0; attempt < 2 && targetConfirmationPending; attempt++)
                     {
-                        sourceLeftHand = !inHandAfterDrop;
-                        if (sourceLeftHand)
-                            break;
-                    }
-
-                    yield return 0.05f;
-                }
-
-                if (!usedMagneticDrop)
-                {
-                    // 非磁力的“打出后再选目标”随从，仍沿用先落位再点击目标的旧逻辑。
-                    var targetConfirmed = false;
-                    for (var attempt = 0; attempt < 2; attempt++)
-                    {
-                        var gotTarget = false;
-                        var tx = 0;
-                        var ty = 0;
-                        for (var retry = 0; retry < 6 && !gotTarget; retry++)
+                        if (attempt > 0)
                         {
-                            if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out tx, out ty))
+                            bool refreshed = false;
+                            for (int retry = 0; retry < 4 && !refreshed; retry++)
                             {
-                                gotTarget = true;
-                                break;
+                                refreshed = TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out targetX, out targetY);
+                                if (!refreshed && retry < 3)
+                                    yield return 0.08f;
                             }
-
-                            if (retry < 5)
-                                yield return 0.1f;
                         }
 
-                        if (!gotTarget)
-                        {
-                            _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
-                            yield break;
-                        }
-
-                        foreach (var w in SmoothMove(tx, ty, 8, 0.008f)) yield return w;
+                        foreach (var w in SmoothMove(targetX, targetY, 8, 0.008f)) yield return w;
                         MouseSimulator.LeftDown();
                         yield return 0.04f;
                         MouseSimulator.LeftUp();
 
-                        for (var retry = 0; retry < 6; retry++)
+                        for (int retry = 0; retry < 5; retry++)
                         {
                             if (!IsPlayTargetConfirmationPending(handEntityId))
                             {
-                                targetConfirmed = true;
+                                targetConfirmationPending = false;
                                 break;
                             }
 
                             yield return 0.06f;
                         }
+                    }
+                }
+            }
+            else
+            {
+                if (sourceUsesBoardDrop && targetEntityId > 0 && isMagneticPlay)
+                {
+                    var gsBeforeDrop = GetGameState();
+                    if (TryResolveBattlegroundsMagneticDropScreenPos(
+                            gsBeforeDrop,
+                            targetEntityId,
+                            totalMinions,
+                            out dx,
+                            out dy,
+                            out var targetZonePosition,
+                            out var leftGapX,
+                            out var leftGapY))
+                    {
+                        usedMagneticDrop = true;
+                        AppendActionTrace(
+                            "BG_PLAY magnetic_drop sourceEntityId=" + handEntityId
+                            + " targetEntityId=" + targetEntityId
+                            + " targetZonePosition=" + targetZonePosition
+                            + " leftGap=" + leftGapX + "," + leftGapY
+                            + " finalDrop=" + dx + "," + dy);
+                    }
+                    else
+                    {
+                        AppendActionTrace(
+                            "BG_PLAY magnetic_drop fallback sourceEntityId=" + handEntityId
+                            + " targetEntityId=" + targetEntityId
+                            + " positionRef=" + position
+                            + " totalMinions=" + totalMinions);
+                    }
+                }
 
-                        if (targetConfirmed)
-                            break;
+                if (!usedMagneticDrop
+                    && !TryResolveBattlegroundsBoardDropScreenPos(position, totalMinions, out dx, out dy))
+                {
+                    MouseSimulator.LeftUp();
+                    TryResetHeldCard();
+                    _coroutine.SetResult("FAIL:BG_PLAY:drop_pos");
+                    yield break;
+                }
+
+                foreach (var w in SmoothMove(dx, dy, 12, 0.008f)) yield return w;
+                yield return 0.04f;
+                MouseSimulator.LeftUp();
+                yield return 0.18f;
+
+                if (targetEntityId > 0)
+                {
+                    bool sourceLeftHand = false;
+                    for (int retry = 0; retry < 12; retry++)
+                    {
+                        var gs = GetGameState();
+                        if (gs != null && TryIsEntityInFriendlyHand(gs, handEntityId, out var inHandAfterDrop))
+                        {
+                            sourceLeftHand = !inHandAfterDrop;
+                            if (sourceLeftHand)
+                                break;
+                        }
+
+                        yield return 0.05f;
                     }
 
-                    targetConfirmationPending = !targetConfirmed
-                        && sourceLeftHand
-                        && IsPlayTargetConfirmationPending(handEntityId);
+                    if (!usedMagneticDrop)
+                    {
+                        bool targetConfirmed = false;
+                        for (int attempt = 0; attempt < 2; attempt++)
+                        {
+                            bool gotTarget = false;
+                            int tx = 0;
+                            int ty = 0;
+                            for (int retry = 0; retry < 6 && !gotTarget; retry++)
+                            {
+                                if (TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out tx, out ty))
+                                {
+                                    gotTarget = true;
+                                    break;
+                                }
+
+                                if (retry < 5)
+                                    yield return 0.1f;
+                            }
+
+                            if (!gotTarget)
+                            {
+                                _coroutine.SetResult("FAIL:BG_PLAY:target_pos:" + targetEntityId);
+                                yield break;
+                            }
+
+                            foreach (var w in SmoothMove(tx, ty, 8, 0.008f)) yield return w;
+                            MouseSimulator.LeftDown();
+                            yield return 0.04f;
+                            MouseSimulator.LeftUp();
+
+                            for (int retry = 0; retry < 6; retry++)
+                            {
+                                if (!IsPlayTargetConfirmationPending(handEntityId))
+                                {
+                                    targetConfirmed = true;
+                                    break;
+                                }
+
+                                yield return 0.06f;
+                            }
+
+                            if (targetConfirmed)
+                                break;
+                        }
+
+                        targetConfirmationPending = !targetConfirmed
+                            && sourceLeftHand
+                            && IsPlayTargetConfirmationPending(handEntityId);
+                    }
                 }
             }
 
-            yield return 0.2f;
+            yield return 0.25f;
 
             var gsAfterPlay = GetGameState();
-            if (targetEntityId > 0
-                && gsAfterPlay != null
-                && TryIsEntityInFriendlyHand(gsAfterPlay, handEntityId, out var stillInHand)
-                && stillInHand)
+            var hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterPlay, out var afterHandIds);
+            bool resolvedStillInHand = false;
+            bool stillInHand = false;
+            if (gsAfterPlay != null && TryIsEntityInFriendlyHand(gsAfterPlay, handEntityId, out stillInHand))
+                resolvedStillInHand = true;
+
+            if (resolvedStillInHand && stillInHand)
             {
+                AppendActionTrace(
+                    "BG_PLAY still in hand entityId=" + handEntityId
+                    + " targetId=" + targetEntityId
+                    + " usesBoardDrop=" + sourceUsesBoardDrop
+                    + " cardId=" + sourceCardId);
                 _coroutine.SetResult("FAIL:BG_PLAY:still_in_hand:" + handEntityId);
                 yield break;
+            }
+
+            if (resolvedStillInHand
+                && !stillInHand
+                && hasBeforeHand
+                && hasAfterHand
+                && beforeHandIds.Contains(handEntityId))
+            {
+                var removed = beforeHandIds.Where(id => !afterHandIds.Contains(id)).ToList();
+                if (removed.Count == 1 && removed[0] != handEntityId)
+                {
+                    AppendActionTrace(
+                        "BG_PLAY source mismatch expected=" + handEntityId
+                        + " actualRemoved=" + removed[0]
+                        + " cardId=" + sourceCardId);
+                    _coroutine.SetResult("FAIL:BG_PLAY:source_mismatch:" + handEntityId + ":" + removed[0]);
+                    yield break;
+                }
+
+                if (removed.Count > 1 && !removed.Contains(handEntityId))
+                {
+                    AppendActionTrace(
+                        "BG_PLAY source mismatch expected=" + handEntityId
+                        + " actualRemoved=" + removed[0]
+                        + " cardId=" + sourceCardId);
+                    _coroutine.SetResult("FAIL:BG_PLAY:source_mismatch:" + handEntityId + ":" + removed[0]);
+                    yield break;
+                }
             }
 
             if (targetEntityId > 0 && !usedMagneticDrop)
             {
                 if (!targetConfirmationPending)
                 {
-                    for (var retry = 0; retry < 4; retry++)
+                    for (int retry = 0; retry < 4; retry++)
                     {
                         if (!IsPlayTargetConfirmationPending(handEntityId))
                             break;
@@ -8854,7 +8987,7 @@ namespace HearthstonePayload
                 }
             }
 
-            _coroutine.SetResult("OK:BG_PLAY:" + handEntityId);
+            _coroutine.SetResult("OK:BG_PLAY:" + handEntityId + ":api_grab");
         }
 
         private static IEnumerator<float> BgMouseHeroReroll(int choiceIndex)
