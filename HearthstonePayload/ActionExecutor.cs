@@ -189,21 +189,23 @@ namespace HearthstonePayload
             if (subOptionResult == null)
                 return null;
 
-            // 子选项已选定后，目标列表通常会在接下来的一小段时间内出现。
-            if (!WaitForOptionTargetSelectionReady(sourceId, 1600))
-                return subOptionResult;
+            // 子选项已选定后，目标列表有时会晚于“子选项关闭”信号出现。
+            // 因此这里不能把“未探测到 TARGET 模式”直接当作结束条件，
+            // 而是继续在短时间内重试网络提交，并在后半段直接尝试鼠标点目标。
+            WaitForOptionTargetSelectionReady(sourceId, 700);
 
-            for (var retry = 0; retry < 8; retry++)
+            for (var retry = 0; retry < 14; retry++)
             {
                 var targetSubmitDetail = TrySubmitStructuredOption(sourceId, targetId, position, null);
                 if (targetSubmitDetail == null)
                     return "OK:OPTION:sub_then_target_network:" + sourceId;
 
-                Thread.Sleep(80);
-            }
+                var allowDirectTargetClick = retry >= 3 || HasPendingTargetSelection(sourceId);
+                if (targetId > 0 && allowDirectTargetClick && TryClickOptionTarget(sourceId, targetId))
+                    return "OK:OPTION:sub_then_target_click:" + sourceId;
 
-            if (targetId > 0 && TryClickOptionTarget(sourceId, targetId))
-                return "OK:OPTION:sub_then_target_click:" + sourceId;
+                Thread.Sleep(90);
+            }
 
             return subOptionResult;
         }
