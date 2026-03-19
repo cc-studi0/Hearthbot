@@ -471,6 +471,76 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MapsPlaySpecialWithEmbeddedSubOptionAndEnemyHeroTarget()
+        {
+            var board = new Board
+            {
+                HeroEnemy = new Card
+                {
+                    Id = 305,
+                    IsFriend = false
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "CORE_AT_037",
+                    cardName = "活体根须",
+                    ZONE_POSITION = 5
+                }),
+                OppTargetHero = new HsBoxCardRef
+                {
+                    CardId = "HERO_06",
+                    CardName = "玛法里奥·怒风"
+                },
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "AT_037a",
+                    CardName = "缠人根须"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 38,
+                UpdatedAtMs = 540,
+                Raw = "play-special-with-enemy-hero-targeted-suboption",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 打出5号位法术 活体根须 目标是对方英雄 玛法里奥·怒风 选择卡牌 缠人根须",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 145,
+                        CardId = "CORE_AT_037",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|305|0|AT_037a" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_MapsChooseStepUsingPreviousPlaySourceAndDeferredTarget()
         {
             var board = CreateTargetedChooseBoard(115, 205);

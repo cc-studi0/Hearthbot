@@ -121,6 +121,19 @@ namespace HearthstonePayload
             if (submitDetail == null)
                 return "OK:OPTION:network:" + sourceId;
 
+            // 构筑抉择类指向法术（例如 活体根须）在运行时顺序是：
+            // 打出卡牌 -> 选择子选项 -> 再选择目标。
+            // 这类场景把 subOption + target 一次性提交通常会失败，
+            // 因为目标列表只有在子选项确定后才会真正出现。
+            if (targetId > 0
+                && position <= 0
+                && !string.IsNullOrWhiteSpace(subOptionCardId))
+            {
+                var subOptionThenTargetResult = TryExecuteSubOptionThenTarget(sourceId, targetId, position, subOptionCardId);
+                if (subOptionThenTargetResult != null)
+                    return subOptionThenTargetResult;
+            }
+
             // 二选一 / 子选项路径：等待 EntityChoices 包 或
             // ChoiceCardMgr 的 SubOption UI 出现，然后解析并点击/提交。
             if (targetId <= 0
@@ -158,6 +171,43 @@ namespace HearthstonePayload
             return openResult;
         }
 
+        private static string TryExecuteSubOptionThenTarget(int sourceId, int targetId, int position, string subOptionCardId)
+        {
+            if (sourceId <= 0 || string.IsNullOrWhiteSpace(subOptionCardId) || (targetId <= 0 && position <= 0))
+                return null;
+
+            string subOptionResult = null;
+
+            // 先走“打出后自动弹出抉择 UI”的常规路径。
+            if (WaitForSubOptionOrChoiceReady(1200))
+                subOptionResult = TryResolveAndClickSubOption(sourceId, subOptionCardId);
+
+            // UI 没自动弹出时，再尝试需要手动点实体打开抉择的路径。
+            if (subOptionResult == null)
+                subOptionResult = TryExecuteTitanStyleOption(sourceId, subOptionCardId);
+
+            if (subOptionResult == null)
+                return null;
+
+            // 子选项已选定后，目标列表通常会在接下来的一小段时间内出现。
+            if (!WaitForOptionTargetSelectionReady(sourceId, 1600))
+                return subOptionResult;
+
+            for (var retry = 0; retry < 8; retry++)
+            {
+                var targetSubmitDetail = TrySubmitStructuredOption(sourceId, targetId, position, null);
+                if (targetSubmitDetail == null)
+                    return "OK:OPTION:sub_then_target_network:" + sourceId;
+
+                Thread.Sleep(80);
+            }
+
+            if (targetId > 0 && TryClickOptionTarget(sourceId, targetId))
+                return "OK:OPTION:sub_then_target_click:" + sourceId;
+
+            return subOptionResult;
+        }
+
         /// <summary>
         /// 在 SubOption/EntityChoices UI 已就绪时，尝试通过网络 API 或鼠标点击提交选项。
         /// 用于 Choose One 等打出卡牌后自动弹出子选项的场景。
@@ -179,6 +229,74 @@ namespace HearthstonePayload
                 return _coroutine.RunAndWait(MouseClickChoice(subOptionEntityId));
 
             return null;
+        }
+
+        private static bool WaitForOptionTargetSelectionReady(int sourceId, int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                if (HasPendingTargetSelection(sourceId))
+                    return true;
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
+        private static bool HasPendingTargetSelection(int sourceId)
+        {
+            try
+            {
+                if (IsPlayTargetConfirmationPending(sourceId))
+                    return true;
+
+                var gs = GetGameState();
+                if (gs == null)
+                    return false;
+
+                if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
+                {
+                    var mode = modeObj.ToString();
+                    if (string.Equals(mode, "TARGET", StringComparison.OrdinalIgnoreCase))
+                        return true;
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
+        private static bool TryClickOptionTarget(int sourceId, int targetId)
+        {
+            if (sourceId <= 0 || targetId <= 0)
+                return false;
+
+            var targetHeroSide = -1;
+            if (IsFriendlyHeroEntityId(targetId))
+                targetHeroSide = 0;
+            else if (IsEnemyHeroEntityId(targetId))
+                targetHeroSide = 1;
+
+            if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
+                return false;
+
+            if (!TryClickScreenPos(tx, ty))
+                return false;
+
+            var deadline = Environment.TickCount + 1400;
+            while (Environment.TickCount < deadline)
+            {
+                if (!HasPendingTargetSelection(sourceId))
+                    return true;
+
+                Thread.Sleep(60);
+            }
+
+            return false;
         }
 
         /// <summary>
