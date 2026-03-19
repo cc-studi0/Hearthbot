@@ -2126,7 +2126,10 @@ namespace HearthstonePayload
 
         public string ClickDismiss()
         {
-            // 先通过 API 尝试关闭结算界面
+            string screenTypeName = null;
+            var isBattlegroundsEndGame = false;
+
+            // 优先触发 EndGameScreen 的 hitbox，这能覆盖段位变化等依赖真正 RELEASE 事件的结算层。
             var apiResult = OnMain(() =>
             {
                 try
@@ -2140,7 +2143,18 @@ namespace HearthstonePayload
                         ?.Invoke(null, null);
                     if (screen == null) return (object)null;
 
-                    // 依次尝试已知的跳过/继续方法
+                    screenTypeName = screen.GetType().Name ?? string.Empty;
+                    isBattlegroundsEndGame = screenTypeName.IndexOf("Bacon", StringComparison.OrdinalIgnoreCase) >= 0;
+
+                    var hitbox = GetProp(screen, "m_hitbox");
+                    if (hitbox != null && IsObjectProbablyVisible(hitbox))
+                    {
+                        CallMethod(hitbox, "TriggerPress");
+                        CallMethod(hitbox, "TriggerRelease");
+                        return (object)("HITBOX:" + (string.IsNullOrWhiteSpace(screenTypeName) ? "EndGameScreen" : screenTypeName));
+                    }
+
+                    // hitbox 不可用时，再退回到已知的继续方法。
                     var names = new[]
                     {
                         "ContinueEvents", "Continue", "ContinueAfterScoreScreen",
@@ -2183,7 +2197,7 @@ namespace HearthstonePayload
             var h = dims[1];
             if (w > 0 && h > 0)
             {
-                mouseResult = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
+                mouseResult = _coroutine.RunAndWait(MouseDismissClickSequence(w, h, isBattlegroundsEndGame), DismissClickTimeoutMs);
             }
 
             if (!string.IsNullOrEmpty(apiResultStr))
@@ -2207,7 +2221,7 @@ namespace HearthstonePayload
             var w = dims[0];
             var h = dims[1];
             if (w <= 0 || h <= 0) return "ERROR:no_screen";
-            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h), DismissClickTimeoutMs);
+            var result = _coroutine.RunAndWait(MouseDismissClickSequence(w, h, false), DismissClickTimeoutMs);
             return result ?? "ERROR:click_failed";
         }
 
@@ -2259,10 +2273,10 @@ namespace HearthstonePayload
         /// <summary>
         /// 对齐标准对战原来的结算页点击：固定点击右下区域。
         /// </summary>
-        private IEnumerator<float> MouseDismissClickSequence(int w, int h)
+        private IEnumerator<float> MouseDismissClickSequence(int w, int h, bool isBattlegroundsEndGame)
         {
             InputHook.Simulating = true;
-            foreach (var point in BuildDismissPoints(w, h))
+            foreach (var point in BuildDismissPoints(w, h, isBattlegroundsEndGame))
             {
                 MouseSimulator.MoveTo(point.X, point.Y);
                 yield return 0.05f;
@@ -2275,19 +2289,30 @@ namespace HearthstonePayload
             _coroutine.SetResult("OK:bg_dismiss:screen_sequence");
         }
 
-        private static ScreenPoint[] BuildDismissPoints(int width, int height)
+        private static ScreenPoint[] BuildDismissPoints(int width, int height, bool isBattlegroundsEndGame)
         {
             int ClampX(float ratio) => Math.Max(6, Math.Min(width - 6, (int)(width * ratio)));
             int ClampY(float ratio) => Math.Max(6, Math.Min(height - 6, (int)(height * ratio)));
 
+            if (isBattlegroundsEndGame)
+            {
+                return new[]
+                {
+                    new ScreenPoint(ClampX(0.50f), ClampY(0.52f)), // 战旗名次牌中心
+                    new ScreenPoint(ClampX(0.50f), ClampY(0.66f)), // 名次牌下半区
+                    new ScreenPoint(ClampX(0.50f), ClampY(0.80f)), // 下方面板区域
+                    new ScreenPoint(ClampX(0.50f), ClampY(0.90f)), // 靠近“点击继续”常见区域
+                    new ScreenPoint(ClampX(0.50f), ClampY(0.66f)),
+                };
+            }
+
             return new[]
             {
-                new ScreenPoint(ClampX(0.85f), ClampY(0.75f)), // 标准对战原始落点
-                new ScreenPoint(ClampX(0.50f), ClampY(0.52f)), // 战旗名次牌中心
-                new ScreenPoint(ClampX(0.50f), ClampY(0.66f)), // 名次牌下半区
-                new ScreenPoint(ClampX(0.50f), ClampY(0.80f)), // 下方面板区域
-                new ScreenPoint(ClampX(0.50f), ClampY(0.90f)), // 靠近“点击继续”常见区域
-                new ScreenPoint(ClampX(0.85f), ClampY(0.75f)),
+                new ScreenPoint(ClampX(0.82f), ClampY(0.86f)), // 标准模式优先点右下安全区
+                new ScreenPoint(ClampX(0.88f), ClampY(0.84f)), // 略偏右，避开中轴/手牌
+                new ScreenPoint(ClampX(0.90f), ClampY(0.89f)), // 右下角兜底
+                new ScreenPoint(ClampX(0.85f), ClampY(0.91f)), // 更靠下，继续避开中间手牌区
+                new ScreenPoint(ClampX(0.82f), ClampY(0.86f)),
             };
         }
 
