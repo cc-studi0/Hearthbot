@@ -22,6 +22,18 @@ namespace BotCore.Tests
             Assert.True(BotProtocol.IsCrossCommandResponse("ENDGAME:1:VictoryScreen"));
             Assert.True(BotProtocol.IsCrossCommandResponse(BotProtocol.NoDialog));
             Assert.True(BotProtocol.IsCrossCommandResponse("DIALOG:AlertPopup:OK"));
+            Assert.True(BotProtocol.IsCrossCommandResponse("SEED_NOT_READY:missing=hero_friend"));
+        }
+
+        [Fact]
+        public void SeedProbeResponse_AcceptsSeedNotReadyAndParsesDetail()
+        {
+            const string resp = "SEED_NOT_READY:missing=hero_friend,ability_friend";
+
+            Assert.True(BotProtocol.IsSeedProbeResponse(resp));
+            Assert.True(BotProtocol.IsSeedNotReadyState(resp));
+            Assert.True(BotProtocol.TryParseSeedNotReadyDetail(resp, out var detail));
+            Assert.Equal("missing=hero_friend,ability_friend", detail);
         }
 
         [Fact]
@@ -132,6 +144,7 @@ namespace BotCore.Tests
         public void ShouldAbortPostGameDismiss_WhenGameplayResponsesResume()
         {
             Assert.True(BotProtocol.ShouldAbortPostGameDismiss("SEED:abc"));
+            Assert.True(BotProtocol.ShouldAbortPostGameDismiss("SEED_NOT_READY:missing=hero_friend"));
             Assert.True(BotProtocol.ShouldAbortPostGameDismiss("MULLIGAN"));
             Assert.True(BotProtocol.ShouldAbortPostGameDismiss("NOT_OUR_TURN"));
             Assert.False(BotProtocol.ShouldAbortPostGameDismiss(BotProtocol.EndgamePending));
@@ -208,6 +221,7 @@ namespace BotCore.Tests
         public void IsGameLoadingOrGameplayResponse_RecognizesOnlyInGameSignals()
         {
             Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("SEED:abc"));
+            Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("SEED_NOT_READY:missing=hero_friend"));
             Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("MULLIGAN"));
             Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse("NOT_OUR_TURN"));
             Assert.True(BotProtocol.IsGameLoadingOrGameplayResponse(BotProtocol.EndgamePending));

@@ -27,6 +27,8 @@
     <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
+    <Compile Include="..\HearthstonePayload\GameStateData.cs" Link="HearthstonePayload\GameStateData.cs" />
+    <Compile Include="..\HearthstonePayload\SeedBuilder.cs" Link="HearthstonePayload\SeedBuilder.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="SBAPI">

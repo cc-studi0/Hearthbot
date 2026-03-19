@@ -5,6 +5,8 @@ namespace HearthstonePayload
 {
     public static class SeedBuilder
     {
+        public const string SeedNotReadyPrefix = "SEED_NOT_READY:";
+
         public static string Build(GameStateData d)
         {
             var parts = new string[67];
@@ -88,6 +90,55 @@ namespace HearthstonePayload
             return string.Join("~", parts);
         }
 
+        public static bool TryBuild(GameStateData d, out string seed, out string detail)
+        {
+            seed = string.Empty;
+            if (!TryValidateState(d, out detail))
+                return false;
+
+            seed = Build(d);
+            if (string.IsNullOrWhiteSpace(seed))
+            {
+                detail = "seed_empty";
+                return false;
+            }
+
+            detail = "ok";
+            return true;
+        }
+
+        public static bool TryValidateState(GameStateData d, out string detail)
+        {
+            if (d == null)
+            {
+                detail = "state_null";
+                return false;
+            }
+
+            var missing = new List<string>();
+            if (d.FriendlyPlayerId <= 0)
+                missing.Add("friendly_player");
+            if (d.TurnCount <= 0)
+                missing.Add("turn_count");
+            if (!HasCoreEntity(d.HeroFriend))
+                missing.Add("hero_friend");
+            if (!HasCoreEntity(d.HeroEnemy))
+                missing.Add("hero_enemy");
+            if (!HasCoreEntity(d.AbilityFriend))
+                missing.Add("ability_friend");
+            if (!HasCoreEntity(d.AbilityEnemy))
+                missing.Add("ability_enemy");
+
+            if (missing.Count > 0)
+            {
+                detail = "missing=" + string.Join(",", missing);
+                return false;
+            }
+
+            detail = "ok";
+            return true;
+        }
+
         private static string SerializeEntity(EntityData e)
         {
             if (e == null) return "";
@@ -151,6 +202,13 @@ namespace HearthstonePayload
         private static string B(bool v)
         {
             return v ? "True" : "False";
+        }
+
+        private static bool HasCoreEntity(EntityData entity)
+        {
+            return entity != null
+                && entity.EntityId > 0
+                && !string.IsNullOrWhiteSpace(entity.CardId);
         }
     }
 }

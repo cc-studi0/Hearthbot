@@ -375,7 +375,12 @@ namespace HearthstonePayload
                     else if (!state.IsOurTurn)
                         _pipe.Write("NOT_OUR_TURN");
                     else
-                        _pipe.Write("SEED:" + SeedBuilder.Build(state));
+                    {
+                        if (SeedBuilder.TryBuild(state, out var seed, out var seedDetail))
+                            _pipe.Write("SEED:" + seed);
+                        else
+                            _pipe.Write(SeedBuilder.SeedNotReadyPrefix + seedDetail);
+                    }
                 }
             }
             else if (cmd == "GET_ENDGAME_STATE")

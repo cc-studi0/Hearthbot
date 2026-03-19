@@ -29,6 +29,7 @@ namespace BotMain
         }
 
         public const string EndgamePending = "ENDGAME_PENDING";
+        public const string SeedNotReadyPrefix = "SEED_NOT_READY:";
         public const string NoDialog = "NO_DIALOG";
         public const string StartupRatingsDialogType = "StartupRatings";
         public const string StartupRatingsButtonLabel = "\u70b9\u51fb\u5f00\u59cb";
@@ -54,6 +55,29 @@ namespace BotMain
                 || resp.StartsWith("SEED:", StringComparison.Ordinal);
         }
 
+        public static bool IsSeedNotReadyState(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && resp.StartsWith(SeedNotReadyPrefix, StringComparison.Ordinal);
+        }
+
+        public static bool IsSeedProbeResponse(string resp)
+        {
+            return IsSeedResponse(resp) || IsSeedNotReadyState(resp);
+        }
+
+        public static bool TryParseSeedNotReadyDetail(string resp, out string detail)
+        {
+            detail = string.Empty;
+            if (!IsSeedNotReadyState(resp))
+                return false;
+
+            detail = resp.Length > SeedNotReadyPrefix.Length
+                ? resp.Substring(SeedNotReadyPrefix.Length)
+                : string.Empty;
+            return true;
+        }
+
         public static bool IsEndgamePendingState(string resp)
         {
             return string.Equals(resp, EndgamePending, StringComparison.Ordinal);
@@ -65,6 +89,7 @@ namespace BotMain
                 return false;
 
             return resp.StartsWith("SEED:", StringComparison.Ordinal)
+                || IsSeedNotReadyState(resp)
                 || string.Equals(resp, "MULLIGAN", StringComparison.Ordinal)
                 || string.Equals(resp, "NOT_OUR_TURN", StringComparison.Ordinal);
         }
@@ -295,7 +320,7 @@ namespace BotMain
                 return true;
             if (IsBlockingDialogResponse(resp))
                 return true;
-            if (IsSeedResponse(resp) || resp == "NO_MULLIGAN")
+            if (IsSeedProbeResponse(resp) || resp == "NO_MULLIGAN")
                 return true;
             if (IsSceneResponse(resp)
                 || IsHubButtonsResponse(resp)

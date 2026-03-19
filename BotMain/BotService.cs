@@ -48,6 +48,9 @@ namespace BotMain
         private const int EndTurnPostWaitMaxMs = 3000;
         private const int EndTurnPostWaitPollIntervalMs = 100;
         private const int EndTurnPostWaitGetSeedTimeoutMs = 500;
+        private const int PlanningBoardProbeTimeoutMs = 1200;
+        private const int PlanningBoardRecoveryRetries = 8;
+        private const int PlanningBoardRecoveryDelayMs = 120;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private static readonly string[] ChoiceStateTextMembers =
@@ -61,6 +64,26 @@ namespace BotMain
             "CardTextInHandCN",
             "CardTextInHand"
         };
+
+        private enum PlanningBoardRefreshStatus
+        {
+            None,
+            Refreshed,
+            KeptExisting,
+            SeedNotReady,
+            StateChanged,
+            ParseFailed,
+            ProbeFailed
+        }
+
+        private sealed class PlanningBoardRefreshResult
+        {
+            public PlanningBoardRefreshStatus Status { get; set; }
+            public string Response { get; set; } = string.Empty;
+            public string Detail { get; set; } = string.Empty;
+            public int Attempts { get; set; }
+            public bool BoardChanged { get; set; }
+        }
 
         private readonly object _sync = new object();
         // UI 的 Prepare 定时器会频繁触发，不能和 payload 连接等待共用同一把锁，
@@ -1556,6 +1579,10 @@ namespace BotMain
             int actionFailStreak = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
+            int seedNotReadyStreak = 0;
+            int planningBoardUnavailableStreak = 0;
+            string lastSeedNotReadySignature = string.Empty;
+            string lastPlanningBoardUnavailableSignature = string.Empty;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
 
             while (_running && pipe != null && pipe.IsConnected)
@@ -1622,7 +1649,7 @@ namespace BotMain
                     pipe,
                     "GET_SEED",
                     MainLoopGetSeedTimeoutMs,
-                    BotProtocol.IsSeedResponse,
+                    BotProtocol.IsSeedProbeResponse,
                     out var resp,
                     "MainLoop");
                 seedSw.Stop();
@@ -1658,8 +1685,38 @@ namespace BotMain
                 if (BotProtocol.IsSeedResponse(resp))
                     _lastObservedSeedResponse = resp;
 
+                if (BotProtocol.IsSeedNotReadyState(resp))
+                {
+                    EnsureGameplaySessionStarted(ref wasInGame);
+                    planningBoardUnavailableStreak = 0;
+                    lastPlanningBoardUnavailableSignature = string.Empty;
+                    notOurTurnStreak = 0;
+                    nextPostGameDismissUtc = DateTime.MinValue;
+                    mulliganStreak = 0;
+                    mulliganHandled = false;
+                    nextMulliganAttemptUtc = DateTime.MinValue;
+                    mulliganPhaseStartedUtc = DateTime.MinValue;
+                    if (BotProtocol.TryParseSeedNotReadyDetail(resp, out var seedNotReadyDetail))
+                    {
+                        if (ShouldLogRepeatedIssue(ref seedNotReadyStreak, ref lastSeedNotReadySignature, seedNotReadyDetail))
+                            Log($"[MainLoop] seed not ready: {seedNotReadyDetail}");
+                    }
+                    else if (ShouldLogRepeatedIssue(ref seedNotReadyStreak, ref lastSeedNotReadySignature, resp))
+                    {
+                        Log($"[MainLoop] seed not ready: {resp}");
+                    }
+
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                seedNotReadyStreak = 0;
+                lastSeedNotReadySignature = string.Empty;
+
                 if (!resp.StartsWith("SEED:", StringComparison.Ordinal))
                 {
+                    planningBoardUnavailableStreak = 0;
+                    lastPlanningBoardUnavailableSignature = string.Empty;
                     if (BotProtocol.IsEndgamePendingState(resp))
                     {
                         if (wasInGame)
@@ -1713,19 +1770,7 @@ namespace BotMain
                     }
                     else if (resp == "MULLIGAN")
                     {
-                        if (!wasInGame)
-                        {
-                            wasInGame = true;
-                            ClearPendingConcedeLoss();
-                            _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
-                            _postGameSinceUtc = null;
-                            _postGameLobbyConfirmCount = 0;
-                            _currentLearningMatchId = Guid.NewGuid().ToString("N");
-                            _matchEntityProvenanceRegistry.Reset();
-                            _currentDeckContext = ResolveDeckContext(null);
-                            HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
-                            _pluginSystem?.FireOnGameBegin();
-                        }
+                        EnsureGameplaySessionStarted(ref wasInGame);
                         HsBoxCallbackCapture.SetTurnContext(null, isMulligan: true);
                         notOurTurnStreak = 0;
                         nextPostGameDismissUtc = DateTime.MinValue;
@@ -1853,53 +1898,26 @@ namespace BotMain
                 nextMulliganAttemptUtc = DateTime.MinValue;
                 mulliganPhaseStartedUtc = DateTime.MinValue;
 
-                if (!wasInGame)
-                {
-                    wasInGame = true;
-                    ClearPendingConcedeLoss();
-                    _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
-                    _postGameSinceUtc = null;
-                    _postGameLobbyConfirmCount = 0;
-                    _currentLearningMatchId = Guid.NewGuid().ToString("N");
-                    _matchEntityProvenanceRegistry.Reset();
-                    _currentDeckContext = ResolveDeckContext(null);
-                    HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
-                    _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
-                    _pluginSystem?.FireOnGameBegin();
-                }
+                EnsureGameplaySessionStarted(ref wasInGame);
+                _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
 
                 var seed = resp.Substring(5);
                 Board planningBoard = null;
-                try
+                TryBuildPlanningBoardFromSeed(
+                    seed,
+                    "MainLoopInitial",
+                    emitDebugEvents: true,
+                    out planningBoard,
+                    out var initialBoardParseDetail);
+                if (planningBoard != null)
                 {
-                    InvokeDebugEvent("OnBeforeBoardReceived", seed);
-                    planningBoard = Board.FromSeed(seed);
-                    InvokeDebugEvent("OnAfterBoardReceived", seed);
-                    _botApiHandler?.SetCurrentBoard(planningBoard);
-                    OnBoardUpdated?.Invoke(planningBoard);
-
-                    var turnNumber = planningBoard.TurnCount;
-                    HsBoxCallbackCapture.SetTurnContext(turnNumber, isMulligan: false);
-                    if (turnNumber != lastTurnNumber)
-                    {
-                        if (lastTurnNumber >= 0)
-                            _pluginSystem?.FireOnTurnEnd();
-                        lastTurnNumber = turnNumber;
-                        currentTurnStartedUtc = DateTime.UtcNow;
-                        ClearChoiceStateWatch("turn_changed");
-                        ResetDiscoverLogState();
-                        ResetChoiceLogState();
-                        _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
-                        _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
-                        resimulationCount = 0;
-                        actionFailStreak = 0;
-                        playActionFailStreakByEntity.Clear();
-                        _pluginSystem?.FireOnTurnBegin();
-                    }
-                }
-                catch
-                {
-                    // ignore malformed seed and keep loop alive.
+                    ApplyPlanningBoard(
+                        planningBoard,
+                        ref lastTurnNumber,
+                        ref currentTurnStartedUtc,
+                        ref resimulationCount,
+                        ref actionFailStreak,
+                        playActionFailStreakByEntity);
                 }
 
                 var swTurn = Stopwatch.StartNew();
@@ -1922,13 +1940,47 @@ namespace BotMain
 
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
-                RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                if (refreshResult.BoardChanged && planningBoard != null)
+                {
+                    ApplyPlanningBoard(
+                        planningBoard,
+                        ref lastTurnNumber,
+                        ref currentTurnStartedUtc,
+                        ref resimulationCount,
+                        ref actionFailStreak,
+                        playActionFailStreakByEntity);
+                }
 
                 if (planningBoard == null)
                 {
-                    Log($"[MainLoop] planning board unavailable after ready; seedLength={(seed?.Length ?? 0)}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}");
+                    var failureParts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(initialBoardParseDetail))
+                        failureParts.Add($"initial={initialBoardParseDetail}");
+                    if (!string.IsNullOrWhiteSpace(refreshResult.Detail))
+                        failureParts.Add($"refresh={refreshResult.Detail}");
+                    if (!string.IsNullOrWhiteSpace(refreshResult.Response))
+                        failureParts.Add($"response={TrimForLog(refreshResult.Response, 80)}");
+                    failureParts.Add($"status={refreshResult.Status}");
+                    failureParts.Add($"attempts={refreshResult.Attempts}");
+                    failureParts.Add($"seedLength={(seed?.Length ?? 0)}");
+                    failureParts.Add($"seed={SummarizeSeedForLog(seed)}");
+                    var failureSignature = string.Join("|", failureParts);
+                    if (ShouldLogRepeatedIssue(ref planningBoardUnavailableStreak, ref lastPlanningBoardUnavailableSignature, failureSignature))
+                    {
+                        Log("[MainLoop] planning board unavailable after ready; " + string.Join("; ", failureParts));
+                    }
+
                     Thread.Sleep(120);
                     continue;
+                }
+
+                planningBoardUnavailableStreak = 0;
+                lastPlanningBoardUnavailableSignature = string.Empty;
+                if (!string.IsNullOrWhiteSpace(initialBoardParseDetail)
+                    && refreshResult.Status == PlanningBoardRefreshStatus.Refreshed)
+                {
+                    Log($"[Action] planning board recovered after ready; initial={initialBoardParseDetail}; refresh={refreshResult.Detail}");
                 }
 
                 var recommendationStage = "plugin_simulation";
@@ -3815,46 +3867,236 @@ namespace BotMain
             return fallbackSeed;
         }
 
-        private void RefreshPlanningBoardAfterReady(PipeServer pipe, ref string seed, ref Board planningBoard)
+        private void EnsureGameplaySessionStarted(ref bool wasInGame)
         {
-            if (pipe == null || !pipe.IsConnected)
+            if (wasInGame)
                 return;
 
-            if (!TryGetSeedProbe(pipe, 1200, out var refreshedResponse, "ActionPostReady")
-                || string.IsNullOrWhiteSpace(refreshedResponse)
-                || !refreshedResponse.StartsWith("SEED:", StringComparison.Ordinal))
-            {
+            wasInGame = true;
+            ClearPendingConcedeLoss();
+            _matchEndedUtc = null; // 对局已确认加载，清除匹配保护期
+            _postGameSinceUtc = null;
+            _postGameLobbyConfirmCount = 0;
+            _currentLearningMatchId = Guid.NewGuid().ToString("N");
+            _matchEntityProvenanceRegistry.Reset();
+            _currentDeckContext = ResolveDeckContext(null);
+            HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
+            _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
+            _pluginSystem?.FireOnGameBegin();
+        }
+
+        private void ApplyPlanningBoard(
+            Board planningBoard,
+            ref int lastTurnNumber,
+            ref DateTime currentTurnStartedUtc,
+            ref int resimulationCount,
+            ref int actionFailStreak,
+            Dictionary<int, int> playActionFailStreakByEntity)
+        {
+            if (planningBoard == null)
                 return;
+
+            _botApiHandler?.SetCurrentBoard(planningBoard);
+            OnBoardUpdated?.Invoke(planningBoard);
+
+            var turnNumber = planningBoard.TurnCount;
+            HsBoxCallbackCapture.SetTurnContext(turnNumber, isMulligan: false);
+            if (turnNumber != lastTurnNumber)
+            {
+                if (lastTurnNumber >= 0)
+                    _pluginSystem?.FireOnTurnEnd();
+                lastTurnNumber = turnNumber;
+                currentTurnStartedUtc = DateTime.UtcNow;
+                ClearChoiceStateWatch("turn_changed");
+                ResetDiscoverLogState();
+                ResetChoiceLogState();
+                _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
+                _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+                resimulationCount = 0;
+                actionFailStreak = 0;
+                playActionFailStreakByEntity?.Clear();
+                _pluginSystem?.FireOnTurnBegin();
+            }
+        }
+
+        private PlanningBoardRefreshResult RefreshPlanningBoardAfterReady(PipeServer pipe, ref string seed, ref Board planningBoard)
+        {
+            var result = new PlanningBoardRefreshResult
+            {
+                Status = PlanningBoardRefreshStatus.None
+            };
+            if (pipe == null || !pipe.IsConnected)
+            {
+                result.Status = PlanningBoardRefreshStatus.ProbeFailed;
+                result.Detail = "pipe_unavailable";
+                return result;
             }
 
-            var refreshedSeed = refreshedResponse.Substring("SEED:".Length);
-            if (string.IsNullOrWhiteSpace(refreshedSeed))
-                return;
+            var hadPlanningBoard = planningBoard != null;
+            var attempts = hadPlanningBoard ? 1 : PlanningBoardRecoveryRetries;
+            var retryDelayMs = hadPlanningBoard ? 0 : PlanningBoardRecoveryDelayMs;
+            var previousHandCount = planningBoard?.Hand?.Count ?? 0;
+            var previousMana = planningBoard?.ManaAvailable ?? 0;
+            PlanningBoardRefreshStatus finalStatus = hadPlanningBoard
+                ? PlanningBoardRefreshStatus.KeptExisting
+                : PlanningBoardRefreshStatus.ProbeFailed;
+            var finalDetail = hadPlanningBoard ? "kept_existing" : "seed_probe_failed";
+            var finalResponse = string.Empty;
+
+            for (var attempt = 1; attempt <= attempts; attempt++)
+            {
+                result.Attempts = attempt;
+                if (!TryGetSeedProbe(pipe, PlanningBoardProbeTimeoutMs, out var refreshedResponse, "ActionPostReady")
+                    || string.IsNullOrWhiteSpace(refreshedResponse))
+                {
+                    finalStatus = hadPlanningBoard
+                        ? PlanningBoardRefreshStatus.KeptExisting
+                        : PlanningBoardRefreshStatus.ProbeFailed;
+                    finalDetail = "seed_probe_failed";
+                    if (attempt < attempts && retryDelayMs > 0)
+                        Thread.Sleep(retryDelayMs);
+                    continue;
+                }
+
+                finalResponse = refreshedResponse;
+                if (BotProtocol.IsSeedNotReadyState(refreshedResponse))
+                {
+                    BotProtocol.TryParseSeedNotReadyDetail(refreshedResponse, out var notReadyDetail);
+                    finalStatus = hadPlanningBoard
+                        ? PlanningBoardRefreshStatus.KeptExisting
+                        : PlanningBoardRefreshStatus.SeedNotReady;
+                    finalDetail = string.IsNullOrWhiteSpace(notReadyDetail)
+                        ? "seed_not_ready"
+                        : notReadyDetail;
+                    if (attempt < attempts && retryDelayMs > 0)
+                        Thread.Sleep(retryDelayMs);
+                    continue;
+                }
+
+                if (!refreshedResponse.StartsWith("SEED:", StringComparison.Ordinal))
+                {
+                    result.Status = PlanningBoardRefreshStatus.StateChanged;
+                    result.Response = refreshedResponse;
+                    result.Detail = refreshedResponse;
+                    return result;
+                }
+
+                var refreshedSeed = refreshedResponse.Substring("SEED:".Length);
+                if (string.IsNullOrWhiteSpace(refreshedSeed))
+                {
+                    finalStatus = hadPlanningBoard
+                        ? PlanningBoardRefreshStatus.KeptExisting
+                        : PlanningBoardRefreshStatus.ParseFailed;
+                    finalDetail = "seed_empty";
+                    if (attempt < attempts && retryDelayMs > 0)
+                        Thread.Sleep(retryDelayMs);
+                    continue;
+                }
+
+                if (TryBuildPlanningBoardFromSeed(
+                    refreshedSeed,
+                    "ActionPostReady",
+                    emitDebugEvents: false,
+                    out var refreshedBoard,
+                    out var refreshedDetail))
+                {
+                    seed = refreshedSeed;
+                    planningBoard = refreshedBoard;
+                    result.Status = PlanningBoardRefreshStatus.Refreshed;
+                    result.Response = refreshedResponse;
+                    result.Detail = $"board_ready:{refreshedDetail}";
+                    result.BoardChanged = true;
+                    if (previousHandCount != (planningBoard?.Hand?.Count ?? 0)
+                        || previousMana != (planningBoard?.ManaAvailable ?? 0))
+                    {
+                        Log($"[Action] refreshed board after ready: hand {previousHandCount}->{planningBoard?.Hand?.Count ?? 0}, mana {previousMana}->{planningBoard?.ManaAvailable ?? 0}, turn={planningBoard?.TurnCount ?? 0}");
+                    }
+
+                    return result;
+                }
+
+                finalStatus = hadPlanningBoard
+                    ? PlanningBoardRefreshStatus.KeptExisting
+                    : PlanningBoardRefreshStatus.ParseFailed;
+                finalDetail = refreshedDetail;
+                if (attempt < attempts && retryDelayMs > 0)
+                    Thread.Sleep(retryDelayMs);
+            }
+
+            result.Status = finalStatus;
+            result.Response = finalResponse;
+            result.Detail = finalDetail;
+            return result;
+        }
+
+        private bool TryBuildPlanningBoardFromSeed(
+            string seed,
+            string scope,
+            bool emitDebugEvents,
+            out Board planningBoard,
+            out string detail)
+        {
+            planningBoard = null;
+            if (string.IsNullOrWhiteSpace(seed))
+            {
+                detail = $"{scope}: seed_empty";
+                return false;
+            }
 
             try
             {
-                var refreshedBoard = Board.FromSeed(refreshedSeed);
-                if (refreshedBoard == null)
-                    return;
-
-                var previousHandCount = planningBoard?.Hand?.Count ?? 0;
-                var previousMana = planningBoard?.ManaAvailable ?? 0;
-                seed = refreshedSeed;
-                planningBoard = refreshedBoard;
-                _botApiHandler?.SetCurrentBoard(planningBoard);
-                OnBoardUpdated?.Invoke(planningBoard);
-
-                var refreshedHandCount = planningBoard.Hand?.Count ?? 0;
-                var refreshedMana = planningBoard.ManaAvailable;
-                if (previousHandCount != refreshedHandCount || previousMana != refreshedMana)
+                if (emitDebugEvents)
+                    InvokeDebugEvent("OnBeforeBoardReceived", seed);
+                planningBoard = Board.FromSeed(seed);
+                if (emitDebugEvents)
+                    InvokeDebugEvent("OnAfterBoardReceived", seed);
+                if (planningBoard == null)
                 {
-                    Log($"[Action] refreshed board after ready: hand {previousHandCount}->{refreshedHandCount}, mana {previousMana}->{refreshedMana}, turn={planningBoard.TurnCount}");
+                    detail = $"{scope}: board_null";
+                    return false;
                 }
+
+                detail = $"{scope}: ok";
+                return true;
             }
-            catch
+            catch (Exception ex)
             {
-                // keep the pre-ready board if the refreshed seed is malformed.
+                detail = $"{scope}: {ex.GetType().Name}: {TrimForLog(ex.Message ?? string.Empty, 200)}";
+                return false;
             }
+        }
+
+        private static bool ShouldLogRepeatedIssue(ref int streak, ref string lastSignature, string signature, int interval = 10)
+        {
+            var normalized = signature ?? string.Empty;
+            if (!string.Equals(lastSignature, normalized, StringComparison.Ordinal))
+            {
+                lastSignature = normalized;
+                streak = 0;
+            }
+
+            streak++;
+            return streak == 1 || (interval > 0 && streak % interval == 0);
+        }
+
+        private static string SummarizeSeedForLog(string seed)
+        {
+            return TrimForLog(seed, 120);
+        }
+
+        private static string TrimForLog(string value, int maxLength)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var normalized = value
+                .Replace('\r', ' ')
+                .Replace('\n', ' ')
+                .Trim();
+            if (normalized.Length <= maxLength || maxLength <= 3)
+                return normalized;
+
+            return normalized.Substring(0, maxLength - 3) + "...";
         }
 
         private bool TryHandlePendingDiscoverBeforePlanning(PipeServer pipe, string seed)
@@ -5495,7 +5737,7 @@ namespace BotMain
                 pipe,
                 "GET_SEED",
                 timeoutMs,
-                BotProtocol.IsSeedResponse,
+                BotProtocol.IsSeedProbeResponse,
                 out probe,
                 scope);
             if (got && BotProtocol.IsSeedResponse(probe))
