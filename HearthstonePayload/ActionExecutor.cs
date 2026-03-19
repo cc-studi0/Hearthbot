@@ -122,7 +122,7 @@ namespace HearthstonePayload
                 || !string.IsNullOrWhiteSpace(subOptionCardId);
 
             if (!needsStructuredOption)
-                return _coroutine.RunAndWait(MouseClickChoice(sourceId));
+                return _coroutine.RunAndWait(MouseClickChoice(sourceId, allowApiFallback: false));
 
             var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
             if (submitDetail == null)
@@ -5910,7 +5910,7 @@ namespace HearthstonePayload
             return null;
         }
 
-        private static IEnumerator<float> MouseClickChoice(int entityId)
+        private static IEnumerator<float> MouseClickChoice(int entityId, bool allowApiFallback = true)
         {
             InputHook.Simulating = true;
 
@@ -5983,7 +5983,7 @@ namespace HearthstonePayload
             }
 
             // 鼠标点击仍未确认时，回退网络 API 提交一次，提升抉择提交成功率。
-            if (!confirmed && !mouseOnlyChoice)
+            if (!confirmed && !mouseOnlyChoice && allowApiFallback)
             {
                 var apiResult = TrySendChoiceViaNetwork(entityId);
                 if (!string.IsNullOrWhiteSpace(apiResult)
