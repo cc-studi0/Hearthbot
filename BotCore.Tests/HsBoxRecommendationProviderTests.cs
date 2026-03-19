@@ -541,6 +541,81 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MergesBodyTargetHintIntoStructuredPlayOptionPair()
+        {
+            var board = new Board
+            {
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 431,
+                        IsFriend = false,
+                        Template = CreateTemplate(Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                    }
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "play_special",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "CORE_AT_037",
+                    cardName = "活体根须",
+                    ZONE_POSITION = 2
+                }),
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "AT_037a",
+                    CardName = "缠人根须"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 40,
+                UpdatedAtMs = 560,
+                Raw = "merge-body-target-hint-into-structured-option",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出2号位法术 活体根须 目标是对方1号位随从 小精灵 选择卡牌 缠人根须 打法参考B 结束回合",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        step,
+                        new HsBoxActionStep { ActionName = "play_special" },
+                        new HsBoxActionStep { ActionName = "end_turn" }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 134,
+                        CardId = "CORE_AT_037",
+                        Zone = "HAND",
+                        ZonePosition = 2
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|431|0|AT_037a" }, result.Actions);
+            Assert.Contains("merge=body_target_hint", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_MapsChooseStepUsingPreviousPlaySourceAndDeferredTarget()
         {
             var board = CreateTargetedChooseBoard(115, 205);

@@ -98,6 +98,16 @@ namespace BotMain
             if (hasBody)
                 lastBodyDetail = bodyDetail;
 
+            if (hasStructured && hasBody)
+            {
+                structuredActions = MergeStructuredActionsWithBodyHints(structuredActions, bodyActions, out var mergeDetail);
+                if (!string.IsNullOrWhiteSpace(mergeDetail))
+                {
+                    structuredDetail = $"{structuredDetail}; {mergeDetail}";
+                    lastStructuredDetail = structuredDetail;
+                }
+            }
+
             if (hasStructured
                 && structuredHadPrematureEndTurn
                 && hasBody
@@ -444,6 +454,120 @@ namespace BotMain
             return !string.IsNullOrWhiteSpace(action)
                    && (action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
                        || action.StartsWith("BG_END_TURN", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private static List<string> MergeStructuredActionsWithBodyHints(
+            List<string> structuredActions,
+            IReadOnlyList<string> bodyActions,
+            out string detail)
+        {
+            detail = null;
+            if (structuredActions == null || structuredActions.Count < 2 || bodyActions == null || bodyActions.Count == 0)
+                return structuredActions;
+
+            var merged = new List<string>(structuredActions);
+            var mergedAny = false;
+
+            for (var i = 1; i < merged.Count; i++)
+            {
+                var previous = merged[i - 1];
+                var current = merged[i];
+                if (!current.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!TryGetActionCommandSourceEntityId(previous, out var previousSourceEntityId)
+                    || !TryGetActionCommandSourceEntityId(current, out var currentSourceEntityId)
+                    || previousSourceEntityId <= 0
+                    || previousSourceEntityId != currentSourceEntityId)
+                {
+                    continue;
+                }
+
+                if (!previous.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                    && !previous.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                    && !previous.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
+                if (TryGetActionCommandTargetEntityId(current, out var currentTargetEntityId) && currentTargetEntityId > 0)
+                    continue;
+
+                var hintedTargetEntityId = FindBodyTargetHintForSource(bodyActions, currentSourceEntityId);
+                if (hintedTargetEntityId <= 0)
+                    continue;
+
+                if (!TrySetActionCommandTarget(current, hintedTargetEntityId, out var rewritten))
+                    continue;
+
+                merged[i] = rewritten;
+                mergedAny = true;
+            }
+
+            if (mergedAny)
+                detail = "merge=body_target_hint";
+
+            return mergedAny ? merged : structuredActions;
+        }
+
+        private static int FindBodyTargetHintForSource(IReadOnlyList<string> bodyActions, int sourceEntityId)
+        {
+            if (bodyActions == null || sourceEntityId <= 0)
+                return 0;
+
+            foreach (var action in bodyActions)
+            {
+                if (!TryGetActionCommandSourceEntityId(action, out var actionSourceEntityId)
+                    || actionSourceEntityId != sourceEntityId)
+                {
+                    continue;
+                }
+
+                if (!TryGetActionCommandTargetEntityId(action, out var actionTargetEntityId) || actionTargetEntityId <= 0)
+                    continue;
+
+                return actionTargetEntityId;
+            }
+
+            return 0;
+        }
+
+        private static bool TryGetActionCommandSourceEntityId(string command, out int sourceEntityId)
+        {
+            sourceEntityId = 0;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 2
+                && int.TryParse(parts[1], out sourceEntityId)
+                && sourceEntityId > 0;
+        }
+
+        private static bool TryGetActionCommandTargetEntityId(string command, out int targetEntityId)
+        {
+            targetEntityId = 0;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            return parts.Length >= 3
+                && int.TryParse(parts[2], out targetEntityId);
+        }
+
+        private static bool TrySetActionCommandTarget(string command, int targetEntityId, out string rewrittenCommand)
+        {
+            rewrittenCommand = command;
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            var parts = command.Split('|');
+            if (parts.Length < 4)
+                return false;
+
+            parts[2] = targetEntityId.ToString();
+            rewrittenCommand = string.Join("|", parts);
+            return true;
         }
 
 
