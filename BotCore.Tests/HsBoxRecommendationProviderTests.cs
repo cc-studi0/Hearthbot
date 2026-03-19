@@ -611,6 +611,79 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MapsExactHsBoxEmbeddedSubOptionEnemyHeroPayload()
+        {
+            var board = new Board
+            {
+                HeroEnemy = new Card
+                {
+                    Id = 305,
+                    IsFriend = false
+                }
+            };
+
+            const string normalizedJson = @"{
+  ""choiceId"": -1,
+  ""data"": [
+    {
+      ""actionName"": ""play_special"",
+      ""card"": {
+        ""ZONE_POSITION"": 5,
+        ""cardId"": ""CORE_AT_037"",
+        ""cardName"": ""活体根须""
+      },
+      ""oppTargetHero"": {
+        ""cardId"": ""HERO_06"",
+        ""cardName"": ""玛法里奥·怒风"",
+        ""health"": 30
+      },
+      ""subOption"": {
+        ""cardId"": ""AT_037a"",
+        ""cardName"": ""缠人根须""
+      }
+    }
+  ],
+  ""error"": """",
+  ""optionId"": 68,
+  ""status"": 2,
+  ""turnNum"": 8
+}";
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 38,
+                UpdatedAtMs = 1773912108140,
+                Raw = normalizedJson,
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出5号位法术 活体根须 目标是对方英雄 玛法里奥·怒风 选择卡牌 缠人根须",
+                Reason = "ready",
+                Envelope = JObject.Parse(normalizedJson).ToObject<HsBoxRecommendationEnvelope>()
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 145,
+                        CardId = "CORE_AT_037",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_MapsHeroPowerWithEmbeddedSubOptionAndDeferredTarget()
         {
             var board = new Board
