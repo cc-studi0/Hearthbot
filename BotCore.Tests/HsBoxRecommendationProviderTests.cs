@@ -50,6 +50,107 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesOnlyReferenceA_WhenStructuredDataContainsAlternativeRecommendations()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 56,
+                UpdatedAtMs = 600,
+                Raw = "structured-reference-a-only",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出3号位法术 伊瑟拉苏醒 打法参考B 操作1号位地标 阿梅达希尔",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "DREAM_02",
+                                cardName = "伊瑟拉苏醒",
+                                ZONE_POSITION = 3
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "location_power",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "FIR_907",
+                                cardName = "阿梅达希尔",
+                                ZONE_POSITION = 1
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 101,
+                        CardId = "DREAM_02",
+                        Zone = "HAND",
+                        ZonePosition = 3
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 201,
+                        CardId = "FIR_907",
+                        Zone = "PLAY",
+                        ZonePosition = 1
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
+            Assert.Contains("scope=reference_a", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_BodyFallbackUsesOnlyReferenceA_WhenLaterRecommendationsContainPlayableAction()
+        {
+            var state = CreateState(
+                401,
+                raw: "body-reference-a-only",
+                actionName: "unknown_action",
+                bodyText: "网易炉石传说盒子 推荐打法 打法参考A 结束回合 打法参考B 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "END_TURN" }, result.Actions);
+            Assert.Contains("body_scope=reference_a", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_UsesFriendlyEntityContext_WhenPlanningBoardHandIsEmpty()
         {
             var state = CreateState(

@@ -3046,7 +3046,7 @@ namespace BotMain
             actions = new List<string>();
             detail = "hsbox_action_state_invalid";
 
-            var steps = GetSteps(state, out var stateDetail);
+            var steps = GetActionSteps(state, out var stateDetail, out var scopeDetail);
             if (steps == null)
             {
                 detail = stateDetail;
@@ -3072,7 +3072,7 @@ namespace BotMain
 
                 if (!TryMapSingleAction(step, board, friendlyEntities, lastChoiceCapableSourceEntityId, out var command, out var reason))
                 {
-                    detail = $"map_failed:{step.ActionName}:{reason}; {DescribeStepFailureContext(step, board, friendlyEntities)}; {state.Detail}";
+                    detail = $"map_failed:{step.ActionName}:{reason}; {scopeDetail}; {DescribeStepFailureContext(step, board, friendlyEntities)}; {state.Detail}";
                     return false;
                 }
 
@@ -3139,11 +3139,11 @@ namespace BotMain
 
             if (actions.Count == 0)
             {
-                detail = $"hsbox_actions_empty; skipped={string.Join(",", skipped)}; {state.Detail}";
+                detail = $"hsbox_actions_empty; skipped={string.Join(",", skipped)}; {scopeDetail}; {state.Detail}";
                 return false;
             }
 
-            detail = $"count={actions.Count}, skipped={skipped.Count}, updatedAt={state.UpdatedAtMs}, page={state.Href}, commands={SummarizeCommands(actions)}";
+            detail = $"count={actions.Count}, skipped={skipped.Count}, {scopeDetail}, updatedAt={state.UpdatedAtMs}, page={state.Href}, commands={SummarizeCommands(actions)}";
             return true;
         }
 
@@ -3165,49 +3165,50 @@ namespace BotMain
             }
 
             var normalizedText = NormalizeBodyText(bodyText);
+            var scopedText = ExtractPrimaryRecommendationBodyText(normalizedText, out var bodyScopeDetail);
 
-            if (TryMapPlayActionFromBodyText(normalizedText, board, friendlyEntities, out var playCommand, out var playDetail))
+            if (TryMapPlayActionFromBodyText(scopedText, board, friendlyEntities, out var playCommand, out var playDetail))
             {
                 actions.Add(playCommand);
-                detail = $"text_fallback {playDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
+                detail = $"text_fallback {bodyScopeDetail}, {playDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
                 return true;
             }
 
-            if (TryMapAttackActionFromBodyText(normalizedText, board, out var attackCommand, out var attackDetail))
+            if (TryMapAttackActionFromBodyText(scopedText, board, out var attackCommand, out var attackDetail))
             {
                 actions.Add(attackCommand);
-                detail = $"text_fallback {attackDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
+                detail = $"text_fallback {bodyScopeDetail}, {attackDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
                 return true;
             }
 
-            if (TryMapLocationActionFromBodyText(normalizedText, board, out var locationCommand, out var locationDetail))
+            if (TryMapLocationActionFromBodyText(scopedText, board, out var locationCommand, out var locationDetail))
             {
                 actions.Add(locationCommand);
-                detail = $"text_fallback {locationDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
+                detail = $"text_fallback {bodyScopeDetail}, {locationDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
                 return true;
             }
 
-            if (normalizedText.IndexOf("使用英雄技能", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (scopedText.IndexOf("使用英雄技能", StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 if (board?.Ability == null)
                 {
-                    detail = $"hsbox_action_text_hero_power_missing; {state.Detail}";
+                    detail = $"hsbox_action_text_hero_power_missing; {bodyScopeDetail}; {state.Detail}";
                     return false;
                 }
 
                 actions.Add($"HERO_POWER|{board.Ability.Id}|0");
             }
 
-            if (actions.Count == 0 && normalizedText.IndexOf("结束回合", StringComparison.OrdinalIgnoreCase) >= 0)
+            if (actions.Count == 0 && scopedText.IndexOf("结束回合", StringComparison.OrdinalIgnoreCase) >= 0)
                 actions.Add("END_TURN");
 
             if (actions.Count == 0)
             {
-                detail = $"hsbox_action_text_unrecognized; {state.Detail}";
+                detail = $"hsbox_action_text_unrecognized; {bodyScopeDetail}; {state.Detail}";
                 return false;
             }
 
-            detail = $"text_fallback updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
+            detail = $"text_fallback {bodyScopeDetail}, updatedAt={state?.UpdatedAtMs ?? 0}, page={state?.Href}, commands={SummarizeCommands(actions)}";
             return true;
         }
 
@@ -4314,6 +4315,63 @@ namespace BotMain
             return state.Envelope.Data.Where(step => step != null).ToList();
         }
 
+        private static List<HsBoxActionStep> GetActionSteps(HsBoxRecommendationState state, out string detail, out string scopeDetail)
+        {
+            scopeDetail = "scope=full";
+            var steps = GetSteps(state, out detail);
+            if (steps == null)
+                return null;
+
+            if (!ShouldUsePrimaryRecommendationOnly(state) || steps.Count <= 1)
+                return steps;
+
+            var primarySteps = new List<HsBoxActionStep>();
+            foreach (var step in steps)
+            {
+                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                    continue;
+
+                if (primarySteps.Count == 0)
+                {
+                    primarySteps.Add(step);
+                    continue;
+                }
+
+                if (IsContinuationActionForPrimaryRecommendation(step.ActionName))
+                {
+                    primarySteps.Add(step);
+                    continue;
+                }
+
+                break;
+            }
+
+            if (primarySteps.Count == 0)
+                return steps;
+
+            scopeDetail = $"scope=reference_a({primarySteps.Count}/{steps.Count})";
+            return primarySteps;
+        }
+
+        private static bool ShouldUsePrimaryRecommendationOnly(HsBoxRecommendationState state)
+        {
+            var normalizedBodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
+            return CountRecommendationReferences(normalizedBodyText) >= 2;
+        }
+
+        private static bool IsContinuationActionForPrimaryRecommendation(string actionName)
+        {
+            switch ((actionName ?? string.Empty).ToLowerInvariant())
+            {
+                case "choose":
+                case "choice":
+                case "discard":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         private static int ResolveTargetEntityId(Board board, HsBoxActionStep step)
         {
             if (step == null || board == null)
@@ -4632,6 +4690,33 @@ namespace BotMain
                 return string.Empty;
 
             return Regex.Replace(bodyText, @"\s+", " ").Trim();
+        }
+
+        private static string ExtractPrimaryRecommendationBodyText(string bodyText, out string detail)
+        {
+            detail = "body_scope=full";
+            if (string.IsNullOrWhiteSpace(bodyText))
+                return bodyText ?? string.Empty;
+
+            var matches = Regex.Matches(bodyText, @"打法参考\s*[A-ZＡ-Ｚ]?", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+            if (matches.Count < 2)
+                return bodyText;
+
+            var first = matches[0];
+            var second = matches[1];
+            if (second.Index <= first.Index)
+                return bodyText;
+
+            detail = "body_scope=reference_a";
+            return bodyText.Substring(first.Index, second.Index - first.Index).Trim();
+        }
+
+        private static int CountRecommendationReferences(string bodyText)
+        {
+            if (string.IsNullOrWhiteSpace(bodyText))
+                return 0;
+
+            return Regex.Matches(bodyText, @"打法参考\s*[A-ZＡ-Ｚ]?", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase).Count;
         }
 
         private static bool TryMapPlayActionFromBodyText_Legacy(string bodyText, Board board, out string command, out string detail)
