@@ -541,6 +541,65 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MapsHeroPowerWithEmbeddedSubOptionAndDeferredTarget()
+        {
+            var board = new Board
+            {
+                Ability = new Card
+                {
+                    Id = 901,
+                    IsFriend = true,
+                    Template = CreateTemplate(Card.Cards.EX1_164, "滋养", "Nourish")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(201, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(202, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(203, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(204, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(205, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "hero_skill",
+                Target = new HsBoxCardRef
+                {
+                    CardId = "CORE_CS2_231",
+                    CardName = "小精灵",
+                    Position = 5
+                },
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "HERO_POWER_OPTION_A",
+                    CardName = "英雄技能抉择A"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 39,
+                UpdatedAtMs = 545,
+                Raw = "hero-power-with-targeted-suboption",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 使用英雄技能 目标是我方5号位随从 小精灵 选择卡牌 英雄技能抉择A",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "HERO_POWER|901|0", "OPTION|901|205|0|HERO_POWER_OPTION_A" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_MergesBodyTargetHintIntoStructuredPlayOptionPair()
         {
             var board = new Board
@@ -937,6 +996,55 @@ namespace BotCore.Tests
 
             Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
             Assert.Equal(new[] { 602 }, selectedEntityIds);  // ZONE_POSITION=2 → index 1 → entity 602
+        }
+
+        [Fact]
+        public void TryMapChoice_UsesSubOptionMechanism_ForChooseOneMode()
+        {
+            var step = new HsBoxActionStep
+            {
+                ActionName = "choice",
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "AT_037a",
+                    CardName = "活体根须"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 33,
+                UpdatedAtMs = 705,
+                Raw = "choice-suboption-mode",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "选择卡牌 活体根须",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-suboption",
+                16,
+                "CHOOSE_ONE",
+                "AT_037",
+                300,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(801, "AT_037a"),
+                    new ChoiceRecommendationOption(802, "AT_037b")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out var detail));
+            Assert.Equal(new[] { 801 }, selectedEntityIds);
+            Assert.Contains("suboption_card=AT_037a", detail, StringComparison.Ordinal);
         }
 
         [Fact]

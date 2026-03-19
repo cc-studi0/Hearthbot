@@ -75,6 +75,13 @@ namespace HearthstonePayload
             public List<int> ChosenEntityIds = new List<int>();
         }
 
+        private enum ChoiceExecutionMechanismKind
+        {
+            Unknown = 0,
+            EntityChoice = 1,
+            SubOptionChoice = 2
+        }
+
         /// <summary>
         /// 初始化协程执行器引用
         /// </summary>
@@ -141,7 +148,7 @@ namespace HearthstonePayload
                 && !string.IsNullOrWhiteSpace(subOptionCardId))
             {
                 // 先检查 SubOption UI 是否已经打开（Choose One 打出后自动弹出的情况）
-                if (WaitForSubOptionOrChoiceReady(800))
+                if (WaitForSubOptionUiReady(800))
                 {
                     var chooseOneResult = TryResolveAndClickSubOption(sourceId, subOptionCardId);
                     if (chooseOneResult != null)
@@ -179,7 +186,7 @@ namespace HearthstonePayload
             string subOptionResult = null;
 
             // 先走“打出后自动弹出抉择 UI”的常规路径。
-            if (WaitForSubOptionOrChoiceReady(1200))
+            if (WaitForSubOptionUiReady(1200))
                 subOptionResult = TryResolveAndClickSubOption(sourceId, subOptionCardId);
 
             // UI 没自动弹出时，再尝试需要手动点实体打开抉择的路径。
@@ -277,6 +284,10 @@ namespace HearthstonePayload
             if (sourceId <= 0 || targetId <= 0)
                 return false;
 
+            // 必须先确认游戏确实处于 TARGET 模式，避免假阳性。
+            if (!HasPendingTargetSelection(sourceId))
+                return false;
+
             var targetHeroSide = -1;
             if (IsFriendlyHeroEntityId(targetId))
                 targetHeroSide = 0;
@@ -286,10 +297,12 @@ namespace HearthstonePayload
             if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
                 return false;
 
-            if (!TryClickScreenPos(tx, ty))
+            // 通过协程在主线程执行点击，确保 PressFrame/ReleaseFrame 与 Unity 帧同步。
+            var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
+            if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            var deadline = Environment.TickCount + 1400;
+            var deadline = Environment.TickCount + 1800;
             while (Environment.TickCount < deadline)
             {
                 if (!HasPendingTargetSelection(sourceId))
@@ -299,6 +312,22 @@ namespace HearthstonePayload
             }
 
             return false;
+        }
+
+        private static IEnumerator<float> MouseClickTargetCoroutine(int x, int y)
+        {
+            InputHook.Simulating = true;
+
+            foreach (var w in SmoothMove(x, y, 10, 0.012f)) yield return w;
+
+            MouseSimulator.MoveTo(x, y);
+            yield return 0.06f;
+            MouseSimulator.LeftDown();
+            yield return 0.08f;
+            MouseSimulator.LeftUp();
+            yield return 0.15f;
+
+            _coroutine.SetResult("OK:TARGET_CLICK:" + x + "," + y);
         }
 
         /// <summary>
@@ -312,10 +341,10 @@ namespace HearthstonePayload
             var clickResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
 
             // 阶段2：等待选择 UI 出现（泰坦能力 / 锻造等）
-            if (!WaitForSubOptionOrChoiceReady(3000))
+            if (!WaitForSubOptionUiReady(3000))
             {
                 // 再等一轮，某些泰坦在动画较长时需要更多时间
-                if (!WaitForSubOptionOrChoiceReady(2000))
+                if (!WaitForSubOptionUiReady(2000))
                     return null;
             }
 
@@ -371,36 +400,41 @@ namespace HearthstonePayload
         /// Choose One 卡牌使用 SubOption 机制（Options 包），不是 EntityChoices 包。
         /// Discover 使用 EntityChoices 包。此方法同时等待两种机制。
         /// </summary>
+        private static bool WaitForEntityChoiceUiReady(int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                if (IsEntityChoiceUiReady())
+                    return true;
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
+        private static bool WaitForSubOptionUiReady(int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                if (IsSubOptionUiReady())
+                    return true;
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
         private static bool WaitForSubOptionOrChoiceReady(int timeoutMs)
         {
             var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
             while (Environment.TickCount < deadline)
             {
-                var gs = GetGameState();
-                if (gs != null)
-                {
-                    // 路径1：EntityChoices 包（发现）
-                    var choicePacket = TryGetFriendlyChoicePacket(gs);
-                    if (TryGetChoicePacketEntityIds(choicePacket, out var entityIds) && entityIds.Count > 0)
-                        return true;
-
-                    // 路径2：ChoiceCardMgr 显示 SubOption 或友方选择卡牌（二选一）
-                    var choiceCardMgr = TryGetChoiceCardMgr();
-                    if (choiceCardMgr != null)
-                    {
-                        // HasSubOption() — 二选一子选项卡牌可见
-                        if (TryInvokeBoolMethod(choiceCardMgr, "HasSubOption", out var hasSub) && hasSub)
-                            return true;
-
-                        // IsFriendlyShown() — 任何友方选择 UI 已激活（SubOption 或 EntityChoices）
-                        if (TryInvokeBoolMethod(choiceCardMgr, "IsFriendlyShown", out var isShown) && isShown)
-                            return true;
-                    }
-
-                    // 路径3：GameState 处于 SUB_OPTION 响应模式
-                    if (TryInvokeBoolMethod(gs, "IsInSubOptionMode", out var inSubOpt) && inSubOpt)
-                        return true;
-                }
+                if (IsEntityChoiceUiReady() || IsSubOptionUiReady())
+                    return true;
 
                 Thread.Sleep(40);
             }
@@ -3393,6 +3427,108 @@ namespace HearthstonePayload
             return GetChoiceModeBySourceTags(sourceEntity, null);
         }
 
+        private static ChoiceExecutionMechanismKind ResolveChoiceExecutionMechanism(ChoiceSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return ChoiceExecutionMechanismKind.Unknown;
+
+            var normalizedMode = (snapshot.Mode ?? string.Empty).Trim().ToUpperInvariant();
+            switch (normalizedMode)
+            {
+                case "CHOOSE_ONE":
+                case "TITAN_ABILITY":
+                case "STARSHIP_LAUNCH":
+                    return ChoiceExecutionMechanismKind.SubOptionChoice;
+                case "DISCOVER":
+                case "DREDGE":
+                case "ADAPT":
+                case "TIMELINE":
+                case "TRINKET_DISCOVER":
+                case "SHOP_CHOICE":
+                case "GENERAL":
+                case "TARGET":
+                default:
+                    return snapshot.IsSubOptionChoice
+                        ? ChoiceExecutionMechanismKind.SubOptionChoice
+                        : ChoiceExecutionMechanismKind.EntityChoice;
+            }
+        }
+
+        private static bool TryGetCurrentChoiceSnapshotForEntity(
+            int entityId,
+            out ChoiceSnapshot snapshot,
+            out ChoiceExecutionMechanismKind mechanism)
+        {
+            snapshot = null;
+            mechanism = ChoiceExecutionMechanismKind.Unknown;
+            if (entityId <= 0)
+                return false;
+
+            var gs = GetGameState();
+            if (gs == null || !TryBuildChoiceSnapshot(gs, out var currentSnapshot) || currentSnapshot == null)
+                return false;
+
+            if (currentSnapshot.ChoiceEntityIds == null || !currentSnapshot.ChoiceEntityIds.Contains(entityId))
+                return false;
+
+            snapshot = currentSnapshot;
+            mechanism = ResolveChoiceExecutionMechanism(currentSnapshot);
+            return mechanism != ChoiceExecutionMechanismKind.Unknown;
+        }
+
+        private static bool IsEntityChoiceUiReady()
+        {
+            var gs = GetGameState();
+            if (gs == null)
+                return false;
+
+            var choicePacket = TryGetFriendlyChoicePacket(gs);
+            if (TryGetChoicePacketEntityIds(choicePacket, out var entityIds) && entityIds.Count > 0)
+                return true;
+
+            if (!TryBuildChoiceSnapshot(gs, out var snapshot) || snapshot == null)
+                return false;
+
+            return ResolveChoiceExecutionMechanism(snapshot) == ChoiceExecutionMechanismKind.EntityChoice
+                && snapshot.ChoiceEntityIds != null
+                && snapshot.ChoiceEntityIds.Count > 0
+                && (snapshot.PacketReady || snapshot.ChoiceStateActive || snapshot.UiShown);
+        }
+
+        private static bool IsSubOptionUiReady()
+        {
+            var gs = GetGameState();
+            if (gs == null)
+                return false;
+
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            if (choiceCardMgr != null)
+            {
+                if (TryInvokeBoolMethod(choiceCardMgr, "HasSubOption", out var hasSubOption) && hasSubOption)
+                    return true;
+
+                if (TryInvokeBoolMethod(choiceCardMgr, "IsFriendlyShown", out var isFriendlyShown) && isFriendlyShown)
+                {
+                    if (!TryBuildChoiceSnapshot(gs, out var shownSnapshot) || shownSnapshot == null)
+                        return true;
+
+                    if (ResolveChoiceExecutionMechanism(shownSnapshot) == ChoiceExecutionMechanismKind.SubOptionChoice)
+                        return true;
+                }
+            }
+
+            if (TryInvokeBoolMethod(gs, "IsInSubOptionMode", out var inSubOptionMode) && inSubOptionMode)
+                return true;
+
+            if (!TryBuildChoiceSnapshot(gs, out var snapshot) || snapshot == null)
+                return false;
+
+            return ResolveChoiceExecutionMechanism(snapshot) == ChoiceExecutionMechanismKind.SubOptionChoice
+                && snapshot.ChoiceEntityIds != null
+                && snapshot.ChoiceEntityIds.Count > 0
+                && (snapshot.UiShown || snapshot.ChoiceStateActive);
+        }
+
         private static object TryGetFriendlyChoicePacket(object gameState)
         {
             var choicePacket = gameState != null ? Invoke(gameState, "GetFriendlyEntityChoices") : null;
@@ -4768,17 +4904,31 @@ namespace HearthstonePayload
             return false;
         }
 
-        private static bool IsDiscoverChoiceMode()
+        private static bool IsMouseOnlyChoiceSnapshot(ChoiceSnapshot snapshot, ChoiceExecutionMechanismKind mechanism)
         {
-            var gs = GetGameState();
-            return gs != null
-                && TryBuildChoiceSnapshot(gs, out var snapshot)
+            return snapshot != null
+                && mechanism == ChoiceExecutionMechanismKind.EntityChoice
                 && string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool WaitForDiscoverChoiceReady(int entityId, out string detail)
+        private static bool WaitForChoiceEntityReady(
+            int entityId,
+            ChoiceExecutionMechanismKind mechanism,
+            out string detail)
         {
-            detail = "discover_wait_timeout";
+            switch (mechanism)
+            {
+                case ChoiceExecutionMechanismKind.SubOptionChoice:
+                    return WaitForSubOptionChoiceReady(entityId, out detail);
+                case ChoiceExecutionMechanismKind.EntityChoice:
+                default:
+                    return WaitForEntityChoiceReady(entityId, out detail);
+            }
+        }
+
+        private static bool WaitForEntityChoiceReady(int entityId, out string detail)
+        {
+            detail = "entity_choice_wait_timeout";
             if (entityId <= 0)
             {
                 detail = "entity_invalid";
@@ -4804,9 +4954,9 @@ namespace HearthstonePayload
                     continue;
                 }
 
-                if (!string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase))
+                if (ResolveChoiceExecutionMechanism(snapshot) != ChoiceExecutionMechanismKind.EntityChoice)
                 {
-                    lastDetail = "mode_changed:" + (snapshot.Mode ?? "UNKNOWN");
+                    lastDetail = "mechanism_changed:" + ResolveChoiceExecutionMechanism(snapshot);
                     break;
                 }
 
@@ -4817,63 +4967,89 @@ namespace HearthstonePayload
                     continue;
                 }
 
-                if (!snapshot.ChoiceStateActive)
+                if (!snapshot.PacketReady && !snapshot.ChoiceStateActive && !snapshot.UiShown)
                 {
                     lastDetail = "choice_state_inactive";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (snapshot.ChoiceStateConcealed)
+                if (!IsChoiceSnapshotReady(snapshot, out lastDetail))
                 {
-                    lastDetail = "choice_state_concealed";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (snapshot.ChoiceStateWaitingToStart)
+                if (!TryGetChoiceEntityScreenPos(entityId, out _, out _))
                 {
-                    lastDetail = "choice_waiting_to_start";
+                    lastDetail = "pos_not_found";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (!snapshot.ChoiceStateRevealed)
+                detail = "ready";
+                return true;
+            }
+
+            detail = lastDetail;
+            return false;
+        }
+
+        private static bool WaitForSubOptionChoiceReady(int entityId, out string detail)
+        {
+            detail = "suboption_choice_wait_timeout";
+            if (entityId <= 0)
+            {
+                detail = "entity_invalid";
+                return false;
+            }
+
+            var deadline = Environment.TickCount + DiscoverChoiceReadyTimeoutMs;
+            var lastDetail = "choice_state_unavailable";
+            while (Environment.TickCount - deadline < 0)
+            {
+                var gs = GetGameState();
+                if (gs == null)
                 {
-                    lastDetail = "choice_not_revealed";
+                    lastDetail = "game_state_null";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (!TryGetFriendlyChoiceCardObject(entityId, out var card))
+                if (!TryBuildChoiceSnapshot(gs, out var snapshot))
                 {
-                    lastDetail = "choice_card_not_found";
+                    lastDetail = "choice_state_unavailable";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (!TryReadCardActorReady(card, out var actorReady) || !actorReady)
+                if (ResolveChoiceExecutionMechanism(snapshot) != ChoiceExecutionMechanismKind.SubOptionChoice)
                 {
-                    lastDetail = "card_actor_not_ready";
+                    lastDetail = "mechanism_changed:" + ResolveChoiceExecutionMechanism(snapshot);
+                    break;
+                }
+
+                if (!snapshot.ChoiceEntityIds.Contains(entityId))
+                {
+                    lastDetail = "entity_missing";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (!TryReadCardHasActiveTweens(card, out var hasActiveTweens))
+                if (!snapshot.UiShown && !snapshot.ChoiceStateActive && !IsSubOptionUiReady())
                 {
-                    lastDetail = "card_tween_unknown";
+                    lastDetail = "suboption_ui_inactive";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (hasActiveTweens)
+                if (!IsChoiceSnapshotReady(snapshot, out lastDetail))
                 {
-                    lastDetail = "card_tween_active";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
                     continue;
                 }
 
-                if (!TryGetFriendlyChoiceCardScreenPos(entityId, out _, out _))
+                if (!TryGetChoiceEntityScreenPos(entityId, out _, out _))
                 {
                     lastDetail = "pos_not_found";
                     Thread.Sleep(DiscoverChoiceReadyPollMs);
@@ -5461,44 +5637,6 @@ namespace HearthstonePayload
                 return SerializeChoiceSnapshotJson(snapshot);
 
             return null;
-
-            if (!IsChoiceModeActive(gs)) return null;
-
-            // 排除调度阶段
-            if (TryGetMulliganManager() != null)
-            {
-                var mulliganMgr = TryGetMulliganManager();
-                if (TryInvokeBoolMethod(mulliganMgr, "IsMulliganActive", out var active) && active)
-                    return null;
-            }
-
-            var choiceCardMgr = TryGetChoiceCardMgr();
-            var choicePacket = Invoke(gs, "GetFriendlyEntityChoices");
-            if (choicePacket == null)
-                return null;
-
-            TryResolveChoiceSourceEntity(gs, choiceCardMgr, choicePacket, out var resolvedSourceEntityId, out var resolvedSourceEntity);
-
-            var resolvedOriginCardId = ResolveCardIdFromObject(resolvedSourceEntity);
-            if (string.IsNullOrWhiteSpace(resolvedOriginCardId) && resolvedSourceEntityId > 0)
-                resolvedOriginCardId = ResolveEntityCardId(gs, resolvedSourceEntityId);
-
-            var resolvedChoiceMode = GetChoiceModeBySourceTags(resolvedSourceEntity);
-
-            List<string> resolvedChoiceParts = null;
-            if (!TryBuildChoicePartsFromPacket(gs, choicePacket, out resolvedChoiceParts))
-                TryBuildChoicePartsFromChoiceCardMgr(gs, out resolvedChoiceParts);
-
-            if (resolvedChoiceParts == null || resolvedChoiceParts.Count == 0)
-                return null;
-
-            return resolvedOriginCardId + "|" + string.Join(";", resolvedChoiceParts) + "|" + resolvedChoiceMode;
-
-
-            // 获取来源卡牌ID
-
-            // 获取选项实体列表
-
         }
 
         public static string GetDiscoverState()
@@ -5576,7 +5714,34 @@ namespace HearthstonePayload
             if (picks == null)
                 return "FAIL:" + normalizeDetail;
 
+            switch (ResolveChoiceExecutionMechanism(snapshot))
+            {
+                case ChoiceExecutionMechanismKind.SubOptionChoice:
+                    return TryApplySubOptionChoice(snapshot, picks);
+                case ChoiceExecutionMechanismKind.EntityChoice:
+                default:
+                    return TryApplyEntityChoice(snapshot, picks);
+            }
+        }
+
+        private static string TryApplyEntityChoice(ChoiceSnapshot snapshot, List<int> picks)
+        {
             if (ShouldUseMouseForChoice(snapshot, picks) && picks.Count == 1)
+                return _coroutine.RunAndWait(MouseClickChoice(picks[0]));
+
+            var sendResult = TrySendChoiceViaNetwork(picks.ToArray());
+            if (string.IsNullOrWhiteSpace(sendResult) || !sendResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return string.IsNullOrWhiteSpace(sendResult) ? "FAIL:choice_sender_not_found" : sendResult;
+
+            return ConfirmChoiceSubmission(snapshot, picks);
+        }
+
+        private static string TryApplySubOptionChoice(ChoiceSnapshot snapshot, List<int> picks)
+        {
+            if (picks == null || picks.Count == 0)
+                return "FAIL:choice_entities_empty";
+
+            if (picks.Count == 1)
                 return _coroutine.RunAndWait(MouseClickChoice(picks[0]));
 
             var sendResult = TrySendChoiceViaNetwork(picks.ToArray());
@@ -5749,18 +5914,19 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
-            var discoverMouseOnly = IsDiscoverChoiceMode();
-            if (discoverMouseOnly)
+            var hasCurrentChoiceSnapshot = TryGetCurrentChoiceSnapshotForEntity(entityId, out var currentChoiceSnapshot, out var choiceMechanism);
+            var mouseOnlyChoice = hasCurrentChoiceSnapshot && IsMouseOnlyChoiceSnapshot(currentChoiceSnapshot, choiceMechanism);
+            if (hasCurrentChoiceSnapshot)
             {
-                AppendActionTrace("discover_mouse_only entityId=" + entityId);
-                if (!WaitForDiscoverChoiceReady(entityId, out var discoverReadyDetail))
+                AppendActionTrace("choice_click_prepare entityId=" + entityId + " mechanism=" + choiceMechanism + " mode=" + (currentChoiceSnapshot?.Mode ?? "UNKNOWN"));
+                if (!WaitForChoiceEntityReady(entityId, choiceMechanism, out var choiceReadyDetail))
                 {
-                    AppendActionTrace("discover_wait_timeout entityId=" + entityId + " detail=" + discoverReadyDetail);
-                    _coroutine.SetResult("FAIL:CHOICE:discover_wait_timeout:" + entityId + ":" + discoverReadyDetail);
+                    AppendActionTrace("choice_wait_timeout entityId=" + entityId + " mechanism=" + choiceMechanism + " detail=" + choiceReadyDetail);
+                    _coroutine.SetResult("FAIL:CHOICE:wait_timeout:" + entityId + ":" + choiceMechanism + ":" + choiceReadyDetail);
                     yield break;
                 }
 
-                AppendActionTrace("discover_wait_ready entityId=" + entityId + " detail=" + discoverReadyDetail);
+                AppendActionTrace("choice_wait_ready entityId=" + entityId + " mechanism=" + choiceMechanism + " detail=" + choiceReadyDetail);
             }
 
             // 记录点击前的选择快照，用于确认是否真的提交成功。
@@ -5773,9 +5939,7 @@ namespace HearthstonePayload
             for (int attempt = 1; attempt <= 2 && !confirmed; attempt++)
             {
                 int x, y;
-                var gotChoicePos = discoverMouseOnly
-                    ? TryGetFriendlyChoiceCardScreenPos(entityId, out x, out y)
-                    : TryGetChoiceEntityScreenPos(entityId, out x, out y);
+                var gotChoicePos = TryGetChoiceEntityScreenPos(entityId, out x, out y);
                 if (!gotChoicePos)
                 {
                     confirmDetail = "pos_not_found";
@@ -5819,7 +5983,7 @@ namespace HearthstonePayload
             }
 
             // 鼠标点击仍未确认时，回退网络 API 提交一次，提升抉择提交成功率。
-            if (!confirmed && !discoverMouseOnly)
+            if (!confirmed && !mouseOnlyChoice)
             {
                 var apiResult = TrySendChoiceViaNetwork(entityId);
                 if (!string.IsNullOrWhiteSpace(apiResult)
@@ -5858,8 +6022,8 @@ namespace HearthstonePayload
 
             if (!confirmed)
             {
-                if (discoverMouseOnly)
-                    AppendActionTrace("discover_mouse_not_confirmed entityId=" + entityId + " detail=" + confirmDetail);
+                if (mouseOnlyChoice)
+                    AppendActionTrace("choice_mouse_not_confirmed entityId=" + entityId + " mechanism=" + choiceMechanism + " detail=" + confirmDetail);
                 _coroutine.SetResult("FAIL:CHOICE:not_confirmed:" + entityId + ":" + confirmDetail);
                 yield break;
             }
@@ -5883,54 +6047,6 @@ namespace HearthstonePayload
             }
 
             return false;
-
-            if (!IsChoiceModeActive(gs)) return false;
-
-            var choicePacket = Invoke(gs, "GetFriendlyEntityChoices");
-            if (choicePacket != null)
-            {
-                choiceId = GetIntFieldOrProp(choicePacket, "ID");
-                if (choiceId <= 0) choiceId = GetIntFieldOrProp(choicePacket, "Id");
-            }
-
-            var choiceEntityIds = new List<int>();
-            if (choicePacket != null)
-            {
-                var packetEntities = GetFieldOrProp(choicePacket, "Entities") as IEnumerable;
-                if (packetEntities != null)
-                {
-                    foreach (var eid in packetEntities)
-                    {
-                        try
-                        {
-                            var id = Convert.ToInt32(eid);
-                            if (id > 0) choiceEntityIds.Add(id);
-                        }
-                        catch
-                        {
-                        }
-                    }
-                }
-            }
-
-            if (choiceEntityIds.Count == 0 && TryGetChoiceCardMgrFriendlyCards(out var friendlyCards) && friendlyCards != null)
-            {
-                foreach (var card in friendlyCards)
-                {
-                    var entity = ResolveChoiceCardEntity(card);
-                    var id = ResolveEntityId(entity);
-                    if (id > 0)
-                        choiceEntityIds.Add(id);
-                }
-            }
-
-            if (choiceEntityIds.Count == 0)
-                return false;
-
-            choiceEntityIds.Sort();
-            signature = choiceId.ToString() + ":" + string.Join(",", choiceEntityIds);
-            return true;
-
         }
 
         #endregion
@@ -10118,14 +10234,16 @@ namespace HearthstonePayload
             if (x <= 0 || y <= 0)
                 return false;
 
+            InputHook.Simulating = true;
+
             foreach (var _ in SmoothMove(x, y, 10, 0.01f))
             {
             }
 
             MouseSimulator.MoveTo(x, y);
-            Thread.Sleep(60);
+            Thread.Sleep(80);
             MouseSimulator.LeftDown();
-            Thread.Sleep(60);
+            Thread.Sleep(100);
             MouseSimulator.LeftUp();
             return true;
         }

@@ -77,7 +77,7 @@ namespace BotMain
                     out _,
                     out lastStructuredDetail,
                     out lastBodyDetail)
-                    || HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(current),
+                    || ConstructedChoiceBridge.LooksLikeChoiceRecommendation(current),
                 timeoutMs: _actionWaitTimeoutMs,
                 pollIntervalMs: _actionPollIntervalMs,
                 out var waitDetail,
@@ -137,7 +137,7 @@ namespace BotMain
             }
 
             if (state != null
-                && HsBoxRecommendationMapper.LooksLikeChoiceRecommendation(state))
+                && ConstructedChoiceBridge.LooksLikeChoiceRecommendation(state))
             {
                 return new ActionRecommendationResult(
                     null,
@@ -211,8 +211,8 @@ namespace BotMain
                 {
                     lastObservedState = current;
                     return IsChoicePayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                        && (HsBoxRecommendationMapper.TryMapChoice(current, request, out _, out _)
-                            || HsBoxRecommendationMapper.TryMapChoiceFromBodyText(current, request, out _, out _));
+                        && (ConstructedChoiceBridge.TryMapChoice(current, request, out _, out _)
+                            || ConstructedChoiceBridge.TryMapChoiceFromBodyText(current, request, out _, out _));
                 },
                 timeoutMs: 5000,
                 pollIntervalMs: 180,
@@ -220,14 +220,14 @@ namespace BotMain
 
             if (state != null
                 && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                && HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out var mapDetail))
+                && ConstructedChoiceBridge.TryMapChoice(state, request, out var selectedEntityIds, out var mapDetail))
             {
                 return new ChoiceRecommendationResult(selectedEntityIds, $"hsbox_choice {mapDetail}", state.UpdatedAtMs, state.PayloadSignature);
             }
 
             if (state != null
                 && IsChoicePayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                && HsBoxRecommendationMapper.TryMapChoiceFromBodyText(state, request, out var bodySelectedEntityIds, out var bodyDetail))
+                && ConstructedChoiceBridge.TryMapChoiceFromBodyText(state, request, out var bodySelectedEntityIds, out var bodyDetail))
             {
                 return new ChoiceRecommendationResult(bodySelectedEntityIds, $"hsbox_choice {bodyDetail}", state.UpdatedAtMs, state.PayloadSignature);
             }
@@ -247,9 +247,9 @@ namespace BotMain
 
                 if (freshResult)
                 {
-                    var mapOk = HsBoxRecommendationMapper.TryMapChoice(diagState, request, out _, out var mapDiag);
+                    var mapOk = ConstructedChoiceBridge.TryMapChoice(diagState, request, out _, out var mapDiag);
                     diagParts.Add($"structMap={mapOk}({mapDiag})");
-                    var bodyOk = HsBoxRecommendationMapper.TryMapChoiceFromBodyText(diagState, request, out _, out var bodyDiag);
+                    var bodyOk = ConstructedChoiceBridge.TryMapChoiceFromBodyText(diagState, request, out _, out var bodyDiag);
                     diagParts.Add($"bodyMap={bodyOk}({bodyDiag})");
                 }
             }
@@ -338,7 +338,7 @@ namespace BotMain
 
             try
             {
-                if (!HsBoxRecommendationMapper.TryMapActions(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var mapDetail))
+                if (!ConstructedActionBridge.TryMapActions(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var mapDetail))
                 {
                     detail = $"json=map_failed({mapDetail})";
                     return false;
@@ -373,7 +373,7 @@ namespace BotMain
 
             try
             {
-                if (!HsBoxRecommendationMapper.TryMapActionsFromBodyText(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var bodyDetail))
+                if (!ConstructedActionBridge.TryMapActionsFromBodyText(state, request?.PlanningBoard, request?.FriendlyEntities, out actions, out var bodyDetail))
                 {
                     detail = $"body=map_failed({bodyDetail})";
                     return false;
@@ -617,7 +617,7 @@ namespace BotMain
                 return false;
 
             var parts = command.Split('|');
-            if (parts.Length < 4)
+            if (parts.Length < 3)
                 return false;
 
             parts[2] = targetEntityId.ToString();
@@ -3172,9 +3172,95 @@ namespace BotMain
         }
     }
 
+    internal enum ConstructedChoiceMechanismKind
+    {
+        Unknown = 0,
+        EntityChoice = 1,
+        SubOptionChoice = 2
+    }
+
+    internal static class ConstructedActionBridge
+    {
+        public static bool TryMapActions(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
+        {
+            return HsBoxRecommendationMapper.TryMapConstructedActionsInternal(
+                state,
+                board,
+                friendlyEntities,
+                out actions,
+                out detail);
+        }
+
+        public static bool TryMapActionsFromBodyText(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
+        {
+            return HsBoxRecommendationMapper.TryMapConstructedActionsFromBodyTextInternal(
+                state,
+                board,
+                friendlyEntities,
+                out actions,
+                out detail);
+        }
+    }
+
+    internal static class ConstructedChoiceBridge
+    {
+        public static bool LooksLikeChoiceRecommendation(HsBoxRecommendationState state)
+        {
+            return HsBoxRecommendationMapper.LooksLikeConstructedChoiceInternal(state);
+        }
+
+        public static bool TryMapChoice(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            return HsBoxRecommendationMapper.TryMapConstructedChoiceInternal(
+                state,
+                request,
+                out selectedEntityIds,
+                out detail);
+        }
+
+        public static bool TryMapChoiceFromBodyText(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            return HsBoxRecommendationMapper.TryMapConstructedChoiceFromBodyTextInternal(
+                state,
+                request,
+                out selectedEntityIds,
+                out detail);
+        }
+
+        public static ConstructedChoiceMechanismKind ResolveMechanism(
+            ChoiceRecommendationRequest request,
+            HsBoxRecommendationState state)
+        {
+            return HsBoxRecommendationMapper.ResolveConstructedChoiceMechanism(request, state);
+        }
+    }
+
     internal static class HsBoxRecommendationMapper
     {
         public static bool LooksLikeChoiceRecommendation(HsBoxRecommendationState state)
+        {
+            return LooksLikeConstructedChoiceInternal(state);
+        }
+
+        internal static bool LooksLikeConstructedChoiceInternal(HsBoxRecommendationState state)
         {
             var bodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
             var hasChoiceText = false;
@@ -3215,7 +3301,40 @@ namespace BotMain
             }
         }
 
+        private sealed class ConstructedDeferredChoiceBinding
+        {
+            public int StepIndex { get; set; } = -1;
+            public int SourceEntityId { get; set; }
+            public int DeferredTargetEntityId { get; set; }
+
+            public bool IsArmed => StepIndex >= 0 && SourceEntityId > 0;
+
+            public void Arm(int stepIndex, int sourceEntityId, int deferredTargetEntityId)
+            {
+                StepIndex = stepIndex;
+                SourceEntityId = sourceEntityId;
+                DeferredTargetEntityId = deferredTargetEntityId;
+            }
+
+            public void Clear()
+            {
+                StepIndex = -1;
+                SourceEntityId = 0;
+                DeferredTargetEntityId = 0;
+            }
+        }
+
         public static bool TryMapActions(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
+        {
+            return TryMapConstructedActionsInternal(state, board, friendlyEntities, out actions, out detail);
+        }
+
+        internal static bool TryMapConstructedActionsInternal(
             HsBoxRecommendationState state,
             Board board,
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
@@ -3234,9 +3353,7 @@ namespace BotMain
 
             var skipped = new List<string>();
             var lastChoiceCapableSourceEntityId = 0;
-            var pendingDeferredChoiceSourceEntityId = 0;
-            var pendingDeferredChoiceTargetEntityId = 0;
-            var pendingDeferredChoiceStepIndex = -1;
+            var deferredChoiceBinding = new ConstructedDeferredChoiceBinding();
             for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
                 var step = steps[stepIndex];
@@ -3263,49 +3380,44 @@ namespace BotMain
                     var deferredChoiceStepIndex = hasEmbeddedSubOption
                         ? -1
                         : FindDeferredChoiceStepIndex(steps, stepIndex);
-                    var shouldDeferPlayTargetToOption =
-                        command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                    var shouldDeferCommandTargetToOption =
+                        CanConstructedCommandDeferTargetToOption(command)
                         && stepTargetEntityId > 0
                         && (hasEmbeddedSubOption || deferredChoiceStepIndex >= 0);
 
-                    if (shouldDeferPlayTargetToOption
+                    if (shouldDeferCommandTargetToOption
                         && TrySetCommandTarget(command, 0, out var deferredPlayCommand))
                     {
                         command = deferredPlayCommand;
                     }
 
-                    if (pendingDeferredChoiceStepIndex == stepIndex
-                        && pendingDeferredChoiceSourceEntityId > 0
+                    if (deferredChoiceBinding.IsArmed
+                        && deferredChoiceBinding.StepIndex == stepIndex
                         && TryGetCommandSourceEntityId(command, out var pendingChoiceSourceEntityId)
-                        && pendingChoiceSourceEntityId == pendingDeferredChoiceSourceEntityId
+                        && pendingChoiceSourceEntityId == deferredChoiceBinding.SourceEntityId
                         && (!TryGetCommandTargetEntityId(command, out var currentChoiceTargetEntityId) || currentChoiceTargetEntityId <= 0)
-                        && TrySetCommandTarget(command, pendingDeferredChoiceTargetEntityId, out var deferredChoiceCommand))
+                        && TrySetCommandTarget(command, deferredChoiceBinding.DeferredTargetEntityId, out var deferredChoiceCommand))
                     {
                         command = deferredChoiceCommand;
                     }
 
                     actions.Add(command);
 
-                    // 带抉择的出牌需要先落牌，再在 OPTION 阶段提交子选项和目标。
-                    if (command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                        && hasEmbeddedSubOption
+                    // 构筑 follow-up 选择必须显式绑定到触发它的主动作。
+                    if (hasEmbeddedSubOption
                         && TryGetCommandSourceEntityId(command, out var embeddedPlaySourceId))
                     {
-                        actions.Add(BuildOptionCommand(embeddedPlaySourceId, shouldDeferPlayTargetToOption ? stepTargetEntityId : 0, 0, step.SubOption.CardId));
+                        actions.Add(BuildOptionCommand(embeddedPlaySourceId, shouldDeferCommandTargetToOption ? stepTargetEntityId : 0, 0, step.SubOption.CardId));
                     }
-                    else if (shouldDeferPlayTargetToOption
+                    else if (shouldDeferCommandTargetToOption
                         && deferredChoiceStepIndex >= 0
                         && TryGetCommandSourceEntityId(command, out var deferredPlaySourceId))
                     {
-                        pendingDeferredChoiceSourceEntityId = deferredPlaySourceId;
-                        pendingDeferredChoiceTargetEntityId = stepTargetEntityId;
-                        pendingDeferredChoiceStepIndex = deferredChoiceStepIndex;
+                        deferredChoiceBinding.Arm(deferredChoiceStepIndex, deferredPlaySourceId, stepTargetEntityId);
                     }
-                    else if (pendingDeferredChoiceStepIndex == stepIndex)
+                    else if (deferredChoiceBinding.StepIndex == stepIndex)
                     {
-                        pendingDeferredChoiceSourceEntityId = 0;
-                        pendingDeferredChoiceTargetEntityId = 0;
-                        pendingDeferredChoiceStepIndex = -1;
+                        deferredChoiceBinding.Clear();
                     }
 
                     if (TryGetCommandSourceEntityId(command, out var sourceEntityId)
@@ -3327,6 +3439,16 @@ namespace BotMain
         }
 
         public static bool TryMapActionsFromBodyText(
+            HsBoxRecommendationState state,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out List<string> actions,
+            out string detail)
+        {
+            return TryMapConstructedActionsFromBodyTextInternal(state, board, friendlyEntities, out actions, out detail);
+        }
+
+        internal static bool TryMapConstructedActionsFromBodyTextInternal(
             HsBoxRecommendationState state,
             Board board,
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
@@ -3498,8 +3620,64 @@ namespace BotMain
 
         public static bool TryMapChoice(HsBoxRecommendationState state, ChoiceRecommendationRequest request, out IReadOnlyList<int> selectedEntityIds, out string detail)
         {
+            return TryMapConstructedChoiceInternal(state, request, out selectedEntityIds, out detail);
+        }
+
+        internal static bool TryMapConstructedChoiceInternal(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
             selectedEntityIds = Array.Empty<int>();
-            detail = "hsbox_choice_state_invalid";
+            var mechanism = ResolveConstructedChoiceMechanism(request, state);
+            switch (mechanism)
+            {
+                case ConstructedChoiceMechanismKind.SubOptionChoice:
+                    return TryMapConstructedSubOptionChoiceInternal(state, request, out selectedEntityIds, out detail);
+                case ConstructedChoiceMechanismKind.EntityChoice:
+                default:
+                    return TryMapConstructedEntityChoiceInternal(state, request, out selectedEntityIds, out detail);
+            }
+        }
+
+        internal static ConstructedChoiceMechanismKind ResolveConstructedChoiceMechanism(
+            ChoiceRecommendationRequest request,
+            HsBoxRecommendationState state)
+        {
+            var normalizedMode = (request?.Mode ?? string.Empty).Trim().ToUpperInvariant();
+            switch (normalizedMode)
+            {
+                case "CHOOSE_ONE":
+                case "TITAN_ABILITY":
+                case "STARSHIP_LAUNCH":
+                    return ConstructedChoiceMechanismKind.SubOptionChoice;
+                case "DISCOVER":
+                case "DREDGE":
+                case "ADAPT":
+                case "TIMELINE":
+                case "TRINKET_DISCOVER":
+                case "SHOP_CHOICE":
+                    return ConstructedChoiceMechanismKind.EntityChoice;
+            }
+
+            if (TryGetStructuredChoiceStep(state, out var step, out _)
+                && LooksLikeStructuredSubOptionChoice(step, request, state))
+            {
+                return ConstructedChoiceMechanismKind.SubOptionChoice;
+            }
+
+            return ConstructedChoiceMechanismKind.EntityChoice;
+        }
+
+        internal static bool TryMapConstructedEntityChoiceInternal(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            selectedEntityIds = Array.Empty<int>();
+            detail = "hsbox_entity_choice_state_invalid";
 
             if (request == null || request.Options == null || request.Options.Count == 0)
             {
@@ -3507,17 +3685,9 @@ namespace BotMain
                 return false;
             }
 
-            var steps = GetSteps(state, out var stateDetail);
-            if (steps == null)
+            if (!TryGetStructuredChoiceStep(state, out var step, out var stepDetail))
             {
-                detail = stateDetail;
-                return false;
-            }
-
-            var step = steps.FirstOrDefault(s => IsChoiceRecommendationAction(s?.ActionName));
-            if (step == null)
-            {
-                detail = $"hsbox_choice_step_missing; {state.Detail}";
+                detail = stepDetail;
                 return false;
             }
 
@@ -3533,13 +3703,13 @@ namespace BotMain
                         if (entityId > 0)
                         {
                             selectedEntityIds = new[] { entityId };
-                            detail = $"picked_by_position={directIndex}; {state.Detail}";
+                            detail = $"entity_choice_by_position={directIndex}; {state.Detail}";
                             return true;
                         }
                     }
                 }
 
-                detail = $"hsbox_choice_cards_empty; {state.Detail}";
+                detail = $"hsbox_entity_choice_cards_empty; {state.Detail}";
                 return false;
             }
 
@@ -3561,11 +3731,58 @@ namespace BotMain
             if (matchedEntityIds.Count > 0)
             {
                 selectedEntityIds = matchedEntityIds;
-                detail = $"picked={string.Join(",", matchedEntityIds)}; choice_data={string.Join(",", desiredCards.Select(card => card.CardId))}; {state.Detail}";
+                detail = $"entity_choice={string.Join(",", matchedEntityIds)}; choice_data={string.Join(",", desiredCards.Select(card => card.CardId))}; {state.Detail}";
                 return true;
             }
 
-            detail = $"choice_card_not_found:{string.Join(",", desiredCards.Select(c => c.CardId))}; {state.Detail}";
+            detail = $"entity_choice_card_not_found:{string.Join(",", desiredCards.Select(c => c.CardId))}; {state.Detail}";
+            return false;
+        }
+
+        internal static bool TryMapConstructedSubOptionChoiceInternal(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
+            selectedEntityIds = Array.Empty<int>();
+            detail = "hsbox_suboption_choice_state_invalid";
+
+            if (request == null || request.Options == null || request.Options.Count == 0)
+            {
+                detail = "choice_request_empty";
+                return false;
+            }
+
+            if (!TryGetStructuredChoiceStep(state, out var step, out var stepDetail))
+            {
+                detail = stepDetail;
+                return false;
+            }
+
+            if (TryResolveStructuredSubOptionEntityId(state, step, request, out var resolvedEntityId, out var resolvedDetail))
+            {
+                selectedEntityIds = new[] { resolvedEntityId };
+                detail = $"{resolvedDetail}; {state.Detail}";
+                return true;
+            }
+
+            if (TryResolveChoiceStepIndex(step, out var directIndex))
+            {
+                var optionIndex = directIndex - 1;
+                if (optionIndex >= 0 && optionIndex < request.Options.Count)
+                {
+                    var entityId = request.Options[optionIndex]?.EntityId ?? 0;
+                    if (entityId > 0)
+                    {
+                        selectedEntityIds = new[] { entityId };
+                        detail = $"suboption_by_position={directIndex}; {state.Detail}";
+                        return true;
+                    }
+                }
+            }
+
+            detail = $"hsbox_suboption_choice_unresolved; {state.Detail}";
             return false;
         }
 
@@ -3754,6 +3971,15 @@ namespace BotMain
 
         public static bool TryMapChoiceFromBodyText(HsBoxRecommendationState state, ChoiceRecommendationRequest request, out IReadOnlyList<int> selectedEntityIds, out string detail)
         {
+            return TryMapConstructedChoiceFromBodyTextInternal(state, request, out selectedEntityIds, out detail);
+        }
+
+        internal static bool TryMapConstructedChoiceFromBodyTextInternal(
+            HsBoxRecommendationState state,
+            ChoiceRecommendationRequest request,
+            out IReadOnlyList<int> selectedEntityIds,
+            out string detail)
+        {
             selectedEntityIds = Array.Empty<int>();
             detail = "hsbox_choice_text_state_invalid";
 
@@ -3779,13 +4005,184 @@ namespace BotMain
                     if (entityId > 0)
                     {
                         selectedEntityIds = new[] { entityId };
-                        detail = $"text_choice index={index}; {state.Detail}";
+                        var mechanism = ResolveConstructedChoiceMechanism(request, state);
+                        detail = $"text_choice mechanism={mechanism} index={index}; {state.Detail}";
                         return true;
                     }
                 }
             }
 
             detail = $"hsbox_choice_text_unrecognized; {state?.Detail ?? "hsbox_state_null"}";
+            return false;
+        }
+
+        private static bool TryGetStructuredChoiceStep(
+            HsBoxRecommendationState state,
+            out HsBoxActionStep step,
+            out string detail)
+        {
+            step = null;
+            var steps = GetSteps(state, out var stateDetail);
+            if (steps == null)
+            {
+                detail = stateDetail;
+                return false;
+            }
+
+            step = steps.FirstOrDefault(s => IsChoiceRecommendationAction(s?.ActionName));
+            if (step == null)
+            {
+                detail = $"hsbox_choice_step_missing; {state?.Detail ?? "hsbox_state_null"}";
+                return false;
+            }
+
+            detail = "ok";
+            return true;
+        }
+
+        private static bool LooksLikeStructuredSubOptionChoice(
+            HsBoxActionStep step,
+            ChoiceRecommendationRequest request,
+            HsBoxRecommendationState state)
+        {
+            if (step?.SubOption != null && !string.IsNullOrWhiteSpace(step.SubOption.CardId))
+                return true;
+
+            var candidates = GetStructuredSubOptionCandidates(state, step);
+            foreach (var candidate in candidates)
+            {
+                if (string.IsNullOrWhiteSpace(candidate?.CardId))
+                    continue;
+
+                if (CountChooseOnePrefixMatches(request?.Options, candidate.CardId) > 1)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static int CountChooseOnePrefixMatches(
+            IReadOnlyList<ChoiceRecommendationOption> options,
+            string candidateCardId)
+        {
+            if (options == null || string.IsNullOrWhiteSpace(candidateCardId))
+                return 0;
+
+            return options.Count(option =>
+                option != null
+                && !string.IsNullOrWhiteSpace(option.CardId)
+                && (IsChooseOnePrefix(option.CardId, candidateCardId)
+                    || IsChooseOnePrefix(candidateCardId, option.CardId)));
+        }
+
+        private static bool TryResolveStructuredSubOptionEntityId(
+            HsBoxRecommendationState state,
+            HsBoxActionStep step,
+            ChoiceRecommendationRequest request,
+            out int entityId,
+            out string detail)
+        {
+            entityId = 0;
+            detail = "suboption_card_missing";
+
+            foreach (var candidate in GetStructuredSubOptionCandidates(state, step))
+            {
+                if (!TryResolveChoiceOptionEntityIdByCardId(
+                    request?.Options,
+                    candidate?.CardId,
+                    allowChooseOnePrefix: true,
+                    out entityId,
+                    out var resolveDetail))
+                {
+                    if (string.Equals(resolveDetail, "option_match_ambiguous", StringComparison.Ordinal))
+                        detail = resolveDetail + ":" + (candidate?.CardId ?? string.Empty);
+                    continue;
+                }
+
+                detail = $"suboption_card={candidate.CardId}; match={resolveDetail}";
+                return true;
+            }
+
+            entityId = 0;
+            return false;
+        }
+
+        private static List<HsBoxCardRef> GetStructuredSubOptionCandidates(
+            HsBoxRecommendationState state,
+            HsBoxActionStep step)
+        {
+            var result = new List<HsBoxCardRef>();
+            if (step?.SubOption != null && !string.IsNullOrWhiteSpace(step.SubOption.CardId))
+                AddDistinctChoiceCards(result, new[] { step.SubOption });
+
+            if (step != null)
+            {
+                var primary = step.GetPrimaryCard();
+                if (primary != null && !string.IsNullOrWhiteSpace(primary.CardId))
+                    AddDistinctChoiceCards(result, new[] { primary });
+                if (step.Target != null && !string.IsNullOrWhiteSpace(step.Target.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.Target });
+                if (step.OppTarget != null && !string.IsNullOrWhiteSpace(step.OppTarget.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.OppTarget });
+                if (step.TargetHero != null && !string.IsNullOrWhiteSpace(step.TargetHero.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.TargetHero });
+                if (step.OppTargetHero != null && !string.IsNullOrWhiteSpace(step.OppTargetHero.CardId))
+                    AddDistinctChoiceCards(result, new[] { step.OppTargetHero });
+            }
+
+            if (step?.ExtraData != null)
+            {
+                foreach (var entry in step.ExtraData)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(entry.Value, allowDirectCardObject: true));
+            }
+
+            if (state?.Envelope?.ExtraData != null)
+            {
+                foreach (var entry in state.Envelope.ExtraData)
+                    AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(entry.Value, allowDirectCardObject: true));
+            }
+
+            AddDistinctChoiceCards(result, ExtractChoiceCardsFromToken(state?.RawToken, allowDirectCardObject: true));
+            return result;
+        }
+
+        private static bool TryResolveChoiceOptionEntityIdByCardId(
+            IReadOnlyList<ChoiceRecommendationOption> options,
+            string desiredCardId,
+            bool allowChooseOnePrefix,
+            out int entityId,
+            out string detail)
+        {
+            entityId = 0;
+            detail = "option_match_missing";
+            if (options == null || options.Count == 0 || string.IsNullOrWhiteSpace(desiredCardId))
+                return false;
+
+            var matches = options
+                .Where(option => option != null && option.EntityId > 0)
+                .Where(option =>
+                    MatchesCardId(option.CardId, desiredCardId)
+                    || (allowChooseOnePrefix
+                        && (IsChooseOnePrefix(option.CardId, desiredCardId)
+                            || IsChooseOnePrefix(desiredCardId, option.CardId))))
+                .Select(option => option.EntityId)
+                .Distinct()
+                .ToList();
+
+            if (matches.Count == 1)
+            {
+                entityId = matches[0];
+                detail = "option_match_single";
+                return true;
+            }
+
+            if (matches.Count > 1)
+            {
+                detail = "option_match_ambiguous";
+                return false;
+            }
+
+            detail = "option_match_missing";
             return false;
         }
 
@@ -4392,7 +4789,7 @@ namespace BotMain
                 return false;
 
             var parts = command.Split('|');
-            if (parts.Length < 4)
+            if (parts.Length < 3)
                 return false;
 
             if (!string.Equals(parts[0], "PLAY", StringComparison.OrdinalIgnoreCase)
@@ -4435,6 +4832,16 @@ namespace BotMain
                 || command.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                 || command.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
                 || command.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool CanConstructedCommandDeferTargetToOption(string command)
+        {
+            if (string.IsNullOrWhiteSpace(command))
+                return false;
+
+            return command.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                || command.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase);
         }
 
         private static int FindDeferredChoiceStepIndex(IReadOnlyList<HsBoxActionStep> steps, int playStepIndex)

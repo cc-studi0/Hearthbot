@@ -207,18 +207,10 @@ namespace BotMain
         private string _choiceStateWatchSource = string.Empty;
         private string _lastDiscoverDetectedKey = string.Empty;
         private string _lastDiscoverReadyKey = string.Empty;
-        private int _pendingDiscoverChoiceId;
-        private string _pendingDiscoverSourceCardId = string.Empty;
-        private DateTime _pendingDiscoverUntilUtc = DateTime.MinValue;
-        private DateTime _lastPendingDiscoverLogUtc = DateTime.MinValue;
+        private readonly PendingInteractiveSelectionState _pendingInteractiveSelection = new PendingInteractiveSelectionState();
+        private DateTime _lastPendingInteractiveSelectionLogUtc = DateTime.MinValue;
         private string _lastChoiceDetectedKey = string.Empty;
         private string _lastChoiceReadyKey = string.Empty;
-        private string _pendingChoiceSnapshotId = string.Empty;
-        private int _pendingChoiceId;
-        private string _pendingChoiceSourceCardId = string.Empty;
-        private string _pendingChoiceMode = string.Empty;
-        private DateTime _pendingChoiceUntilUtc = DateTime.MinValue;
-        private DateTime _lastPendingChoiceLogUtc = DateTime.MinValue;
         private readonly object _cardMechanicsLock = new object();
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
@@ -267,6 +259,38 @@ namespace BotMain
             public List<string> ChoiceCardIds { get; } = new();
         }
 
+        private enum InteractiveSelectionMechanismKind
+        {
+            Unknown = 0,
+            LegacyDiscover = 1,
+            EntityChoice = 2,
+            SubOptionChoice = 3
+        }
+
+        private sealed class PendingInteractiveSelectionState
+        {
+            public string SnapshotId { get; set; } = string.Empty;
+            public int ChoiceId { get; set; }
+            public int SourceEntityId { get; set; }
+            public string SourceCardId { get; set; } = string.Empty;
+            public string Mode { get; set; } = string.Empty;
+            public InteractiveSelectionMechanismKind MechanismKind { get; set; }
+            public DateTime UntilUtc { get; set; } = DateTime.MinValue;
+
+            public bool IsActive => ChoiceId > 0 || !string.IsNullOrWhiteSpace(SnapshotId);
+
+            public void Clear()
+            {
+                SnapshotId = string.Empty;
+                ChoiceId = 0;
+                SourceEntityId = 0;
+                SourceCardId = string.Empty;
+                Mode = string.Empty;
+                MechanismKind = InteractiveSelectionMechanismKind.Unknown;
+                UntilUtc = DateTime.MinValue;
+            }
+        }
+
         private sealed class ChoiceStateOptionSnapshot
         {
             public int EntityId { get; set; }
@@ -293,6 +317,7 @@ namespace BotMain
             public bool IsShopChoice { get; set; }
             public bool IsLaunchpadAbility { get; set; }
             public bool UiShown { get; set; }
+            public InteractiveSelectionMechanismKind MechanismKind { get; set; }
             public List<int> SelectedEntityIds { get; } = new();
             public List<ChoiceStateOptionSnapshot> Options { get; } = new();
         }
@@ -2093,9 +2118,12 @@ namespace BotMain
                         bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
                         bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
                         bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
+                        bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
                         var nextAction = ai + 1 < actions.Count ? actions[ai + 1] : null;
                         bool nextIsAttack = nextAction != null
                             && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                        bool nextIsOption = nextAction != null
+                            && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
                         const int preReadyRetries = 30;
                         const int preReadyIntervalMs = 300;
                         const int postReadyRetries = 30;
@@ -2110,7 +2138,10 @@ namespace BotMain
                         }
 
                         const int readyTimeoutMs = 3000;
-                        if (!WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
+                        // OPTION 命令在 Payload 端自带 UI 就绪等待逻辑，
+                        // Choose One 打出后游戏进入子选项选择状态导致 IsGameReady=false，
+                        // 此处跳过前置就绪检查以避免中断抉择链路。
+                        if (!isOption && !WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
                         {
                             actionFailed = true;
                             Log($"[Action] wait ready timeout before {action}");
@@ -2142,14 +2173,14 @@ namespace BotMain
 
                                 if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
                                 {
-                                    Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing choice state.");
+                                    Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing interactive selection state.");
                                     playActionFailStreakByEntity[failedPlayEntityId] = 0;
 
-                                    if (TryHandlePendingDiscoverBeforePlanning(pipe, seed, out _))
+                                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
                                     {
                                         requestResimulation = true;
-                                        resimulationReason = $"discover_after_play_fail:{failedPlayEntityId}";
-                                        Log($"[Discover] discover_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
+                                        resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
+                                        Log($"[Choice] choice_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
                                         break;
                                     }
                                 }
@@ -2206,19 +2237,27 @@ namespace BotMain
                         {
                             WaitForGameReady(pipe, 40, 50);
                         }
+                        else if (nextIsOption)
+                        {
+                            // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
+                            // Choose One UI 已弹出，游戏不处于"就绪"状态，
+                            // 跳过 discover 探测和 post-ready 等待，直接发送 OPTION。
+                            Thread.Sleep(actionDelayMs);
+                        }
                         else
                         {
                             Thread.Sleep(actionDelayMs);
-                            if (TryProbePendingDiscoverAfterAction(pipe, seed, action, out var discoverResimulationReason))
+                            if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimulationReason))
                             {
                                 requestResimulation = true;
-                                resimulationReason = discoverResimulationReason;
+                                resimulationReason = choiceResimulationReason;
                                 break;
                             }
                             WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
                         }
 
                         if (decision != null
+                            && !nextIsOption
                             && ShouldResimulateAfterAction(
                                 action,
                                 planningBoard,
@@ -3103,22 +3142,103 @@ namespace BotMain
         {
             _lastDiscoverDetectedKey = string.Empty;
             _lastDiscoverReadyKey = string.Empty;
-            _pendingDiscoverChoiceId = 0;
-            _pendingDiscoverSourceCardId = string.Empty;
-            _pendingDiscoverUntilUtc = DateTime.MinValue;
-            _lastPendingDiscoverLogUtc = DateTime.MinValue;
+            if (_pendingInteractiveSelection.MechanismKind == InteractiveSelectionMechanismKind.LegacyDiscover)
+                _pendingInteractiveSelection.Clear();
+            _lastPendingInteractiveSelectionLogUtc = DateTime.MinValue;
         }
 
         private void ResetChoiceLogState()
         {
             _lastChoiceDetectedKey = string.Empty;
             _lastChoiceReadyKey = string.Empty;
-            _pendingChoiceSnapshotId = string.Empty;
-            _pendingChoiceId = 0;
-            _pendingChoiceSourceCardId = string.Empty;
-            _pendingChoiceMode = string.Empty;
-            _pendingChoiceUntilUtc = DateTime.MinValue;
-            _lastPendingChoiceLogUtc = DateTime.MinValue;
+            if (_pendingInteractiveSelection.MechanismKind != InteractiveSelectionMechanismKind.LegacyDiscover)
+                _pendingInteractiveSelection.Clear();
+            _lastPendingInteractiveSelectionLogUtc = DateTime.MinValue;
+        }
+
+        private static InteractiveSelectionMechanismKind ResolveInteractiveSelectionMechanism(ChoiceStateSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return InteractiveSelectionMechanismKind.Unknown;
+
+            var normalizedMode = (snapshot.Mode ?? string.Empty).Trim().ToUpperInvariant();
+            switch (normalizedMode)
+            {
+                case "CHOOSE_ONE":
+                case "TITAN_ABILITY":
+                case "STARSHIP_LAUNCH":
+                    return InteractiveSelectionMechanismKind.SubOptionChoice;
+                case "DISCOVER":
+                case "DREDGE":
+                case "ADAPT":
+                case "TIMELINE":
+                case "TRINKET_DISCOVER":
+                case "SHOP_CHOICE":
+                case "GENERAL":
+                case "TARGET":
+                    return snapshot.IsSubOption
+                        ? InteractiveSelectionMechanismKind.SubOptionChoice
+                        : InteractiveSelectionMechanismKind.EntityChoice;
+                default:
+                    return snapshot.IsSubOption
+                        ? InteractiveSelectionMechanismKind.SubOptionChoice
+                        : InteractiveSelectionMechanismKind.EntityChoice;
+            }
+        }
+
+        private static string GetInteractiveSelectionLogPrefix(InteractiveSelectionMechanismKind mechanismKind)
+        {
+            return mechanismKind == InteractiveSelectionMechanismKind.LegacyDiscover
+                ? "Discover"
+                : "Choice";
+        }
+
+        private void ArmPendingInteractiveSelection(
+            string snapshotId,
+            int choiceId,
+            int sourceEntityId,
+            string sourceCardId,
+            string mode,
+            InteractiveSelectionMechanismKind mechanismKind)
+        {
+            if (choiceId <= 0 && string.IsNullOrWhiteSpace(snapshotId))
+                return;
+
+            _pendingInteractiveSelection.SnapshotId = snapshotId ?? string.Empty;
+            _pendingInteractiveSelection.ChoiceId = choiceId;
+            _pendingInteractiveSelection.SourceEntityId = sourceEntityId;
+            _pendingInteractiveSelection.SourceCardId = sourceCardId ?? string.Empty;
+            _pendingInteractiveSelection.Mode = mode ?? string.Empty;
+            _pendingInteractiveSelection.MechanismKind = mechanismKind;
+            _pendingInteractiveSelection.UntilUtc = DateTime.UtcNow.AddSeconds(45);
+        }
+
+        private bool HasPendingInteractiveSelection()
+        {
+            if (!_pendingInteractiveSelection.IsActive)
+                return false;
+
+            if (_pendingInteractiveSelection.UntilUtc <= DateTime.UtcNow)
+            {
+                var prefix = GetInteractiveSelectionLogPrefix(_pendingInteractiveSelection.MechanismKind);
+                Log($"[{prefix}] pending_timeout snapshotId={_pendingInteractiveSelection.SnapshotId} choiceId={_pendingInteractiveSelection.ChoiceId} mode={_pendingInteractiveSelection.Mode} source={_pendingInteractiveSelection.SourceCardId}");
+                _pendingInteractiveSelection.Clear();
+                _lastPendingInteractiveSelectionLogUtc = DateTime.MinValue;
+                return false;
+            }
+
+            return true;
+        }
+
+        private void ClearPendingInteractiveSelection(string reason)
+        {
+            if (!_pendingInteractiveSelection.IsActive)
+                return;
+
+            var prefix = GetInteractiveSelectionLogPrefix(_pendingInteractiveSelection.MechanismKind);
+            Log($"[{prefix}] pending_cleared snapshotId={_pendingInteractiveSelection.SnapshotId} choiceId={_pendingInteractiveSelection.ChoiceId} mode={_pendingInteractiveSelection.Mode} source={_pendingInteractiveSelection.SourceCardId} reason={reason}");
+            _pendingInteractiveSelection.Clear();
+            _lastPendingInteractiveSelectionLogUtc = DateTime.MinValue;
         }
 
         private void TrackChoiceObservation(ChoiceStateSnapshot snapshot)
@@ -3126,18 +3246,21 @@ namespace BotMain
             if (snapshot == null)
                 return;
 
+            if (snapshot.MechanismKind == InteractiveSelectionMechanismKind.Unknown)
+                snapshot.MechanismKind = ResolveInteractiveSelectionMechanism(snapshot);
+
             var detectedKey = (snapshot.SnapshotId ?? string.Empty) + ":" + (snapshot.IsReady ? "READY" : snapshot.ReadyReason);
             if (!string.Equals(_lastChoiceDetectedKey, detectedKey, StringComparison.Ordinal))
             {
                 _lastChoiceDetectedKey = detectedKey;
-                Log($"[Choice] choice_detected snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mode={snapshot.Mode} source={snapshot.SourceCardId} ready={snapshot.IsReady} detail={snapshot.ReadyReason}");
+                Log($"[Choice] choice_detected snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mechanism={snapshot.MechanismKind} mode={snapshot.Mode} source={snapshot.SourceCardId} ready={snapshot.IsReady} detail={snapshot.ReadyReason}");
             }
 
             if (snapshot.IsReady
                 && !string.Equals(_lastChoiceReadyKey, snapshot.SnapshotId ?? string.Empty, StringComparison.Ordinal))
             {
                 _lastChoiceReadyKey = snapshot.SnapshotId ?? string.Empty;
-                Log($"[Choice] choice_ready snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mode={snapshot.Mode} detail={snapshot.ReadyReason}");
+                Log($"[Choice] choice_ready snapshotId={snapshot.SnapshotId} choiceId={snapshot.ChoiceId} mechanism={snapshot.MechanismKind} mode={snapshot.Mode} detail={snapshot.ReadyReason}");
             }
         }
 
@@ -3146,34 +3269,28 @@ namespace BotMain
             if (snapshot == null || string.IsNullOrWhiteSpace(snapshot.SnapshotId))
                 return;
 
-            _pendingChoiceSnapshotId = snapshot.SnapshotId;
-            _pendingChoiceId = snapshot.ChoiceId;
-            _pendingChoiceSourceCardId = snapshot.SourceCardId ?? string.Empty;
-            _pendingChoiceMode = snapshot.Mode ?? string.Empty;
-            _pendingChoiceUntilUtc = DateTime.UtcNow.AddSeconds(45);
+            snapshot.MechanismKind = ResolveInteractiveSelectionMechanism(snapshot);
+            ArmPendingInteractiveSelection(
+                snapshot.SnapshotId,
+                snapshot.ChoiceId,
+                snapshot.SourceEntityId,
+                snapshot.SourceCardId,
+                snapshot.Mode,
+                snapshot.MechanismKind);
         }
 
         private bool HasPendingChoice()
         {
-            if (string.IsNullOrWhiteSpace(_pendingChoiceSnapshotId))
+            if (!HasPendingInteractiveSelection())
                 return false;
 
-            if (_pendingChoiceUntilUtc <= DateTime.UtcNow)
-            {
-                Log($"[Choice] pending_timeout snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId}");
-                ResetChoiceLogState();
-                return false;
-            }
-
-            return true;
+            return _pendingInteractiveSelection.MechanismKind != InteractiveSelectionMechanismKind.LegacyDiscover;
         }
 
         private void ClearPendingChoice(string reason)
         {
-            if (!string.IsNullOrWhiteSpace(_pendingChoiceSnapshotId))
-                Log($"[Choice] pending_cleared snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} reason={reason}");
-
-            ResetChoiceLogState();
+            if (_pendingInteractiveSelection.MechanismKind != InteractiveSelectionMechanismKind.LegacyDiscover)
+                ClearPendingInteractiveSelection(reason);
         }
 
         private void TrackDiscoverObservation(DiscoverStateSnapshot snapshot)
@@ -3201,41 +3318,27 @@ namespace BotMain
             if (snapshot == null || snapshot.ChoiceId <= 0)
                 return;
 
-            _pendingDiscoverChoiceId = snapshot.ChoiceId;
-            _pendingDiscoverSourceCardId = snapshot.SourceCardId ?? string.Empty;
-            _pendingDiscoverUntilUtc = DateTime.UtcNow.AddSeconds(45);
+            ArmPendingInteractiveSelection(
+                string.Empty,
+                snapshot.ChoiceId,
+                snapshot.SourceEntityId,
+                snapshot.SourceCardId,
+                "DISCOVER",
+                InteractiveSelectionMechanismKind.LegacyDiscover);
         }
 
         private bool HasPendingDiscover()
         {
-            if (_pendingDiscoverChoiceId <= 0)
+            if (!HasPendingInteractiveSelection())
                 return false;
 
-            if (_pendingDiscoverUntilUtc <= DateTime.UtcNow)
-            {
-                Log($"[Discover] pending_timeout choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId}");
-                _pendingDiscoverChoiceId = 0;
-                _pendingDiscoverSourceCardId = string.Empty;
-                _pendingDiscoverUntilUtc = DateTime.MinValue;
-                _lastPendingDiscoverLogUtc = DateTime.MinValue;
-                return false;
-            }
-
-            return true;
+            return _pendingInteractiveSelection.MechanismKind == InteractiveSelectionMechanismKind.LegacyDiscover;
         }
 
         private void ClearPendingDiscover(string reason)
         {
-            if (_pendingDiscoverChoiceId <= 0)
-                return;
-
-            if (!string.IsNullOrWhiteSpace(reason))
-                Log($"[Discover] pending_cleared choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} reason={reason}");
-
-            _pendingDiscoverChoiceId = 0;
-            _pendingDiscoverSourceCardId = string.Empty;
-            _pendingDiscoverUntilUtc = DateTime.MinValue;
-            _lastPendingDiscoverLogUtc = DateTime.MinValue;
+            if (_pendingInteractiveSelection.MechanismKind == InteractiveSelectionMechanismKind.LegacyDiscover)
+                ClearPendingInteractiveSelection(reason);
         }
 
         private void ClearChoiceStateWatch(string reason)
@@ -3294,23 +3397,6 @@ namespace BotMain
             out string reason)
         {
             reason = null;
-            if (!CanActionProduceChoice(action) || !IsChoiceStateWatchActive())
-                return false;
-
-            if (!TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
-                return false;
-
-            reason = $"choice_after_action:{action.Split('|')[0].ToLowerInvariant()}";
-            return true;
-        }
-
-        private bool TryProbePendingDiscoverAfterAction(
-            PipeServer pipe,
-            string seed,
-            string action,
-            out string reason)
-        {
-            reason = null;
             if (string.IsNullOrWhiteSpace(action))
                 return false;
 
@@ -3322,14 +3408,26 @@ namespace BotMain
                 return false;
             }
 
-            var handled = TryHandlePendingDiscoverBeforePlanning(pipe, seed, out var waitingForDiscoverState);
-            if (!handled && !waitingForDiscoverState)
+            if (!IsChoiceStateWatchActive())
+                return false;
+
+            var handled = TryHandlePendingInteractiveSelectionBeforePlanning(pipe, seed, out var waitingForChoiceState);
+            if (!handled && !waitingForChoiceState)
                 return false;
 
             reason = handled
-                ? $"discover_after_action:{action.Split('|')[0].ToLowerInvariant()}"
-                : $"discover_after_action_waiting:{action.Split('|')[0].ToLowerInvariant()}";
+                ? $"choice_after_action:{action.Split('|')[0].ToLowerInvariant()}"
+                : $"choice_after_action_waiting:{action.Split('|')[0].ToLowerInvariant()}";
             return true;
+        }
+
+        private bool TryProbePendingDiscoverAfterAction(
+            PipeServer pipe,
+            string seed,
+            string action,
+            out string reason)
+        {
+            return TryProbePendingChoiceAfterAction(pipe, seed, action, out reason);
         }
 
         private static bool TryResolveChoiceSourceTemplate(
@@ -4124,76 +4222,24 @@ namespace BotMain
 
         private bool TryHandlePendingDiscoverBeforePlanning(PipeServer pipe, string seed, out bool waitingForDiscoverState)
         {
-            waitingForDiscoverState = false;
-            if (pipe == null || !pipe.IsConnected)
-                return false;
-
-            var pendingDiscoverActive = HasPendingDiscover();
-            if (!TryGetDiscoverStateResponse(
-                pipe,
-                maxRetries: pendingDiscoverActive ? 4 : 1,
-                retryDelayMs: pendingDiscoverActive ? 80 : 0,
-                out var response,
-                commandTimeoutMs: pendingDiscoverActive ? 1200 : 900))
-            {
-                if (pendingDiscoverActive)
-                {
-                    waitingForDiscoverState = true;
-                    if (_lastPendingDiscoverLogUtc <= DateTime.UtcNow.AddSeconds(-2))
-                    {
-                        _lastPendingDiscoverLogUtc = DateTime.UtcNow;
-                        var detail = string.Equals(response, "NO_DISCOVER", StringComparison.Ordinal)
-                            ? "no_discover"
-                            : "response_missing";
-                        Log($"[Discover] pending_wait choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} detail={detail}");
-                    }
-                }
-                return false;
-            }
-
-            if (!TryParseDiscoverStateResponse(response, out var snapshot))
-            {
-                if (HasPendingDiscover())
-                {
-                    waitingForDiscoverState = true;
-                    if (_lastPendingDiscoverLogUtc <= DateTime.UtcNow.AddSeconds(-2))
-                    {
-                        _lastPendingDiscoverLogUtc = DateTime.UtcNow;
-                        Log($"[Discover] pending_wait choiceId={_pendingDiscoverChoiceId} source={_pendingDiscoverSourceCardId} detail=state_unparsed");
-                    }
-                }
-                return false;
-            }
-
-            TrackDiscoverObservation(snapshot);
-            ArmPendingDiscover(snapshot);
-
-            if (!string.Equals(snapshot.Status, "READY", StringComparison.OrdinalIgnoreCase))
-            {
-                waitingForDiscoverState = true;
-                return false;
-            }
-
-            if (TryHandleDiscover(pipe, seed, snapshot))
-            {
-                ClearPendingDiscover("handled");
-                return true;
-            }
-
-            waitingForDiscoverState = true;
-            return false;
+            var handled = TryHandlePendingInteractiveSelectionBeforePlanning(pipe, seed, out var waitingForChoiceState);
+            waitingForDiscoverState = waitingForChoiceState;
+            return handled;
         }
 
         private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed)
             => TryHandlePendingChoiceBeforePlanning(pipe, seed, out _);
 
         private bool TryHandlePendingChoiceBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
+            => TryHandlePendingInteractiveSelectionBeforePlanning(pipe, seed, out waitingForChoiceState);
+
+        private bool TryHandlePendingInteractiveSelectionBeforePlanning(PipeServer pipe, string seed, out bool waitingForChoiceState)
         {
             waitingForChoiceState = false;
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            var pendingChoiceActive = HasPendingChoice();
+            var pendingChoiceActive = HasPendingInteractiveSelection();
             if (!TryGetChoiceStateResponse(
                 pipe,
                 maxRetries: pendingChoiceActive ? 4 : 1,
@@ -4204,20 +4250,21 @@ namespace BotMain
                 if (pendingChoiceActive
                     && string.Equals(response, "NO_CHOICE", StringComparison.Ordinal))
                 {
-                    ClearPendingChoice("closed");
+                    ClearPendingInteractiveSelection("closed");
                     return false;
                 }
 
                 if (pendingChoiceActive)
                 {
                     waitingForChoiceState = true;
-                    if (_lastPendingChoiceLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    if (_lastPendingInteractiveSelectionLogUtc <= DateTime.UtcNow.AddSeconds(-2))
                     {
-                        _lastPendingChoiceLogUtc = DateTime.UtcNow;
+                        _lastPendingInteractiveSelectionLogUtc = DateTime.UtcNow;
                         var detail = string.Equals(response, "NO_CHOICE", StringComparison.Ordinal)
                             ? "no_choice"
                             : "response_missing";
-                        Log($"[Choice] pending_wait snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} detail={detail}");
+                        var prefix = GetInteractiveSelectionLogPrefix(_pendingInteractiveSelection.MechanismKind);
+                        Log($"[{prefix}] pending_wait snapshotId={_pendingInteractiveSelection.SnapshotId} choiceId={_pendingInteractiveSelection.ChoiceId} mode={_pendingInteractiveSelection.Mode} source={_pendingInteractiveSelection.SourceCardId} detail={detail}");
                     }
                 }
 
@@ -4226,13 +4273,14 @@ namespace BotMain
 
             if (!TryParseChoiceStateResponse(response, out var snapshot))
             {
-                if (HasPendingChoice())
+                if (HasPendingInteractiveSelection())
                 {
                     waitingForChoiceState = true;
-                    if (_lastPendingChoiceLogUtc <= DateTime.UtcNow.AddSeconds(-2))
+                    if (_lastPendingInteractiveSelectionLogUtc <= DateTime.UtcNow.AddSeconds(-2))
                     {
-                        _lastPendingChoiceLogUtc = DateTime.UtcNow;
-                        Log($"[Choice] pending_wait snapshotId={_pendingChoiceSnapshotId} choiceId={_pendingChoiceId} mode={_pendingChoiceMode} source={_pendingChoiceSourceCardId} detail=state_unparsed");
+                        _lastPendingInteractiveSelectionLogUtc = DateTime.UtcNow;
+                        var prefix = GetInteractiveSelectionLogPrefix(_pendingInteractiveSelection.MechanismKind);
+                        Log($"[{prefix}] pending_wait snapshotId={_pendingInteractiveSelection.SnapshotId} choiceId={_pendingInteractiveSelection.ChoiceId} mode={_pendingInteractiveSelection.Mode} source={_pendingInteractiveSelection.SourceCardId} detail=state_unparsed");
                     }
                 }
 
@@ -4325,6 +4373,7 @@ namespace BotMain
                 if (parsed.CountMax <= 0)
                     parsed.CountMax = 1;
 
+                parsed.MechanismKind = ResolveInteractiveSelectionMechanism(parsed);
                 snapshot = parsed;
                 return true;
             }
@@ -4413,7 +4462,10 @@ namespace BotMain
 
             const int maxChainedChoices = 8;
             var currentState = initialState;
-            Log($"[Choice] handling_begin snapshotId={currentState.SnapshotId} choiceId={currentState.ChoiceId} mode={currentState.Mode} count={currentState.Options.Count}");
+            if (currentState.MechanismKind == InteractiveSelectionMechanismKind.Unknown)
+                currentState.MechanismKind = ResolveInteractiveSelectionMechanism(currentState);
+
+            Log($"[Choice] handling_begin snapshotId={currentState.SnapshotId} choiceId={currentState.ChoiceId} mechanism={currentState.MechanismKind} mode={currentState.Mode} count={currentState.Options.Count}");
 
             for (var chainedCount = 0; chainedCount < maxChainedChoices; chainedCount++)
             {
@@ -4456,7 +4508,7 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
-                    Log($"[Choice] waiting snapshotId={currentState.SnapshotId} mode={currentState.Mode} detail={recommendation.Detail}");
+                    Log($"[Choice] waiting snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} detail={recommendation.Detail}");
                     return false;
                 }
 
@@ -4464,17 +4516,17 @@ namespace BotMain
                 if ((currentState.CountMin > 0 && selectedEntityIds.Count < currentState.CountMin)
                     || (currentState.CountMax > 0 && selectedEntityIds.Count > currentState.CountMax))
                 {
-                    Log($"[Choice] selection_invalid snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}]");
+                    Log($"[Choice] selection_invalid snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}]");
                     return false;
                 }
 
                 if (!TryApplyChoice(pipe, currentState, selectedEntityIds, out var applyDetail))
                 {
-                    Log($"[Choice] apply_failed snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
+                    Log($"[Choice] apply_failed snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
                     return false;
                 }
 
-                Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
+                Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
                 RememberPendingAcquisition(currentState.Mode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, currentState.Options
                     .Where(option => option != null && selectedEntityIds.Contains(option.EntityId))
                     .Select(option => option.CardId)
