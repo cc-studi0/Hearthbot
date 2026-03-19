@@ -770,6 +770,54 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TryMapChoice_MatchesOppTargetHeroAsChoiceCard()
+        {
+            var step = new HsBoxActionStep
+            {
+                ActionName = "choice",
+                OppTargetHero = new HsBoxCardRef
+                {
+                    CardId = "HERO_06",
+                    CardName = "玛法里奥·怒风"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 47,
+                UpdatedAtMs = 610,
+                Raw = "choice-opp-target-hero",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "选择对方英雄 玛法里奥·怒风",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var request = new ChoiceRecommendationRequest(
+                "snapshot-opp-hero",
+                15,
+                "TARGET",
+                "SRC_101",
+                101,
+                1,
+                1,
+                new List<ChoiceRecommendationOption>
+                {
+                    new ChoiceRecommendationOption(701, "HERO_06"),
+                    new ChoiceRecommendationOption(702, "RLK_539")
+                },
+                Array.Empty<int>(),
+                "seed");
+
+            Assert.True(HsBoxRecommendationMapper.TryMapChoice(state, request, out var selectedEntityIds, out _));
+            Assert.Equal(new[] { 701 }, selectedEntityIds);
+        }
+
+        [Fact]
         public void TryMapChoice_MatchesParentCardIdAsPrefix_ForChooseOneOptions()
         {
             // HsBox sends parent card ID "TOY_353" (拼布好朋友) with ZONE_POSITION=2,

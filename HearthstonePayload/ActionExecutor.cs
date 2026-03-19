@@ -3284,6 +3284,8 @@ namespace HearthstonePayload
             var modeName = responseMode.ToString();
             if (string.Equals(modeName, "CHOICE", StringComparison.OrdinalIgnoreCase))
                 return true;
+            if (string.Equals(modeName, "TARGET", StringComparison.OrdinalIgnoreCase))
+                return true;
 
             try
             {
@@ -3364,6 +3366,8 @@ namespace HearthstonePayload
                 return "DREDGE";
             if (string.Equals(choiceType, "ADAPT", StringComparison.OrdinalIgnoreCase))
                 return "ADAPT";
+            if (string.Equals(choiceType, "TARGET", StringComparison.OrdinalIgnoreCase))
+                return "TARGET";
 
             // 与 HB1.1.8 的判定一致：优先用来源实体标签区分具体选择模式。
             if (HasSourceEntityTag(sourceEntity, "DISCOVER")) return "DISCOVER";
@@ -3690,6 +3694,20 @@ namespace HearthstonePayload
 
             var rawType = ReadChoiceTypeName(choicePacket);
             return rawType.IndexOf("GENERAL", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsChoicePacketTarget(object choicePacket)
+        {
+            if (choicePacket == null)
+                return false;
+
+            var rawType = ReadChoiceTypeName(choicePacket);
+            return rawType.IndexOf("TARGET", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsSupportedChoicePacket(object choicePacket)
+        {
+            return IsChoicePacketGeneral(choicePacket) || IsChoicePacketTarget(choicePacket);
         }
 
         private static bool TryGetChoiceCardMgrFriendlyCards(out List<object> cards)
@@ -4177,7 +4195,7 @@ namespace HearthstonePayload
             if (IsChoicePacketMulligan(choicePacket))
                 return false;
 
-            if (choicePacket != null && !IsChoicePacketGeneral(choicePacket))
+            if (choicePacket != null && !IsSupportedChoicePacket(choicePacket))
                 return false;
 
             var built = new ChoiceSnapshot();
@@ -4475,6 +4493,20 @@ namespace HearthstonePayload
                 return false;
             }
 
+            if (IsTargetChoiceSnapshot(snapshot))
+            {
+                foreach (var entityId in snapshot.ChoiceEntityIds)
+                {
+                    if (!TryGetChoiceEntityScreenPos(entityId, out _, out _))
+                    {
+                        detail = "target_pos_not_found:" + entityId;
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+
             if (snapshot.ChoiceStateWaitingToStart)
             {
                 detail = "waiting_to_start";
@@ -4639,6 +4671,36 @@ namespace HearthstonePayload
                 return false;
 
             return GameObjectFinder.GetObjectScreenPos(card, out x, out y);
+        }
+
+        private static bool TryGetChoiceEntityScreenPos(int entityId, out int x, out int y)
+        {
+            x = y = 0;
+            if (entityId <= 0)
+                return false;
+
+            if (TryGetFriendlyChoiceCardScreenPos(entityId, out x, out y))
+                return true;
+
+            if (IsFriendlyHeroEntityId(entityId))
+                return GameObjectFinder.GetHeroScreenPos(true, out x, out y);
+
+            if (IsEnemyHeroEntityId(entityId))
+                return GameObjectFinder.GetHeroScreenPos(false, out x, out y);
+
+            return GameObjectFinder.GetEntityScreenPos(entityId, out x, out y);
+        }
+
+        private static bool IsTargetChoiceSnapshot(ChoiceSnapshot snapshot)
+        {
+            if (snapshot == null)
+                return false;
+
+            if (string.Equals(snapshot.Mode, "TARGET", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return !string.IsNullOrWhiteSpace(snapshot.RawChoiceType)
+                && snapshot.RawChoiceType.IndexOf("TARGET", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool TryReadCardHasActiveTweens(object card, out bool hasActiveTweens)
@@ -5588,6 +5650,7 @@ namespace HearthstonePayload
                 case "ADAPT":
                 case "GENERAL":
                 case "CHOOSE_ONE":
+                case "TARGET":
                     return true;
                 default:
                     return false;
@@ -5712,7 +5775,7 @@ namespace HearthstonePayload
                 int x, y;
                 var gotChoicePos = discoverMouseOnly
                     ? TryGetFriendlyChoiceCardScreenPos(entityId, out x, out y)
-                    : GameObjectFinder.GetEntityScreenPos(entityId, out x, out y);
+                    : TryGetChoiceEntityScreenPos(entityId, out x, out y);
                 if (!gotChoicePos)
                 {
                     confirmDetail = "pos_not_found";
