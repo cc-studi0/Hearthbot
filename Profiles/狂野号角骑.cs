@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Database;
@@ -166,14 +166,17 @@ namespace SmartBotProfiles
             _log = "";
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = -10 }; 
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             try
             {
                 int enemyHealth = board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
                 int friendHealth = board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor;
-                AddLog($"================ 狂野号角骑 决策日志 v{ProfileVersion} ================");
-                AddLog($"敌方血甲: {enemyHealth} | 我方血甲: {friendHealth} | 法力:{board.ManaAvailable} | 手牌:{board.Hand.Count} | 牌库:{board.FriendDeckCount}");
+                AddLog("================ 狂野号角骑 决策日志 v" + ProfileVersion + " ================");
+                AddLog("敌方血甲: " + enemyHealth + " | 我方血甲: " + friendHealth + " | 法力:" + board.ManaAvailable + " | 手牌:" + board.Hand.Count + " | 牌库:" + board.FriendDeckCount);
                 AddLog("手牌: " + string.Join(", ", board.Hand.Where(x => x != null && x.Template != null)
-                    .Select(x => $"{(string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN)}({x.Template.Id}){x.CurrentCost}")));
+                    .Select(x => (string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN) + "(" + x.Template.Id + ")" + x.CurrentCost)));
             }
             catch
             {
@@ -227,68 +230,6 @@ switch (board.EnemyClass)
     default:
         p.GlobalAggroModifier = CalculateAggroModifier(a, 150, board.EnemyClass); // 預設職業
         break;
-}
-
-// 核心方法：計算動態攻擊值
-int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass)
-{
-    double winRateModifier = GetWinRateModifier(enemyClass);
-    double usageRateModifier = GetUsageRateModifier(enemyClass);
-
-    // 最終計算攻擊值
-    int finalAggro = (int)(baseAggro * 0.625 + baseValue + winRateModifier + usageRateModifier);
-    AddLog($"職業: {enemyClass}, 攻擊值: {finalAggro}, 勝率修正: {winRateModifier}, 使用率修正: {usageRateModifier}");
-    return finalAggro;
-}
-
-// 方法: 計算勝率修正值
-double GetWinRateModifier(Card.CClass enemyClass)
-{
-    double winRate = GetWinRateFromData(enemyClass);
-    return (winRate - 50) * 1.5; // 每超出50%勝率增加1.5點攻擊值
-}
-
-// 方法: 計算使用率修正值
-double GetUsageRateModifier(Card.CClass enemyClass)
-{
-    double usageRate = GetUsageRateFromData(enemyClass);
-    return usageRate * 0.5; // 每1%使用率增加0.5點攻擊值
-}
-
-// 模擬職業勝率數據
-double GetWinRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.PALADIN: return 52.3;
-        case Card.CClass.DEMONHUNTER: return 54.5;
-        case Card.CClass.PRIEST: return 50.8;
-        case Card.CClass.MAGE: return 51.2;
-        case Card.CClass.DEATHKNIGHT: return 53.1;
-        case Card.CClass.HUNTER: return 55.2;
-        case Card.CClass.ROGUE: return 56.1;
-        case Card.CClass.WARLOCK: return 49.7;
-        case Card.CClass.SHAMAN: return 48.5;
-        default: return 50.0; // 默認勝率
-    }
-}
-
-// 模擬職業使用率數據
-double GetUsageRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.PALADIN: return 12.0;
-        case Card.CClass.DEMONHUNTER: return 15.0;
-        case Card.CClass.PRIEST: return 8.0;
-        case Card.CClass.MAGE: return 10.0;
-        case Card.CClass.DEATHKNIGHT: return 11.0;
-        case Card.CClass.HUNTER: return 14.0;
-        case Card.CClass.ROGUE: return 13.0;
-        case Card.CClass.WARLOCK: return 7.0;
-        case Card.CClass.SHAMAN: return 6.0;
-        default: return 10.0; // 默認使用率
-    }
 }
 
        {
@@ -1063,7 +1004,7 @@ if (silverHandProtector.ShouldProtect())
 		foreach (var item in board.MinionFriend)
 		{
 				p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(item.Template.Id, new Modifier(250));
-				AddLog($"不送 {item.Template.NameCN} 250");
+				AddLog("不送 " + item.Template.NameCN + " 250");
 		}
 }
 #endregion
@@ -1132,20 +1073,13 @@ var excludedCards = new HashSet<string>
 {
     Card.Cards.GAME_005.ToString()
 };
-// 遍历并处理卡牌的方法
-void EvaluateCards(IEnumerable<Card> cards)
+foreach (var card in board.Hand)
 {
-    foreach (var card in cards)
+    if (!excludedCards.Contains(card.Template.Id.ToString()))
     {
-         // 如果卡牌不在排除列表中，则加入重新思考的队列
-        if (!excludedCards.Contains(card.Template.Id.ToString()))
-        {
-            p.ForcedResimulationCardList.Add(card.Template.Id);
-        }
+        p.ForcedResimulationCardList.Add(card.Template.Id);
     }
 }
-// 遍历手牌
-EvaluateCards(board.Hand);
 
 
 // 逻辑后续 - 重新思考
@@ -1357,6 +1291,7 @@ Bot.Log(_log);
 
 
 //德：DRUID 猎：HUNTER 法：MAGE 骑：PALADIN 牧：PRIEST 贼：ROGUE 萨：SHAMAN 术：WARLOCK 战：WARRIOR 瞎：DEMONHUNTER
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
         }}
 				 // 向 _log 字符串添加日志的私有方法，包括回车和新行
@@ -1713,6 +1648,95 @@ Bot.Log(_log);
                 {
                     return true;
                 }
+                return false;
+            }
+        }
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+
+        private int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass)
+        {
+            double winRateModifier = GetWinRateModifier(enemyClass);
+            double usageRateModifier = GetUsageRateModifier(enemyClass);
+            int finalAggro = (int)(baseAggro * 0.625 + baseValue + winRateModifier + usageRateModifier);
+            AddLog("職業: " + enemyClass + ", 攻擊值: " + finalAggro + ", 勝率修正: " + winRateModifier + ", 使用率修正: " + usageRateModifier);
+            return finalAggro;
+        }
+
+        private double GetWinRateModifier(Card.CClass enemyClass)
+        {
+            double winRate = GetWinRateFromData(enemyClass);
+            return (winRate - 50) * 1.5;
+        }
+
+        private double GetUsageRateModifier(Card.CClass enemyClass)
+        {
+            double usageRate = GetUsageRateFromData(enemyClass);
+            return usageRate * 0.5;
+        }
+
+        private double GetWinRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.PALADIN: return 52.3;
+                case Card.CClass.DEMONHUNTER: return 54.5;
+                case Card.CClass.PRIEST: return 50.8;
+                case Card.CClass.MAGE: return 51.2;
+                case Card.CClass.DEATHKNIGHT: return 53.1;
+                case Card.CClass.HUNTER: return 55.2;
+                case Card.CClass.ROGUE: return 56.1;
+                case Card.CClass.WARLOCK: return 49.7;
+                case Card.CClass.SHAMAN: return 48.5;
+                default: return 50.0;
+            }
+        }
+
+        private double GetUsageRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.PALADIN: return 12.0;
+                case Card.CClass.DEMONHUNTER: return 15.0;
+                case Card.CClass.PRIEST: return 8.0;
+                case Card.CClass.MAGE: return 10.0;
+                case Card.CClass.DEATHKNIGHT: return 11.0;
+                case Card.CClass.HUNTER: return 14.0;
+                case Card.CClass.ROGUE: return 13.0;
+                case Card.CClass.WARLOCK: return 7.0;
+                case Card.CClass.SHAMAN: return 6.0;
+                default: return 10.0;
+            }
+        }
+        internal static class ProfileCommon
+        {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 return false;
             }
         }

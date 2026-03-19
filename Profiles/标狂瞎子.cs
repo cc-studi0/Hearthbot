@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Database;
@@ -170,14 +170,17 @@ namespace SmartBotProfiles
             _log = "";
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = -10 }; 
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             try
             {
                 int enemyHealth = board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
                 int friendHealth = board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor;
-                AddLog($"================ 标狂瞎子 决策日志 v{ProfileVersion} ================");
-                AddLog($"敌方血甲: {enemyHealth} | 我方血甲: {friendHealth} | 法力:{board.ManaAvailable} | 手牌:{board.Hand.Count} | 牌库:{board.FriendDeckCount}");
+                AddLog("================ 标狂瞎子 决策日志 v" + ProfileVersion + " ================");
+                AddLog("敌方血甲: " + enemyHealth + " | 我方血甲: " + friendHealth + " | 法力:" + board.ManaAvailable + " | 手牌:" + board.Hand.Count + " | 牌库:" + board.FriendDeckCount);
                 AddLog("手牌: " + string.Join(", ", board.Hand.Where(x => x != null && x.Template != null)
-                    .Select(x => $"{(string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN)}({x.Template.Id}){x.CurrentCost}")));
+                    .Select(x => (string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN) + "(" + x.Template.Id + ")" + x.CurrentCost)));
             }
             catch
             {
@@ -233,70 +236,7 @@ switch (board.EnemyClass)
         break;
 }
 
-// 核心方法：計算動態攻擊值
-int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass)
-{
-    double winRateModifier = GetWinRateModifier(enemyClass);
-    double usageRateModifier = GetUsageRateModifier(enemyClass);
-
-    // 最終計算攻擊值
-    int finalAggro = (int)(baseAggro * 0.625 + baseValue + winRateModifier + usageRateModifier);
-    AddLog($"職業: {enemyClass}, 攻擊值: {finalAggro}, 勝率修正: {winRateModifier}, 使用率修正: {usageRateModifier}");
-    return finalAggro;
-}
-
-// 方法: 計算勝率修正值
-double GetWinRateModifier(Card.CClass enemyClass)
-{
-    double winRate = GetWinRateFromData(enemyClass);
-    return (winRate - 50) * 1.5; // 每超出50%勝率增加1.5點攻擊值
-}
-
-// 方法: 計算使用率修正值
-double GetUsageRateModifier(Card.CClass enemyClass)
-{
-    double usageRate = GetUsageRateFromData(enemyClass);
-    return usageRate * 0.5; // 每1%使用率增加0.5點攻擊值
-}
-
-// 模擬職業勝率數據
-double GetWinRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.PALADIN: return 52.3;
-        case Card.CClass.DEMONHUNTER: return 54.5;
-        case Card.CClass.PRIEST: return 50.8;
-        case Card.CClass.MAGE: return 51.2;
-        case Card.CClass.DEATHKNIGHT: return 53.1;
-        case Card.CClass.HUNTER: return 55.2;
-        case Card.CClass.ROGUE: return 56.1;
-        case Card.CClass.WARLOCK: return 49.7;
-        case Card.CClass.SHAMAN: return 48.5;
-        default: return 50.0; // 默認勝率
-    }
-}
-
-// 模擬職業使用率數據
-double GetUsageRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.PALADIN: return 12.0;
-        case Card.CClass.DEMONHUNTER: return 15.0;
-        case Card.CClass.PRIEST: return 8.0;
-        case Card.CClass.MAGE: return 10.0;
-        case Card.CClass.DEATHKNIGHT: return 11.0;
-        case Card.CClass.HUNTER: return 14.0;
-        case Card.CClass.ROGUE: return 13.0;
-        case Card.CClass.WARLOCK: return 7.0;
-        case Card.CClass.SHAMAN: return 6.0;
-        default: return 10.0; // 默認使用率
-    }
-}
-           
-
-       {
+        {
  
         
             int myAttack = 0;
@@ -386,7 +326,7 @@ double GetUsageRateFromData(Card.CClass enemyClass)
 						+ board.FriendGraveyard.Count(card => CardTemplate.LoadFromId(card).Id == Card.Cards.TOY_642)
 						+ board.FriendGraveyard.Count(card => CardTemplate.LoadFromId(card).Id == Card.Cards.TLC_468)//黏团焦油 TLC_468
 						+ board.FriendGraveyard.Count(card => CardTemplate.LoadFromId(card).Id == Card.Cards.EDR_891);
-						AddLog($"坟场亡语随从数量: {NumberOfDeadFollowers}");
+						AddLog("坟场亡语随从数量: " + NumberOfDeadFollowers);
 						// 判断手上,场上,坟场中玛瑟里顿（未发售版） TOY_647和伊利达雷审判官 CS3_020 的数量
 						int toy647Count = board.Hand.Count(card => card.Template.Id == Card.Cards.TOY_647)
 						+ board.MinionFriend.Count(card => card.Template.Id == Card.Cards.TOY_647)
@@ -463,7 +403,7 @@ if(board.HasCardInHand(Card.Cards.TOY_644)){
                 foreach (var minion in board.MinionFriend)
                 {
                         p.CastSpellsModifiers.AddOrUpdate(minion.Template.Id, new Modifier(9999, Card.Cards.TOY_644));
-                        AddLog($"红牌 TOY_644：禁止对己方 {minion.Template.Name} 使用 +9999");
+								AddLog("红牌 TOY_644：禁止对己方 " + minion.Template.Name + " 使用 +9999");
                 }
 }
 #endregion
@@ -830,7 +770,7 @@ var uniqueGroups = cabinGroups
 // 记录发现的组合
 foreach (var group in uniqueGroups)
 {
-    AddLog($"找到乘务员组: {string.Join(", ", group)} (数量: {group.Count})");
+    AddLog("找到乘务员组: " + string.Join(", ", group) + " (数量: " + group.Count + ")");
 }
 
 // 按与目标数量7的接近程度排序
@@ -872,9 +812,9 @@ if (groupedBySizeAndSpace.Any())
     p.CastMinionsModifiers.AddOrUpdate(bestCabin, new Modifier(priorityModifier));
     p.PlayOrderModifiers.AddOrUpdate(bestCabin, new Modifier(-150));
 
-    AddLog($"选择乘务员组: {string.Join(", ", bestGroup)}");
-    AddLog($"使用: {bestCabin}, 优先级: {priorityModifier}");
-    AddLog($"场上随从: {currentBoardCount}, 目标数量: {bestOption.TotalCount}, 与7的差距: {bestOption.Distance}");
+AddLog("选择乘务员组: " + string.Join(", ", bestGroup));
+AddLog("使用: " + bestCabin + ", 优先级: " + priorityModifier);
+AddLog("场上随从: " + currentBoardCount + ", 目标数量: " + bestOption.TotalCount + ", 与7的差距: " + bestOption.Distance);
 }
 else
 {
@@ -1633,7 +1573,7 @@ foreach (var card in board.Hand)
             _ => 0
         };
         p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-priority));
-        AddLog($"桑拿常客 {card.Template.Id} {priority}");
+AddLog("桑拿常客 " + card.Template.Id + " " + priority);
     }
 }
 #endregion
@@ -1957,101 +1897,59 @@ foreach (var card in board.Hand)
 
 #region 卡牌施放逻辑封装与执行
 
-// 方法封装
-// 检查手牌中是否有指定的卡牌
-bool HasCardInHand(Card.Cards cardId) => board.Hand.Any(card => card.Template.Id == cardId);
-
-// 获取手牌中指定的卡牌，如果不存在则返回 null
-Card GetCardInHand(Card.Cards cardId) => board.Hand.FirstOrDefault(card => card.Template.Id == cardId);
-
-// 判断一个法术牌是否可以在当前可用法力值下使用
-bool IsSpellPlayable(Card card, int availableMana) =>
-    card.Type == Card.CType.SPELL && card.CurrentCost <= availableMana;
-
-// 获取所有可以在保留一定法力值后使用的法术牌，并按法力值从低到高排序
-IEnumerable<Card> GetPlayableSpells(int reservedMana) =>
-    board.Hand.Where(card => IsSpellPlayable(card, board.ManaAvailable - reservedMana))
-              .OrderBy(card => card.CurrentCost);
-
-// 设置组合优先级
-void SetComboPriority(Card minion, IEnumerable<Card> spells)
+var etherOracle = board.Hand.FirstOrDefault(card => card.Template.Id == Card.Cards.GDB_310);
+if (etherOracle != null)
 {
-    foreach (var spell in spells)
+    if (board.Hand.Count >= 9)
     {
-        p.ComboModifier = new ComboSet((int)minion.Id, (int)spell.Id);
-        AddLog($"设置组合优先级: {minion.Template.NameCN} 与法术({spell.Template.NameCN})");
+        AddLog("手牌过多，暂不打出虚灵神谕者。");
     }
-}
-
-// 处理以太先知逻辑
-void HandleEtherOracleLogic(Card.Cards etherOracleCard,string etherOracleName)
-{
-    var etherOracle = GetCardInHand(etherOracleCard);
-    if (board.Hand.Count >= 9
-		&&etherOracle != null)
+    else if (board.MinionFriend.Count <= 6 && !board.MinionEnemy.Exists(x => x.Template.Id == Card.Cards.WORK_040))
     {
-        AddLog($"手牌过多，暂不打出{etherOracleName}。");
-        return;
-    }
-
-    if (etherOracle != null)
-    {
-        if (board.MinionFriend.Count <= 6 
- 					&&!board.MinionEnemy.Exists(x => x.Template.Id == Card.Cards.WORK_040)// 敌方场上没有笨拙的杂役
-					) 
-        {
-            // 筛选法术并排除部分条件
-            var playableSpells = GetPlayableSpells(etherOracle.CurrentCost)
-								.Where(item => item.Template.Id != Card.Cards.VAC_955t ||
-                    board.MinionFriend.Count <= 4) // 针对美味奶酪的限制
-								.Where(item => item.Template.Id != Card.Cards.DEEP_011)// 不为 灼燃之心 DEEP_011
-                .ToList();
-
-            if (playableSpells.Any())
-            {
-                SetComboPriority(etherOracle, playableSpells);
-            }
-            else
-            {
-                p.CastMinionsModifiers.AddOrUpdate(etherOracleCard, new Modifier(999));
-                AddLog($"未找到可用法术，降低{etherOracleName}优先级。");
-            }
-        }
-        else
-        {
-            p.CastMinionsModifiers.AddOrUpdate(etherOracleCard, new Modifier(999));
-            AddLog($"条件不满足，未打出{etherOracleName}。");
-        }
-    }
-
-    // 确保场上以太先知已施放，并提高法术优先级
-    var etherOracleOnBoard = board.MinionFriend.FirstOrDefault(x => x.Template.Id == etherOracleCard && x.HasSpellburst);
-    if (etherOracleOnBoard != null)
-    {
-        var playableSpells = GetPlayableSpells(0)
-								// 不为 灼燃之心 DEEP_011
-						.Where(item => item.Template.Id != Card.Cards.DEEP_011)
+        var playableSpells = board.Hand
+            .Where(card => card.Type == Card.CType.SPELL && card.CurrentCost <= board.ManaAvailable - etherOracle.CurrentCost)
+            .Where(item => item.Template.Id != Card.Cards.VAC_955t || board.MinionFriend.Count <= 4)
+            .Where(item => item.Template.Id != Card.Cards.DEEP_011)
+            .OrderBy(card => card.CurrentCost)
             .ToList();
 
         if (playableSpells.Any())
         {
-            SetComboPriority(etherOracleOnBoard, playableSpells);
-
             foreach (var spell in playableSpells)
             {
-                p.CastSpellsModifiers.AddOrUpdate(spell.Template.Id, new Modifier(-500));
-                AddLog($"提高法术({spell.Template.NameCN})的优先级。");
+                p.ComboModifier = new ComboSet((int)etherOracle.Id, (int)spell.Id);
+                AddLog("设置组合优先级: " + etherOracle.Template.NameCN + " 与法术(" + spell.Template.NameCN + ")");
             }
         }
+        else
+        {
+            p.CastMinionsModifiers.AddOrUpdate(Card.Cards.GDB_310, new Modifier(999));
+            AddLog("未找到可用法术，降低虚灵神谕者优先级。");
+        }
+    }
+    else
+    {
+        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.GDB_310, new Modifier(999));
+        AddLog("条件不满足，未打出虚灵神谕者。");
     }
 }
 
-// 执行卡牌逻辑
-void ExecuteCardLogic()
+var etherOracleOnBoard = board.MinionFriend.FirstOrDefault(x => x.Template.Id == Card.Cards.GDB_310 && x.HasSpellburst);
+if (etherOracleOnBoard != null)
 {
-    HandleEtherOracleLogic(Card.Cards.GDB_310,"虚灵神谕者");// 虚灵神谕者 GDB_310
+    var playableSpells = board.Hand
+        .Where(card => card.Type == Card.CType.SPELL && card.CurrentCost <= board.ManaAvailable)
+        .Where(item => item.Template.Id != Card.Cards.DEEP_011)
+        .OrderBy(card => card.CurrentCost)
+        .ToList();
+
+    foreach (var spell in playableSpells)
+    {
+        p.ComboModifier = new ComboSet((int)etherOracleOnBoard.Id, (int)spell.Id);
+        p.CastSpellsModifiers.AddOrUpdate(spell.Template.Id, new Modifier(-500));
+        AddLog("提高法术(" + spell.Template.NameCN + ")的优先级。");
+    }
 }
-ExecuteCardLogic();
 
 #endregion
 
@@ -2064,21 +1962,13 @@ var excludedCards = new HashSet<string>
     Card.Cards.GDB_310.ToString()//虚灵神谕者 GDB_310
 };
 
-// 遍历并处理卡牌的方法
-void EvaluateCards(IEnumerable<Card> cards)
+foreach (var card in board.Hand)
 {
-    foreach (var card in cards)
+    if (!excludedCards.Contains(card.Template.Id.ToString()))
     {
-        // 如果卡牌不在排除列表中，则加入重新思考的队列
-        if (!excludedCards.Contains(card.Template.Id.ToString()))
-        {
-            p.ForcedResimulationCardList.Add(card.Template.Id);
-        }
+        p.ForcedResimulationCardList.Add(card.Template.Id);
     }
 }
-
-// 遍历手牌
-EvaluateCards(board.Hand);
 #endregion
 
 
@@ -2309,6 +2199,7 @@ Bot.Log(_log);
 
 
 //德：DRUID 猎：HUNTER 法：MAGE 骑：PALADIN 牧：PRIEST 贼：ROGUE 萨：SHAMAN 术：WARLOCK 战：WARRIOR 瞎：DEMONHUNTER
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
         }}
 				 // 向 _log 字符串添加日志的私有方法，包括回车和新行
@@ -2696,6 +2587,94 @@ Bot.Log(_log);
                 {
                     return true;
                 }
+                return false;
+            }
+        }
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+        private int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass)
+        {
+            double winRateModifier = GetWinRateModifier(enemyClass);
+            double usageRateModifier = GetUsageRateModifier(enemyClass);
+            int finalAggro = (int)(baseAggro * 0.625 + baseValue + winRateModifier + usageRateModifier);
+            AddLog("職業: " + enemyClass + ", 攻擊值: " + finalAggro + ", 勝率修正: " + winRateModifier + ", 使用率修正: " + usageRateModifier);
+            return finalAggro;
+        }
+
+        private double GetWinRateModifier(Card.CClass enemyClass)
+        {
+            double winRate = GetWinRateFromData(enemyClass);
+            return (winRate - 50) * 1.5;
+        }
+
+        private double GetUsageRateModifier(Card.CClass enemyClass)
+        {
+            double usageRate = GetUsageRateFromData(enemyClass);
+            return usageRate * 0.5;
+        }
+
+        private double GetWinRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.PALADIN: return 52.3;
+                case Card.CClass.DEMONHUNTER: return 54.5;
+                case Card.CClass.PRIEST: return 50.8;
+                case Card.CClass.MAGE: return 51.2;
+                case Card.CClass.DEATHKNIGHT: return 53.1;
+                case Card.CClass.HUNTER: return 55.2;
+                case Card.CClass.ROGUE: return 56.1;
+                case Card.CClass.WARLOCK: return 49.7;
+                case Card.CClass.SHAMAN: return 48.5;
+                default: return 50.0;
+            }
+        }
+
+        private double GetUsageRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.PALADIN: return 12.0;
+                case Card.CClass.DEMONHUNTER: return 15.0;
+                case Card.CClass.PRIEST: return 8.0;
+                case Card.CClass.MAGE: return 10.0;
+                case Card.CClass.DEATHKNIGHT: return 11.0;
+                case Card.CClass.HUNTER: return 14.0;
+                case Card.CClass.ROGUE: return 13.0;
+                case Card.CClass.WARLOCK: return 7.0;
+                case Card.CClass.SHAMAN: return 6.0;
+                default: return 10.0;
+            }
+        }
+        internal static class ProfileCommon
+        {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 return false;
             }
         }

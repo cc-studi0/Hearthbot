@@ -2887,6 +2887,9 @@ namespace SmartBotProfiles
             _log = "";
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = -10 };
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             // ===== 重新思考（ForcedResimulation） =====
             // 用户口径：每次“非硬币出牌”后都应重算，避免同一套旧评估连续把牌打错目标。
             // 实现：把当前手牌（除幸运币）全量加入 ForcedResimulationCardList。
@@ -3421,6 +3424,7 @@ namespace SmartBotProfiles
                 ProcessHeroPower_LifeTap(p, board, wantFinleySwap, forceDisableLifeTap, forceDisableLifeTapReason, isAggroLikely);
 
                 Bot.Log(_log);
+                ProfileCommon.ApplyLiveMemoryBias(board, p);
                 return p;
             }
             catch (Exception e)
@@ -3456,6 +3460,34 @@ namespace SmartBotProfiles
 
         private static class ProfileCommon
         {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                return false;
+            }
+
             public static void AddLog(ref string log, string line)
             {
                 if (log == null) log = "";
@@ -3527,6 +3559,11 @@ namespace SmartBotProfiles
                             addLog("[威胁] " + CardName(m.Template.Id) + " 高攻" + m.CurrentAtk + "点（优先控场）");
                     }
                 }
+            }
+
+            public static bool ApplyLiveMemoryBias(Board board, ProfileParameters p)
+            {
+                return false;
             }
         }
 

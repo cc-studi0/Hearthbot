@@ -12,7 +12,7 @@ namespace SmartBot.Mulligan
 		// 留牌版本号：每次改动请递增（用于日志定位当前运行的是哪一版）
 		 //TODO 策略版本号：每次改动请递增（用于日志定位当前运行的是哪一版）迭代+1后保留不重置 日期更替
 				// tip:项目是c#6 不要用新语法
-	private const string MulliganVersion = "2026-02-14.633"; // 速写美术家可留2张；组合加留：商贩+弹幕时可留邪翼蝠/郊狼（可多张）
+	private const string MulliganVersion = "2026-03-12.634"; // 速写美术家可留2张；组合加留：商贩+弹幕时可留邪翼蝠/郊狼（可多张）
 
 		private readonly List<Card.Cards> CardsToKeep = new List<Card.Cards>();
 
@@ -271,6 +271,8 @@ namespace SmartBot.Mulligan
 			}
 
 			// 总结输出：把最终留牌打印出来
+			ApplyBoxOcrGeneratedReplaceHints(opponentClass);
+
 			try
 			{
 				var keepNames = CardsToKeep.Select(id => CardTemplate.LoadFromId(id).NameCN + "(" + id + ")");
@@ -297,6 +299,16 @@ namespace SmartBot.Mulligan
 			for (int i = 0; i < count; i++)
 				CardsToKeep.Add(card);
 		}
+
+		private void ApplyBoxOcrGeneratedReplaceHints(Card.CClass opponentClass)
+		{
+			switch (opponentClass)
+			{
+				// BOXOCR_MULLIGAN_GENERATED_START
+				default:
+					break;
+				// BOXOCR_MULLIGAN_GENERATED_END
+			}
+		}
 	}
 }
-

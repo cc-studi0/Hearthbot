@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using SmartBot.Database;
 using SmartBot.Plugins.API;
@@ -10,9 +12,11 @@ namespace SmartBot.Mulligan
     public class STDZooWarlockMulligan : MulliganProfile
     {
         private const string MulliganVersion = "2026-02-21.2";
+        private static readonly bool VerboseMulliganLogs = false;
 
         private readonly List<Card.Cards> _cardsToKeep = new List<Card.Cards>();
         private readonly Dictionary<Card.Cards, List<string>> _keepReasons = new Dictionary<Card.Cards, List<string>>();
+        private List<Card.Cards> CardsToKeep { get { return _cardsToKeep; } }
 
         private const Card.Cards TombOfSuffering = Card.Cards.TLC_451;          // 咒怨之墓
         private const Card.Cards Wisp = Card.Cards.CORE_CS2_231;                // 小精灵
@@ -39,14 +43,17 @@ namespace SmartBot.Mulligan
             bool hasCoin = choices.Count >= 4;
             bool isFast = IsFastOpponent(opponentClass);
 
-            Bot.Log("[Mulligan] 标准动物园术 v" + MulliganVersion + " | 对手=" + opponentClass + " | " + (hasCoin ? "后手" : "先手"));
-            try
+            if (VerboseMulliganLogs)
             {
-                Bot.Log("[Mulligan] 起手备选：" + string.Join(" | ", choices.Select(c => GetName(c) + "(" + c + ")" + SafeCost(c))));
-            }
-            catch
-            {
-                // ignore
+                Bot.Log("[Mulligan] 标准动物园术 v" + MulliganVersion + " | 对手=" + opponentClass + " | " + (hasCoin ? "后手" : "先手"));
+                try
+                {
+                    Bot.Log("[Mulligan] 起手备选：" + string.Join(" | ", choices.Select(c => GetName(c) + "(" + c + ")" + SafeCost(c))));
+                }
+                catch
+                {
+                    // ignore
+                }
             }
 
             // ===== 1) 截图高保留率核心（优先级最高） =====
@@ -105,21 +112,59 @@ namespace SmartBot.Mulligan
                 }
             }
 
-            try
+            ApplyBoxOcrLiveReplaceHints();
+            ApplyBoxOcrGeneratedReplaceHints(opponentClass);
+
+            if (VerboseMulliganLogs)
             {
-                var keepNames = _cardsToKeep.Select(c => GetName(c) + "(" + c + ")" + SafeCost(c)).ToList();
-                Bot.Log("[留牌] 最终保留：" + (keepNames.Count == 0 ? "（空）" : string.Join(" | ", keepNames)));
-                foreach (var kv in _keepReasons)
+                try
                 {
-                    Bot.Log("[留牌] " + GetName(kv.Key) + "(" + kv.Key + ")：" + string.Join("；", kv.Value.Distinct()));
+                    var keepNames = _cardsToKeep.Select(c => GetName(c) + "(" + c + ")" + SafeCost(c)).ToList();
+                    Bot.Log("[留牌] 最终保留：" + (keepNames.Count == 0 ? "（空）" : string.Join(" | ", keepNames)));
+                    foreach (var kv in _keepReasons)
+                    {
+                        Bot.Log("[留牌] " + GetName(kv.Key) + "(" + kv.Key + ")：" + string.Join("；", kv.Value.Distinct()));
+                    }
                 }
-            }
-            catch
-            {
-                // ignore
+                catch
+                {
+                    // ignore
+                }
             }
 
             return _cardsToKeep;
+        }
+
+        private void ApplyBoxOcrLiveReplaceHints()
+        {
+            BoxOcrLiveMulliganState state = LoadCurrentBoxOcrLiveMulliganState();
+            if (state == null
+                || !state.IsFresh(15)
+                || !string.Equals(state.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(state.Stage, "mulligan", StringComparison.OrdinalIgnoreCase)
+                || !state.MatchesMulligan("标准动物园术.cs"))
+            {
+                return;
+            }
+
+            foreach (Card.Cards replaceId in state.ReplaceIds)
+            {
+                int before = _cardsToKeep.Count;
+                _cardsToKeep.RemoveAll(card => card == replaceId);
+                if (_cardsToKeep.Count != before)
+                    Bot.Log("[Mulligan][BoxOCR] live replace -> " + GetName(replaceId) + "(" + replaceId + ")");
+            }
+        }
+
+        private void ApplyBoxOcrGeneratedReplaceHints(Card.CClass opponentClass)
+        {
+            switch (opponentClass)
+            {
+                // BOXOCR_MULLIGAN_GENERATED_START
+                default:
+                    break;
+// BOXOCR_MULLIGAN_GENERATED_END
+            }
         }
 
         private static bool IsFastOpponent(Card.CClass opponentClass)
@@ -204,6 +249,72 @@ namespace SmartBot.Mulligan
             _keepReasons[card].Add(copies >= 2 ? reason + "（本局保留2张）" : reason);
         }
 
+        private BoxOcrLiveMulliganState LoadCurrentBoxOcrLiveMulliganState()
+        {
+            string runtimeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime");
+            string path = Path.Combine(runtimeDir, "decision_teacher_state.txt");
+            if (!File.Exists(path))
+            {
+                string legacyPath = Path.Combine(runtimeDir, "netease_box_ocr_state.txt");
+                if (File.Exists(legacyPath))
+                    path = legacyPath;
+            }
+            if (!File.Exists(path))
+                return null;
+
+            BoxOcrLiveMulliganState state = new BoxOcrLiveMulliganState();
+            foreach (string rawLine in File.ReadAllLines(path))
+            {
+                string line = rawLine ?? string.Empty;
+                if (line.StartsWith("status=", StringComparison.OrdinalIgnoreCase))
+                {
+                    state.Status = line.Substring("status=".Length).Trim();
+                }
+                else if (line.StartsWith("stage=", StringComparison.OrdinalIgnoreCase))
+                {
+                    state.Stage = line.Substring("stage=".Length).Trim();
+                }
+                else if (line.StartsWith("sb_mulligan=", StringComparison.OrdinalIgnoreCase))
+                {
+                    state.Mulligan = line.Substring("sb_mulligan=".Length).Trim();
+                }
+                else if (line.StartsWith("ts_utc=", StringComparison.OrdinalIgnoreCase))
+                {
+                    DateTime timestampUtc;
+                    if (DateTime.TryParse(
+                        line.Substring("ts_utc=".Length).Trim(),
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal,
+                        out timestampUtc))
+                    {
+                        state.TimestampUtc = timestampUtc;
+                    }
+                }
+                else if (line.StartsWith("replace_id=", StringComparison.OrdinalIgnoreCase))
+                {
+                    Card.Cards replaceId;
+                    if (TryParseBoxOcrCardId(line.Substring("replace_id=".Length).Trim(), out replaceId))
+                        state.ReplaceIds.Add(replaceId);
+                }
+            }
+
+            return state;
+        }
+
+        private static bool TryParseBoxOcrCardId(string raw, out Card.Cards value)
+        {
+            try
+            {
+                value = (Card.Cards)Enum.Parse(typeof(Card.Cards), raw, true);
+                return true;
+            }
+            catch
+            {
+                value = default(Card.Cards);
+                return false;
+            }
+        }
+
         private static int SafeCost(Card.Cards card)
         {
             try
@@ -226,6 +337,31 @@ namespace SmartBot.Mulligan
             catch
             {
                 return card.ToString();
+            }
+        }
+
+        private sealed class BoxOcrLiveMulliganState
+        {
+            public string Status = string.Empty;
+            public string Stage = string.Empty;
+            public string Mulligan = string.Empty;
+            public DateTime TimestampUtc = DateTime.MinValue;
+            public List<Card.Cards> ReplaceIds = new List<Card.Cards>();
+
+            public bool IsFresh(int seconds)
+            {
+                if (TimestampUtc == DateTime.MinValue)
+                    return false;
+
+                return Math.Abs((DateTime.UtcNow - TimestampUtc).TotalSeconds) <= Math.Max(2, seconds);
+            }
+
+            public bool MatchesMulligan(string mulliganName)
+            {
+                return string.Equals(
+                    Path.GetFileName(Mulligan ?? string.Empty),
+                    Path.GetFileName(mulliganName ?? string.Empty),
+                    StringComparison.OrdinalIgnoreCase);
             }
         }
     }

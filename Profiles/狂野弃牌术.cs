@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Database;
@@ -173,14 +173,17 @@ namespace SmartBotProfiles
             _log = "";
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = -10 }; 
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             try
             {
                 int enemyHealth = board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
                 int friendHealth = board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor;
-                AddLog($"================ 狂野弃牌术 决策日志 v{ProfileVersion} ================");
-                AddLog($"敌方血甲: {enemyHealth} | 我方血甲: {friendHealth} | 法力:{board.ManaAvailable} | 手牌:{board.Hand.Count} | 牌库:{board.FriendDeckCount}");
+                AddLog("================ 狂野弃牌术 决策日志 v" + ProfileVersion + " ================");
+                AddLog("敌方血甲: " + enemyHealth + " | 我方血甲: " + friendHealth + " | 法力:" + board.ManaAvailable + " | 手牌:" + board.Hand.Count + " | 牌库:" + board.FriendDeckCount);
                 AddLog("手牌: " + string.Join(", ", board.Hand.Where(x => x != null && x.Template != null)
-                    .Select(x => $"{(string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN)}({x.Template.Id}){x.CurrentCost}")));
+                    .Select(x => (string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN) + "(" + x.Template.Id + ")" + x.CurrentCost)));
             }
             catch
             {
@@ -303,70 +306,7 @@ switch (board.EnemyClass)
         break;
 }
 
-// 修正勝率及使用率數據
-double GetWinRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.DEATHKNIGHT: return 50.8;
-        case Card.CClass.DEMONHUNTER: return 55.2;
-        case Card.CClass.DRUID: return 56.5;
-        case Card.CClass.HUNTER: return 53.7;
-        case Card.CClass.MAGE: return 51.9;
-        case Card.CClass.PALADIN: return 52.3;
-        case Card.CClass.PRIEST: return 48.2;
-        case Card.CClass.ROGUE: return 47.9;
-        case Card.CClass.SHAMAN: return 50.4;
-        case Card.CClass.WARLOCK: return 54.1;
-        case Card.CClass.WARRIOR: return 49.5;
-        default: return 50.0; // 默認勝率
-    }
-}
-
-double GetUsageRateFromData(Card.CClass enemyClass)
-{
-    switch (enemyClass)
-    {
-        case Card.CClass.PALADIN: return 9.1;
-        case Card.CClass.DEMONHUNTER: return 12.5;
-        case Card.CClass.PRIEST: return 7.8;
-        case Card.CClass.MAGE: return 10.3;
-        case Card.CClass.DEATHKNIGHT: return 8.7;
-        case Card.CClass.HUNTER: return 13.4;
-        case Card.CClass.ROGUE: return 14.2;
-        case Card.CClass.WARLOCK: return 6.9;
-        case Card.CClass.SHAMAN: return 9.2;
-        case Card.CClass.DRUID: return 8.5;
-        case Card.CClass.WARRIOR: return 7.4;
-        default: return 10.0;
-    }
-}
-
-int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass, int myHealth, int enemyHealth, int myAttack, int enemyAttack)
-{
-    // 1. 勝率修正
-    double winRateModifier = (GetWinRateFromData(enemyClass) - 50) * 2.5; 
-
-    // 2. 使用率修正
-    double usageRateModifier = GetUsageRateFromData(enemyClass) * 0.9; 
-
-    // 3. 血量差修正
-    double healthDifferenceModifier = (myHealth - enemyHealth) * 1.2; 
-
-    // 4. 場面控制修正
-    double boardControlModifier = (myAttack - enemyAttack) * 1.3; 
-
-    // 總修正值計算
-    double totalModifier = winRateModifier + usageRateModifier + healthDifferenceModifier + boardControlModifier;
-
-    // 最終攻擊值
-    int finalAggro = (int)(baseAggro * 0.6 + baseValue + totalModifier-50);
-
-    AddLog($"職業: {enemyClass}, 攻擊值: {finalAggro}, 勝率修正: {winRateModifier}, 使用率修正: {usageRateModifier}, 血量修正: {healthDifferenceModifier}, 場面修正: {boardControlModifier}");
-    
-    return finalAggro;
-}
-						   // 友方随从数量
+                           // 友方随从数量
             int friendCount = board.MinionFriend.Count;
             // 手牌数量
             int HandCount = board.Hand.Count;
@@ -385,7 +325,7 @@ int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyCla
 							Card.Cards.AT_022      // 加拉克苏斯之拳
 					};
 					int canThrow = board.Hand.Count(x => canThrowIds.Contains(x.Template.Id));
-          AddLog($"可以扔的牌: {canThrow}");
+				AddLog("可以扔的牌: " + canThrow);
 					var discardAssemblyIds = new[]
 					{
 							Card.Cards.REV_240,    // 篡改卷宗
@@ -402,7 +342,7 @@ int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyCla
 							Card.Cards.ULD_163     // 过期货物专卖商 ULD_163
 					};
 					var discardAssemblyInHand = board.Hand.Count(x => discardAssemblyIds.Contains(x.Template.Id));
-					AddLog($"弃牌启动: {discardAssemblyInHand}");
+				AddLog("弃牌启动: " + discardAssemblyInHand);
 
                     // 规则：当本回合已经用过英雄技能、且手里没有任何弃牌启动组件时，允许把“被弃组件”当普通牌打出去（不再强行捂手等弃牌）。
                     bool heroPowerAlreadyUsedThisTurn = false;
@@ -417,7 +357,7 @@ int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyCla
                     }
                     bool noDiscardStarterInHand = discardAssemblyInHand == 0;
                     bool allowUseDiscardPayoffsAsNormal = heroPowerAlreadyUsedThisTurn && noDiscardStarterInHand;
-                    AddLog($"英雄技能已用: {heroPowerAlreadyUsedThisTurn} | 无弃牌启动: {noDiscardStarterInHand} | 放手被弃组件: {allowUseDiscardPayoffsAsNormal}");
+				AddLog("英雄技能已用: " + heroPowerAlreadyUsedThisTurn + " | 无弃牌启动: " + noDiscardStarterInHand + " | 放手被弃组件: " + allowUseDiscardPayoffsAsNormal);
             // 是否有可以扔牌的组件
             int spiritualRealmMorigan=board.Hand.Count(x => x.Template.Id == Card.Cards.BOT_568)//莫瑞甘的灵界 BOT_568 
                 +board.Hand.Count(x => x.Template.Id == Card.Cards.LOOT_014)//狗头人图书管理员 LOOT_014
@@ -444,7 +384,7 @@ foreach (var c in board.Hand.ToArray())
     if (ench != null)
     {
 			// p.CastMinionsModifiers.AddOrUpdate(c.Template.Id, new Modifier(150));
-      AddLog($"临时牌{c.Template.NameCN}");
+					AddLog("临时牌" + c.Template.NameCN);
     }
 }
 #endregion
@@ -823,7 +763,7 @@ if(board.HasCardInHand(Card.Cards.DMF_119)
     {
         int minCost = filteredHand.Min(x => x.CurrentCost);
         var lowestCostCards = filteredHand.Where(x => x.CurrentCost == minCost).ToList();
-        AddLog($"最低费用的牌: {string.Join(", ", lowestCostCards.Select(x => x.Template.NameCN))}");
+						AddLog("最低费用的牌: " + string.Join(", ", lowestCostCards.Select(x => x.Template.NameCN)));
         // 检查最低费用牌是否在弃牌堆里
         if (lowestCostCards.Any(x => canThrowIds.Contains(x.Template.Id)))
         {
@@ -895,20 +835,13 @@ var excludedCards = new HashSet<string>
 		// 蛮鱼挑战者 TLC_251
 		Card.Cards.TLC_251.ToString()
 };
-// 遍历并处理卡牌的方法
-void EvaluateCards(IEnumerable<Card> cards)
+foreach (var card in board.Hand)
 {
-    foreach (var card in cards)
+    if (!excludedCards.Contains(card.Template.Id.ToString()))
     {
-         // 如果卡牌不在排除列表中，则加入重新思考的队列
-        if (!excludedCards.Contains(card.Template.Id.ToString()))
-        {
-            p.ForcedResimulationCardList.Add(card.Template.Id);
-        }
+        p.ForcedResimulationCardList.Add(card.Template.Id);
     }
 }
-// 遍历手牌
-EvaluateCards(board.Hand);
 
 
 // 逻辑后续 - 重新思考
@@ -1081,6 +1014,7 @@ Bot.Log(_log);
 
 
 //德：DRUID 猎：HUNTER 法：MAGE 骑：PALADIN 牧：PRIEST 贼：ROGUE 萨：SHAMAN 术：WARLOCK 战：WARRIOR 瞎：DEMONHUNTER
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
         }}
 				 // 向 _log 字符串添加日志的私有方法，包括回车和新行
@@ -1469,6 +1403,90 @@ public int CountSpecificRacesInHand(Board board)
                 {
                     return true;
                 }
+                return false;
+            }
+        }
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+
+        private double GetWinRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.DEATHKNIGHT: return 50.8;
+                case Card.CClass.DEMONHUNTER: return 55.2;
+                case Card.CClass.DRUID: return 56.5;
+                case Card.CClass.HUNTER: return 53.7;
+                case Card.CClass.MAGE: return 51.9;
+                case Card.CClass.PALADIN: return 52.3;
+                case Card.CClass.PRIEST: return 48.2;
+                case Card.CClass.ROGUE: return 47.9;
+                case Card.CClass.SHAMAN: return 50.4;
+                case Card.CClass.WARLOCK: return 54.1;
+                case Card.CClass.WARRIOR: return 49.5;
+                default: return 50.0;
+            }
+        }
+
+        private double GetUsageRateFromData(Card.CClass enemyClass)
+        {
+            switch (enemyClass)
+            {
+                case Card.CClass.PALADIN: return 9.1;
+                case Card.CClass.DEMONHUNTER: return 12.5;
+                case Card.CClass.PRIEST: return 7.8;
+                case Card.CClass.MAGE: return 10.3;
+                case Card.CClass.DEATHKNIGHT: return 8.7;
+                case Card.CClass.HUNTER: return 13.4;
+                case Card.CClass.ROGUE: return 14.2;
+                case Card.CClass.WARLOCK: return 6.9;
+                case Card.CClass.SHAMAN: return 9.2;
+                case Card.CClass.DRUID: return 8.5;
+                case Card.CClass.WARRIOR: return 7.4;
+                default: return 10.0;
+            }
+        }
+
+        private int CalculateAggroModifier(double baseAggro, int baseValue, Card.CClass enemyClass, int myHealth, int enemyHealth, int myAttack, int enemyAttack)
+        {
+            double winRateModifier = (GetWinRateFromData(enemyClass) - 50) * 2.5;
+            double usageRateModifier = GetUsageRateFromData(enemyClass) * 0.9;
+            double healthDifferenceModifier = (myHealth - enemyHealth) * 1.2;
+            double boardControlModifier = (myAttack - enemyAttack) * 1.3;
+            double totalModifier = winRateModifier + usageRateModifier + healthDifferenceModifier + boardControlModifier;
+            int finalAggro = (int)(baseAggro * 0.6 + baseValue + totalModifier - 50);
+            AddLog("職業: " + enemyClass + ", 攻擊值: " + finalAggro + ", 勝率修正: " + winRateModifier + ", 使用率修正: " + usageRateModifier + ", 血量修正: " + healthDifferenceModifier + ", 場面修正: " + boardControlModifier);
+            return finalAggro;
+        }
+        internal static class ProfileCommon
+        {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 return false;
             }
         }

@@ -119,4 +119,3 @@ namespace SmartBot.Mulligan
 		}
 	}
 }
-

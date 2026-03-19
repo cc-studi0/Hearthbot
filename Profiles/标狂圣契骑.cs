@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using SmartBot.Database;
@@ -166,14 +166,17 @@ namespace SmartBotProfiles
             _log = "";
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = -10 }; 
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             try
             {
                 int enemyHealth = board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
                 int friendHealth = board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor;
-                AddLog($"================ 标狂圣契骑 决策日志 v{ProfileVersion} ================");
-                AddLog($"敌方血甲: {enemyHealth} | 我方血甲: {friendHealth} | 法力:{board.ManaAvailable} | 手牌:{board.Hand.Count} | 牌库:{board.FriendDeckCount}");
+                AddLog("================ 标狂圣契骑 决策日志 v" + ProfileVersion + " ================");
+                AddLog("敌方血甲: " + enemyHealth + " | 我方血甲: " + friendHealth + " | 法力:" + board.ManaAvailable + " | 手牌:" + board.Hand.Count + " | 牌库:" + board.FriendDeckCount);
                 AddLog("手牌: " + string.Join(", ", board.Hand.Where(x => x != null && x.Template != null)
-                    .Select(x => $"{(string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN)}({x.Template.Id}){x.CurrentCost}")));
+                    .Select(x => (string.IsNullOrWhiteSpace(x.Template.NameCN) ? x.Template.Name : x.Template.NameCN) + "(" + x.Template.Id + ")" + x.CurrentCost)));
             }
             catch
             {
@@ -2074,6 +2077,7 @@ Bot.Log(_log);
 
 
 //德：DRUID 猎：HUNTER 法：MAGE 骑：PALADIN 牧：PRIEST 贼：ROGUE 萨：SHAMAN 术：WARLOCK 战：WARRIOR 瞎：DEMONHUNTER
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
         }}
 				 // 向 _log 字符串添加日志的私有方法，包括回车和新行
@@ -2391,6 +2395,40 @@ Bot.Log(_log);
                 {
                     return true;
                 }
+                return false;
+            }
+        }
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+        internal static class ProfileCommon
+        {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
                 return false;
             }
         }

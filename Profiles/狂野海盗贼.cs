@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -309,6 +309,9 @@ namespace SmartBotProfiles
             // 基础参数：使用快攻模式
             var p = new ProfileParameters(BaseProfile.Rush) { DiscoverSimulationValueThresholdPercent = 10 };
 
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
+
             // 获取本局实际英雄技能ID（关键：CastHeroPowerModifier 必须对这个ID才生效）
             Card.Cards friendAbility = 匕首精通;
             try
@@ -538,6 +541,7 @@ namespace SmartBotProfiles
             }
             catch { }
 
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
         }
 
@@ -569,6 +573,41 @@ namespace SmartBotProfiles
         public Card.Cards KazakusChoice(List<Card.Cards> choices)
         {
             return choices != null && choices.Count > 0 ? choices[0] : 匕首精通;
+        }
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+
+        internal static class ProfileCommon
+        {
+            public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+            {
+                try
+                {
+                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    {
+                        var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                        if (executorType == null)
+                            continue;
+
+                        var method = executorType.GetMethod(
+                            "TryRunPureLearningPlayExecutor",
+                            new[] { typeof(Board), typeof(ProfileParameters) });
+                        if (method == null)
+                            continue;
+
+                        object result = method.Invoke(null, new object[] { board, p });
+                        return result is bool && (bool)result;
+                    }
+                }
+                catch
+                {
+                    // ignore
+                }
+
+                return false;
+            }
         }
     }
 }

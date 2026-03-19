@@ -1,4 +1,4 @@
-using Newtonsoft.Json;
+﻿using Newtonsoft.Json;
 using SmartBot.Database;
 using SmartBot.Plugins.API;
 using SmartBotAPI.Plugins.API.HSReplayArchetypes;
@@ -10,7 +10,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 
 // Original designer of this plugin is Olanga and EE
-// Last edit 12/Feb/2026 by EE
+// Last edit 1/March/2025 by EE
 
 namespace SmartBot.Mulligan
 {
@@ -51,6 +51,7 @@ namespace SmartBot.Mulligan
             string dataJson = null;
             string deckList = null;
             string matchDeck = null;
+            int overlap = 0;
             string mode = CurrentMode();
 
             log = string.Format("===== Universal Mulligan V5.2, Card definition V{0} ===EE", CurrentVersion());
@@ -66,58 +67,52 @@ namespace SmartBot.Mulligan
                 {
                     case "Standard":
                     case "Wild":
+                        // Read deck ID file and mulligan data for all decks
+                        deckList = File.ReadAllText(deckIdPath);
+
+                        // Preload deck card IDs
+                        var myDeck = Bot.CurrentDeck().Cards.Select(c => CardTemplate.LoadFromId(c).Id).ToList();
+
+                        // Get the best matching deck ID from HSReplay
+                        deckId = DeckId(deckList, myDeck, ownClass);
+
+                        // Read mulligan data for the matched deck ID
+                        dataJson = File.ReadAllText(deckMulliganPath);
+
+                        // Get mulligan data for the matched deck ID
+                        mulliganCards = HSReplayHelper.ExternalMulliganData(dataJson, deckId);
+
+                        // Calculate overlap between mulligan data and current deck
+                        overlap = mulliganCards.Count(m => myDeck.Contains(m.Key));
+
+                        // Percent of mulliganCards that exist in myDeck
+                        double overlapPctOfMulligan = mulliganCards.Count > 0 ? 100.0 * overlap / mulliganCards.Count : 0.0;
+
+                        // Fallback to generic mulligan if no high-value cards found
+                        if (overlapPctOfMulligan < 20)
                         {
-                            // Read deck ID file and mulligan data for all decks
-                            deckList = File.ReadAllText(deckIdPath);
-
-                            // Preload deck card IDs
-                            var myDeck = Bot.CurrentDeck().Cards.Select(c => CardTemplate.LoadFromId(c).Id).ToList();
-
-                            // Get the best matching deck ID from HSReplay
-                            deckId = DeckId(deckList, myDeck, ownClass);
-
-                            // Read mulligan data for the matched deck ID
-                            dataJson = File.ReadAllText(deckMulliganPath);
-
-                            // Get mulligan data for the matched deck ID
-                            mulliganCards = HSReplayHelper.ExternalMulliganData(dataJson, deckId);
-
-                            // Fallback to generic mulligan if no high-value cards found
-                            if (!mulliganCards.Any() || mulliganCards.Count(m => choices.Contains(m.Key) && m.Value > 49 && CardTemplate.LoadFromId(m.Key).Cost < 4) == 0)
-                            {
-                                matchDeck = "Mulligan profiles from mulligan file, mode: " + mode;
-                                dataJson = File.ReadAllText(mulliganPath);
-                                mulliganCards = HSReplayHelper.InternalMulliganData(dataJson, ownClass);
-                            }
-                            else
-                            {
-                                matchDeck = deckId + " gameType = " + mode;
-                            }
-                            break;
-                        }
-
-                    case "Arena":
-                        {
-                            // Use internal mulligan data for Arena
                             matchDeck = "Mulligan profiles from mulligan file, mode: " + mode;
                             dataJson = File.ReadAllText(mulliganPath);
                             mulliganCards = HSReplayHelper.InternalMulliganData(dataJson, ownClass);
-                            break;
                         }
-
-                    default:
+                        else
                         {
-                            // Use internal mulligan data for other modes
-                            matchDeck = "Mulligan profiles from mulligan file, mode: " + mode;
-                            dataJson = File.ReadAllText(mulliganFile.Replace("{MODE}", "Wild"));
-                            mulliganCards = HSReplayHelper.InternalMulliganData(dataJson, ownClass);
-                            break;
+                            matchDeck = deckId + " gameType = " + mode;
                         }
+                        break;
+                    case "Arena":
+                        // Use internal mulligan data for Arena
+                        matchDeck = "Mulligan profiles from mulligan file, mode: " + mode;
+                        dataJson = File.ReadAllText(mulliganPath);
+                        mulliganCards = HSReplayHelper.InternalMulliganData(dataJson, ownClass);
+                        break;
+                    default:
+                        // Use internal mulligan data for other modes
+                        matchDeck = "Mulligan profiles from mulligan file, mode: " + mode;
+                        dataJson = File.ReadAllText(mulliganFile.Replace("{MODE}", "Wild"));
+                        mulliganCards = HSReplayHelper.InternalMulliganData(dataJson, ownClass);
+                        break;
                 }
-
-                // Calculate overlap between mulligan data and current deck
-                var deckCardIds = Bot.CurrentDeck().Cards.Select(c => CardTemplate.LoadFromId(c).Id).ToList();
-                int overlap = mulliganCards.Count(m => deckCardIds.Contains(m.Key));
 
                 AddLog("Selected Deck: " + Bot.CurrentDeck().Name);
                 AddLog("Archetype: " + GetCurrentHSReplayArchetype());

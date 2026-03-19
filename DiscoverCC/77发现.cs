@@ -10,6 +10,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 
 // by Evil_Eyes
 
@@ -19,7 +20,7 @@ namespace UniversalDiscover
     {
         // 发现逻辑版本号（弃牌术/颜射术专项）：仅 Discover 自己的独立版本号；每次改动请递增。
         // tip: 项目是 c#6 不要用新语法
-        private const string DiscardWarlockDiscoverVersion = "DW-DISC-092"; // FIR_924 中盘稳定窗口放行阿克蒙德
+        private const string DiscardWarlockDiscoverVersion = "DW-DISC-093"; // 梦魇之王发现机制并轨到TLC_451
 
         // 蛋术专项：凯洛斯的蛋阶段（用于发现“破蛋手段”优先级）
         private static readonly HashSet<Card.Cards> _eggStages = new HashSet<Card.Cards>
@@ -161,6 +162,7 @@ namespace UniversalDiscover
         // Global variables declaration
         private readonly string smartBotDirectory = Directory.GetCurrentDirectory();
         private readonly string discoverCCDirectory = Directory.GetCurrentDirectory() + @"\DiscoverCC\";
+        private static readonly Random random = new Random();
         private IniManager iniTierList;
         private string description, log;
         private bool oneShot;
@@ -185,6 +187,120 @@ namespace UniversalDiscover
         private static bool _dwLastKnownHasCoinNow = false;
         private static int _dwLastKnownVirtualRemainingManaNow = 0;
         private static bool _dwHasManaSnapshot = false;
+
+        private static bool IsPureLearningModeEnabledCompat()
+        {
+            return InvokeDecisionRuntimeModeBool("IsPureLearningModeEnabled", true);
+        }
+
+        private static bool AllowLiveTeacherFallbackCompat()
+        {
+            return InvokeDecisionRuntimeModeBool("AllowLiveTeacherFallback", true);
+        }
+
+        private static bool AllowLegacyDiscoverFallbackCompat()
+        {
+            return InvokeDecisionRuntimeModeBool("AllowLegacyDiscoverFallback", false);
+        }
+
+        private static bool InvokeDecisionRuntimeModeBool(string methodName, bool fallback)
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var runtimeType = assembly.GetType("SmartBotProfiles.DecisionRuntimeMode", false);
+                    if (runtimeType == null)
+                        continue;
+
+                    var method = runtimeType.GetMethod(methodName, Type.EmptyTypes);
+                    if (method == null)
+                        continue;
+
+                    object result = method.Invoke(null, null);
+                    if (result is bool)
+                        return (bool)result;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return fallback;
+        }
+
+        private static void CaptureTeacherSampleCompat(
+            Card.Cards originCard,
+            List<Card.Cards> choices,
+            Card.Cards pickedCard,
+            Board board,
+            string profileName,
+            string discoverProfileName)
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var memoryType = assembly.GetType("SmartBotProfiles.DecisionDiscoverMemory", false);
+                    if (memoryType == null)
+                        continue;
+
+                    var method = memoryType.GetMethod(
+                        "CaptureTeacherSample",
+                        new[] { typeof(Card.Cards), typeof(List<Card.Cards>), typeof(Card.Cards), typeof(Board), typeof(string), typeof(string) });
+                    if (method == null)
+                        continue;
+
+                    method.Invoke(null, new object[] { originCard, choices, pickedCard, board, profileName, discoverProfileName });
+                    return;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private static bool TryPickFromMemoryCompat(
+            Card.Cards originCard,
+            List<Card.Cards> choices,
+            Board board,
+            string profileName,
+            string discoverProfileName,
+            out Card.Cards pickedCard)
+        {
+            pickedCard = default(Card.Cards);
+
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var memoryType = assembly.GetType("SmartBotProfiles.DecisionDiscoverMemory", false);
+                    if (memoryType == null)
+                        continue;
+
+                    var method = memoryType.GetMethod(
+                        "TryPickFromMemory",
+                        new[] { typeof(Card.Cards), typeof(List<Card.Cards>), typeof(Board), typeof(string), typeof(string), typeof(Card.Cards).MakeByRefType() });
+                    if (method == null)
+                        continue;
+
+                    object[] args = { originCard, choices, board, profileName, discoverProfileName, pickedCard };
+                    object result = method.Invoke(null, args);
+                    if (args[5] is Card.Cards)
+                        pickedCard = (Card.Cards)args[5];
+
+                    return result is bool && (bool)result;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return false;
+        }
 
         private static int GetVirtualRemainingManaForDiscover(Board board, out int remainingManaNow, out bool hasCoinNow, out bool fromSnapshot)
         {
@@ -234,6 +350,11 @@ namespace UniversalDiscover
             remainingManaNow = _dwLastKnownRemainingManaNow;
             hasCoinNow = _dwLastKnownHasCoinNow;
             return _dwLastKnownVirtualRemainingManaNow;
+        }
+
+        private static bool IsTlc451LikeDiscoverOrigin(Card.Cards originCard)
+        {
+            return originCard == Card.Cards.TLC_451 || originCard == Card.Cards.EDR_856;
         }
 
         private static int? TryGetIntProperty(object obj, params string[] propertyNames)
@@ -656,6 +777,9 @@ namespace UniversalDiscover
                 int enemyLowHp = CountEnemyLowHealthMinions(board, 3);
                 int friendTribes = GetFriendlyMinionTribeTypeCount(board);
                 int freeSlots = Math.Max(0, 7 - friendMinions);
+                int turn = -1;
+                try { turn = GetBoardTurn(board); } catch { turn = -1; }
+                bool lateGameDiscoverWindow = virtualRemainingManaNow >= 7 || turn >= 8;
                 int attackableFriendMinions = 0;
                 try
                 {
@@ -750,6 +874,35 @@ namespace UniversalDiscover
                         {
                             score += friendMinions >= 3 ? 10 : -10;
                             reasons.Add(friendMinions >= 3 ? "法术有场面承接" : "法术承接偏弱");
+                        }
+                    }
+
+                    // 用户口径：后期（7费窗口及以后）咒怨发现应更偏向高费价值牌，
+                    // 避免默认拿1费小随从拖慢上限；高压且可立即补嘲讽时例外放宽。
+                    if (lateGameDiscoverWindow)
+                    {
+                        if (cost >= 4)
+                        {
+                            score += 105;
+                            reasons.Add("后期窗口优先高费价值");
+                        }
+                        else if (cost <= 1 && t != null && t.Type == Card.CType.MINION)
+                        {
+                            bool tauntEmergencyException = underPressure && t.Taunt;
+                            if (!tauntEmergencyException)
+                            {
+                                score -= 260;
+                                reasons.Add("后期避免1费随从");
+                            }
+                            else
+                            {
+                                reasons.Add("后期低费随从例外：高压嘲讽补位");
+                            }
+                        }
+                        else if (cost <= 2)
+                        {
+                            score -= 70;
+                            reasons.Add("后期降低低费发现");
                         }
                     }
 
@@ -3272,6 +3425,63 @@ namespace UniversalDiscover
 
             Bot.Log("[Discover] 触发发现：来源卡牌 = " + SafeCardName(originCard) + " (" + originCard + ")");
 
+            // 用户硬规则：永远不选「无限巨龙姆诺兹多」(TIME_024)。
+            // 入口先过滤一遍，避免后续任意分支（含硬规则分支）误选。
+            try
+            {
+                if (choices.Contains(Card.Cards.TIME_024))
+                {
+                    var withoutMurozondUnbounded = choices.Where(c => c != Card.Cards.TIME_024).ToList();
+                    if (withoutMurozondUnbounded.Count > 0)
+                    {
+                        choices = withoutMurozondUnbounded;
+                        Bot.Log("[Discover] 硬规则：候选含无限巨龙姆诺兹多(TIME_024) -> 已过滤，永不选择");
+                    }
+                    else
+                    {
+                        Bot.Log("[Discover] 硬规则：候选仅剩 TIME_024，无法过滤，保留原候选防止异常");
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            try
+            {
+                if (AllowLegacyDiscoverFallbackCompat())
+                {
+                    Card.Cards generatedBoxChoice = TryPickGeneratedBoxOcrChoice(originCard, choices);
+                    if (!generatedBoxChoice.Equals(default(Card.Cards)) && choices.Contains(generatedBoxChoice))
+                    {
+                        Bot.Log("[Discover][BoxOCR] generated ref=A -> " + SafeCardName(generatedBoxChoice) + "(" + generatedBoxChoice + ")");
+                        return generatedBoxChoice;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Bot.Log("[Discover][BoxOCR] 生成区接管失败 -> " + ex.Message);
+            }
+
+            try
+            {
+                Card.Cards boxOcrChoice = TryPickDiscoverByBoxOcr(originCard, choices, board);
+                if (!boxOcrChoice.Equals(default(Card.Cards)) && choices.Contains(boxOcrChoice))
+                    return boxOcrChoice;
+
+                if (IsPureLearningModeEnabledCompat() && !AllowLegacyDiscoverFallbackCompat())
+                {
+                    Bot.Log("[Discover][NewLogic] miss -> random fallback");
+                    return choices[random.Next(0, choices.Count)];
+                }
+            }
+            catch (Exception ex)
+            {
+                Bot.Log("[Discover][BoxOCR] 顶层接管失败 -> " + ex.Message);
+            }
+
             // 影焰猎豹(FIR_924)/橱窗看客(TOY_652, TOY_652t)/躁动的愤怒卫士(GDB_132)/
             // 狡诈拷问者(EDR_102)/秘迹观测者(TOY_520)硬规则：
             // 1) 三选含基尔加丹(GDB_145)时，仅在己方场面优势且手里没有基尔加丹时优先选择；
@@ -3610,7 +3820,7 @@ namespace UniversalDiscover
 
             // TLC_451 全局硬规则：永不选择“时空撕裂”(TIME_025t)。
             // 说明：该规则必须在入口生效，覆盖弃牌术分支、蛋术分支、board==null 兜底与通用评分兜底。
-            if (originCard == Card.Cards.TLC_451)
+            if (IsTlc451LikeDiscoverOrigin(originCard))
             {
                 try
                 {
@@ -3645,7 +3855,7 @@ namespace UniversalDiscover
 
             // TLC_451 全局硬规则：发现候选优先约束为“费用 <= 当前可用费用 + 硬币虚拟1费”。
             // 说明：若三选全部超费（理论上可能出现），改为最低费用兜底，避免偏离“当前可用费用”口径。
-            if (originCard == Card.Cards.TLC_451)
+            if (IsTlc451LikeDiscoverOrigin(originCard))
             {
                 try
                 {
@@ -3941,7 +4151,7 @@ namespace UniversalDiscover
             // ======================================================================
             // 弃牌术专项：咒怨之墓 (TLC_451) - 从牌库发现【临时牌入物】
             // ======================================================================
-            if (originCard == Card.Cards.TLC_451)
+            if (IsTlc451LikeDiscoverOrigin(originCard))
             {
                 // 先跑蛋术硬规则：避免因为套牌识别(是否弃牌术)导致规则不生效。
                 var eggPick = TryPickEggWarlockTlc451Discover(board, choices);
@@ -4449,14 +4659,14 @@ namespace UniversalDiscover
                             ratioHandCount = 0;
                         }
 
-                        if (originCard == Card.Cards.TLC_451 && highDiscardRatioForCave)
+                        if (IsTlc451LikeDiscoverOrigin(originCard) && highDiscardRatioForCave)
                         {
                             Bot.Log("[Discover] UniversalDiscover：来源TLC_451且手牌被弃组件占比="
                                 + ratioPayoffCount + "/" + ratioHandCount + " > 20% -> 允许并优先选择窟穴(WON_103)");
                             return Card.Cards.WON_103;
                         }
                         // TLC_451 发现的牌是临时牌：若本回合法力不足且未命中“高占比放行”，禁止选择窟穴，避免拿到“当回合打不出且回合末消失”的死牌。
-                        else if (originCard == Card.Cards.TLC_451 && !cavePlayableNow)
+                        else if (IsTlc451LikeDiscoverOrigin(originCard) && !cavePlayableNow)
                         {
                             if (choices.Count > 1)
                             {
@@ -4539,17 +4749,27 @@ namespace UniversalDiscover
             // Final random choice if no cards found
             Random rnd = new Random();
 
-            // 硬规则：发现永远不选帕奇斯
-            // 说明：仅靠给帕奇斯打低分不足以避免“全负分时回退随机选择”选到它；
+            // 硬规则：发现黑名单（永不选择）
+            // 说明：仅靠打低分不足以避免“全负分时回退随机选择”选到黑名单卡；
             // 因此在入口处直接从候选列表中剔除。
             List<Card.Cards> filteredChoices = choices;
             try
             {
-                if (choices != null && choices.Count > 0 && choices.Contains(Card.Cards.CFM_637))
+                if (choices != null && choices.Count > 0)
                 {
-                    filteredChoices = choices.Where(c => c != Card.Cards.CFM_637).ToList();
+                    var discoverBlackList = new HashSet<Card.Cards>
+                    {
+                        Card.Cards.CFM_637, // 帕奇斯
+                        Card.Cards.TIME_024 // 无限巨龙姆诺兹多
+                    };
+                    filteredChoices = choices.Where(c => !discoverBlackList.Contains(c)).ToList();
                     if (filteredChoices.Count > 0)
-                        AddLog("[Discover] 硬规则：候选含帕奇斯(CFM_637) -> 已过滤，不会选择");
+                    {
+                        if (choices.Contains(Card.Cards.CFM_637))
+                            AddLog("[Discover] 硬规则：候选含帕奇斯(CFM_637) -> 已过滤，不会选择");
+                        if (choices.Contains(Card.Cards.TIME_024))
+                            AddLog("[Discover] 硬规则：候选含无限巨龙姆诺兹多(TIME_024) -> 已过滤，不会选择");
+                    }
                     else
                         filteredChoices = choices; // 极端兜底：若过滤后为空，仍保留原列表避免异常
                 }
@@ -4567,7 +4787,7 @@ namespace UniversalDiscover
                 // 说明：board 为空无法可靠判断坟场蛋状态，优先拿更通用的蛋线组件；布蛋者仅作最后兜底。
                 try
                 {
-                    if (originCard == Card.Cards.TLC_451 && choices != null && choices.Count > 0)
+                    if (IsTlc451LikeDiscoverOrigin(originCard) && choices != null && choices.Count > 0)
                     {
                         // 弃牌术专项：board 为空时，若仍判断牌库有灵魂弹幕且三选含速写，
                         // 则强制优先速写，避免被后续兜底误选郊狼/功能牌。
@@ -5175,7 +5395,7 @@ namespace UniversalDiscover
                     // 这里作为统一后处理，确保任何来源的评分都遵守该口径（避免 ini 分数覆盖专用逻辑）。
                     try
                     {
-                        if (originCard == Card.Cards.TLC_451
+                        if (IsTlc451LikeDiscoverOrigin(originCard)
                             && IsDiscardWarlock(board)
                             && choice == Card.Cards.ULD_163)
                         {
@@ -5210,7 +5430,7 @@ namespace UniversalDiscover
                     // 说明：作为统一后处理，覆盖 ini 分数与其它通用打分逻辑。
                     try
                     {
-                        if (originCard == Card.Cards.TLC_451
+                        if (IsTlc451LikeDiscoverOrigin(originCard)
                             && IsDiscardWarlock(board)
                             && choice == Card.Cards.TOY_916)
                         {
@@ -5243,7 +5463,7 @@ namespace UniversalDiscover
                     // 统一硬规则：咒怨之墓发现时，非被弃组件必须“当回合可用费用(含硬币+1)”可落地，否则禁止。
                     try
                     {
-                        if (originCard == Card.Cards.TLC_451
+                        if (IsTlc451LikeDiscoverOrigin(originCard)
                             && choice != default(Card.Cards)
                             && !IsDiscardPayoffId(choice))
                         {
@@ -5454,6 +5674,446 @@ namespace UniversalDiscover
                 default:
                     return "Wild";
             }
+        }
+
+        private Card.Cards TryPickDiscoverByBoxOcr(Card.Cards originCard, List<Card.Cards> choices, Board board)
+        {
+            try
+            {
+                Card.Cards pick;
+                if (AllowLiveTeacherFallbackCompat())
+                {
+                    for (int attempt = 0; attempt < 3; attempt++)
+                    {
+                        if (TryRunDiscoverOcr(originCard, choices, out pick))
+                        {
+                            RememberDiscoverPick(originCard, choices, pick);
+                            CaptureTeacherSampleCompat(
+                                originCard,
+                                choices,
+                                pick,
+                                board,
+                                Sanitize(Bot.CurrentProfile()),
+                                Sanitize(Bot.CurrentDiscoverProfile()));
+                            Bot.Log("[Discover][BoxOCR] live ref=A -> " + SafeCardName(pick) + "(" + pick + ")");
+                            return pick;
+                        }
+
+                        if (attempt < 2)
+                            Thread.Sleep(180);
+                    }
+                }
+
+                if (TryPickFromMemoryCompat(
+                    originCard,
+                    choices,
+                    board,
+                    Sanitize(Bot.CurrentProfile()),
+                    Sanitize(Bot.CurrentDiscoverProfile()),
+                    out pick))
+                {
+                    Bot.Log("[Discover][Memory] global -> " + SafeCardName(pick) + "(" + pick + ")");
+                    return pick;
+                }
+
+                if (AllowLegacyDiscoverFallbackCompat()
+                    && TryLoadLearnedDiscoverPick(originCard, choices, out pick))
+                {
+                    Bot.Log("[Discover][BoxOCR] learned ref=A -> " + SafeCardName(pick) + "(" + pick + ")");
+                    return pick;
+                }
+
+                Bot.Log(IsPureLearningModeEnabledCompat() && !AllowLegacyDiscoverFallbackCompat()
+                    ? "[Discover][BoxOCR] miss -> fallback random"
+                    : "[Discover][BoxOCR] miss -> fallback hard rule");
+            }
+            catch (Exception ex)
+            {
+                Bot.Log("[Discover][BoxOCR] failed -> " + ex.Message);
+            }
+
+            return default(Card.Cards);
+        }
+
+        private Card.Cards TryPickGeneratedBoxOcrChoice(Card.Cards originCard, List<Card.Cards> choices)
+        {
+            if (choices == null || choices.Count == 0)
+                return default(Card.Cards);
+
+            string key = originCard + "|" + BuildChoicesKey(choices);
+            switch (key)
+            {
+                // BOXOCR_DISCOVER_GENERATED_START
+                // generated by 智能决策老师 OCR 桥接
+                // BOXOCR_DISCOVER_GENERATED_END
+                default:
+                    break;
+            }
+
+            return default(Card.Cards);
+        }
+
+        private bool TryRunDiscoverOcr(Card.Cards originCard, List<Card.Cards> choices, out Card.Cards pick)
+        {
+            pick = default(Card.Cards);
+            if (choices == null || choices.Count == 0)
+                return false;
+
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string captureDir = Path.Combine(baseDir, "runtime", "decision_teacher_ocr");
+            if (!Directory.Exists(captureDir))
+            {
+                string legacyCaptureDir = Path.Combine(baseDir, "runtime", "box_ocr");
+                if (Directory.Exists(legacyCaptureDir))
+                    captureDir = legacyCaptureDir;
+            }
+
+            string stateFile = Path.Combine(baseDir, "runtime", "decision_teacher_state.txt");
+            if (!File.Exists(stateFile))
+            {
+                string legacyStateFile = Path.Combine(baseDir, "runtime", "netease_box_ocr_state.txt");
+                if (File.Exists(legacyStateFile))
+                    stateFile = legacyStateFile;
+            }
+            string candidateFile = Path.Combine(captureDir, "discover_candidates.txt");
+            string repoRoot = baseDir;
+
+            try
+            {
+                DirectoryInfo parent = Directory.GetParent(baseDir);
+                if (parent != null)
+                    repoRoot = parent.FullName;
+            }
+            catch
+            {
+                repoRoot = baseDir;
+            }
+
+            string commandPath;
+            string argumentPrefix;
+            if (!TryResolveOcrRunner(repoRoot, out commandPath, out argumentPrefix))
+                return false;
+
+            Directory.CreateDirectory(captureDir);
+            WriteDiscoverCandidates(candidateFile, choices);
+
+            string args = string.Join(" ", new[]
+            {
+                "--image", Quote(string.Empty),
+                "--state", Quote(stateFile),
+                "--candidate-file", Quote(candidateFile),
+                "--stage", Quote("discover"),
+                "--sb-profile", Quote(Sanitize(Bot.CurrentProfile())),
+                "--sb-mulligan", Quote(Sanitize(Bot.CurrentMulligan())),
+                "--sb-discover-profile", Quote(Sanitize(Bot.CurrentDiscoverProfile())),
+                "--sb-mode", Quote(CurrentMode(Bot.CurrentMode())),
+                "--strategy-ref", Quote("A"),
+                "--origin-card", Quote(originCard.ToString()),
+                "--capture-window"
+            });
+            if (!string.IsNullOrWhiteSpace(argumentPrefix))
+                args = argumentPrefix + " " + args;
+
+            using (Process process = new Process())
+            {
+                process.StartInfo = new ProcessStartInfo
+                {
+                    FileName = commandPath,
+                    Arguments = args,
+                    WorkingDirectory = repoRoot,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                };
+                process.Start();
+                if (!process.WaitForExit(15000))
+                {
+                    try { process.Kill(); } catch { }
+                    return false;
+                }
+            }
+
+            return TryReadDiscoverPickFromState(stateFile, choices, out pick);
+        }
+
+        private bool TryResolveOcrRunner(string repoRoot, out string fileName, out string argumentPrefix)
+        {
+            fileName = ResolveBundledOcrExecutable(repoRoot);
+            argumentPrefix = string.Empty;
+            if (!string.IsNullOrWhiteSpace(fileName))
+                return true;
+
+            string scriptPath = Path.Combine(repoRoot, "tools", "decision_teacher_ocr.py");
+            if (!File.Exists(scriptPath))
+                scriptPath = Path.Combine(repoRoot, "tools", "netease_box_ocr.py");
+            if (!File.Exists(scriptPath))
+                return false;
+
+            fileName = ResolveBundledPython(repoRoot);
+            argumentPrefix = Quote(scriptPath);
+            return true;
+        }
+
+        private static string ResolveBundledOcrExecutable(string repoRoot)
+        {
+            string directExe = Path.Combine(repoRoot, "tools", "decision_teacher_ocr.exe");
+            if (File.Exists(directExe))
+                return directExe;
+
+            string nestedExe = Path.Combine(repoRoot, "tools", "decision_teacher_ocr", "decision_teacher_ocr.exe");
+            if (File.Exists(nestedExe))
+                return nestedExe;
+
+            return string.Empty;
+        }
+
+        private static string ResolveBundledPython(string repoRoot)
+        {
+            string bundledPython = Path.Combine(repoRoot, "tools", "python", "python.exe");
+            if (File.Exists(bundledPython))
+                return bundledPython;
+
+            return "python";
+        }
+
+        private string CaptureDiscoverScreenshot(string repoRoot, string captureDir, string requestedImagePath)
+        {
+            string standardPngPath = Path.ChangeExtension(requestedImagePath, ".png");
+            if (TryCaptureHearthstoneWindow(repoRoot, standardPngPath))
+                return standardPngPath;
+
+            GUI.TakeScreenshotToPath(captureDir, Path.GetFileName(requestedImagePath));
+            for (int i = 0; i < 30; i++)
+            {
+                string resolvedImagePath = ResolveDiscoverScreenshotPath(requestedImagePath);
+                if (!string.IsNullOrWhiteSpace(resolvedImagePath))
+                    return resolvedImagePath;
+                System.Threading.Thread.Sleep(50);
+            }
+
+            return string.Empty;
+        }
+
+        private bool TryCaptureHearthstoneWindow(string repoRoot, string imagePath)
+        {
+            try
+            {
+                string captureScript = Path.Combine(repoRoot, "tools", "capture_hearthstone_window.ps1");
+                if (!File.Exists(captureScript))
+                    return false;
+
+                using (Process process = new Process())
+                {
+                    process.StartInfo = new ProcessStartInfo
+                    {
+                        FileName = "powershell",
+                        Arguments = "-NoProfile -ExecutionPolicy Bypass -File " + Quote(captureScript) + " -OutputPath " + Quote(imagePath),
+                        WorkingDirectory = repoRoot,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        RedirectStandardError = true,
+                        RedirectStandardOutput = true
+                    };
+                    process.Start();
+                    if (!process.WaitForExit(10000))
+                    {
+                        try { process.Kill(); } catch { }
+                        return false;
+                    }
+                }
+
+                return File.Exists(imagePath);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private string ResolveDiscoverScreenshotPath(string requestedImagePath)
+        {
+            if (File.Exists(requestedImagePath))
+                return requestedImagePath;
+
+            string appendedPng = requestedImagePath + ".png";
+            if (File.Exists(appendedPng))
+                return appendedPng;
+
+            string pngPath = Path.Combine(
+                Path.GetDirectoryName(requestedImagePath) ?? string.Empty,
+                Path.GetFileNameWithoutExtension(requestedImagePath) + ".png");
+            if (File.Exists(pngPath))
+                return pngPath;
+
+            return string.Empty;
+        }
+
+        private void WriteDiscoverCandidates(string candidateFile, List<Card.Cards> choices)
+        {
+            List<string> rows = new List<string>();
+            for (int i = 0; i < choices.Count; i++)
+            {
+                Card.Cards id = choices[i];
+                rows.Add("card\t" + id + "\t" + Sanitize(SafeCardName(id)) + "\t" + (i + 1).ToString());
+            }
+
+            File.WriteAllLines(candidateFile, rows, Encoding.UTF8);
+        }
+
+        private bool TryReadDiscoverPickFromState(string stateFile, List<Card.Cards> choices, out Card.Cards pick)
+        {
+            pick = default(Card.Cards);
+            if (!File.Exists(stateFile))
+                return false;
+
+            string status = string.Empty;
+            string stage = string.Empty;
+            string pickRaw = string.Empty;
+
+            foreach (string rawLine in File.ReadAllLines(stateFile))
+            {
+                if (rawLine.StartsWith("status=", StringComparison.OrdinalIgnoreCase))
+                    status = rawLine.Substring("status=".Length).Trim();
+                else if (rawLine.StartsWith("stage=", StringComparison.OrdinalIgnoreCase))
+                    stage = rawLine.Substring("stage=".Length).Trim();
+                else if (rawLine.StartsWith("discover_pick_id=", StringComparison.OrdinalIgnoreCase))
+                    pickRaw = rawLine.Substring("discover_pick_id=".Length).Trim();
+            }
+
+            if (!string.Equals(status, "ok", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!string.Equals(stage, "discover", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(pickRaw))
+                return false;
+
+            Card.Cards parsed;
+            if (!Enum.TryParse(pickRaw, true, out parsed))
+                return false;
+
+            if (!choices.Contains(parsed))
+                return false;
+
+            pick = parsed;
+            return true;
+        }
+
+        private bool TryLoadLearnedDiscoverPick(Card.Cards originCard, List<Card.Cards> choices, out Card.Cards pick)
+        {
+            pick = default(Card.Cards);
+            string path = GetDiscoverMemoryFilePath();
+            if (!File.Exists(path) || choices == null || choices.Count == 0)
+                return false;
+
+            string discoverProfile = NormalizeStrategyName(Sanitize(Bot.CurrentDiscoverProfile()));
+            string choicesKey = BuildChoicesKey(choices);
+            Dictionary<Card.Cards, int> counts = new Dictionary<Card.Cards, int>();
+
+            foreach (string rawLine in File.ReadAllLines(path))
+            {
+                if (string.IsNullOrWhiteSpace(rawLine))
+                    continue;
+
+                string[] parts = rawLine.Split('\t');
+                if (parts.Length < 5)
+                    continue;
+
+                if (!string.Equals(parts[0], "discover", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!string.Equals(NormalizeStrategyName(parts[1]), discoverProfile, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!string.Equals(parts[2], originCard.ToString(), StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (!string.Equals(parts[3], choicesKey, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                Card.Cards parsed;
+                if (!Enum.TryParse(parts[4], true, out parsed))
+                    continue;
+
+                if (!choices.Contains(parsed))
+                    continue;
+
+                if (!counts.ContainsKey(parsed))
+                    counts[parsed] = 0;
+                counts[parsed]++;
+            }
+
+            if (counts.Count == 0)
+                return false;
+
+            pick = counts.OrderByDescending(x => x.Value).First().Key;
+            return true;
+        }
+
+        private void RememberDiscoverPick(Card.Cards originCard, List<Card.Cards> choices, Card.Cards pick)
+        {
+            try
+            {
+                string path = GetDiscoverMemoryFilePath();
+                string dir = Path.GetDirectoryName(path);
+                if (!string.IsNullOrWhiteSpace(dir) && !Directory.Exists(dir))
+                    Directory.CreateDirectory(dir);
+
+                string row = string.Join("\t", new[]
+                {
+                    "discover",
+                    NormalizeStrategyName(Sanitize(Bot.CurrentDiscoverProfile())),
+                    originCard.ToString(),
+                    BuildChoicesKey(choices),
+                    pick.ToString()
+                });
+
+                File.AppendAllLines(path, new[] { row }, Encoding.UTF8);
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private string GetDiscoverMemoryFilePath()
+        {
+            string runtimeDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime");
+            string primaryPath = Path.Combine(runtimeDir, "decision_teacher_discover_memory.tsv");
+            string legacyPath = Path.Combine(runtimeDir, "netease_box_ocr_discover_memory.tsv");
+            if (File.Exists(primaryPath))
+                return primaryPath;
+            if (File.Exists(legacyPath))
+                return legacyPath;
+            return primaryPath;
+        }
+
+        private string BuildChoicesKey(List<Card.Cards> choices)
+        {
+            return string.Join(",", choices.Select(x => x.ToString()).OrderBy(x => x));
+        }
+
+        private string NormalizeStrategyName(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+            return Path.GetFileName(raw.Trim().Replace('/', '\\'));
+        }
+
+        private string Sanitize(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+            return raw.Replace("\t", " ").Replace("\r", " ").Replace("\n", " ").Trim();
+        }
+
+        private string Quote(string raw)
+        {
+            if (raw == null)
+                return "\"\"";
+            return "\"" + raw.Replace("\"", "\\\"") + "\"";
         }
 
         // Adds text to log variable

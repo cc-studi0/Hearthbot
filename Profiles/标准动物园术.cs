@@ -1,5 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using SmartBot.Database;
 using SmartBot.Plugins.API;
@@ -9,8 +11,8 @@ namespace SmartBotProfiles
     [Serializable]
     public class STDZooWarlock : Profile
     {
-        private const string ProfileVersion = "2026-02-22.120";
-        private const bool EnableAutoConcede = false; // 用户要求：关闭自动投降
+        private const string ProfileVersion = "2026-03-13.147";
+        private static readonly bool EnableAutoConcede = false; // 用户要求：关闭自动投降
         private string _log = "";
         private const int HearthstoneHandLimit = 10;
 
@@ -29,6 +31,10 @@ namespace SmartBotProfiles
         private const Card.Cards FlameImp = Card.Cards.CORE_EX1_319;            // 烈焰小鬼（Demon）
         private const Card.Cards EntropicContinuity = Card.Cards.TIME_026;      // 续连熵能
         private const Card.Cards Murmy = Card.Cards.CORE_ULD_723;               // 鱼人木乃伊（Murloc）
+        private const Card.Cards TrackingAmulet = Card.Cards.VAC_959t05;        // 追踪护符
+        private const Card.Cards CrittersAmulet = Card.Cards.VAC_959t06;        // 生灵护符
+        private const Card.Cards EnergyAmulet = Card.Cards.VAC_959t08;          // 能量护符
+        private const Card.Cards StridesAmulet = Card.Cards.VAC_959t10;         // 挺进护符
         private const Card.Cards ForebodingFlame = Card.Cards.GDB_121;          // 恶兆邪火（Elemental）
         private const Card.Cards DespicableDreadlord = Card.Cards.CORE_ICC_075; // 卑鄙的恐惧魔王（Demon）
         private const Card.Cards PartyFiend = Card.Cards.VAC_940;               // 派对邪犬（Demon）
@@ -49,16 +55,22 @@ namespace SmartBotProfiles
         private const Card.Cards FuriousPriestess = Card.Cards.CORE_BT_493;     // 愤怒的女祭司
         private const int AbductionRayMinManaNonTemp = 4;                       // 挟持射线非临时“起链”最低可用费用门槛
         private const int AbductionRayNonTempPreferredMaxHand = 5;              // 挟持射线非临时“起链”建议手牌上限（<=5）
+        private const int AbductionRayOutsideDemonDelayMinHand = 6;             // 射线起链让位套外恶魔：最低手牌数
+        private const int AbductionRayOutsideDemonDelayMinPlayable = 2;         // 射线起链让位套外恶魔：本回合最低可下数量
+        private const int AbductionRayOutsideDemonDelayMinPlayableUnderPressure = 1; // 高压窗口下，1个可下套外恶魔也可让位
         private const Card.Cards EredarBrute = Card.Cards.GDB_320;              // 艾瑞达蛮兵
         private const Card.Cards RedCard = Card.Cards.TOY_644;                  // 红牌（点控/锁定）
         private const Card.Cards Backstab = Card.Cards.CORE_CS2_072;            // 背刺（0费解场）
         private const Card.Cards BattlefieldNecromancer = Card.Cards.RLK_061;   // 战场通灵师（优先解）
+        private const string StarDestroyerCardId = "GDB_118";                   // 星辰毁灭者（手牌满10时禁用，避免爆牌浪费）
         private const string CreationStarCardId = "GDB_118t";                   // 创生之星（当前策略禁用，避免重复无效施放）
         private const string TerminusStarCardId = "GDB_118t2";                  // 终结之星（用于动作判定排除，避免伪动作干扰）
         private const string UnlicensedApothecaryCardId = "CFM_900";            // 无证药剂师（用户硬禁用）
         private const string WindowShopperCardId = "TOY_652";                   // 橱窗看客
         private const string WindowShopperMiniCardId = "TOY_652t";              // 橱窗看客（微缩）
         private const string ArsonEyedDemonCardId = "EDR_486";                  // 纵火眼魔（突袭+吸血）
+        private const string SoulDealerCardId = "WORK_015";                     // 精魂商贩（套外恶魔突袭解场）
+        private const string KingLlaneCardId = "TIME_875t";                     // 莱恩国王
 
         // 奇利亚斯（输能模块 + 计数模块）
         private const Card.Cards ZilliaxDeckBuilder = Card.Cards.TOY_330;
@@ -233,6 +245,11 @@ namespace SmartBotProfiles
         private static int _abductionRayBasePlayedCount = 0;
         private static int _abductionRayPlannedTurn = int.MinValue;
         private static bool _abductionRayPlannedThisTurn = false;
+        private static bool _abductionRayNoTurnInitialized = false;
+        private static int _abductionRayNoTurnBasePlayedCount = 0;
+        private static int _abductionRayNoTurnLastMaxMana = -1;
+        private static int _abductionRayNoTurnLastManaAvailable = -1;
+        private static int _abductionRayNoTurnLastDeckCount = -1;
         private int _logTurn = -1;
         private int _logMaxMana = -1;
         private bool _turnMetaLogged = false;
@@ -247,13 +264,24 @@ namespace SmartBotProfiles
             _logTurn = _logMaxMana >= 0 ? _logMaxMana : boardTurn;
             if (boardTurn != _abductionRayPlannedTurn)
             {
-                _abductionRayPlannedTurn = boardTurn;
-                _abductionRayPlannedThisTurn = false;
+                // Turn 漂移但未到“回满法力”边界时，不清空同回合已计划状态，避免射线链路误断。
+                bool shouldResetRayPlanByTurn = _abductionRayPlannedTurn == int.MinValue
+                    || boardTurn < 0
+                    || _abductionRayPlannedTurn < 0
+                    || IsLikelyTurnStartByMana(board);
+                if (shouldResetRayPlanByTurn)
+                {
+                    _abductionRayPlannedTurn = boardTurn;
+                    _abductionRayPlannedThisTurn = false;
+                }
             }
             var p = new ProfileParameters(BaseProfile.Rush)
             {
                 DiscoverSimulationValueThresholdPercent = -10
             };
+
+            if (ProfileCommon.TryRunPureLearningPlayExecutor(board, p))
+                return p;
 
             int friendHp = GetHeroHealth(board.HeroFriend);
             int enemyHp = GetHeroHealth(board.HeroEnemy);
@@ -282,8 +310,10 @@ namespace SmartBotProfiles
                 && ShouldConcedeWhenNoSolution(board, friendHp, enemyHp, friendAttackNow, enemyAttack, enemyAttackNow, virtualManaNow))
             {
                 AddLog("投降：判定无解（低血高压且无嘲讽/冻结/射线/分流翻盘线），执行自动投降");
-                Bot.Log(_log);
+                if (!string.IsNullOrWhiteSpace(_log))
+                    Bot.Log(_log);
                 try { Bot.Concede(); } catch { }
+                ApplyLiveMemoryBiasCompat(board, p);
                 return p;
             }
 
@@ -321,12 +351,1872 @@ namespace SmartBotProfiles
             HandleTemporaryCards(board, p);
             EnforceSketchArtistTopPriority(board, p);
             HandleThreatTargets(board, p, enemyHp, friendAttackNow);
+            EnforceAbductionRayContinuationFinalLock(board, p);
+            HandleAmuletCardsByEffect(board, p, friendHp);
+            HandleEnergyAmuletEmergency(board, p, friendHp);
             HandleHardDisabledCards(board, p);
             EnforceCoinLockBeforeTurnThreeWhenSketchInHand(board, p);
+            EnforceFirstTurnSlitherspearOpeningLock(board, p);
+            EnforceArchimondeTopPriorityWhenCommitted(board, p);
             ConfigureForcedResimulation(board, p);
 
-            Bot.Log(_log);
+            try
+            {
+                ApplyBoxOcrGeneratedBias(p, board);
+            }
+            catch (Exception ex)
+            {
+                AddLog("[BoxOCR] generated bias apply failed -> " + ex.Message);
+            }
+
+            try
+            {
+                ApplyLocalDecisionRules(p, board);
+            }
+            catch (Exception ex)
+            {
+                AddLog("[RuleJSON] local rule apply failed -> " + ex.Message);
+            }
+
+            try
+            {
+                ApplyBoxOcrLiveBias(p, board);
+            }
+            catch (Exception ex)
+            {
+                AddLog("[BoxOCR] live bias apply failed -> " + ex.Message);
+            }
+
+            if (!string.IsNullOrWhiteSpace(_log))
+                Bot.Log(_log);
+            ApplyLiveMemoryBiasCompat(board, p);
             return p;
+        }
+
+        private void ApplyLocalDecisionRules(ProfileParameters p, Board board)
+        {
+            if (p == null || board == null)
+                return;
+
+            GameStateSnapshot snapshot = DecisionStateExtractor.Build(board);
+            EnrichLocalDecisionFacts(snapshot, board);
+            List<DecisionRuleMatchResult> matches = DecisionRuleEngine.EvaluatePlayRules(snapshot, "标准动物园术.cs");
+            bool appliedPrimaryRule = false;
+            bool appliedAttackRule = false;
+            bool blockLocalPrimaryRules = false;
+            DecisionRuleMatchResult appliedMatch = null;
+            string appliedSource = string.Empty;
+
+            if (matches != null)
+            {
+                foreach (DecisionRuleMatchResult match in matches)
+                {
+                    if (match == null || match.Rule == null || match.Rule.then == null)
+                        continue;
+
+                    DecisionRuleAction action = match.Rule.then;
+                    string actionType = (action.type ?? string.Empty).Trim();
+                    if (string.IsNullOrWhiteSpace(actionType))
+                        continue;
+
+                    if (string.Equals(actionType, "PlayCard", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!appliedPrimaryRule && !blockLocalPrimaryRules && ApplyLocalRulePlayCard(p, board, match))
+                        {
+                            appliedPrimaryRule = true;
+                            if (appliedMatch == null)
+                            {
+                                appliedMatch = match;
+                                appliedSource = "local_rule_play_card";
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(actionType, "UseHeroPower", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!appliedPrimaryRule && !blockLocalPrimaryRules && ApplyLocalRuleHeroPower(p, board, match))
+                        {
+                            appliedPrimaryRule = true;
+                            if (appliedMatch == null)
+                            {
+                                appliedMatch = match;
+                                appliedSource = "local_rule_hero_power";
+                            }
+                        }
+                        continue;
+                    }
+
+                    if (string.Equals(actionType, "Attack", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (appliedPrimaryRule && action.delay_non_attack_actions.GetValueOrDefault(false))
+                            continue;
+
+                        bool shouldBlockLocalPrimaryRules;
+                        if (!appliedAttackRule && ApplyLocalRuleAttack(p, board, match, out shouldBlockLocalPrimaryRules))
+                        {
+                            appliedAttackRule = true;
+                            if (appliedMatch == null)
+                            {
+                                appliedMatch = match;
+                                appliedSource = "local_rule_attack";
+                            }
+                            if (shouldBlockLocalPrimaryRules)
+                                blockLocalPrimaryRules = true;
+                        }
+                    }
+
+                    if ((appliedPrimaryRule || blockLocalPrimaryRules) && appliedAttackRule)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            DecisionLearningCapture.CapturePlayTeacherSample(
+                snapshot,
+                "标准动物园术.cs",
+                matches,
+                appliedMatch,
+                appliedSource);
+        }
+
+        private void EnrichLocalDecisionFacts(GameStateSnapshot snapshot, Board board)
+        {
+            if (snapshot == null || board == null)
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            snapshot.ManaAvailable = manaNow;
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            bool enemyHasSecret = board.SecretEnemy || board.SecretEnemyCount > 0;
+            int attackableFriendAttack = GetAttackableBoardAttack(board.MinionFriend);
+            bool hasAttackableLifesteal = HasAttackableLifestealMinion(board);
+            bool lowHpSecretRisk = IsLowHpSecretRisk(friendHp, enemyAttack);
+            bool hasPlayableHandActionNow = HasPlayableHandActionNow(board, manaNow);
+            bool enemyHasBoard = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
+            bool rayAttackDelayWindow = IsRayAttackDelayWindow(board);
+            bool sketchToRayAttackDelayWindow = IsSketchToRayAttackDelayWindow(board, manaNow);
+            bool tombAttackDelayWindow = ShouldForceTombFirstThisTurn(board);
+            bool tombBuffScoutAttackDelayWindow = IsTombBuffScoutAttackDelayWindow(board, manaNow, enemyHp);
+            bool entropyAttackDelayWindow = IsEntropyAttackDelayWindowForRules(
+                board,
+                manaNow,
+                friendHp,
+                enemyAttack,
+                enemyHasSecret,
+                enemyHasBoard,
+                hasAttackableLifesteal,
+                lowHpSecretRisk,
+                rayAttackDelayWindow,
+                tombAttackDelayWindow);
+            bool monthlyLifestealAttackDelayWindow = IsMonthlyLifestealAttackDelayWindow(board, manaNow);
+            bool bananaAttackDelayWindow = IsBananaAttackDelayWindow(board, manaNow);
+            bool zeroCostNonRayAttackDelayWindow = IsZeroCostNonRayAttackDelayWindow(board, manaNow);
+
+            if (CanUseLifeTapNow(board))
+                snapshot.AddFact("hero_power_usable_now");
+            if (HasPlayableWindowShopperFamily(board, manaNow))
+                snapshot.AddFact("playable_window_shopper_now");
+            if (GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow) > 0)
+                snapshot.AddFact("playable_outside_deck_demon_now");
+            if (GetPlayableTauntMinionCardIds(board, manaNow).Count > 0)
+                snapshot.AddFact("playable_taunt_minion_now");
+            if (!enemyHasTaunt && attackableFriendAttack >= enemyHp)
+                snapshot.AddFact("on_board_lethal_now");
+            if (IsDangerousHpTauntTempoWindow(friendHp, enemyAttack))
+                snapshot.AddFact("dangerous_hp_taunt_tempo");
+            if (enemyHasSecret)
+                snapshot.AddFact("enemy_has_secret_now");
+            if (hasAttackableLifesteal)
+                snapshot.AddFact("attackable_lifesteal_now");
+            if (enemyHasSecret
+                && board.MinionEnemy != null
+                && board.MinionEnemy.Any(m => m != null)
+                && hasAttackableLifesteal
+                && lowHpSecretRisk)
+            {
+                snapshot.AddFact("secret_lifesteal_recover_window");
+            }
+            if (hasPlayableHandActionNow)
+                snapshot.AddFact("playable_hand_action_now");
+            if (rayAttackDelayWindow)
+                snapshot.AddFact("ray_attack_delay_window");
+            if (sketchToRayAttackDelayWindow)
+                snapshot.AddFact("sketch_to_ray_attack_delay_window");
+            if (tombAttackDelayWindow)
+                snapshot.AddFact("tomb_attack_delay_window");
+            if (tombBuffScoutAttackDelayWindow)
+                snapshot.AddFact("tomb_buff_scout_attack_delay_window");
+            if (entropyAttackDelayWindow)
+                snapshot.AddFact("entropy_attack_delay_window");
+            if (monthlyLifestealAttackDelayWindow)
+                snapshot.AddFact("monthly_lifesteal_attack_delay_window");
+            if (bananaAttackDelayWindow)
+                snapshot.AddFact("banana_attack_delay_window");
+            if (zeroCostNonRayAttackDelayWindow)
+                snapshot.AddFact("zero_cost_non_ray_attack_delay_window");
+            if (EvaluateBuffAttackDelayWindow(board, enemyHp, false))
+                snapshot.AddFact("buff_attack_delay_window");
+            if (ShouldPrioritizeMoargForgefiendNow(board))
+                snapshot.AddFact("moarg_priority_window");
+            if (board.Hand != null && board.Hand.Any(c => c != null && c.Template != null
+                && c.Template.Id == ForebodingFlame
+                && c.CurrentCost <= manaNow)
+                && GetFreeBoardSlots(board) > 0)
+            {
+                snapshot.AddFact("foreboding_flame_playable_now");
+            }
+        }
+
+        private bool HasPlayableHandActionNow(Board board, int manaNow)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            int freeBoardSlots = GetFreeBoardSlots(board);
+            return board.Hand.Any(c =>
+                c != null
+                && c.Template != null
+                && c.CurrentCost <= manaNow
+                && (c.Type != Card.CType.MINION || freeBoardSlots > 0));
+        }
+
+        private bool HasAttackableLifestealMinion(Board board)
+        {
+            return board != null
+                && board.MinionFriend != null
+                && board.MinionFriend.Any(m =>
+                    m != null
+                    && m.CanAttack
+                    && m.CurrentAtk > 0
+                    && m.IsLifeSteal);
+        }
+
+        private bool HasAttackableNaga(Board board)
+        {
+            return board != null
+                && board.MinionFriend != null
+                && board.MinionFriend.Any(m =>
+                    m != null
+                    && m.CanAttack
+                    && m.CurrentAtk > 0
+                    && m.Template != null
+                    && m.Template.Id == ViciousSlitherspear);
+        }
+
+        private bool IsLowHpSecretRisk(int friendHp, int enemyAttack)
+        {
+            return friendHp <= 8 || enemyAttack >= friendHp || (friendHp <= 12 && enemyAttack >= 6);
+        }
+
+        private bool HasTemporaryOrSketchGeneratedAbductionRay(Board board)
+        {
+            return HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
+        }
+
+        private bool IsAbductionRayContinuationOrChainWindow(Board board)
+        {
+            return IsAbductionRayContinuationThisTurn(board) || ShouldChainAbductionRayNow(board);
+        }
+
+        private static bool WasAbductionRayLastPlayed(Board board)
+        {
+            try
+            {
+                return board != null
+                    && board.PlayedCards != null
+                    && board.PlayedCards.Count > 0
+                    && board.PlayedCards.Last() == AbductionRay;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private bool HasStartedOrLastPlayedAbductionRayThisTurn(Board board)
+        {
+            return HasStartedOrPlannedAbductionRayThisTurn(board) || WasAbductionRayLastPlayed(board);
+        }
+
+        private sealed class AbductionRayStartupState
+        {
+            public int ManaNow;
+            public bool TempLikeWindow;
+            public bool RayStartedThisTurn;
+            public int RayStartupHandCount;
+            public bool AllowNonTempResourceWindow;
+            public bool MidLateMultiRayWindow;
+            public bool NonTempStartupManaWindow;
+            public bool DelayStartupForOutsideDeckDemonsWindow;
+            public bool HandFullWithZeroCostMinionWindow;
+            public int PlayableRayCount;
+        }
+
+        private AbductionRayStartupState EvaluateAbductionRayStartupState(Board board, int manaNow = -1)
+        {
+            AbductionRayStartupState state = new AbductionRayStartupState();
+            if (board == null)
+                return state;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+
+            state.ManaNow = manaNow;
+            state.TempLikeWindow = HasTemporaryOrSketchGeneratedAbductionRay(board);
+            state.RayStartedThisTurn = HasStartedOrLastPlayedAbductionRayThisTurn(board);
+            state.RayStartupHandCount = GetAbductionRayStartupEffectiveHandCount(board);
+            state.AllowNonTempResourceWindow = state.RayStartupHandCount <= AbductionRayNonTempPreferredMaxHand;
+            state.MidLateMultiRayWindow = IsAbductionRayMidLateMultiRayPriorityWindow(board, manaNow);
+            state.NonTempStartupManaWindow = IsNonTempAbductionRayStartupManaWindow(board, manaNow);
+            state.DelayStartupForOutsideDeckDemonsWindow = !state.RayStartedThisTurn
+                && ShouldDelayAbductionRayStartupForOutsideDeckDemons(board, manaNow);
+            state.HandFullWithZeroCostMinionWindow = board.Hand != null
+                && board.Hand.Count >= HearthstoneHandLimit
+                && !state.RayStartedThisTurn
+                && GetRightmostPlayableZeroCostNonRayMinion(board, manaNow) != null;
+            state.PlayableRayCount = board.Hand != null
+                ? board.Hand.Count(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == AbductionRay
+                    && c.CurrentCost <= manaNow)
+                : 0;
+            return state;
+        }
+
+        private bool HasAbductionRayPriorityWindow(Board board, AbductionRayStartupState startupState, bool rayHardLockWindow)
+        {
+            bool tempLikeWindow = startupState != null && startupState.TempLikeWindow;
+            bool rayStartedThisTurn = startupState != null && startupState.RayStartedThisTurn;
+            bool rayContinuationWindow = rayStartedThisTurn || IsAbductionRayContinuationOrChainWindow(board);
+            return rayHardLockWindow || rayContinuationWindow || tempLikeWindow;
+        }
+
+        private bool ShouldBlockLifeTapForAbductionRay(Board board, AbductionRayStartupState startupState, bool rayHardLockWindow)
+        {
+            if (startupState == null)
+                return false;
+
+            bool hasAnyPlayableRayNow = startupState.PlayableRayCount > 0;
+            bool multiPlayableRayNow = startupState.PlayableRayCount >= 2;
+            return hasAnyPlayableRayNow
+                && (HasAbductionRayPriorityWindow(board, startupState, rayHardLockWindow) || multiPlayableRayNow);
+        }
+
+        private bool IsAbductionRayChainOrTempWindow(Board board, AbductionRayStartupState startupState, bool rayPlayableNow, bool rayHardLockWindow)
+        {
+            if (startupState == null)
+                return false;
+
+            bool hasAnyPlayableRayNow = startupState.PlayableRayCount > 0;
+            bool multiPlayableRayNow = startupState.PlayableRayCount >= 2;
+            return (rayPlayableNow || hasAnyPlayableRayNow || startupState.RayStartedThisTurn)
+                && (HasAbductionRayPriorityWindow(board, startupState, rayHardLockWindow) || multiPlayableRayNow);
+        }
+
+        private static bool HasAbductionRayActiveChainWindow(bool rayContinuationThisTurn, bool chainRayNow)
+        {
+            return rayContinuationThisTurn || chainRayNow;
+        }
+
+        private static bool CanDeferAbductionRayForTempo(
+            bool tempLikeWindow,
+            bool immediateRayFollowupWindow,
+            bool fullManaPriorityWindow,
+            bool rayContinuationThisTurn,
+            bool chainRayNow,
+            bool rayMidLateMultiChainWindow)
+        {
+            return !tempLikeWindow
+                && !immediateRayFollowupWindow
+                && !fullManaPriorityWindow
+                && !rayContinuationThisTurn
+                && !chainRayNow
+                && !rayMidLateMultiChainWindow;
+        }
+
+        private static bool HasAbductionRayOngoingPriorityChainWindow(
+            bool rayStartedThisTurn,
+            bool rayActiveChainWindow,
+            bool immediateRayFollowupWindow,
+            bool rayMidLateMultiChainWindow)
+        {
+            return rayStartedThisTurn
+                || rayActiveChainWindow
+                || immediateRayFollowupWindow
+                || rayMidLateMultiChainWindow;
+        }
+
+        private static string GetAbductionRayHardLockComboLogWhenSet(bool chainRayNow, bool rayMidLateMultiChainWindow)
+        {
+            return chainRayNow
+                ? "挟持射线：ComboSet连发锁定"
+                : (rayMidLateMultiChainWindow ? "挟持射线：ComboSet中后期多射线锁定" : "挟持射线：ComboSet后期锁定");
+        }
+
+        private static string GetAbductionRayHardLockResolveLog(bool rayMidLateMultiChainWindow)
+        {
+            return rayMidLateMultiChainWindow
+                ? "挟持射线：命中中后期多射线窗口，强制先手并禁止始祖龟插队"
+                : "挟持射线：命中射线锁定窗口，禁止其他动作插队";
+        }
+
+        private static bool ShouldReserveAbductionRayForLowCostTempo(
+            bool hasPlayableLowCostMinion,
+            bool ongoingPriorityRayChainWindow)
+        {
+            return hasPlayableLowCostMinion && !ongoingPriorityRayChainWindow;
+        }
+
+        private static bool ShouldContinueAbductionRayChainPriority(bool chainRayNow, bool isLateStage, bool handIsVeryLow)
+        {
+            return chainRayNow && (isLateStage || handIsVeryLow);
+        }
+
+        private static bool ShouldSoftReserveAbductionRayChain(bool chainRayNow, bool continueChainRayPriorityWindow)
+        {
+            return chainRayNow && !continueChainRayPriorityWindow;
+        }
+
+        private static string GetAbductionRayChainContinueComboLogWhenSet()
+        {
+            return "挟持射线：ComboSet连发，继续使用";
+        }
+
+        private static string GetAbductionRayChainContinueResolveLog()
+        {
+            return "挟持射线：连发窗口（后期/低手牌）优先继续使用";
+        }
+
+        private static string GetAbductionRayChainSoftReserveResolveLog()
+        {
+            return "挟持射线：连发已触发但时机偏早，先保留";
+        }
+
+        private bool IsRayAttackDelayWindow(Board board)
+        {
+            return HasAttackableNaga(board)
+                && IsAbductionRayPlayableNow(board)
+                && (ShouldForceAbductionRayNow(board)
+                    || HasTemporaryOrSketchGeneratedAbductionRay(board)
+                    || IsAbductionRayContinuationOrChainWindow(board));
+        }
+
+        private bool IsSketchToRayAttackDelayWindow(Board board, int manaNow)
+        {
+            return board != null
+                && board.Hand != null
+                && board.Hand.Any(c => c != null && c.Template != null
+                    && c.Template.Id == SketchArtist
+                    && c.CurrentCost <= manaNow)
+                && HasAttackableNaga(board)
+                && manaNow >= 4
+                && board.Hand.Count < 6
+                && GetFreeBoardSlots(board) > 0
+                && !IsAbductionRayPlayableNow(board);
+        }
+
+        private bool IsEntropyAttackDelayWindowForRules(
+            Board board,
+            int manaNow,
+            int friendHp,
+            int enemyAttack,
+            bool enemyHasSecret,
+            bool enemyHasBoard,
+            bool hasAttackableLifesteal,
+            bool lowHpSecretRisk,
+            bool rayAttackDelayWindow,
+            bool tombAttackDelayWindow)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            Card entropyPlayableCard = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == EntropicContinuity
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+            if (entropyPlayableCard == null)
+                return false;
+
+            if (enemyHasSecret && enemyHasBoard && hasAttackableLifesteal && lowHpSecretRisk)
+                return false;
+            if (friendHp <= 8 && enemyHasBoard)
+                return false;
+            if (friendHp <= 12 && enemyAttack >= 8)
+                return false;
+            if (rayAttackDelayWindow || tombAttackDelayWindow)
+                return false;
+
+            int manaBeforeEntropy = Math.Max(0, manaNow - entropyPlayableCard.CurrentCost);
+            int maxAdditionalBodiesBeforeEntropy = GetMaxAdditionalBodiesBeforeEntropy(board, manaBeforeEntropy);
+            int currentFriendlyBodies = board.MinionFriend == null ? 0 : board.MinionFriend.Count(m => m != null);
+            return currentFriendlyBodies + maxAdditionalBodiesBeforeEntropy >= 3;
+        }
+
+        private bool IsMonthlyLifestealAttackDelayWindow(Board board, int manaNow)
+        {
+            return board != null
+                && board.Hand != null
+                && board.Hand.Any(c => c != null && c.Template != null
+                    && c.Template.Id == MonthlyModelEmployee
+                    && c.CurrentCost <= manaNow)
+                && GetFreeBoardSlots(board) > 0
+                && board.MinionFriend != null
+                && board.MinionFriend.Any(m => m != null && m.CanAttack && m.CurrentAtk > 0);
+        }
+
+        private bool IsTombBuffScoutAttackDelayWindow(Board board, int manaNow, int enemyHp)
+        {
+            return ShouldForceTombBuffScoutBeforeAttack(board, manaNow, enemyHp);
+        }
+
+        private bool IsBananaAttackDelayWindow(Board board, int manaNow)
+        {
+            return board != null
+                && board.Hand != null
+                && board.Hand.Any(c => c != null && c.Template != null
+                    && c.Template.Id == Banana
+                    && c.CurrentCost <= manaNow)
+                && board.MinionEnemy != null
+                && board.MinionEnemy.Any(m => m != null)
+                && board.MinionFriend != null
+                && board.MinionFriend.Any(m => m != null && m.CanAttack && m.CurrentAtk > 0);
+        }
+
+        private bool IsZeroCostNonRayAttackDelayWindow(Board board, int manaNow)
+        {
+            return GetRightmostPlayableZeroCostNonRayMinion(board, manaNow) != null;
+        }
+
+        private bool ShouldCancelBuffAttackDelayOnEmptyBoard(
+            Board board,
+            int enemyHp,
+            int attackableDamage,
+            bool enemyHasTaunt,
+            bool temporaryRayNagaBuffWindow,
+            bool emptyBoardBuffChainWindow,
+            bool logDecisions)
+        {
+            if (board == null || board.MinionFriend == null)
+                return false;
+
+            bool enemyBoardEmpty = board.MinionEnemy == null || !board.MinionEnemy.Any(m => m != null);
+            if (!enemyBoardEmpty || enemyHasTaunt || attackableDamage <= 0)
+                return false;
+
+            bool buffCanConvertToImmediateLethal = CanImmediateBuffConvertToLethal(board, enemyHp, attackableDamage);
+            if (!buffCanConvertToImmediateLethal && !emptyBoardBuffChainWindow && !temporaryRayNagaBuffWindow)
+            {
+                if (logDecisions)
+                    AddLog("攻击顺序：敌方空场且buff非当回合斩杀，取消攻前后置");
+                return true;
+            }
+
+            if (logDecisions)
+            {
+                if (!buffCanConvertToImmediateLethal && temporaryRayNagaBuffWindow)
+                    AddLog("攻击顺序：手握可用临时挟持射线，保留滑矛攻击后置等待射线增伤");
+                else if (!buffCanConvertToImmediateLethal && emptyBoardBuffChainWindow)
+                    AddLog("攻击顺序：敌方空场但命中攻前buff链，保持后置攻击");
+            }
+
+            return false;
+        }
+
+        private bool EvaluateBuffAttackDelayWindow(Board board, int enemyHp, bool logDecisions)
+        {
+            if (board == null || board.Hand == null || board.MinionFriend == null)
+                return false;
+
+            var attackers = board.MinionFriend
+                .Where(m => m != null && m.CanAttack && m.CurrentAtk > 0)
+                .ToList();
+            if (attackers.Count == 0)
+                return false;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool enemyHasBoard = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
+            bool enemyHasSecret = board.SecretEnemy || board.SecretEnemyCount > 0;
+            bool hasAttackableLifesteal = HasAttackableLifestealMinion(board);
+            bool lowHpSecretRisk = IsLowHpSecretRisk(friendHp, enemyAttack);
+            if (enemyHasSecret && enemyHasBoard && hasAttackableLifesteal && lowHpSecretRisk)
+            {
+                if (logDecisions)
+                    AddLog("攻击顺序：低血且敌方有奥秘，先用吸血随从攻击回血，不后置攻击");
+                return false;
+            }
+
+            if (friendHp <= 8 && enemyHasBoard)
+                return false;
+            if (friendHp <= 12 && enemyAttack >= 8)
+                return false;
+
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int canAttackDamageNow = GetAttackableBoardAttack(board.MinionFriend);
+            if (!enemyHasTaunt && canAttackDamageNow >= enemyHp)
+                return false;
+
+            bool rayAttackDelayWindow = IsRayAttackDelayWindow(board);
+            bool entropyPlayableNow = IsEntropyAttackDelayWindowForRules(
+                board,
+                manaNow,
+                friendHp,
+                enemyAttack,
+                enemyHasSecret,
+                enemyHasBoard,
+                hasAttackableLifesteal,
+                lowHpSecretRisk,
+                rayAttackDelayWindow,
+                ShouldForceTombFirstThisTurn(board));
+
+            bool temporaryRayNagaBuffWindowNow = IsTemporaryRaySlitherspearAttackHoldWindow(board, manaNow);
+
+            bool sketchToRayBuffWindow = IsSketchToRayAttackDelayWindow(board, manaNow);
+            bool monthlyLifestealWindow = IsMonthlyLifestealAttackDelayWindow(board, manaNow);
+            bool bananaBuffWindow = IsBananaAttackDelayWindow(board, manaNow);
+            bool tombBuffScoutWindow = IsTombBuffScoutAttackDelayWindow(board, manaNow, enemyHp);
+            bool zeroCostPlayableBeforeAttack = IsZeroCostNonRayAttackDelayWindow(board, manaNow);
+
+            bool shouldDelay = entropyPlayableNow
+                               || rayAttackDelayWindow
+                               || sketchToRayBuffWindow
+                               || monthlyLifestealWindow
+                               || bananaBuffWindow
+                               || tombBuffScoutWindow
+                               || zeroCostPlayableBeforeAttack;
+            if (!shouldDelay)
+                return false;
+
+            bool emptyBoardBuffChainWindow = ShouldKeepAttackDelayOnEmptyBoard(board, manaNow);
+            if (ShouldCancelBuffAttackDelayOnEmptyBoard(
+                board,
+                enemyHp,
+                canAttackDamageNow,
+                enemyHasTaunt,
+                temporaryRayNagaBuffWindowNow,
+                emptyBoardBuffChainWindow,
+                logDecisions))
+                return false;
+
+            return true;
+        }
+
+        private bool ApplyLocalRulePlayCard(ProfileParameters p, Board board, DecisionRuleMatchResult match)
+        {
+            if (p == null || board == null || match == null || match.Rule == null || match.Rule.then == null)
+                return false;
+
+            DecisionRuleAction action = match.Rule.then;
+            Card card = ResolveRuleHandCard(board, action.card_id, action.slot);
+            if (card == null || card.Template == null)
+                return false;
+
+            bool expectsTarget = !string.IsNullOrWhiteSpace(action.target_kind);
+            Card target = ResolveRuleTarget(board, action.target_kind, action.target_selector, action.target_card_id, action.target_slot);
+            if (expectsTarget && target == null)
+                return false;
+            if (target == null)
+            {
+                DecisionTeacherHintMatch hint = new DecisionTeacherHintMatch();
+                hint.Kind = "card";
+                hint.CardId = card.Template.Id;
+                hint.Slot = action.slot.GetValueOrDefault(0);
+                ForceBoxOcrPrimaryCard(p, board, card, hint);
+            }
+            else
+            {
+                ApplyRuleCardBias(p, card, target);
+            }
+
+            AddLog("[RuleJSON] " + SafeRuleId(match) + " -> PlayCard " + card.Template.Id
+                + (target != null && target.Template != null ? " target=" + target.Template.Id : string.Empty));
+            return true;
+        }
+
+        private bool ApplyLocalRuleHeroPower(ProfileParameters p, Board board, DecisionRuleMatchResult match)
+        {
+            if (p == null || board == null || board.Ability == null || board.Ability.Template == null)
+                return false;
+            if (board.Ability.Template.Id == LifeTap && !CanUseLifeTapNow(board))
+                return false;
+
+            DecisionTeacherHintMatch hint = new DecisionTeacherHintMatch();
+            hint.Kind = "hero_power";
+            hint.CardId = board.Ability.Template.Id;
+            hint.Slot = 0;
+            ForceBoxOcrPrimaryHeroPower(p, board, hint);
+            AddLog("[RuleJSON] " + SafeRuleId(match) + " -> UseHeroPower " + board.Ability.Template.Id);
+            return true;
+        }
+
+        private bool ApplyLocalRuleAttack(ProfileParameters p, Board board, DecisionRuleMatchResult match, out bool blockLocalPrimaryRules)
+        {
+            blockLocalPrimaryRules = false;
+            if (p == null || board == null || match == null || match.Rule == null || match.Rule.then == null)
+                return false;
+
+            DecisionRuleAction action = match.Rule.then;
+            string attackPlan = (action.attack_plan ?? string.Empty).Trim();
+            bool delayNonAttackActions = action.delay_non_attack_actions.GetValueOrDefault(false);
+            if (string.Equals(attackPlan, "all_face", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!CanApplyLocalRuleAllFaceAttack(board))
+                    return false;
+
+                if (delayNonAttackActions)
+                {
+                    DelayBoxOcrNonAttackActions(p, board);
+                    blockLocalPrimaryRules = true;
+                }
+
+                ApplyLocalRuleAllFaceAttackBias(p, board);
+                AddLog("[RuleJSON] " + SafeRuleId(match) + " -> AttackPlan all_face"
+                    + (delayNonAttackActions ? " delay_non_attack_actions" : string.Empty));
+                return true;
+            }
+
+            if (string.Equals(attackPlan, "hold_attacks_for_play", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!CanApplyLocalRuleHoldAttacks(board))
+                    return false;
+
+                ApplyLocalRuleHoldAttacksBias(p, board);
+                AddLog("[RuleJSON] " + SafeRuleId(match) + " -> AttackPlan hold_attacks_for_play");
+                return true;
+            }
+
+            if (string.Equals(attackPlan, "focus_target_first", StringComparison.OrdinalIgnoreCase))
+            {
+                bool expectsTargetForPlan = !string.IsNullOrWhiteSpace(action.target_kind);
+                DecisionTeacherHintMatch focusTargetMatch = BuildAttackTargetHint(
+                    board,
+                    action.target_kind,
+                    action.target_selector,
+                    action.target_card_id,
+                    action.target_slot);
+                if (expectsTargetForPlan && focusTargetMatch == null)
+                    return false;
+
+                Card focusTarget = ResolveBoxOcrEnemyMinion(board, focusTargetMatch);
+                if (!CanApplyLocalRuleFocusTargetAttack(board, focusTarget))
+                    return false;
+
+                if (delayNonAttackActions)
+                {
+                    DelayBoxOcrNonAttackActions(p, board);
+                    blockLocalPrimaryRules = true;
+                }
+
+                Card preferredSource = ResolveRuleFriendlyAttackSourceForTarget(board, focusTarget, action.source_selector);
+                ApplyLocalRuleFocusTargetAttackBias(p, board, preferredSource, focusTarget);
+                AddLog("[RuleJSON] " + SafeRuleId(match) + " -> AttackPlan focus_target_first"
+                    + " target=" + focusTarget.Template.Id
+                    + (preferredSource != null && preferredSource.Template != null ? " source=" + preferredSource.Template.Id : string.Empty)
+                    + (delayNonAttackActions ? " delay_non_attack_actions" : string.Empty));
+                return true;
+            }
+
+            DecisionTeacherHintMatch source = BuildAttackSourceHint(board, action.source_card_id, action.source_selector, action.source_slot);
+            if (source == null)
+                return false;
+
+            bool expectsTarget = !string.IsNullOrWhiteSpace(action.target_kind);
+            DecisionTeacherHintMatch target = BuildAttackTargetHint(board, action.target_kind, action.target_selector, action.target_card_id, action.target_slot);
+            if (expectsTarget && target == null)
+                return false;
+
+            Card sourceCard = ResolveBoxOcrFriendlyMinion(board, source);
+            if (sourceCard == null || sourceCard.Template == null || !sourceCard.CanAttack || sourceCard.CurrentAtk <= 0)
+                return false;
+
+            if (delayNonAttackActions)
+            {
+                DelayBoxOcrNonAttackActions(p, board);
+                blockLocalPrimaryRules = true;
+            }
+
+            ApplyLocalRuleAttackBias(p, board, sourceCard, target);
+            AddLog("[RuleJSON] " + SafeRuleId(match) + " -> Attack " + source.CardId
+                + (delayNonAttackActions ? " delay_non_attack_actions" : string.Empty)
+                + (target != null ? " target=" + target.Kind + ":" + target.CardId : string.Empty));
+            return true;
+        }
+
+        private bool CanApplyLocalRuleAllFaceAttack(Board board)
+        {
+            if (board == null || board.MinionFriend == null)
+                return false;
+
+            if (board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt))
+                return false;
+
+            return board.MinionFriend.Any(m =>
+                m != null
+                && m.Template != null
+                && m.CanAttack
+                && m.CurrentAtk > 0);
+        }
+
+        private bool CanApplyLocalRuleHoldAttacks(Board board)
+        {
+            if (board == null || board.MinionFriend == null)
+                return false;
+
+            return board.MinionFriend.Any(m =>
+                m != null
+                && m.Template != null
+                && m.CanAttack
+                && m.CurrentAtk > 0);
+        }
+
+        private bool CanApplyLocalRuleFocusTargetAttack(Board board, Card focusTarget)
+        {
+            if (board == null || focusTarget == null || focusTarget.Template == null || board.MinionFriend == null)
+                return false;
+
+            if (board.MinionEnemy != null
+                && board.MinionEnemy.Any(m => m != null && m.IsTaunt)
+                && !focusTarget.IsTaunt)
+            {
+                return false;
+            }
+
+            return board.MinionFriend.Any(m =>
+                m != null
+                && m.Template != null
+                && m.CanAttack
+                && m.CurrentAtk > 0);
+        }
+
+        private Card ResolveRuleHandCard(Board board, string rawCardId, int? slot)
+        {
+            if (board == null || board.Hand == null)
+                return null;
+
+            Card.Cards cardId;
+            if (!TryParseRuleCardId(rawCardId, out cardId))
+                return null;
+
+            if (slot.HasValue && slot.Value > 0 && slot.Value <= board.Hand.Count)
+            {
+                Card bySlot = board.Hand[slot.Value - 1];
+                if (bySlot != null && bySlot.Template != null && bySlot.Template.Id == cardId && IsRuleCardPlayableNow(board, bySlot))
+                    return bySlot;
+            }
+
+            return board.Hand.FirstOrDefault(card =>
+                card != null
+                && card.Template != null
+                && card.Template.Id == cardId
+                && IsRuleCardPlayableNow(board, card));
+        }
+
+        private bool IsRuleCardPlayableNow(Board board, Card card)
+        {
+            if (board == null || card == null || card.Template == null)
+                return false;
+
+            if (card.CurrentCost > GetAvailableManaIncludingCoin(board))
+                return false;
+
+            if (card.Type == Card.CType.MINION && GetFreeBoardSlots(board) <= 0)
+                return false;
+
+            return true;
+        }
+
+        private Card ResolveRuleTarget(Board board, string targetKind, string targetSelector, string targetCardId, int? targetSlot)
+        {
+            if (board == null || string.IsNullOrWhiteSpace(targetKind))
+                return null;
+
+            if (string.Equals(targetKind, "enemy_hero", StringComparison.OrdinalIgnoreCase))
+                return board.HeroEnemy;
+
+            if (!string.Equals(targetKind, "enemy_minion", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (board.MinionEnemy == null)
+                return null;
+
+            Card selectedBySelector = ResolveRuleEnemyMinionSelector(board, targetSelector);
+            if (selectedBySelector != null)
+                return selectedBySelector;
+
+            Card.Cards targetId;
+            bool hasTargetId = TryParseRuleCardId(targetCardId, out targetId);
+            if (targetSlot.HasValue && targetSlot.Value > 0 && targetSlot.Value <= board.MinionEnemy.Count)
+            {
+                Card bySlot = board.MinionEnemy[targetSlot.Value - 1];
+                if (bySlot != null && bySlot.Template != null && (!hasTargetId || bySlot.Template.Id == targetId))
+                    return bySlot;
+            }
+
+            if (!hasTargetId)
+                return null;
+
+            return board.MinionEnemy.FirstOrDefault(card =>
+                card != null
+                && card.Template != null
+                && card.Template.Id == targetId);
+        }
+
+        private Card ResolveRuleEnemyMinionSelector(Board board, string targetSelector)
+        {
+            if (board == null || board.MinionEnemy == null || string.IsNullOrWhiteSpace(targetSelector))
+                return null;
+
+            IEnumerable<Card> candidates = board.MinionEnemy.Where(card => card != null && card.Template != null);
+            if (string.Equals(targetSelector, "enemy_minion_highest_attack_non_frozen", StringComparison.OrdinalIgnoreCase))
+            {
+                candidates = candidates.Where(card => !IsCardFrozenByTag(card));
+            }
+            else if (string.Equals(targetSelector, "enemy_minion_highest_attack_taunt_first", StringComparison.OrdinalIgnoreCase))
+            {
+                if (candidates.Any(card => card.IsTaunt))
+                    candidates = candidates.Where(card => card.IsTaunt);
+            }
+            else if (string.Equals(targetSelector, "enemy_minion_highest_attack_non_frozen_non_taunt", StringComparison.OrdinalIgnoreCase))
+            {
+                candidates = candidates.Where(card => !IsCardFrozenByTag(card) && !card.IsTaunt);
+            }
+            else if (!string.Equals(targetSelector, "enemy_minion_highest_attack", StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            return candidates
+                .Select((card, index) => new { Card = card, Index = index })
+                .OrderByDescending(x => Math.Max(0, x.Card.CurrentAtk))
+                .ThenByDescending(x => Math.Max(0, x.Card.CurrentHealth))
+                .ThenBy(x => x.Index)
+                .Select(x => x.Card)
+                .FirstOrDefault();
+        }
+
+        private void ApplyRuleCardBias(ProfileParameters p, Card card, Card target)
+        {
+            if (p == null || card == null || card.Template == null || target == null)
+                return;
+
+            int targetId = target.Id;
+            if (card.Type == Card.CType.MINION)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800, targetId));
+                p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(-9800, targetId));
+            }
+            else if (card.Type == Card.CType.SPELL)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800, targetId));
+                p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(-9800, targetId));
+            }
+            else if (card.Type == Card.CType.WEAPON)
+            {
+                p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800, targetId));
+                p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(-9800, targetId));
+            }
+
+            p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(9999));
+        }
+
+        private void ApplyLocalRuleAttackBias(ProfileParameters p, Board board, Card sourceCard, DecisionTeacherHintMatch targetMatch)
+        {
+            if (p == null || board == null || sourceCard == null || sourceCard.Template == null)
+                return;
+
+            if (board.MinionFriend != null)
+            {
+                foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
+                {
+                    if (friend.Id == sourceCard.Id)
+                        continue;
+
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(4200));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                }
+            }
+
+            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(sourceCard.Template.Id, new Modifier(-2600));
+            p.AttackOrderModifiers.AddOrUpdate(sourceCard.Template.Id, new Modifier(-9999));
+
+            Card enemyTarget = ResolveBoxOcrEnemyMinion(board, targetMatch);
+            bool faceAttack = targetMatch != null
+                && string.Equals(targetMatch.Kind, "enemy_hero", StringComparison.OrdinalIgnoreCase);
+
+            if (enemyTarget != null && enemyTarget.Template != null)
+            {
+                ApplyExactAttackModifierCompat(p, sourceCard, enemyTarget, 5000);
+                p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemyTarget.Template.Id, new Modifier(9800));
+                return;
+            }
+
+            if (faceAttack && (board.MinionEnemy == null || !board.MinionEnemy.Any(m => m != null && m.IsTaunt)))
+            {
+                if (board.MinionEnemy != null)
+                {
+                    foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                        p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-9999));
+                }
+
+                p.GlobalAggroModifier = Math.Max(p.GlobalAggroModifier.Value, 300);
+            }
+        }
+
+        private void ApplyLocalRuleAllFaceAttackBias(ProfileParameters p, Board board)
+        {
+            if (p == null || board == null)
+                return;
+
+            if (board.MinionEnemy != null)
+            {
+                foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-9999));
+            }
+
+            if (board.MinionFriend != null)
+            {
+                foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0))
+                {
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-9999));
+                }
+            }
+
+            p.GlobalAggroModifier = Math.Max(p.GlobalAggroModifier.Value, 300);
+        }
+
+        private void ApplyLocalRuleHoldAttacksBias(ProfileParameters p, Board board, bool applyAggroModifier = true)
+        {
+            if (p == null || board == null)
+                return;
+
+            if (board.MinionEnemy != null)
+            {
+                foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-2200));
+            }
+
+            if (board.MinionFriend != null)
+            {
+                foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0))
+                {
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                }
+            }
+
+            if (applyAggroModifier)
+                p.GlobalAggroModifier = Math.Min(p.GlobalAggroModifier.Value, -2200);
+        }
+
+        private void ApplyLocalRuleFocusTargetAttackBias(ProfileParameters p, Board board, Card preferredSource, Card focusTarget)
+        {
+            if (p == null || board == null || focusTarget == null || focusTarget.Template == null)
+                return;
+
+            if (board.MinionEnemy != null)
+            {
+                foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                {
+                    if (enemy.Id == focusTarget.Id)
+                    {
+                        p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(9800));
+                    }
+                    else
+                    {
+                        p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-320));
+                    }
+                }
+            }
+
+            if (preferredSource == null || preferredSource.Template == null || board.MinionFriend == null)
+                return;
+
+            foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0))
+            {
+                if (friend.Id == preferredSource.Id)
+                {
+                    ApplyExactAttackModifierCompat(p, friend, focusTarget, 5000);
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-1200));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-9999));
+                }
+                else
+                {
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(320));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(1800));
+                }
+            }
+        }
+
+        private DecisionTeacherHintMatch BuildAttackSourceHint(Board board, string rawCardId, string sourceSelector, int? slot)
+        {
+            if (board == null || board.MinionFriend == null)
+                return null;
+
+            Card selectedBySelector = ResolveRuleFriendlyAttackSource(board, sourceSelector);
+            if (selectedBySelector != null && selectedBySelector.Template != null)
+            {
+                int selectedSlot = 0;
+                for (int i = 0; i < board.MinionFriend.Count; i++)
+                {
+                    if (board.MinionFriend[i] != null && board.MinionFriend[i].Id == selectedBySelector.Id)
+                    {
+                        selectedSlot = i + 1;
+                        break;
+                    }
+                }
+
+                return new DecisionTeacherHintMatch
+                {
+                    Kind = "friendly_minion",
+                    CardId = selectedBySelector.Template.Id,
+                    Slot = selectedSlot
+                };
+            }
+
+            Card.Cards sourceId;
+            if (!TryParseRuleCardId(rawCardId, out sourceId))
+                return null;
+
+            if (slot.HasValue && slot.Value > 0 && slot.Value <= board.MinionFriend.Count)
+            {
+                Card bySlot = board.MinionFriend[slot.Value - 1];
+                if (bySlot != null && bySlot.Template != null && bySlot.Template.Id == sourceId)
+                    return new DecisionTeacherHintMatch { Kind = "friendly_minion", CardId = sourceId, Slot = slot.Value };
+            }
+
+            for (int i = 0; i < board.MinionFriend.Count; i++)
+            {
+                Card minion = board.MinionFriend[i];
+                if (minion == null || minion.Template == null || minion.Template.Id != sourceId)
+                    continue;
+                return new DecisionTeacherHintMatch { Kind = "friendly_minion", CardId = sourceId, Slot = i + 1 };
+            }
+
+            return null;
+        }
+
+        private Card ResolveRuleFriendlyAttackSource(Board board, string sourceSelector)
+        {
+            if (board == null || board.MinionFriend == null || string.IsNullOrWhiteSpace(sourceSelector))
+                return null;
+
+            IEnumerable<Card> candidates = board.MinionFriend.Where(card =>
+                card != null
+                && card.Template != null
+                && card.CanAttack
+                && card.CurrentAtk > 0);
+
+            if (string.Equals(sourceSelector, "friendly_lifesteal_highest_attack_can_attack", StringComparison.OrdinalIgnoreCase))
+            {
+                return candidates
+                    .Where(card => card.IsLifeSteal)
+                    .Select((card, index) => new { Card = card, Index = index })
+                    .OrderByDescending(x => Math.Max(0, x.Card.CurrentAtk))
+                    .ThenByDescending(x => Math.Max(0, x.Card.CurrentHealth))
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Card)
+                    .FirstOrDefault();
+            }
+
+            if (string.Equals(sourceSelector, "friendly_minion_highest_attack_can_attack", StringComparison.OrdinalIgnoreCase))
+            {
+                return candidates
+                    .Select((card, index) => new { Card = card, Index = index })
+                    .OrderByDescending(x => Math.Max(0, x.Card.CurrentAtk))
+                    .ThenByDescending(x => Math.Max(0, x.Card.CurrentHealth))
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Card)
+                    .FirstOrDefault();
+            }
+
+            if (string.Equals(sourceSelector, "friendly_minion_lowest_attack_can_attack", StringComparison.OrdinalIgnoreCase))
+            {
+                return candidates
+                    .Select((card, index) => new { Card = card, Index = index })
+                    .OrderBy(x => Math.Max(0, x.Card.CurrentAtk))
+                    .ThenBy(x => Math.Max(0, x.Card.CurrentHealth))
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Card)
+                    .FirstOrDefault();
+            }
+
+            return null;
+        }
+
+        private Card ResolveRuleFriendlyAttackSourceForTarget(Board board, Card target, string sourceSelector)
+        {
+            Card selectedBySelector = ResolveRuleFriendlyAttackSource(board, sourceSelector);
+            if (selectedBySelector != null)
+                return selectedBySelector;
+
+            if (board == null || board.MinionFriend == null || target == null)
+                return null;
+
+            List<Card> candidates = board.MinionFriend
+                .Where(card =>
+                    card != null
+                    && card.Template != null
+                    && card.CanAttack
+                    && card.CurrentAtk > 0)
+                .ToList();
+            if (candidates.Count == 0)
+                return null;
+
+            int targetHealth = Math.Max(1, target.CurrentHealth);
+            if (!target.IsDivineShield)
+            {
+                Card lethalCandidate = candidates
+                    .Select((card, index) => new { Card = card, Index = index })
+                    .Where(x => x.Card.CurrentAtk >= targetHealth)
+                    .OrderBy(x => Math.Max(0, x.Card.CurrentAtk))
+                    .ThenBy(x => Math.Max(0, x.Card.CurrentHealth))
+                    .ThenBy(x => x.Index)
+                    .Select(x => x.Card)
+                    .FirstOrDefault();
+                if (lethalCandidate != null)
+                    return lethalCandidate;
+            }
+
+            return candidates
+                .Select((card, index) => new { Card = card, Index = index })
+                .OrderByDescending(x => Math.Max(0, x.Card.CurrentAtk))
+                .ThenBy(x => x.Index)
+                .Select(x => x.Card)
+                .FirstOrDefault();
+        }
+
+        private DecisionTeacherHintMatch BuildAttackTargetHint(Board board, string targetKind, string targetSelector, string rawCardId, int? slot)
+        {
+            if (string.IsNullOrWhiteSpace(targetKind))
+                return null;
+
+            if (string.Equals(targetKind, "enemy_hero", StringComparison.OrdinalIgnoreCase))
+            {
+                return new DecisionTeacherHintMatch
+                {
+                    Kind = "enemy_hero",
+                    CardId = board != null && board.HeroEnemy != null && board.HeroEnemy.Template != null
+                        ? board.HeroEnemy.Template.Id
+                        : default(Card.Cards),
+                    Slot = 0
+                };
+            }
+
+            if (!string.Equals(targetKind, "enemy_minion", StringComparison.OrdinalIgnoreCase) || board == null || board.MinionEnemy == null)
+                return null;
+
+            Card selectedBySelector = ResolveRuleEnemyMinionSelector(board, targetSelector);
+            if (selectedBySelector != null && selectedBySelector.Template != null)
+            {
+                int selectedSlot = 0;
+                for (int i = 0; i < board.MinionEnemy.Count; i++)
+                {
+                    if (board.MinionEnemy[i] != null && board.MinionEnemy[i].Id == selectedBySelector.Id)
+                    {
+                        selectedSlot = i + 1;
+                        break;
+                    }
+                }
+
+                return new DecisionTeacherHintMatch
+                {
+                    Kind = "enemy_minion",
+                    CardId = selectedBySelector.Template.Id,
+                    Slot = selectedSlot
+                };
+            }
+
+            Card.Cards targetId;
+            bool hasTargetId = TryParseRuleCardId(rawCardId, out targetId);
+            if (slot.HasValue && slot.Value > 0 && slot.Value <= board.MinionEnemy.Count)
+            {
+                Card bySlot = board.MinionEnemy[slot.Value - 1];
+                if (bySlot != null && bySlot.Template != null && (!hasTargetId || bySlot.Template.Id == targetId))
+                {
+                    return new DecisionTeacherHintMatch { Kind = "enemy_minion", CardId = bySlot.Template.Id, Slot = slot.Value };
+                }
+            }
+
+            if (!hasTargetId)
+                return null;
+
+            for (int i = 0; i < board.MinionEnemy.Count; i++)
+            {
+                Card minion = board.MinionEnemy[i];
+                if (minion == null || minion.Template == null || minion.Template.Id != targetId)
+                    continue;
+                return new DecisionTeacherHintMatch { Kind = "enemy_minion", CardId = targetId, Slot = i + 1 };
+            }
+
+            return null;
+        }
+
+        private bool TryParseRuleCardId(string raw, out Card.Cards value)
+        {
+            try
+            {
+                value = (Card.Cards)Enum.Parse(typeof(Card.Cards), raw ?? string.Empty, true);
+                return true;
+            }
+            catch
+            {
+                value = default(Card.Cards);
+                return false;
+            }
+        }
+
+        private string SafeRuleId(DecisionRuleMatchResult match)
+        {
+            if (match == null || match.Rule == null || string.IsNullOrWhiteSpace(match.Rule.id))
+                return "unnamed_rule";
+            return match.Rule.id;
+        }
+
+        private void ApplyBoxOcrLiveBias(ProfileParameters p, Board board)
+        {
+            DecisionTeacherHintState state = LoadCurrentBoxOcrLivePlayState();
+            if (state == null
+                || !state.IsFresh(12)
+                || !string.Equals(state.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                || !string.Equals(state.Stage, "play", StringComparison.OrdinalIgnoreCase)
+                || !state.MatchesProfile("标准动物园术.cs"))
+            {
+                return;
+            }
+
+            DecisionTeacherHintMatch primaryHeroPowerMatch = null;
+            DecisionTeacherHintMatch primaryCardMatch = null;
+            DecisionTeacherHintMatch primaryAttackSourceMatch = null;
+            DecisionTeacherHintMatch primaryAttackTargetMatch = null;
+            Card primaryCard = null;
+
+            foreach (DecisionTeacherHintMatch match in state.Matches)
+            {
+                if (string.Equals(match.Kind, "friendly_minion", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (primaryAttackSourceMatch == null)
+                        primaryAttackSourceMatch = match;
+                    continue;
+                }
+
+                if (string.Equals(match.Kind, "enemy_minion", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(match.Kind, "enemy_hero", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (primaryAttackTargetMatch == null)
+                        primaryAttackTargetMatch = match;
+                    continue;
+                }
+
+                if (string.Equals(match.Kind, "hero_power", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (board.Ability != null
+                        && board.Ability.Template != null
+                        && board.Ability.Template.Id == match.CardId)
+                    {
+                        if (primaryHeroPowerMatch == null)
+                            primaryHeroPowerMatch = match;
+                    }
+                    continue;
+                }
+
+                if (!string.Equals(match.Kind, "card", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                Card target = ResolveBoxOcrHandCard(board, match);
+                if (target == null || target.Template == null)
+                    continue;
+
+                if (primaryCard == null)
+                {
+                    primaryCard = target;
+                    primaryCardMatch = match;
+                }
+            }
+
+            if (primaryCard != null)
+            {
+                ForceBoxOcrPrimaryCard(p, board, primaryCard, primaryCardMatch);
+                return;
+            }
+
+            if (primaryHeroPowerMatch != null)
+            {
+                ForceBoxOcrPrimaryHeroPower(p, board, primaryHeroPowerMatch);
+                return;
+            }
+
+            if (primaryAttackSourceMatch != null)
+            {
+                ForceBoxOcrPrimaryAttack(p, board, primaryAttackSourceMatch, primaryAttackTargetMatch);
+            }
+        }
+
+        private void ApplyBoxOcrGeneratedBias(ProfileParameters p, Board board)
+        {
+            if (p == null || board == null || board.Hand == null)
+                return;
+
+            // BOXOCR_PLAY_GENERATED_START
+            foreach (Card card in board.Hand)
+            {
+                if (card == null || card.Template == null)
+                    continue;
+
+                switch (card.Template.Id)
+                {
+                    case Card.Cards.GDB_123:
+                        p.CastSpellsModifiers.AddOrUpdate(Card.Cards.GDB_123, new Modifier(-2500));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.GDB_123, new Modifier(9999));
+                        break;
+                    case Card.Cards.GDB_121:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.GDB_121, new Modifier(-2500));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.GDB_121, new Modifier(9999));
+                        break;
+                    case Card.Cards.CORE_SW_068:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.CORE_SW_068, new Modifier(-2500));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.CORE_SW_068, new Modifier(9999));
+                        break;
+                    case Card.Cards.FIR_924:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.FIR_924, new Modifier(-2500));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.FIR_924, new Modifier(9999));
+                        break;
+                    case Card.Cards.CORE_TSC_827:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.CORE_TSC_827, new Modifier(-2500));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.CORE_TSC_827, new Modifier(9800));
+                        break;
+                    case Card.Cards.CORE_ULD_723:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.CORE_ULD_723, new Modifier(-2400));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.CORE_ULD_723, new Modifier(9300));
+                        break;
+                    case Card.Cards.TIME_026:
+                        p.CastSpellsModifiers.AddOrUpdate(Card.Cards.TIME_026, new Modifier(-2400));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TIME_026, new Modifier(9300));
+                        break;
+                    case Card.Cards.TLC_603:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.TLC_603, new Modifier(-2400));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TLC_603, new Modifier(9300));
+                        break;
+                    case Card.Cards.TOY_916:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.TOY_916, new Modifier(-2150));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TOY_916, new Modifier(9050));
+                        break;
+                    case Card.Cards.CORE_UNG_205:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.CORE_UNG_205, new Modifier(-1900));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.CORE_UNG_205, new Modifier(8800));
+                        break;
+                    case Card.Cards.TLC_254:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.TLC_254, new Modifier(-1900));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TLC_254, new Modifier(8800));
+                        break;
+                    case Card.Cards.TLC_451:
+                        p.CastSpellsModifiers.AddOrUpdate(Card.Cards.TLC_451, new Modifier(-1900));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TLC_451, new Modifier(8800));
+                        break;
+                    case Card.Cards.VAC_940:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.VAC_940, new Modifier(-1900));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.VAC_940, new Modifier(8800));
+                        break;
+                    case Card.Cards.CORE_EX1_319:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.CORE_EX1_319, new Modifier(-1650));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.CORE_EX1_319, new Modifier(8550));
+                        break;
+                    case Card.Cards.GAME_005:
+                        p.CastSpellsModifiers.AddOrUpdate(Card.Cards.GAME_005, new Modifier(-1650));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.GAME_005, new Modifier(8550));
+                        break;
+                    case Card.Cards.GDB_128:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.GDB_128, new Modifier(-1650));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.GDB_128, new Modifier(8550));
+                        break;
+                    case Card.Cards.GDB_145:
+                        p.CastMinionsModifiers.AddOrUpdate(Card.Cards.GDB_145, new Modifier(-1650));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.GDB_145, new Modifier(8550));
+                        break;
+                    case Card.Cards.TOY_377:
+                        p.CastSpellsModifiers.AddOrUpdate(Card.Cards.TOY_377, new Modifier(-1650));
+                        p.PlayOrderModifiers.AddOrUpdate(Card.Cards.TOY_377, new Modifier(8550));
+                        break;
+                }
+            }
+
+            if (board.MinionFriend != null)
+            {
+                foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0))
+                {
+                    switch (friend.Template.Id)
+                    {
+                        case Card.Cards.CORE_SW_068:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.CORE_SW_068, new Modifier(-1300));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.CORE_SW_068, new Modifier(-2560));
+                            break;
+                        case Card.Cards.CORE_ULD_723:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.CORE_ULD_723, new Modifier(-760));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.CORE_ULD_723, new Modifier(-1780));
+                            break;
+                        case Card.Cards.TOY_916:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.TOY_916, new Modifier(-760));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.TOY_916, new Modifier(-1780));
+                            break;
+                        case Card.Cards.WORK_009:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.WORK_009, new Modifier(-760));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.WORK_009, new Modifier(-1780));
+                            break;
+                        case Card.Cards.CORE_CS2_231:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.CORE_CS2_231, new Modifier(-580));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.CORE_CS2_231, new Modifier(-1520));
+                            break;
+                        case Card.Cards.TOY_914:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.TOY_914, new Modifier(-580));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.TOY_914, new Modifier(-1520));
+                            break;
+                        case Card.Cards.CORE_TSC_827:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.CORE_TSC_827, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.CORE_TSC_827, new Modifier(-1260));
+                            break;
+                        case Card.Cards.GDB_121:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.GDB_121, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.GDB_121, new Modifier(-1260));
+                            break;
+                        case Card.Cards.TLC_603:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.TLC_603, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.TLC_603, new Modifier(-1260));
+                            break;
+                        case Card.Cards.VAC_927:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.VAC_927, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.VAC_927, new Modifier(-1260));
+                            break;
+                        case Card.Cards.VAC_940:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.VAC_940, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.VAC_940, new Modifier(-1260));
+                            break;
+                        case Card.Cards.VAC_940t:
+                            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(Card.Cards.VAC_940t, new Modifier(-400));
+                            p.AttackOrderModifiers.AddOrUpdate(Card.Cards.VAC_940t, new Modifier(-1260));
+                            break;
+                    }
+                }
+            }
+
+            if (board.MinionEnemy != null)
+            {
+                foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                {
+                    switch (enemy.Template.Id)
+                    {
+                        case Card.Cards.CORE_EX1_559:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_EX1_559, new Modifier(880));
+                            break;
+                        case Card.Cards.CORE_UNG_928:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_UNG_928, new Modifier(880));
+                            break;
+                        case Card.Cards.EDR_489:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.EDR_489, new Modifier(880));
+                            break;
+                        case Card.Cards.CORE_EX1_012:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_EX1_012, new Modifier(620));
+                            break;
+                        case Card.Cards.CORE_EX1_250:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_EX1_250, new Modifier(620));
+                            break;
+                        case Card.Cards.CORE_NEW1_022:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_NEW1_022, new Modifier(620));
+                            break;
+                        case Card.Cards.CORE_TSC_827:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CORE_TSC_827, new Modifier(620));
+                            break;
+                        case Card.Cards.CS2_mirror:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.CS2_mirror, new Modifier(620));
+                            break;
+                        case Card.Cards.TLC_819:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.TLC_819, new Modifier(620));
+                            break;
+                        case Card.Cards.TOY_006:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.TOY_006, new Modifier(620));
+                            break;
+                        case Card.Cards.VAC_332:
+                            p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(Card.Cards.VAC_332, new Modifier(620));
+                            break;
+                    }
+                }
+            }
+
+            p.GlobalAggroModifier = Math.Max(p.GlobalAggroModifier.Value, 320);
+// BOXOCR_PLAY_GENERATED_END
+        }
+
+        private void ApplyBoxOcrLiveCardBias(ProfileParameters p, Card card, int castValue, int orderValue)
+        {
+            if (p == null || card == null || card.Template == null)
+                return;
+
+            if (card.Type == Card.CType.MINION)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castValue));
+                p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(castValue));
+            }
+            else if (card.Type == Card.CType.SPELL)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castValue));
+                p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(castValue));
+            }
+            else if (card.Type == Card.CType.WEAPON)
+            {
+                p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castValue));
+                p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(castValue));
+            }
+
+            p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(orderValue));
+            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(orderValue));
+        }
+
+        private void ForceBoxOcrPrimaryCard(ProfileParameters p, Board board, Card target, DecisionTeacherHintMatch match)
+        {
+            if (p == null || board == null || target == null || target.Template == null)
+                return;
+
+            bool comboForced = SetSingleCardComboByEntityId(
+                board,
+                p,
+                target.Id,
+                allowCoinBridge: true,
+                forceOverride: true,
+                logWhenSet: "[BoxOCR] ComboSet -> " + target.Template.Id);
+
+            if (!comboForced)
+            {
+                ApplyBoxOcrLiveCardBias(p, target, -3600, 9800);
+                AddLog("[BoxOCR] live card soft fallback -> " + target.Template.Id + " slot=" + (match != null ? match.Slot : 0));
+                return;
+            }
+
+            ApplyBoxOcrLiveCardBias(p, target, -9800, 9999);
+            SuppressBoxOcrCompetingCards(p, board, target);
+            SuppressBoxOcrHeroPower(p, board);
+            AddLog("[BoxOCR] live card -> " + target.Template.Id + " slot=" + (match != null ? match.Slot : 0));
+        }
+
+        private void ForceBoxOcrPrimaryHeroPower(ProfileParameters p, Board board, DecisionTeacherHintMatch match)
+        {
+            if (p == null || board == null || board.Ability == null || board.Ability.Template == null)
+                return;
+
+            p.CastHeroPowerModifier.AddOrUpdate(board.Ability.Template.Id, new Modifier(-9800));
+            p.PlayOrderModifiers.AddOrUpdate(board.Ability.Template.Id, new Modifier(9999));
+
+            if (board.Hand != null)
+            {
+                int manaNow = GetAvailableManaIncludingCoin(board);
+                foreach (Card card in board.Hand.Where(c => c != null && c.Template != null && c.CurrentCost <= manaNow))
+                    DelayBoxOcrCompetingCard(p, card, false);
+            }
+
+            AddLog("[BoxOCR] live hero power -> " + (match != null ? match.CardId.ToString() : board.Ability.Template.Id.ToString()));
+        }
+
+        private void SuppressBoxOcrCompetingCards(ProfileParameters p, Board board, Card preferredCard)
+        {
+            if (p == null || board == null || board.Hand == null || preferredCard == null || preferredCard.Template == null)
+                return;
+
+            int realMana = Math.Max(0, board.ManaAvailable);
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            bool needsCoinBridge = preferredCard.CurrentCost > realMana;
+
+            foreach (Card card in board.Hand.Where(c => c != null && c.Template != null && c.Id != preferredCard.Id && c.CurrentCost <= manaNow))
+            {
+                if (needsCoinBridge && card.Template.Id == TheCoin)
+                    continue;
+
+                bool sameTemplate = card.Template.Id == preferredCard.Template.Id;
+                DelayBoxOcrCompetingCard(p, card, sameTemplate);
+            }
+        }
+
+        private void DelayBoxOcrCompetingCard(ProfileParameters p, Card card, bool sameTemplateAsPreferred)
+        {
+            if (p == null || card == null || card.Template == null)
+                return;
+
+            int castDelay = sameTemplateAsPreferred ? 6200 : 9800;
+            int orderDelay = -9999;
+
+            if (card.Type == Card.CType.MINION)
+            {
+                if (!sameTemplateAsPreferred)
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castDelay));
+                p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(castDelay));
+            }
+            else if (card.Type == Card.CType.SPELL)
+            {
+                if (!sameTemplateAsPreferred)
+                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castDelay));
+                p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(castDelay));
+            }
+            else if (card.Type == Card.CType.WEAPON)
+            {
+                if (!sameTemplateAsPreferred)
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castDelay));
+                p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(castDelay));
+            }
+
+            if (!sameTemplateAsPreferred)
+                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(orderDelay));
+            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(orderDelay));
+        }
+
+        private void SuppressBoxOcrHeroPower(ProfileParameters p, Board board)
+        {
+            if (p == null || board == null || board.Ability == null || board.Ability.Template == null)
+                return;
+
+            p.CastHeroPowerModifier.AddOrUpdate(board.Ability.Template.Id, new Modifier(9999));
+            p.PlayOrderModifiers.AddOrUpdate(board.Ability.Template.Id, new Modifier(-9999));
+        }
+
+        private void ForceBoxOcrPrimaryAttack(ProfileParameters p, Board board, DecisionTeacherHintMatch sourceMatch, DecisionTeacherHintMatch targetMatch)
+        {
+            Card source = ResolveBoxOcrFriendlyMinion(board, sourceMatch);
+            if (p == null || board == null || source == null || source.Template == null || !source.CanAttack || source.CurrentAtk <= 0)
+                return;
+
+            DelayBoxOcrNonAttackActions(p, board);
+
+            if (board.MinionFriend != null)
+            {
+                foreach (Card friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
+                {
+                    if (friend.Template.Id == source.Template.Id)
+                        continue;
+
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(4200));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                }
+            }
+
+            p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(source.Template.Id, new Modifier(-2600));
+            p.AttackOrderModifiers.AddOrUpdate(source.Template.Id, new Modifier(-9999));
+
+            Card enemyTarget = ResolveBoxOcrEnemyMinion(board, targetMatch);
+            bool faceAttack = targetMatch != null
+                && string.Equals(targetMatch.Kind, "enemy_hero", StringComparison.OrdinalIgnoreCase);
+
+            if (enemyTarget != null && enemyTarget.Template != null)
+            {
+                ApplyExactAttackModifierCompat(p, source, enemyTarget, 5000);
+                p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemyTarget.Template.Id, new Modifier(9800));
+                AddLog("[BoxOCR] live attack -> " + source.Template.Id + " -> " + enemyTarget.Template.Id
+                    + " slot=" + (sourceMatch != null ? sourceMatch.Slot : 0)
+                    + "/" + (targetMatch != null ? targetMatch.Slot : 0));
+                return;
+            }
+
+            if (faceAttack && (board.MinionEnemy == null || !board.MinionEnemy.Any(m => m != null && m.IsTaunt)))
+            {
+                if (board.MinionEnemy != null)
+                {
+                    foreach (Card enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
+                        p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-9999));
+                }
+
+                p.GlobalAggroModifier = Math.Max(p.GlobalAggroModifier.Value, 300);
+                AddLog("[BoxOCR] live attack -> " + source.Template.Id + " -> enemy_hero");
+                return;
+            }
+
+            AddLog("[BoxOCR] live attack soft fallback -> " + source.Template.Id + " slot=" + (sourceMatch != null ? sourceMatch.Slot : 0));
+        }
+
+        private void DelayBoxOcrNonAttackActions(ProfileParameters p, Board board)
+        {
+            if (p == null || board == null)
+                return;
+
+            if (board.Hand != null)
+            {
+                int manaNow = GetAvailableManaIncludingCoin(board);
+                foreach (Card card in board.Hand.Where(c => c != null && c.Template != null && c.CurrentCost <= manaNow))
+                    DelayBoxOcrCompetingCard(p, card, false);
+            }
+
+            if (board.Ability != null && board.Ability.Template != null)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(board.Ability.Template.Id, new Modifier(6200));
+                p.PlayOrderModifiers.AddOrUpdate(board.Ability.Template.Id, new Modifier(-9999));
+            }
+        }
+
+        private Card ResolveBoxOcrHandCard(Board board, DecisionTeacherHintMatch match)
+        {
+            if (board == null || board.Hand == null || match == null)
+                return null;
+
+            if (match.Slot > 0 && match.Slot <= board.Hand.Count)
+            {
+                Card bySlot = board.Hand[match.Slot - 1];
+                if (bySlot != null && bySlot.Template != null && bySlot.Template.Id == match.CardId)
+                    return bySlot;
+            }
+
+            return board.Hand.FirstOrDefault(card =>
+                card != null
+                && card.Template != null
+                && card.Template.Id == match.CardId);
+        }
+
+        private Card ResolveBoxOcrFriendlyMinion(Board board, DecisionTeacherHintMatch match)
+        {
+            if (board == null || board.MinionFriend == null || match == null)
+                return null;
+
+            if (match.Slot > 0 && match.Slot <= board.MinionFriend.Count)
+            {
+                Card bySlot = board.MinionFriend[match.Slot - 1];
+                if (bySlot != null && bySlot.Template != null && bySlot.Template.Id == match.CardId)
+                    return bySlot;
+            }
+
+            return board.MinionFriend.FirstOrDefault(minion =>
+                minion != null
+                && minion.Template != null
+                && minion.Template.Id == match.CardId
+                && minion.CanAttack);
+        }
+
+        private Card ResolveBoxOcrEnemyMinion(Board board, DecisionTeacherHintMatch match)
+        {
+            if (board == null || board.MinionEnemy == null || match == null)
+                return null;
+
+            if (!string.Equals(match.Kind, "enemy_minion", StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (match.Slot > 0 && match.Slot <= board.MinionEnemy.Count)
+            {
+                Card bySlot = board.MinionEnemy[match.Slot - 1];
+                if (bySlot != null && bySlot.Template != null && bySlot.Template.Id == match.CardId)
+                    return bySlot;
+            }
+
+            return board.MinionEnemy.FirstOrDefault(minion =>
+                minion != null
+                && minion.Template != null
+                && minion.Template.Id == match.CardId);
+        }
+
+        private DecisionTeacherHintState LoadCurrentBoxOcrLivePlayState()
+        {
+            return DecisionStateExtractor.LoadTeacherHint();
         }
 
         // 最终兜底：对已知会导致“无效重复施放”的牌做硬禁用（按实体ID覆盖）。
@@ -337,42 +2227,51 @@ namespace SmartBotProfiles
 
             bool disabledCreationStar = false;
             bool disabledUnlicensedApothecary = false;
+            bool disabledStarDestroyerByFullHand = false;
+            bool handFull = board.Hand.Count >= HearthstoneHandLimit;
             foreach (var card in board.Hand.Where(c => c != null && c.Template != null))
             {
                 string cardId = card.Template.Id.ToString();
+                bool isStarDestroyerAndHandFull = handFull
+                    && string.Equals(cardId, StarDestroyerCardId, StringComparison.Ordinal);
                 bool disableThisCard = string.Equals(cardId, CreationStarCardId, StringComparison.Ordinal)
-                    || string.Equals(cardId, UnlicensedApothecaryCardId, StringComparison.Ordinal);
+                    || string.Equals(cardId, UnlicensedApothecaryCardId, StringComparison.Ordinal)
+                    || isStarDestroyerAndHandFull;
                 if (!disableThisCard)
                     continue;
 
                 if (card.Type == Card.CType.MINION)
                 {
-                    p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(10000));
-                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(9999));
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                 }
                 else if (card.Type == Card.CType.WEAPON)
                 {
-                    p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(10000));
-                    p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(9999));
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                 }
                 else
                 {
-                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(10000));
-                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(9999));
+                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                 }
 
-                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-10000));
-                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
+                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                 if (string.Equals(cardId, CreationStarCardId, StringComparison.Ordinal))
                     disabledCreationStar = true;
                 if (string.Equals(cardId, UnlicensedApothecaryCardId, StringComparison.Ordinal))
                     disabledUnlicensedApothecary = true;
+                if (isStarDestroyerAndHandFull)
+                    disabledStarDestroyerByFullHand = true;
             }
 
             if (disabledCreationStar)
                 AddLog("创生之星：硬规则禁用，防止无效重复施放");
             if (disabledUnlicensedApothecary)
                 AddLog("无证药剂师：硬规则禁用，不主动使用");
+            if (disabledStarDestroyerByFullHand)
+                AddLog("星辰毁灭者：手牌已满(10)，硬规则禁用避免爆牌浪费");
 
             // 用户规则：凶恶的入侵者在场时，法术迸发会对“其他随从”打2，
             // 若己方已铺场，继续施法（如射线/续连/墓）常导致己方场面被反噬清空。
@@ -385,8 +2284,8 @@ namespace SmartBotProfiles
                     && c.Type == Card.CType.SPELL
                     && c.CurrentCost <= manaNow))
                 {
-                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                     disabledAnySpell = true;
                 }
 
@@ -532,7 +2431,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, ViciousSlitherspear, allowCoinBridge: false, forceOverride: true,
                     logWhenSet: "滑矛纳迦：第一回合ComboSet最优先");
                 p.CastMinionsModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(-6800));
-                p.PlayOrderModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(9999));
 
                 // 第一回合命中滑矛绝对优先窗口时，其它前期动作统一后置。
                 p.CastMinionsModifiers.AddOrUpdate(Wisp, new Modifier(2600));
@@ -566,7 +2465,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, ViciousSlitherspear, allowCoinBridge: true, forceOverride: false,
                     logWhenSet: "滑矛纳迦：起手ComboSet优先");
                 p.CastMinionsModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(-3200));
-                p.PlayOrderModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(9999));
                 AddLog("滑矛纳迦：起手阶段优先落地");
 
                 if (flameImpPlayableNow)
@@ -696,7 +2595,7 @@ namespace SmartBotProfiles
                 && !ShouldHoldForStorytellerBuff(board))
             {
                 p.CastMinionsModifiers.AddOrUpdate(Wisp, new Modifier(-3600));
-                p.PlayOrderModifiers.AddOrUpdate(Wisp, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(Wisp, new Modifier(9999));
                 AddLog("小精灵：命中0费收尾补位规则，攻击腾格后优先补下");
             }
         }
@@ -731,23 +2630,35 @@ namespace SmartBotProfiles
             var enemyMinions = board.MinionEnemy
                 .Where(m => m != null && m.Template != null)
                 .ToList();
+            var nonFrozenEnemyMinions = enemyMinions
+                .Where(m => !IsCardFrozenByTag(m))
+                .ToList();
 
             // 默认规则：敌方有随从时，冰片优先冻结“当前攻击最高”的目标。
             // 例外规则：若最高攻击目标是嘲讽，且本回合可低损清光嘲讽，则改冻非嘲讽威胁目标。
             if (enemyMinions.Count > 0)
             {
-                var surgeonTarget = enemyMinions
+                if (nonFrozenEnemyMinions.Count == 0)
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(GlacialShard, new Modifier(2200));
+                    p.PlayOrderModifiers.AddOrUpdate(GlacialShard, new Modifier(-9200));
+                    AddLog("冰川裂片：敌方目标已冻结，后置避免重复冻结");
+                    return;
+                }
+
+                var surgeonTarget = nonFrozenEnemyMinions
                     .Where(m => m.Template.Id == Card.Cards.CORE_WON_065)
                     .OrderByDescending(m => m.CurrentHealth)
                     .ThenByDescending(m => m.CurrentAtk)
                     .FirstOrDefault();
-                var highestAtkEnemy = enemyMinions
+                var attackRankedEnemies = nonFrozenEnemyMinions
                     .OrderByDescending(m => m.CurrentAtk)
                     .ThenByDescending(m => GetDangerEngineTradeBonus(m.Template.Id))
                     .ThenByDescending(m => m.IsTaunt ? 1 : 0)
                     .ThenByDescending(m => m.IsLifeSteal ? 1 : 0)
                     .ThenByDescending(m => m.CurrentHealth)
-                    .First();
+                    .ToList();
+                var highestAtkEnemy = attackRankedEnemies.First();
                 if (surgeonTarget != null)
                     highestAtkEnemy = surgeonTarget;
 
@@ -778,7 +2689,7 @@ namespace SmartBotProfiles
                 if (highestAtkEnemy.IsTaunt && canClearAllTauntsNow)
                 {
                     // 仅在存在“真实威胁”的非嘲讽目标时才重定向，避免把冻结浪费到0攻地标/无威胁单位上。
-                    var alternativeTarget = enemyMinions
+                    var alternativeTarget = nonFrozenEnemyMinions
                         .Where(m => !m.IsTaunt
                             && (m.CurrentAtk > 0
                                 || m.IsLifeSteal
@@ -801,6 +2712,23 @@ namespace SmartBotProfiles
                     }
                 }
 
+                // 用户规则：若最高攻击目标本回合大概率会被我方攻击解掉，
+                // 冰片改冻“次高攻击”目标，提升冻结覆盖面。
+                if (surgeonTarget == null
+                    && !freezeTargetRedirected
+                    && IsEnemyLikelyKilledByFriendlyAttacksThisTurn(board, highestAtkEnemy))
+                {
+                    var secondHighestEnemy = attackRankedEnemies
+                        .FirstOrDefault(m => m != null && m.Id != highestAtkEnemy.Id);
+                    if (secondHighestEnemy != null)
+                    {
+                        highestAtkEnemy = secondHighestEnemy;
+                        freezeTargetRedirected = true;
+                        AddLog("冰川裂片：最高攻目标预计可解，改冻次高攻 atk="
+                            + highestAtkEnemy.CurrentAtk + " id=" + highestAtkEnemy.Template.Id);
+                    }
+                }
+
                 // 最高攻击目标强制前置；非最高攻击目标显式后置，避免错误冻结。
                 foreach (var enemy in enemyMinions)
                 {
@@ -819,7 +2747,7 @@ namespace SmartBotProfiles
                         SetSingleCardCombo(board, p, GlacialShard, allowCoinBridge: true, forceOverride: true,
                             logWhenSet: "冰川裂片：随船外科医师在场，ComboSet强制先手");
                         p.CastMinionsModifiers.AddOrUpdate(GlacialShard, new Modifier(-5200));
-                        p.PlayOrderModifiers.AddOrUpdate(GlacialShard, new Modifier(10000));
+                        p.PlayOrderModifiers.AddOrUpdate(GlacialShard, new Modifier(9999));
                     }
                     AddLog("冰川裂片：检测到随船外科医师，强制优先冻结 id=" + highestAtkEnemy.Template.Id);
                     return;
@@ -898,6 +2826,15 @@ namespace SmartBotProfiles
                     && card.Template.Id != TheCoin
                     && card.CurrentCost <= manaNow
                     && (card.Type != Card.CType.MINION || freeSlots > 0));
+            bool hasPlayableFourCostTempoMinionNow = manaNow == 4
+                && freeSlots > 0
+                && board.Hand.Any(card =>
+                    card != null
+                    && card.Template != null
+                    && card.Type == Card.CType.MINION
+                    && card.Template.Id != Platysaur
+                    && card.CurrentCost == 4
+                    && card.CurrentCost <= manaNow);
 
             p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(-260));
             p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(760));
@@ -911,10 +2848,10 @@ namespace SmartBotProfiles
                     foreach (var tauntId in playableTauntMinionIds)
                     {
                         p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-5600));
-                        p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(10000));
+                        p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
                     }
                     p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(4200));
-                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-9999));
                     AddLog("栉龙：危险血线且有可下嘲讽，后置让位嘲讽稳场");
                     return;
                 }
@@ -923,7 +2860,7 @@ namespace SmartBotProfiles
                 if (entropyPriorityWindowNow)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(4200));
-                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-9999));
                     AddLog("栉龙：续连熵能可用且覆盖达标，后置让位buff");
                     return;
                 }
@@ -932,7 +2869,7 @@ namespace SmartBotProfiles
                 if (forebodingPlayableNow && forebodingUntriggered)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(4600));
-                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-9999));
                     AddLog("栉龙：恶兆邪火可用且未触发，后置让位邪火先手");
                     return;
                 }
@@ -954,6 +2891,15 @@ namespace SmartBotProfiles
                         return;
                     }
 
+                    // 用户反馈：4费回合有可下4费随从时，不让栉龙强抢节奏位（避免“送栉龙”）。
+                    if (hasPlayableFourCostTempoMinionNow)
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(3600));
+                        p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-9999));
+                        AddLog("栉龙：4费曲线有可下随从，后置让位不抢线");
+                        return;
+                    }
+
                     ForcePlatysaurFirstThisTurn(board, p, manaNow);
                     bool sketchPlayableNow = board.Hand.Any(c => c != null && c.Template != null
                         && c.Template.Id == SketchArtist
@@ -965,7 +2911,7 @@ namespace SmartBotProfiles
                             logWhenSet: "栉龙：ComboSet必出");
                     }
                     p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(-4200));
-                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(9999));
                     AddLog("栉龙：命中优先规则，可用则本回合优先使用");
                 }
             }
@@ -1052,7 +2998,7 @@ namespace SmartBotProfiles
             if (hardBlockPartyFiendByBoardCount)
             {
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(9000));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-9999));
                 AddLog("派对邪犬：友方随从>=6，硬规则禁打");
                 return;
             }
@@ -1070,8 +3016,19 @@ namespace SmartBotProfiles
             if (hpAfterPartySelfDamage <= 2)
             {
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(9000));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-9999));
                 AddLog("派对邪犬：自伤后血量<=2，硬规则禁打");
+                return;
+            }
+
+            // 用户反馈：低血高压时不应“送邪犬”；若自伤后会落入敌方场攻覆盖，直接禁打（不允许应急窗口覆盖）。
+            if (enemyHasBoard
+                && friendHp <= 8
+                && hpAfterPartySelfDamage <= enemyAttack)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(9000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-9999));
+                AddLog("派对邪犬：低血且自伤后落入敌方场攻覆盖，硬规则禁打");
                 return;
             }
 
@@ -1093,7 +3050,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, PartyFiend, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "派对邪犬：危险血线窗口强制优先");
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 AddLog("派对邪犬：危险血线且可安全自伤，强制优先落地");
                 return;
             }
@@ -1125,7 +3082,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, PartyFiend, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "派对邪犬：短手牌节奏窗口优先");
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-3600));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 p.CastMinionsModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(2600));
                 p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-9800));
                 AddLog("派对邪犬：中期短手牌节奏窗口，优先于继续叠始祖龟");
@@ -1159,9 +3116,9 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, PartyFiend, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "派对邪犬：起手跳币ComboSet优先");
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(9999));
 
                 // 命中该窗口时，烈焰小鬼让位，避免“跳币后先下1费随从”打断邪犬节奏。
                 p.CastMinionsModifiers.AddOrUpdate(FlameImp, new Modifier(1400));
@@ -1190,7 +3147,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, PartyFiend, allowCoinBridge: true, forceOverride: false,
                     logWhenSet: "派对邪犬：ComboSet先铺后buff");
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-4200));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 AddLog("派对邪犬：可同回合接续连熵能，强制先下邪犬");
             }
 
@@ -1217,7 +3174,11 @@ namespace SmartBotProfiles
                 return;
 
             int manaNow = GetAvailableManaIncludingCoin(board);
+            int freeSlots = GetFreeBoardSlots(board);
             int outsidePlayable = 0;
+            bool platysaurPlayableNow = freeSlots > 0 && board.Hand.Any(c => c != null && c.Template != null
+                && c.Template.Id == Platysaur
+                && c.CurrentCost <= manaNow);
 
             foreach (var card in board.Hand.Where(c => c != null && c.Template != null))
             {
@@ -1237,7 +3198,15 @@ namespace SmartBotProfiles
 
             if (outsidePlayable > 0)
             {
-                AddLog("后期优先级：套外恶魔前置，优先于小精灵/冰川裂片/滑矛纳迦/烈焰小鬼/鱼人木乃伊/派对邪犬，可打数量=" + outsidePlayable);
+                // 用户规则：后期可下套外恶魔时，栉龙不再抢先，后置让位套外恶魔。
+                if (platysaurPlayableNow)
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(Platysaur, new Modifier(5200));
+                    p.PlayOrderModifiers.AddOrUpdate(Platysaur, new Modifier(-9999));
+                    AddLog("后期优先级：可下套外恶魔时，栉龙后置让位");
+                }
+
+                AddLog("后期优先级：套外恶魔前置，优先于小精灵/冰川裂片/滑矛纳迦/烈焰小鬼/鱼人木乃伊/栉龙/派对邪犬，可打数量=" + outsidePlayable);
             }
         }
 
@@ -1297,7 +3266,7 @@ namespace SmartBotProfiles
             if (earlyStorytellerOneDropWindow)
             {
                 p.CastMinionsModifiers.AddOrUpdate(ForebodingFlame, new Modifier(5200));
-                p.PlayOrderModifiers.AddOrUpdate(ForebodingFlame, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(ForebodingFlame, new Modifier(-9999));
 
                 var earlyOneDrops = board.Hand
                     .Where(c => c != null && c.Template != null
@@ -1426,7 +3395,7 @@ namespace SmartBotProfiles
                 }
 
                 if (scaledCast < -5200) scaledCast = -5200;
-                if (scaledOrder > 10000) scaledOrder = 10000;
+                if (scaledOrder > 9999) scaledOrder = 9999;
 
                 p.CastMinionsModifiers.AddOrUpdate(DespicableDreadlord, new Modifier(scaledCast));
                 p.PlayOrderModifiers.AddOrUpdate(DespicableDreadlord, new Modifier(scaledOrder));
@@ -1447,36 +3416,25 @@ namespace SmartBotProfiles
         {
             if (!IsAbductionRayTurnUnlocked(board))
             {
-                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：第4回合前硬规则禁用");
                 return;
             }
 
             int manaNow = GetAvailableManaIncludingCoin(board);
-            bool hasPlayableRayInHandNow = HasPlayableAbductionRayInHand(board, manaNow);
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
+            bool hasPlayableRayInHandNow = startupState.PlayableRayCount > 0;
             bool rayPlayableNow = IsAbductionRayPlayableNow(board);
             bool rayContinuationThisTurn = IsAbductionRayContinuationThisTurn(board);
             bool fullManaTurn = IsFullManaTurn(board);
             bool hasTempPlayableRay = HasTemporaryPlayableAbductionRay(board);
             bool sketchGeneratedRayWindow = HasSketchGeneratedAbductionRayWindow(board);
+            bool tempLikeWindow = startupState.TempLikeWindow;
             bool chainRayNow = ShouldChainAbductionRayNow(board);
-            bool rayMidLateMultiChainWindow = IsAbductionRayMidLateMultiRayPriorityWindow(board, manaNow);
-            bool rayStartedThisTurn = HasStartedOrPlannedAbductionRayThisTurn(board);
-            bool lastPlayedRayNow = false;
-            try
-            {
-                lastPlayedRayNow = board.PlayedCards != null
-                    && board.PlayedCards.Count > 0
-                    && board.PlayedCards.Last() == AbductionRay;
-            }
-            catch
-            {
-                lastPlayedRayNow = false;
-            }
-            if (lastPlayedRayNow)
-                rayStartedThisTurn = true;
-            bool immediateRayFollowupWindow = hasPlayableRayInHandNow && (rayStartedThisTurn || lastPlayedRayNow);
+            bool rayMidLateMultiChainWindow = startupState.MidLateMultiRayWindow;
+            bool rayStartedThisTurn = startupState.RayStartedThisTurn;
+            bool immediateRayFollowupWindow = hasPlayableRayInHandNow && rayStartedThisTurn;
             bool emergencyRaySurvivalWindow = IsAbductionRayEmergencySurvivalWindow(board, manaNow);
             bool hasPlayableLowCostMinion = HasPlayableLowCostMinion(board, 2);
             bool hasPlayableMinionNow = HasPlayableMinionWithBoardSpace(board, manaNow);
@@ -1490,12 +3448,19 @@ namespace SmartBotProfiles
                 && board.MinionEnemy.Any(m => m != null);
             bool partyEmergencyWindow = ShouldPrioritizePartyFiendNow(board, manaNow);
             int handCount = board.Hand != null ? board.Hand.Count : 0;
-            int rayStartupHandCount = GetAbductionRayStartupEffectiveHandCount(board);
+            int playableOutsideDeckDemonsThisTurn = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
+            int outsideDeckDemonsInHand = CountOutsideDeckDemonsInHand(board);
+            bool handHeavyOutsideDeckWindow = handCount >= 7
+                && outsideDeckDemonsInHand >= 2
+                && playableOutsideDeckDemonsThisTurn > 0;
+            int outsideDemonDelayThreshold = GetAbductionRayOutsideDemonDelayMinPlayable(board);
+            bool delayRayStartupForOutsideDeckDemonsWindow = startupState.DelayStartupForOutsideDeckDemonsWindow;
+            int rayStartupHandCount = startupState.RayStartupHandCount;
             int stageMana = board != null ? Math.Max(0, board.MaxMana) : 0;
             bool isLateStage = stageMana >= 6;
             bool isMidLateStage = stageMana >= 5;
             bool handIsVeryLow = rayStartupHandCount <= 3;
-            bool handWithinRayStartupWindow = rayStartupHandCount <= AbductionRayNonTempPreferredMaxHand;
+            bool handWithinRayStartupWindow = startupState.AllowNonTempResourceWindow;
             // 本回合已起链时，不再受“手牌<=5”补资源阈值约束，避免中途断链。
             bool allowRayAsResourceWindow = handWithinRayStartupWindow || rayStartedThisTurn;
             bool handIsRich = rayStartupHandCount >= 5;
@@ -1506,19 +3471,17 @@ namespace SmartBotProfiles
                 && board.Hand.Any(c => c != null && c.Template != null
                     && c.Template.Id == SketchArtist
                     && c.CurrentCost <= manaNow);
+            bool rayActiveChainWindow = HasAbductionRayActiveChainWindow(rayContinuationThisTurn, chainRayNow);
             bool preferSketchFirstWindow = sketchPlayableNow
                 && manaNow >= 4
                 && rayStartupHandCount > AbductionRayNonTempPreferredMaxHand
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
-                && !rayContinuationThisTurn
-                && !chainRayNow
+                && !tempLikeWindow
+                && !rayActiveChainWindow
                 && !HasPlayedCard(board, AbductionRay);
             bool sketchTempoAtThreeWindow = sketchPlayableNow
                 && manaNow == 3
                 && GetFreeBoardSlots(board) > 0
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
+                && !tempLikeWindow
                 && !emergencyRaySurvivalWindow
                 && board.Hand.Count <= 6
                 && board.MinionEnemy != null
@@ -1526,15 +3489,27 @@ namespace SmartBotProfiles
             // 用户规则：挟持射线优先用于满费窗口（不再要求“没有可下随从”）。
             bool fullManaPriorityWindow = fullManaTurn && stageMana >= 3;
             // 用户规则：非临时射线仅在可用费用>=4时允许起链。
-            bool nonTempStartupManaWindow = IsNonTempAbductionRayStartupManaWindow(board, manaNow);
+            bool nonTempStartupManaWindow = startupState.NonTempStartupManaWindow;
             // 用户新规则：非临时补资源线继续收缩，仅手牌<=5才允许进入“满费/连发硬锁”。
             bool rayHardLockWindow = immediateRayFollowupWindow
                 || rayContinuationThisTurn
                 || rayMidLateMultiChainWindow
                 || (allowRayAsResourceWindow && (nonTempStartupManaWindow || chainRayNow));
+            bool ongoingPriorityRayChainWindow = HasAbductionRayOngoingPriorityChainWindow(
+                rayStartedThisTurn,
+                rayActiveChainWindow,
+                immediateRayFollowupWindow,
+                rayMidLateMultiChainWindow);
+            bool canDeferRayForTempoWindow = CanDeferAbductionRayForTempo(
+                tempLikeWindow,
+                immediateRayFollowupWindow,
+                fullManaPriorityWindow,
+                rayContinuationThisTurn,
+                chainRayNow,
+                rayMidLateMultiChainWindow);
             // 用户新规则：临时/连发/满费优先窗口下，挟持射线允许手牌打到10，
             // 防止“满费优先”被爆牌分支误拦截。
-            bool tempRayAllowToTen = hasTempPlayableRay || sketchGeneratedRayWindow || rayHardLockWindow;
+            bool tempRayAllowToTen = tempLikeWindow || rayHardLockWindow;
             bool overdrawRiskHigh = IsAbductionRayOverdrawRiskHigh(board, tempRayAllowToTen);
             bool overdrawRiskMedium = IsAbductionRayOverdrawRiskMedium(board, tempRayAllowToTen);
             bool enemyHasTaunt = board.MinionEnemy.Any(m => m != null && m.IsTaunt);
@@ -1553,35 +3528,36 @@ namespace SmartBotProfiles
             bool dangerousHpWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
             var playableTauntMinionIds = GetPlayableTauntMinionCardIds(board, manaNow);
             bool hasPlayableTauntMinionNow = playableTauntMinionIds.Count > 0;
+            var playableOutsideDeckTauntMinionIds = GetPlayableOutsideDeckTauntMinionCardIds(board, manaNow);
+            bool hasPlayableOutsideDeckTauntMinionNow = playableOutsideDeckTauntMinionIds.Count > 0;
             bool rushClearWindow = ShouldPrioritizeRushMinionClear(board, friendHp, enemyHp, friendAttack, enemyAttack)
                 && HasPlayableRushMinionForClear(board, manaNow);
             var zeroCostMinionForRayDelay = GetRightmostPlayableZeroCostNonRayMinion(board, manaNow);
             bool handFullWithZeroCostMinionWindow = handCount >= HearthstoneHandLimit
                 && zeroCostMinionForRayDelay != null
-                && !rayStartedThisTurn
+                && startupState.HandFullWithZeroCostMinionWindow
                 && !emergencyRaySurvivalWindow;
             bool handFullWithCheapMinionWindow = handFullWithZeroCostMinionWindow;
             bool tombInHand = board.HasCardInHand(TombOfSuffering);
             // 用户规则：同回合“墓+射线”冲突时，优先直接启动挟持射线，墓后置。
             bool rayStartBeforeTombWindow = tombInHand
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
+                && !tempLikeWindow
                 && !rayStartedThisTurn
-                && HasPlayableAbductionRayInHand(board, manaNow);
+                && hasPlayableRayInHandNow;
 
             int doomguardInHand = board.Hand.Count(c => c != null && c.Template != null && c.Template.Id == Doomguard);
             bool doomguardCloggedHandWindow = doomguardInHand > 0
                 && rayStartupHandCount >= 1
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
+                && !tempLikeWindow
                 && !rayStartedThisTurn
                 && nonTempStartupManaWindow
                 && (doomguardInHand >= 2 || enemyAttack >= 6);
 
-            // 用户硬规则：非临时挟持射线仅在可用费用>=4时允许使用（含续链）。
+            // 用户硬规则：非临时挟持射线仅在可用费用>=4时允许起链；
+            // 本回合已起链时不受该限制，避免中途断链。
             // 临时挟持射线（含速写临时窗口）不受该限制。
-            bool nonTempRayMinManaBlocked = !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
+            bool nonTempRayMinManaBlocked = !tempLikeWindow
+                && !rayStartedThisTurn
                 && manaNow < AbductionRayMinManaNonTemp;
 
             p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-110));
@@ -1608,9 +3584,54 @@ namespace SmartBotProfiles
             if (!rayPlayableNow)
             {
                 // 硬规则：不满足可打窗口时，必须显式禁用，避免保留默认负权重导致误打。
-                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：当前不满足可打窗口，硬规则禁用");
+                return;
+            }
+
+            // 用户修正：当基尔加丹命中直拍窗口时，非临时挟持射线链路让位基尔加丹先手。
+            if (!tempLikeWindow
+                && !slitherspearLethalWindow
+                && ShouldPreferKiljaedenImmediateOverRayChain(board, manaNow))
+            {
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5600));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                AddLog("挟持射线：基尔加丹命中直拍窗口，后置让位基尔加丹先手");
+                return;
+            }
+
+            // 用户规则：手里有可下“嘲讽套外随从”时，优先先下嘲讽稳场，挟持射线可暂缓。
+            // 该规则也允许打断本回合射线续链，避免继续补资源而错过即时稳场。
+            if (hasPlayableOutsideDeckTauntMinionNow && !slitherspearLethalWindow)
+            {
+                var preferredOutsideTaunt = board.Hand
+                    .Where(c => c != null
+                        && c.Template != null
+                        && c.Type == Card.CType.MINION
+                        && c.CurrentCost <= manaNow
+                        && c.IsRace(Card.CRace.DEMON)
+                        && IsOutsideDeckDemonByDeckList(board, c.Template.Id)
+                        && IsTauntMinionForSurvival(c))
+                    .OrderBy(c => c.CurrentCost)
+                    .ThenBy(c => c.Id)
+                    .FirstOrDefault();
+                if (preferredOutsideTaunt != null)
+                {
+                    SetSingleCardComboByEntityId(board, p, preferredOutsideTaunt.Id,
+                        allowCoinBridge: true, forceOverride: true,
+                        logWhenSet: "挟持射线：命中套外嘲讽优先窗口，ComboSet先下嘲讽");
+                }
+
+                foreach (var tauntId in playableOutsideDeckTauntMinionIds)
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-6200));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
+                }
+
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5600));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                AddLog("挟持射线：手有可下套外嘲讽恶魔，暂缓射线先下嘲讽");
                 return;
             }
 
@@ -1629,7 +3650,7 @@ namespace SmartBotProfiles
                             allowCoinBridge: true, forceOverride: true,
                             logWhenSet: "挟持射线：续链中爆牌风险，先放行0费随从腾手牌");
                         p.CastMinionsModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(-5000));
-                        p.PlayOrderModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(10000));
+                        p.PlayOrderModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(9999));
                         p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(900));
                         p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9200));
                         ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: true);
@@ -1637,17 +3658,14 @@ namespace SmartBotProfiles
                         return;
                     }
 
-                    p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(3600));
-                    p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9900));
-                    AddLog("挟持射线：本回合已起链但会爆牌，暂停续链");
-                    return;
+                    AddLog("挟持射线：本回合已起链且会爆牌，仍按硬规则续链");
                 }
 
                 SetAbductionRayCombo(board, p, allowCoinBridge: true, chainAll: true, forceOverride: true,
                     logWhenSet: "挟持射线：本回合已起链且手里仍有射线，强制续到底");
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: true);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
                 AddLog("挟持射线：本回合已起射线且手里仍有射线，硬规则续到底（仅爆牌例外）");
                 return;
             }
@@ -1659,7 +3677,7 @@ namespace SmartBotProfiles
                     logWhenSet: "挟持射线：命中滑矛斩杀增伤窗口，强制先手");
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: true);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
                 AddLog("挟持射线：滑矛可攻斩杀窗口，先打射线吃法术增攻");
                 return;
             }
@@ -1670,11 +3688,11 @@ namespace SmartBotProfiles
                 foreach (var tauntId in playableTauntMinionIds)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-5200));
-                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
                 }
 
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：危险血线且有可下嘲讽，允许断链先下嘲讽稳场");
                 return;
             }
@@ -1683,13 +3701,13 @@ namespace SmartBotProfiles
             if (rushClearWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(4200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：命中突袭解场窗口，后置到突袭随从之后");
                 return;
             }
 
             // 用户硬规则：临时挟持射线链路不受任何条件影响，有就直接用。
-            if (hasTempPlayableRay || sketchGeneratedRayWindow)
+            if (tempLikeWindow)
             {
                 var tempRayEntity = GetRightmostTemporaryPlayableAbductionRay(board, manaNow);
                 bool setTempOnly = tempRayEntity != null
@@ -1701,8 +3719,8 @@ namespace SmartBotProfiles
                 {
                     ForceAbductionRayFirstThisTurn(board, p, manaNow);
                     // 实体级硬锁：优先临时射线本体，避免同名非临时副本被误打。
-                    p.CastSpellsModifiers.AddOrUpdate(tempRayEntity.Id, new Modifier(-10000));
-                    p.PlayOrderModifiers.AddOrUpdate(tempRayEntity.Id, new Modifier(10000));
+                    p.CastSpellsModifiers.AddOrUpdate(tempRayEntity.Id, new Modifier(-9999));
+                    p.PlayOrderModifiers.AddOrUpdate(tempRayEntity.Id, new Modifier(9999));
                     foreach (var ray in board.Hand.Where(c => c != null
                         && c.Template != null
                         && c.Template.Id == AbductionRay
@@ -1711,7 +3729,7 @@ namespace SmartBotProfiles
                         && !IsTemporaryCard(c)))
                     {
                         p.CastSpellsModifiers.AddOrUpdate(ray.Id, new Modifier(6200));
-                        p.PlayOrderModifiers.AddOrUpdate(ray.Id, new Modifier(-10000));
+                        p.PlayOrderModifiers.AddOrUpdate(ray.Id, new Modifier(-9999));
                     }
 
                     AddLog("挟持射线：临时链路硬规则触发，优先临时实体(" + tempRayEntity.Id + ")");
@@ -1728,8 +3746,27 @@ namespace SmartBotProfiles
                     logWhenSet: "挟持射线：绝境保命窗口，强制先手");
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: false);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
                 AddLog("挟持射线：绝境保命窗口，优先使用尝试发现嘲讽随从");
+                return;
+            }
+
+            // 用户规则：手里已有多张可下套外恶魔且手牌较多时，优先先下手牌，暂缓启动射线。
+            if (delayRayStartupForOutsideDeckDemonsWindow)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(3200));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9900));
+                if (handHeavyOutsideDeckWindow)
+                {
+                    AddLog("挟持射线：手里套外随从较多且手牌偏满，暂缓射线先用手牌（手中套外="
+                        + outsideDeckDemonsInHand + "，可打数量=" + playableOutsideDeckDemonsThisTurn + "）");
+                }
+                else
+                {
+                    AddLog("挟持射线：手牌>=6且可下套外恶魔>=" + outsideDemonDelayThreshold
+                        + (outsideDemonDelayThreshold < AbductionRayOutsideDemonDelayMinPlayable ? "（高压放宽）" : "")
+                        + "，暂缓启动让位套外恶魔（可打数量=" + playableOutsideDeckDemonsThisTurn + "）");
+                }
                 return;
             }
 
@@ -1740,7 +3777,7 @@ namespace SmartBotProfiles
                     logWhenSet: "挟持射线：命中墓冲突窗口，先手启动射线");
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: false);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-3800));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
                 AddLog("挟持射线：同回合咒怨之墓可用，先启动射线链");
                 return;
             }
@@ -1748,8 +3785,8 @@ namespace SmartBotProfiles
             if (nonTempRayMinManaBlocked)
             {
                 // 非临时起链费用窗口是硬规则，避免低费回合“无动作时仍误放射线”。
-                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：非临时可用费用<4，硬规则禁用");
                 return;
             }
@@ -1762,31 +3799,32 @@ namespace SmartBotProfiles
                     logWhenSet: "挟持射线：命中末日守卫滞留窗口，先手启动射线");
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: false);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-3600));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
                 AddLog("挟持射线：手有末日守卫且不宜直接拍出，优先射线找替代动作（启动手牌口径排除币/阿克蒙德/基尔加丹/末日守卫）");
                 return;
             }
 
-            // 用户新规则：4费回合优先速写美术家（抽挟持射线+临时复制），
-            // 防止射线直接抢先导致错过当回合转化窗口。
-            bool turnFourSketchFirstWindow = stageMana == 4
+            // 用户新规则：4-6费回合，手里同时有速写美术家+挟持射线时，优先速写先手，
+            // 防止射线抢先导致错过“速写->射线临时链”的当回合转化窗口。
+            bool turnFourToSixSketchFirstWindow = stageMana >= 4
+                && stageMana <= 6
                 && sketchPlayableNow
+                && hasPlayableRayInHandNow
                 && GetFreeBoardSlots(board) > 0
                 && !rayStartedThisTurn
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
+                && !tempLikeWindow
                 && !slitherspearLethalWindow
                 && !emergencyRaySurvivalWindow;
-            if (turnFourSketchFirstWindow)
+            if (turnFourToSixSketchFirstWindow)
             {
-                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(4600));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
-                AddLog("挟持射线：4费优先速写美术家，射线后置");
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5200));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                AddLog("挟持射线：4-6费手有速写美术家，射线后置让位速写先手");
                 return;
             }
 
             // 危险血线窗口下，派对邪犬优先补场；射线让位，避免“起链后无法落邪犬”。
-            if (partyEmergencyWindow && !hasTempPlayableRay && !sketchGeneratedRayWindow)
+            if (partyEmergencyWindow && !tempLikeWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(4200));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9900));
@@ -1807,7 +3845,7 @@ namespace SmartBotProfiles
             if (rayContinuationThisTurn && sketchTempoAtThreeWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(4200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("挟持射线：3费速写节奏窗口，后置让位速写先手");
                 return;
             }
@@ -1815,13 +3853,7 @@ namespace SmartBotProfiles
             // 用户新规则：手牌>5且有可下随从时，降低挟持射线优先值，先做场面节奏动作。
             // 满费窗口/已起链窗口除外，避免打断既有硬规则链。
             if (handRichAndTempoMinionWindow
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
-                && !immediateRayFollowupWindow
-                && !fullManaPriorityWindow
-                && !rayContinuationThisTurn
-                && !chainRayNow
-                && !rayMidLateMultiChainWindow)
+                && canDeferRayForTempoWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(3400));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9900));
@@ -1831,13 +3863,7 @@ namespace SmartBotProfiles
 
             // 手牌充足且有可下随从时，不主动起/续挟持射线链。
             if (richHandWithTempoActions
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
-                && !immediateRayFollowupWindow
-                && !fullManaPriorityWindow
-                && !rayContinuationThisTurn
-                && !chainRayNow
-                && !rayMidLateMultiChainWindow)
+                && canDeferRayForTempoWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(2800));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9800));
@@ -1863,7 +3889,7 @@ namespace SmartBotProfiles
             }
 
             // 用户规则：射线连发锁定优先级更高；仅在非连发/非临时窗口时，邪火才可前置。
-            bool allowForebodingOverrideRay = !chainRayNow && !hasTempPlayableRay && !sketchGeneratedRayWindow && !rayHardLockWindow;
+            bool allowForebodingOverrideRay = !tempLikeWindow && !rayHardLockWindow;
             if (forebodingPriorityWindow && allowForebodingOverrideRay)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(3200));
@@ -1886,7 +3912,7 @@ namespace SmartBotProfiles
                     allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "挟持射线：手牌=10，先下0费随从腾手牌");
                 p.CastMinionsModifiers.AddOrUpdate(cheapMinionForRayDelay.Id, new Modifier(-4600));
-                p.PlayOrderModifiers.AddOrUpdate(cheapMinionForRayDelay.Id, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(cheapMinionForRayDelay.Id, new Modifier(9999));
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(1800));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9600));
                 AddLog("挟持射线：手牌已满，仅允许0费随从先手，射线后置");
@@ -1895,12 +3921,7 @@ namespace SmartBotProfiles
 
             // 用户新规则：非临时补资源线继续收缩，手牌>5时不主动打挟持射线。
             if (!allowRayAsResourceWindow
-                && !hasTempPlayableRay
-                && !sketchGeneratedRayWindow
-                && !immediateRayFollowupWindow
-                && !rayContinuationThisTurn
-                && !chainRayNow
-                && !rayMidLateMultiChainWindow)
+                && canDeferRayForTempoWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(3600));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9900));
@@ -1940,7 +3961,7 @@ namespace SmartBotProfiles
                 if (board.MinionFriend != null && board.MinionFriend.Count >= 6)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(9000));
-                    p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(-9999));
                 }
 
                 // 用户规则：挟持射线连锁时，0费随从允许放行用于腾手牌（便于继续补牌）。
@@ -1950,7 +3971,7 @@ namespace SmartBotProfiles
                         allowCoinBridge: true, forceOverride: true,
                         logWhenSet: "挟持射线：连锁链路放行0费随从");
                     p.CastMinionsModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(-4600));
-                    p.PlayOrderModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(zeroCostMinionForRayRelease.Id, new Modifier(9999));
 
                     // 用户反馈：手牌偏满时要“先下0费再续射线”，避免射线先手导致爆牌。
                     p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(900));
@@ -1961,15 +3982,11 @@ namespace SmartBotProfiles
                 }
 
                 SetAbductionRayCombo(board, p, allowCoinBridge: true, chainAll: true, forceOverride: true,
-                    logWhenSet: chainRayNow
-                        ? "挟持射线：ComboSet连发锁定"
-                        : (rayMidLateMultiChainWindow ? "挟持射线：ComboSet中后期多射线锁定" : "挟持射线：ComboSet后期锁定"));
+                    logWhenSet: GetAbductionRayHardLockComboLogWhenSet(chainRayNow, rayMidLateMultiChainWindow));
                 ForceAbductionRayFirstThisTurn(board, p, manaNow, allowZeroCostMinions: false);
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-4200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(10000));
-                AddLog(rayMidLateMultiChainWindow
-                    ? "挟持射线：命中中后期多射线窗口，强制先手并禁止始祖龟插队"
-                    : "挟持射线：命中射线锁定窗口，禁止其他动作插队");
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
+                AddLog(GetAbductionRayHardLockResolveLog(rayMidLateMultiChainWindow));
                 return;
             }
 
@@ -1985,16 +4002,20 @@ namespace SmartBotProfiles
             // 用户新规则：三费前不主动打挟持射线，优先下低费随从，射线保留作补资源。
             // 这里按“回合水晶”口径判定前期：MaxMana <= 2（含硬币也视为前期）。
             bool preThreeStage = board.MaxMana <= 2;
-            bool inActiveRayChainWindow = rayStartedThisTurn
-                || lastPlayedRayNow
-                || rayContinuationThisTurn
-                || chainRayNow
-                || immediateRayFollowupWindow
-                || rayMidLateMultiChainWindow;
+            bool reserveRayForLowCostTempoWindow = ShouldReserveAbductionRayForLowCostTempo(
+                hasPlayableLowCostMinion,
+                ongoingPriorityRayChainWindow);
+            bool continueChainRayPriorityWindow = ShouldContinueAbductionRayChainPriority(
+                chainRayNow,
+                isLateStage,
+                handIsVeryLow);
+            bool softReserveChainRayWindow = ShouldSoftReserveAbductionRayChain(
+                chainRayNow,
+                continueChainRayPriorityWindow);
 
             if (preThreeStage)
             {
-                if (hasPlayableLowCostMinion && !inActiveRayChainWindow)
+                if (reserveRayForLowCostTempoWindow)
                 {
                     p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(2600));
                     p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9800));
@@ -2009,7 +4030,7 @@ namespace SmartBotProfiles
             }
 
             // 用户新口径：只在“低费随从匮乏”时才考虑把挟持射线当补手牌手段。
-            if (hasPlayableLowCostMinion && !inActiveRayChainWindow)
+            if (reserveRayForLowCostTempoWindow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(2400));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9600));
@@ -2018,22 +4039,22 @@ namespace SmartBotProfiles
             }
 
             // 连发窗口：本局已打过射线，且当前仍可打时，优先续接射线。
-            if (chainRayNow)
+            if (continueChainRayPriorityWindow)
             {
-                if (isLateStage || handIsVeryLow)
-                {
-                    SetAbductionRayCombo(board, p, allowCoinBridge: true, chainAll: handIsVeryLow, forceOverride: true,
-                        logWhenSet: "挟持射线：ComboSet连发，继续使用");
-                    ForceAbductionRayFirstThisTurn(board, p, manaNow);
-                    p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-1800));
-                    p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(8200));
-                    AddLog("挟持射线：连发窗口（后期/低手牌）优先继续使用");
-                    return;
-                }
+                SetAbductionRayCombo(board, p, allowCoinBridge: true, chainAll: handIsVeryLow, forceOverride: true,
+                    logWhenSet: GetAbductionRayChainContinueComboLogWhenSet());
+                ForceAbductionRayFirstThisTurn(board, p, manaNow);
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-1800));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(8200));
+                AddLog(GetAbductionRayChainContinueResolveLog());
+                return;
+            }
 
+            if (softReserveChainRayWindow)
+            {
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(600));
                 p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-1400));
-                AddLog("挟持射线：连发已触发但时机偏早，先保留");
+                AddLog(GetAbductionRayChainSoftReserveResolveLog());
                 return;
             }
 
@@ -2062,8 +4083,11 @@ namespace SmartBotProfiles
             p.CastSpellsModifiers.AddOrUpdate(RedCard, new Modifier(-120));
             p.PlayOrderModifiers.AddOrUpdate(RedCard, new Modifier(240));
 
+            if (board.MinionEnemy == null)
+                return;
+
             var taunts = board.MinionEnemy
-                .Where(m => m != null && m.IsTaunt)
+                .Where(m => m != null && m.Template != null && m.IsTaunt)
                 .OrderByDescending(m => m.CurrentHealth)
                 .ThenByDescending(m => m.CurrentAtk)
                 .ToList();
@@ -2077,7 +4101,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, RedCard, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "红牌：ComboSet先手解锁走脸");
                 p.CastSpellsModifiers.AddOrUpdate(RedCard, -3600, target.Id);
-                p.PlayOrderModifiers.AddOrUpdate(RedCard, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(RedCard, new Modifier(9999));
                 AddLog("红牌：斩杀线被嘲讽阻断，先锁定 " + target.Template.Id + " 再走脸");
 
                 // 该窗口下避免先拿己方随从去撞嘲讽送身材。
@@ -2109,6 +4133,9 @@ namespace SmartBotProfiles
                 .ThenBy(c => c.Id)
                 .FirstOrDefault();
             if (backstab == null || backstab.CurrentCost > manaNow)
+                return;
+
+            if (board.MinionEnemy == null)
                 return;
 
             var enemies = board.MinionEnemy.Where(m => m != null).ToList();
@@ -2161,7 +4188,7 @@ namespace SmartBotProfiles
                     p.CastSpellsModifiers.AddOrUpdate(Backstab, -3600, preferredBackstabTarget.Id);
                 else
                     p.CastSpellsModifiers.AddOrUpdate(Backstab, new Modifier(-3200));
-                p.PlayOrderModifiers.AddOrUpdate(Backstab, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(Backstab, new Modifier(9999));
                 AddLog(hasKillableTwoHp
                     ? "背刺：命中2血可解目标，优先使用（高血目标优先）"
                     : "背刺：解场压力窗口，优先使用（高血目标优先）");
@@ -2186,7 +4213,7 @@ namespace SmartBotProfiles
                 if (card.Template.Id == PartyFiend && board.MinionFriend != null && board.MinionFriend.Count >= 6)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9000));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                     continue;
                 }
 
@@ -2199,6 +4226,283 @@ namespace SmartBotProfiles
 
                 p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9950));
             }
+        }
+
+        // 终局兜底：本回合已起射线且仍可打时，最后阶段再次锁定射线优先，避免被后续模块覆盖。
+        private void EnforceAbductionRayContinuationFinalLock(Board board, ProfileParameters p)
+        {
+            if (board == null || p == null || board.Hand == null)
+                return;
+            if (!IsAbductionRayTurnUnlocked(board))
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return;
+
+            var playableRays = board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == AbductionRay
+                    && c.CurrentCost <= manaNow)
+                .ToList();
+            if (playableRays.Count == 0)
+                return;
+
+            bool rayContinuationNow = HasStartedOrLastPlayedAbductionRayThisTurn(board);
+            if (!rayContinuationNow)
+                return;
+
+            bool hasTempRayWindow = HasTemporaryOrSketchGeneratedAbductionRay(board);
+            if (!hasTempRayWindow && ShouldPreferKiljaedenImmediateOverRayChain(board, manaNow))
+            {
+                AddLog("挟持射线：终局校验命中基尔加丹直拍窗口，取消续链锁定让位基尔加丹");
+                return;
+            }
+
+            bool allowOneMoreRayToTen = board.Hand.Count <= HearthstoneHandLimit - 1;
+            if (IsAbductionRayOverdrawRiskHigh(board, allowOneMoreRayToTen))
+            {
+                var zeroCostRelease = GetRightmostPlayableZeroCostNonRayMinion(board, manaNow);
+                if (zeroCostRelease != null)
+                    return;
+                AddLog("挟持射线：终局校验检测到爆牌风险但无0费腾手，保持续链锁定");
+            }
+
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int friendAttack = GetBoardAttack(board.MinionFriend);
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool dangerousHpWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
+            bool hasPlayableTauntMinionNow = GetPlayableTauntMinionCardIds(board, manaNow).Count > 0;
+            bool hasPlayableOutsideDeckTauntMinionNow = GetPlayableOutsideDeckTauntMinionCardIds(board, manaNow).Count > 0;
+            bool rushClearWindow = ShouldPrioritizeRushMinionClear(board, friendHp, enemyHp, friendAttack, enemyAttack)
+                && HasPlayableRushMinionForClear(board, manaNow);
+            if ((dangerousHpWindow && hasPlayableTauntMinionNow) || rushClearWindow)
+                return;
+            if (hasPlayableOutsideDeckTauntMinionNow)
+            {
+                AddLog("挟持射线：终局校验命中套外嘲讽随从窗口，取消续链锁定让位嘲讽");
+                return;
+            }
+
+            var preferredRay = playableRays
+                .OrderByDescending(c => c.Id)
+                .FirstOrDefault();
+
+            if (preferredRay != null)
+            {
+                SetSingleCardComboByEntityId(board, p, preferredRay.Id, allowCoinBridge: true, forceOverride: true,
+                    logWhenSet: "挟持射线：终局校验命中续链锁定");
+                p.CastSpellsModifiers.AddOrUpdate(preferredRay.Id, new Modifier(-9999));
+                p.PlayOrderModifiers.AddOrUpdate(preferredRay.Id, new Modifier(9999));
+            }
+
+            foreach (var ray in playableRays)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(ray.Id, new Modifier(-9800));
+                p.PlayOrderModifiers.AddOrUpdate(ray.Id, new Modifier(9999));
+            }
+            p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(-6200));
+            p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(9999));
+
+            foreach (var card in board.Hand.Where(c => c != null && c.Template != null && c.CurrentCost <= manaNow))
+            {
+                if (card.Template.Id == AbductionRay)
+                    continue;
+
+                if (card.Type == Card.CType.MINION)
+                    p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(5600));
+                else if (card.Type == Card.CType.SPELL)
+                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(5600));
+                else if (card.Type == Card.CType.WEAPON)
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(5600));
+
+                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
+            }
+
+            AddLog("挟持射线：终局校验命中续链锁定，保持射线优先");
+        }
+
+        // 终局兜底：命中“本回合决定拍阿克蒙德”窗口时，再次锁定阿克蒙德第一优先，
+        // 防止后续节奏模块把低费随从前置，挤占复活场位。
+        private void EnforceArchimondeTopPriorityWhenCommitted(Board board, ProfileParameters p)
+        {
+            if (board == null || p == null || board.Hand == null)
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0 || GetFreeBoardSlots(board) <= 0)
+                return;
+
+            var playableArchimonde = board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == Archimonde
+                    && c.CurrentCost <= manaNow)
+                .OrderByDescending(c => c.Id)
+                .FirstOrDefault();
+            if (playableArchimonde == null)
+                return;
+
+            if (!ShouldCommitArchimondeThisTurn(board, manaNow))
+                return;
+
+            SetSingleCardComboByEntityId(board, p, playableArchimonde.Id,
+                allowCoinBridge: true, forceOverride: true,
+                logWhenSet: "阿克蒙德：终局校验命中前置锁定");
+            ForceArchimondeFirstThisTurn(board, p, manaNow);
+            p.CastMinionsModifiers.AddOrUpdate(playableArchimonde.Id, new Modifier(-9999));
+            p.PlayOrderModifiers.AddOrUpdate(playableArchimonde.Id, new Modifier(9999));
+            p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-7600));
+            p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(9999));
+            p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
+            AddLog("阿克蒙德：终局校验锁定第一优先，压后低费随从避免占用复活场位");
+        }
+
+        private bool ShouldCommitArchimondeThisTurn(Board board, int manaNow)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+            if (!IsArchimondePlayableNow(board, manaNow))
+                return false;
+            if (GetFreeBoardSlots(board) <= 0)
+                return false;
+
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int attackNowForLethal = GetAttackableBoardAttack(board.MinionFriend);
+            bool onBoardLethalNow = !enemyHasTaunt && attackNowForLethal >= enemyHp;
+            if (onBoardLethalNow)
+                return false;
+
+            int outsideDeckDemonsInBoardAndGrave = CountOutsideDeckDemonsInBoardAndGrave(board);
+            bool readyByOutsideDemons = outsideDeckDemonsInBoardAndGrave >= 6;
+            string boardAdvantageSnapshot;
+            bool boardAdvantage = HasFriendlyBoardAdvantageForLegendaryDemons(board, out boardAdvantageSnapshot);
+
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool dangerousHpTauntTempoWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
+
+            bool enemyHasSurgingShipSurgeon = board.MinionEnemy != null
+                && board.MinionEnemy.Any(m => m != null && m.Template != null && m.Template.Id == Card.Cards.CORE_WON_065);
+            bool glacialShardPlayableNow = board.Hand.Any(c => c != null && c.Template != null
+                && c.Template.Id == GlacialShard
+                && c.CurrentCost <= manaNow);
+            if (dangerousHpTauntTempoWindow && enemyHasSurgingShipSurgeon && glacialShardPlayableNow)
+                return false;
+
+            if (HasSendableAttackBeforeArchimonde(board))
+                return false;
+
+            string outsideTauntDemonSnapshot;
+            bool hasOutsideTauntDemonForArchimonde = HasOutsideDeckTauntDemonInBoardAndGrave(board, out outsideTauntDemonSnapshot);
+
+            int masseridonInGrave = CountFriendGraveyard(board, UnreleasedMasseridon);
+            int weaponEnemyAtk = board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0;
+            int pulseKillCount = board.MinionEnemy == null ? 0 : board.MinionEnemy.Count(m => m != null && m.CurrentHealth <= 3);
+            int enemyAttackAfterPulse = (board.MinionEnemy == null ? 0 : board.MinionEnemy
+                .Where(m => m != null && m.CurrentHealth > 3)
+                .Sum(m => Math.Max(0, m.CurrentAtk))) + weaponEnemyAtk;
+            int pulseAttackDrop = Math.Max(0, enemyAttack - enemyAttackAfterPulse);
+            bool highValueMasseridonReviveWindow = masseridonInGrave > 0
+                && (pulseKillCount >= 2
+                    || pulseAttackDrop >= 4
+                    || enemyHp <= 6
+                    || dangerousHpTauntTempoWindow
+                    || enemyAttack >= 8);
+
+            bool dangerousTauntRescueWindow = dangerousHpTauntTempoWindow && hasOutsideTauntDemonForArchimonde;
+            bool turnTenImmediateArchimondeWindow = board.MaxMana >= 10 && readyByOutsideDemons;
+            bool baselineReadyWindow = readyByOutsideDemons && boardAdvantage;
+
+            return highValueMasseridonReviveWindow
+                || dangerousTauntRescueWindow
+                || turnTenImmediateArchimondeWindow
+                || baselineReadyWindow;
+        }
+
+        private bool HasSendableAttackBeforeArchimonde(Board board)
+        {
+            if (board == null || board.MinionFriend == null || board.MinionEnemy == null)
+                return false;
+            if (board.MinionEnemy.Count == 0)
+                return false;
+
+            var attackableFriends = board.MinionFriend
+                .Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0)
+                .ToList();
+            if (attackableFriends.Count == 0)
+                return false;
+
+            var allEnemyTargets = board.MinionEnemy
+                .Where(m => m != null && m.Template != null)
+                .ToList();
+            if (allEnemyTargets.Count == 0)
+                return false;
+
+            return attackableFriends.Any(friend => allEnemyTargets.Any(enemy => enemy.CurrentAtk >= friend.CurrentHealth));
+        }
+
+        // 终局兜底：第一回合若可下滑矛纳迦，首手必须先下滑矛，防止后续模块改写为其它1费动作。
+        private void EnforceFirstTurnSlitherspearOpeningLock(Board board, ProfileParameters p)
+        {
+            if (board == null || p == null || board.Hand == null)
+                return;
+            if (!IsFirstTurnSlitherspearPriorityWindow(board))
+                return;
+
+            int realManaNow = Math.Max(0, board.ManaAvailable);
+            if (realManaNow != Math.Max(0, board.MaxMana))
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0 || GetFreeBoardSlots(board) <= 0)
+                return;
+
+            var playableSlitherspears = board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == ViciousSlitherspear
+                    && c.CurrentCost <= manaNow)
+                .OrderByDescending(c => c.Id)
+                .ToList();
+            if (playableSlitherspears.Count == 0)
+                return;
+
+            var preferredSlitherspear = playableSlitherspears[0];
+            SetSingleCardComboByEntityId(board, p, preferredSlitherspear.Id,
+                allowCoinBridge: false, forceOverride: true,
+                logWhenSet: "滑矛纳迦：终局校验命中第一回合首手锁定");
+            p.CastMinionsModifiers.AddOrUpdate(preferredSlitherspear.Id, new Modifier(-9999));
+            p.PlayOrderModifiers.AddOrUpdate(preferredSlitherspear.Id, new Modifier(9999));
+            p.CastMinionsModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(-8200));
+            p.PlayOrderModifiers.AddOrUpdate(ViciousSlitherspear, new Modifier(9999));
+
+            foreach (var card in board.Hand.Where(c => c != null && c.Template != null && c.CurrentCost <= manaNow))
+            {
+                if (card.Id == preferredSlitherspear.Id || card.Template.Id == ViciousSlitherspear)
+                    continue;
+
+                if (card.Template.Id == TheCoin)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(3800));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
+                    continue;
+                }
+
+                if (card.Type == Card.CType.MINION)
+                    p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(6200));
+                else if (card.Type == Card.CType.SPELL)
+                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(6200));
+                else if (card.Type == Card.CType.WEAPON)
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(6200));
+
+                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
+            }
+
+            AddLog("滑矛纳迦：终局校验首手锁定，避免被后续规则改写为其他1费动作");
         }
 
         private Card GetRightmostPlayableZeroCostNonRayMinion(Board board, int manaNow)
@@ -2351,7 +4655,7 @@ namespace SmartBotProfiles
             if (temporaryZilliax != null && temporaryZilliax.CurrentCost + entropyCard.CurrentCost > manaNow)
             {
                 p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(5600));
-                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-9999));
                 AddLog("续连熵能：临时奇利亚斯可下且同回合无法兼容，后置保留续连");
                 return;
             }
@@ -2359,26 +4663,26 @@ namespace SmartBotProfiles
             bool enemyHasMinion = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
 
             // 用户硬规则：
-            // 1) 敌方有随从：当前友方随从>=2即可考虑使用续连熵能；
+            // 1) 敌方有随从：当前友方随从<2时禁用续连熵能；
             // 2) 敌方空场：低费（<3）时仅在当前友方随从<3才禁用。
             if (enemyHasMinion && count <= 1)
             {
-                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-9999));
                 AddLog("续连熵能：敌方有随从且友方随从<2，硬规则禁用");
                 return;
             }
             if (!enemyHasMinion && manaNow < 3 && count < 3)
             {
-                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-9999));
                 AddLog("续连熵能：敌方空场且可用费<3且友方随从<3，硬规则禁用");
                 return;
             }
             if (count <= 0)
             {
-                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-9999));
                 AddLog("续连熵能：友方空场，硬规则禁用");
                 return;
             }
@@ -2481,14 +4785,36 @@ namespace SmartBotProfiles
                     && c.Template.Id != EntropicContinuity
                     && c.CurrentCost <= Math.Max(0, manaNow - entropyCost));
 
+            int friendlyCountNow = count;
+            bool hasPlayableNonEntropyMinionNow = GetFreeBoardSlots(board) > 0
+                && board.Hand.Any(c => c != null
+                    && c.Template != null
+                    && c.Type == Card.CType.MINION
+                    && c.Template.Id != EntropicContinuity
+                    && c.CurrentCost <= manaNow);
+            bool canExpandThenEntropyThisTurn = canPlayWispThenEntropySameTurn
+                || canPlayGlacialThenEntropySameTurn
+                || canPlayPartyThenEntropySameTurn
+                || canPlayOtherMinionThenEntropySameTurn;
+            bool lowCoverageEntropyWindow = friendlyCountNow <= 2;
+            if (hasPlayableNonEntropyMinionNow
+                && !canExpandThenEntropyThisTurn
+                && lowCoverageEntropyWindow
+                && !entropyLethalNow)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(3600));
+                p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-9800));
+                AddLog("续连熵能：可下随从且当前覆盖偏低(友方<=2)，后置让位随从先落地");
+                return;
+            }
+
             // 用户规则：若续连对“当回合交换”有明显收益（尤其敌方有嘲讽），
             // 则续连应优先于继续铺场，不再后置让位随从。
-            int friendlyCountNow = count;
             bool enemyHasTauntForEntropy = enemyHasMinion
                 && board.MinionEnemy != null
                 && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
             bool entropyCombatPriorityWindow = enemyHasMinion
-                && friendlyCountNow >= 2
+                && friendlyCountNow >= 3
                 && (enemyHasTauntForEntropy || (board.MinionEnemy != null && board.MinionEnemy.Count(m => m != null) >= 2));
             if (entropyCombatPriorityWindow)
             {
@@ -2514,9 +4840,9 @@ namespace SmartBotProfiles
             {
                 if (enemyHasMinion)
                 {
-                    p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-450));
-                    p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(2200));
-                    AddLog("续连熵能：敌方有随从且友方随从=2，放宽可用");
+                    p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(520));
+                    p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-2600));
+                    AddLog("续连熵能：敌方有随从且友方随从=2，轻微后置等待更高覆盖");
                 }
                 else
                 {
@@ -2539,13 +4865,13 @@ namespace SmartBotProfiles
             }
 
             // 用户规则：放宽优先级阈值按敌方场面动态调整（按友方覆盖）：
-            // 敌方有随从时>=2；敌方空场时>=3。
-            int minCountForEntropyPriority = enemyHasMinion ? 2 : 3;
+            // 敌方有随从/空场统一要求>=3，覆盖不足时先铺随从。
+            int minCountForEntropyPriority = 3;
             if (friendlyCountForEntropyPriority >= minCountForEntropyPriority && manaNow >= 2)
             {
                 p.CastSpellsModifiers.AddOrUpdate(EntropicContinuity, new Modifier(-3200));
                 p.PlayOrderModifiers.AddOrUpdate(EntropicContinuity, new Modifier(4800));
-                AddLog("续连熵能：满足动态可用窗口（敌方" + (enemyHasMinion ? "有场>=2" : "空场>=3") + "），放宽优先级");
+                AddLog("续连熵能：满足动态可用窗口（友方覆盖>=3），放宽优先级");
             }
 
             // 该牌会洗入时空撕裂（抽到会自伤），低血长局适当保守。
@@ -2690,25 +5016,40 @@ namespace SmartBotProfiles
             // 用户硬规则：没费用时不打墓（避免“只发现但无法当回合转化”）。
             if (manaNow <= 0)
             {
-                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-9999));
                 AddLog("咒怨之墓：可用费=0，硬规则禁用");
                 return;
             }
             bool prioritizeSketchArtistWindow = ShouldPrioritizeSketchArtistOverTomb(board, manaNow);
+            bool sketchPlayableAtFourPlusWindow = manaNow >= 4
+                && GetFreeBoardSlots(board) > 0
+                && board.Hand.Any(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == SketchArtist
+                    && c.CurrentCost <= manaNow);
             bool reserveTombForRayWindow = ShouldReserveTombForAbductionRay(board, manaNow);
+            bool prioritizeShadowflameStalkerWindow = ShouldPrioritizeShadowflameStalkerOverTomb(board, manaNow);
 
             // 用户规则：如果本回合要用速写美术家或挟持射线，则本回合不必使用墓。
-            if (prioritizeSketchArtistWindow || reserveTombForRayWindow)
+            if (prioritizeSketchArtistWindow || sketchPlayableAtFourPlusWindow || reserveTombForRayWindow)
             {
-                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-10000));
-                if (prioritizeSketchArtistWindow && reserveTombForRayWindow)
+                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-9999));
+                if ((prioritizeSketchArtistWindow || sketchPlayableAtFourPlusWindow) && reserveTombForRayWindow)
                     AddLog("咒怨之墓：本回合将走速写美术家/挟持射线链路，硬规则禁用");
-                else if (prioritizeSketchArtistWindow)
+                else if (prioritizeSketchArtistWindow || sketchPlayableAtFourPlusWindow)
                     AddLog("咒怨之墓：命中速写美术家先手窗口，本回合硬规则禁用");
                 else
                     AddLog("咒怨之墓：本回合已决定挟持射线，硬规则禁用");
+                return;
+            }
+            // 用户规则：4费且手里无挟持射线/速写时，若影焰猎豹可下，则墓不抢先。
+            if (prioritizeShadowflameStalkerWindow)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(5200));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-9900));
+                AddLog("咒怨之墓：4费无挟持射线/速写且影焰猎豹可下，后置让位影焰猎豹");
                 return;
             }
             bool enemyHasMinion = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
@@ -2736,7 +5077,7 @@ namespace SmartBotProfiles
             if (hasViciousInvaderOnBoard && friendlyMinionCount >= 3)
             {
                 p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(9800));
-                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-9999));
                 AddLog("咒怨之墓：凶恶的入侵者在场且己方已铺场，硬规则禁用先墓（避免法术反噬清场）");
                 return;
             }
@@ -2758,7 +5099,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, TombOfSuffering, allowCoinBridge: false, forceOverride: true,
                     logWhenSet: "咒怨之墓：3费起ComboSet强制先手");
                 p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-7600));
-                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(9999));
                 AddLog("咒怨之墓：3费起强制先手窗口，优先先墓");
                 return;
             }
@@ -2807,7 +5148,7 @@ namespace SmartBotProfiles
             SetSingleCardCombo(board, p, TombOfSuffering, allowCoinBridge: false, forceOverride: true,
                 logWhenSet: "咒怨之墓：ComboSet必出");
             p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-7000));
-            p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(10000));
+            p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(9999));
             AddLog("咒怨之墓：满足优先窗口（可用费=" + manaNow + "）-> 强制本回合最先使用");
         }
 
@@ -2842,20 +5183,76 @@ namespace SmartBotProfiles
 
             if (manaNow < 0)
                 manaNow = GetAvailableManaIncludingCoin(board);
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
 
             // 已登记“本回合射线优先”时，墓直接让位。
-            if (HasStartedOrPlannedAbductionRayThisTurn(board))
+            if (startupState.RayStartedThisTurn)
                 return true;
 
             if (!IsAbductionRayPlayableNow(board))
                 return false;
 
-            if (ShouldForceAbductionRayNow(board))
-                return true;
+            bool rayHardLockWindow = ShouldForceAbductionRayNow(board);
+            return HasAbductionRayPriorityWindow(board, startupState, rayHardLockWindow);
+        }
 
-            bool rayContinuationWindow = IsAbductionRayContinuationThisTurn(board) || ShouldChainAbductionRayNow(board);
-            bool rayTemporaryWindow = HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
-            return rayContinuationWindow || rayTemporaryWindow;
+        private bool ShouldSkipTombForSketchOrRayThisTurn(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
+
+            bool reserveTombForRayWindow = startupState.RayStartedThisTurn
+                || ShouldReserveTombForAbductionRay(board, manaNow);
+            bool prioritizeSketchArtistWindow = ShouldPrioritizeSketchArtistOverTomb(board, manaNow);
+            bool prioritizeShadowflameStalkerWindow = ShouldPrioritizeShadowflameStalkerOverTomb(board, manaNow);
+            bool sketchPlayableAtFourPlusWindow = manaNow >= 4
+                && GetFreeBoardSlots(board) > 0
+                && board.Hand.Any(c => c != null
+                    && c.Template != null
+                    && c.Template.Id == SketchArtist
+                    && c.CurrentCost <= manaNow);
+
+            return reserveTombForRayWindow
+                || prioritizeSketchArtistWindow
+                || prioritizeShadowflameStalkerWindow
+                || sketchPlayableAtFourPlusWindow;
+        }
+
+        // 用户规则：4费且手里无挟持射线/速写美术家时，影焰猎豹可直接先手，不让墓抢线。
+        private bool ShouldPrioritizeShadowflameStalkerOverTomb(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow != 4)
+                return false;
+            if (GetFreeBoardSlots(board) <= 0)
+                return false;
+
+            bool tombPlayableNow = board.Hand.Any(c => c != null
+                && c.Template != null
+                && c.Template.Id == TombOfSuffering
+                && c.CurrentCost <= manaNow);
+            if (!tombPlayableNow)
+                return false;
+            if (board.HasCardInHand(AbductionRay))
+                return false;
+            if (board.HasCardInHand(SketchArtist))
+                return false;
+            if (IsArchimondePlayableNow(board, manaNow))
+                return false;
+
+            bool stalkerPlayableNow = board.Hand.Any(c => c != null
+                && c.Template != null
+                && c.Template.Id == ShadowflameStalker
+                && c.CurrentCost <= manaNow);
+            return stalkerPlayableNow;
         }
 
         // Tomb 强制先手：在 Tomb 仍在手里时，把“本回合当前可打出”的其它动作统一后置。
@@ -2866,9 +5263,7 @@ namespace SmartBotProfiles
                 return;
             if (manaNow <= 0)
                 return;
-            if (ShouldPrioritizeSketchArtistOverTomb(board, manaNow))
-                return;
-            if (ShouldReserveTombForAbductionRay(board, manaNow))
+            if (ShouldSkipTombForSketchOrRayThisTurn(board, manaNow))
                 return;
 
             bool tombPlayableNow = board.Hand.Any(c => c != null
@@ -2902,15 +5297,15 @@ namespace SmartBotProfiles
             {
                 foreach (var friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
                 {
-                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
                 }
             }
 
             if (board.MinionEnemy != null)
             {
                 foreach (var enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-10000));
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-9999));
             }
 
             p.GlobalAggroModifier = Math.Min(p.GlobalAggroModifier.Value, -3600);
@@ -2964,7 +5359,7 @@ namespace SmartBotProfiles
                     continue;
 
                 p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(9999));
-                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
                 fallbackApplied = true;
             }
 
@@ -3112,9 +5507,7 @@ namespace SmartBotProfiles
                 .FirstOrDefault();
             if (tomb == null || tomb.CurrentCost > manaNow)
                 return false;
-            if (ShouldPrioritizeSketchArtistOverTomb(board, manaNow))
-                return false;
-            if (ShouldReserveTombForAbductionRay(board, manaNow))
+            if (ShouldSkipTombForSketchOrRayThisTurn(board, manaNow))
                 return false;
 
             // 没有可发现目标时，不进入“强制先墓”。
@@ -3203,10 +5596,15 @@ namespace SmartBotProfiles
             int raceTypes = CountDistinctFriendlyRaceTypes(board);
             int manaNow = GetAvailableManaIncludingCoin(board);
             int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int friendAttack = GetBoardAttack(board.MinionFriend);
             int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
             bool storytellerPlayableNow = board.Hand.Any(c => c != null && c.Template != null
                 && c.Template.Id == TortollanStoryteller
                 && c.CurrentCost <= manaNow);
+            bool rushClearWindow = ShouldPrioritizeRushMinionClear(board, friendHp, enemyHp, friendAttack, enemyAttack);
+            var playableOutsideDeckRushMinionIds = GetPlayableOutsideDeckRushMinionCardIdsForClear(board, manaNow);
+            bool hasPlayableOutsideDeckRushMinionForClear = rushClearWindow && playableOutsideDeckRushMinionIds.Count > 0;
             bool dangerousHpTauntTempoWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
             var playableTauntMinionIds = GetPlayableTauntMinionCardIds(board, manaNow);
             bool hasPlayableTauntMinionNow = playableTauntMinionIds.Count > 0;
@@ -3259,9 +5657,9 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, PartyFiend, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "派对邪犬：始祖龟让位，ComboSet优先落地");
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-4600));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 p.CastMinionsModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(4200));
-                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-9999));
                 AddLog("始祖龟：邪犬可下且不该继续叠龟，后置让位邪犬");
                 return;
             }
@@ -3297,11 +5695,44 @@ namespace SmartBotProfiles
                 foreach (var tauntId in playableTauntMinionIds)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-5600));
-                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
                 }
                 p.CastMinionsModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(4200));
-                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-9999));
                 AddLog("始祖龟：危险血线且有可下嘲讽，后置让位嘲讽稳场");
+                return;
+            }
+
+            // 用户规则：高压回合若手里有可下“套外恶魔突袭怪”，优先先下解场，不让始祖龟抢节奏。
+            if (storytellerPlayableNow && hasPlayableOutsideDeckRushMinionForClear)
+            {
+                foreach (var rushId in playableOutsideDeckRushMinionIds)
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(rushId, new Modifier(-6200));
+                    p.PlayOrderModifiers.AddOrUpdate(rushId, new Modifier(9999));
+                }
+
+                var preferredOutsideRush = board.Hand
+                    .Where(c => c != null
+                        && c.Template != null
+                        && c.Type == Card.CType.MINION
+                        && c.CurrentCost <= manaNow
+                        && c.IsRace(Card.CRace.DEMON)
+                        && IsOutsideDeckDemonByDeckList(board, c.Template.Id)
+                        && IsRushMinionForClear(c))
+                    .OrderBy(c => c.CurrentCost)
+                    .ThenBy(c => c.Template.Id.ToString(), StringComparer.Ordinal)
+                    .FirstOrDefault();
+                if (preferredOutsideRush != null)
+                {
+                    SetSingleCardCombo(board, p, preferredOutsideRush.Template.Id,
+                        allowCoinBridge: true, forceOverride: true,
+                        logWhenSet: "始祖龟：命中套外恶魔突袭解场窗口，ComboSet优先突袭解场");
+                }
+
+                p.CastMinionsModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(4600));
+                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-9999));
+                AddLog("始祖龟：命中套外恶魔突袭解场窗口，后置让位突袭随从清场");
                 return;
             }
 
@@ -3326,6 +5757,45 @@ namespace SmartBotProfiles
 
             if (rayPlayableNow)
                 AddLog("始祖龟：挟持射线可用但未锁定，不强制后置");
+
+            // 用户规则：后期始祖龟不应抢先。
+            // 当回合存在其他可打动作（尤其是套外恶魔）时，始祖龟后置让位节奏动作。
+            bool hasPlayableOutsideDeckDemonNow = board.Hand.Any(c =>
+                c != null
+                && c.Template != null
+                && c.Type == Card.CType.MINION
+                && c.CurrentCost <= manaNow
+                && c.IsRace(Card.CRace.DEMON)
+                && IsOutsideDeckDemonByDeckList(board, c.Template.Id));
+            int otherPlayableActions = CountPlayableActionsExcludingCard(board, manaNow, TortollanStoryteller);
+            bool lateGameStorytellerDeprioritizeWindow = storytellerPlayableNow
+                && board.MaxMana >= 5
+                && !rayHardLock
+                && !rayMultiChainPriorityWindow
+                && !dangerousHpTauntTempoWindow
+                && (hasPlayableOutsideDeckDemonNow || otherPlayableActions >= 1);
+            if (lateGameStorytellerDeprioritizeWindow)
+            {
+                if (hasPlayableOutsideDeckDemonNow)
+                {
+                    foreach (var card in board.Hand.Where(c =>
+                                 c != null
+                                 && c.Template != null
+                                 && c.Type == Card.CType.MINION
+                                 && c.CurrentCost <= manaNow
+                                 && c.IsRace(Card.CRace.DEMON)
+                                 && IsOutsideDeckDemonByDeckList(board, c.Template.Id)))
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-2600));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9800));
+                    }
+                }
+
+                p.CastMinionsModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(4200));
+                p.PlayOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(-9800));
+                AddLog("始祖龟：后期窗口不抢先，后置让位" + (hasPlayableOutsideDeckDemonNow ? "套外恶魔/其他动作" : "其他节奏动作"));
+                return;
+            }
 
             bool preferEntropyOverStorytellerNow = ShouldPreferEntropicOverStoryteller(board, manaNow)
                 && !rayHardLock
@@ -3444,7 +5914,7 @@ namespace SmartBotProfiles
                     logWhenSet: "速写美术家：2费回合ComboSet强制先手");
                 ForceSketchFirstThisTurn(board, p, manaNow);
                 p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
                 AddLog("速写美术家：2费回合优先铺场，避免空过1费/错过节奏");
                 return;
@@ -3457,6 +5927,15 @@ namespace SmartBotProfiles
                 p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
                 p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(-9999));
                 AddLog("速写美术家：可用费(含币虚拟)=" + manaNow + " < 3，本回合禁用");
+                return;
+            }
+
+            // 用户规则：命中阿克蒙德直拍窗口时，速写必须后置让位阿克蒙德。
+            if (sketchPlayableNow && ShouldCommitArchimondeThisTurn(board, manaNow))
+            {
+                p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(6200));
+                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(-9999));
+                AddLog("速写美术家：命中阿克蒙德直拍窗口，后置让位阿克蒙德");
                 return;
             }
 
@@ -3479,7 +5958,7 @@ namespace SmartBotProfiles
                     logWhenSet: "速写美术家：高费空过保护窗口，ComboSet强制先手");
                 ForceSketchFirstThisTurn(board, p, manaNow);
                 p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(-6200));
-                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
                 AddLog("速写美术家：高费回合动作稀缺，强制优先落地避免空过");
                 return;
@@ -3520,7 +5999,7 @@ namespace SmartBotProfiles
                 }
 
                 p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(-1600));
-                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
                 AddLog("速写美术家：3费节奏窗口开启，允许本回合先手落地");
                 return;
             }
@@ -3645,6 +6124,13 @@ namespace SmartBotProfiles
             if (!board.HasCardInHand(SketchArtist))
                 return;
 
+            // 用户规则：命中阿克蒙德直拍窗口时，关闭速写终局强制先手。
+            if (ShouldCommitArchimondeThisTurn(board, manaNow))
+            {
+                AddLog("速写美术家：阿克蒙德直拍窗口，关闭4费起强制先手");
+                return;
+            }
+
             // 用户规则修正：仅在手牌>=8时关闭“4费起速写强制先手”，
             // 7张手牌仍可强制速写先手，避免被挟持射线插队。
             if (board.Hand.Count >= 8)
@@ -3653,11 +6139,37 @@ namespace SmartBotProfiles
                 return;
             }
 
+            int stageMana = Math.Max(0, board.MaxMana);
+            bool hasPlayableRayNow = board.Hand.Any(c => c != null
+                && c.Template != null
+                && c.Template.Id == AbductionRay
+                && c.CurrentCost <= manaNow);
+            bool hasTempRayWindow = HasTemporaryOrSketchGeneratedAbductionRay(board);
+            bool rayNotStartedThisTurn = !HasStartedOrLastPlayedAbductionRayThisTurn(board);
+            bool sketchRayPriorityWindow = stageMana >= 4
+                && stageMana <= 6
+                && hasPlayableRayNow
+                && !hasTempRayWindow
+                && rayNotStartedThisTurn;
+            if (sketchRayPriorityWindow)
+            {
+                SetSingleCardCombo(board, p, SketchArtist, allowCoinBridge: true, forceOverride: true,
+                    logWhenSet: "速写美术家：4-6费手有挟持射线，强制先手");
+                ForceSketchFirstThisTurn(board, p, manaNow);
+                p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(-6400));
+                p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5200));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
+                AddLog("速写美术家：4-6费且手有挟持射线，强制第一优先");
+                return;
+            }
+
             SetSingleCardCombo(board, p, SketchArtist, allowCoinBridge: true, forceOverride: true,
                 logWhenSet: "速写美术家：最优先出牌（强制）");
             ForceSketchFirstThisTurn(board, p, manaNow);
             p.CastMinionsModifiers.AddOrUpdate(SketchArtist, new Modifier(-6200));
-            p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(10000));
+            p.PlayOrderModifiers.AddOrUpdate(SketchArtist, new Modifier(9999));
             p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
             AddLog("速写美术家：4费起强制第一优先");
         }
@@ -3669,6 +6181,8 @@ namespace SmartBotProfiles
             bool stalkerPlayableNow = board.Hand != null && board.Hand.Any(c => c != null && c.Template != null
                 && c.Template.Id == ShadowflameStalker
                 && c.CurrentCost <= manaNow);
+            bool archimondePlayableNow = IsArchimondePlayableNow(board, manaNow);
+            int playableOutsideDeckDemonsThisTurn = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
             bool flameImpPlayableNow = board.Hand != null && board.Hand.Any(c => c != null && c.Template != null
                 && c.Template.Id == FlameImp
                 && c.CurrentCost <= manaNow);
@@ -3683,6 +6197,37 @@ namespace SmartBotProfiles
 
             p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-350));
             p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(5200));
+
+            // 用户规则：影焰猎豹优先级低于阿克蒙德。若阿克蒙德本回合可下，猎豹统一后置让位。
+            if (stalkerPlayableNow && archimondePlayableNow)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(6200));
+                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-9999));
+                AddLog("影焰猎豹：阿克蒙德可下，强后置到阿克蒙德之后");
+                return;
+            }
+
+            // 用户规则：影焰猎豹优先级低于套外恶魔。若本回合可下套外恶魔，猎豹后置让位。
+            if (stalkerPlayableNow && playableOutsideDeckDemonsThisTurn > 0)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(6200));
+                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-9999));
+                AddLog("影焰猎豹：本回合可下套外恶魔，后置让位（可打数量=" + playableOutsideDeckDemonsThisTurn + "）");
+                return;
+            }
+
+            // 用户规则：4费且手里无挟持射线/速写时，影焰猎豹直接先手，不让墓抢线。
+            if (stalkerPlayableNow && ShouldPrioritizeShadowflameStalkerOverTomb(board, manaNow))
+            {
+                SetSingleCardCombo(board, p, ShadowflameStalker, allowCoinBridge: true, forceOverride: true,
+                    logWhenSet: "影焰猎豹：4费无射线/速写窗口，ComboSet先手");
+                p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-5600));
+                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(9999));
+                p.CastSpellsModifiers.AddOrUpdate(TombOfSuffering, new Modifier(5200));
+                p.PlayOrderModifiers.AddOrUpdate(TombOfSuffering, new Modifier(-9900));
+                AddLog("影焰猎豹：4费且手里无挟持射线/速写，优先先手，不让位咒怨之墓");
+                return;
+            }
 
             if (ShouldDelayShadowflameForAbductionRay(board))
             {
@@ -3704,7 +6249,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, ShadowflameStalker, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "影焰猎豹：危险血线博保命发现，强制先手");
                 p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(9999));
                 AddLog("影焰猎豹：缺少嘲讽/冰片/射线保命手段，优先落地尝试发现保命牌");
                 return;
             }
@@ -3724,7 +6269,8 @@ namespace SmartBotProfiles
                 AddLog("影焰猎豹：后期优先于烈焰小鬼出牌");
             }
 
-            if (!stalkerEffectAdjusted && board.Hand.Count >= 9)
+            // 用户规则：影焰猎豹在手牌<=9时允许使用；仅手牌满(10)时再后置避免爆牌。
+            if (!stalkerEffectAdjusted && board.Hand.Count >= HearthstoneHandLimit)
             {
                 p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(1200));
                 p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-7000));
@@ -3836,7 +6382,7 @@ namespace SmartBotProfiles
                         logWhenSet: "影焰猎豹：延系双端命中高收益，强制先手");
                 }
                 p.CastMinionsModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(ShadowflameStalker, new Modifier(9999));
                 if (emitLog)
                     AddLog("影焰猎豹：延系高收益（击杀=" + killCount + "，减攻=" + attackRemoved + "），强制前置");
                 return true;
@@ -3934,7 +6480,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, UnreleasedMasseridon, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "玛瑟里顿（未发售版）：回合末3伤斩杀，强制先手");
                 p.CastMinionsModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(-5600));
-                p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(9999));
                 AddLog("玛瑟里顿（未发售版）：命中回合末伤害斩杀窗口，前置落地");
                 return;
             }
@@ -3954,7 +6500,7 @@ namespace SmartBotProfiles
                 }
 
                 if (castMod < -6200) castMod = -6200;
-                if (orderMod > 10000) orderMod = 10000;
+                if (orderMod > 9999) orderMod = 9999;
 
                 p.CastMinionsModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(castMod));
                 p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(orderMod));
@@ -3966,7 +6512,7 @@ namespace SmartBotProfiles
                     SetSingleCardCombo(board, p, UnreleasedMasseridon, allowCoinBridge: true, forceOverride: true,
                         logWhenSet: "玛瑟里顿（未发售版）：多目标<=3血清场窗口，强制先手");
                     p.CastMinionsModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(-6200));
-                    p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(9999));
                     AddLog("玛瑟里顿（未发售版）：<=3血目标达到" + pulseKillCount + "个，强制前置清场并打脸");
                     return;
                 }
@@ -3977,7 +6523,7 @@ namespace SmartBotProfiles
                 SetSingleCardCombo(board, p, UnreleasedMasseridon, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "玛瑟里顿（未发售版）：高压清场窗口，强制先手");
                 p.CastMinionsModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(UnreleasedMasseridon, new Modifier(9999));
                 AddLog("玛瑟里顿（未发售版）：高压且回合末可清" + pulseKillCount + "个，敌方场攻预计下降" + attackDropByPulse + "，前置保命");
                 return;
             }
@@ -4028,6 +6574,16 @@ namespace SmartBotProfiles
             if (monthly == null)
                 return;
 
+            bool hasFriendlyMinionNow = board.MinionFriend.Any(m => m != null);
+            if (!hasFriendlyMinionNow)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(monthly.Id, new Modifier(9999));
+                p.CastMinionsModifiers.AddOrUpdate(MonthlyModelEmployee, new Modifier(9200));
+                p.PlayOrderModifiers.AddOrUpdate(monthly.Id, new Modifier(-9999));
+                AddLog("月度魔范员工：友方无随从，后置暂缓使用");
+                return;
+            }
+
             var attackableFriends = board.MinionFriend
                 .Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0)
                 .ToList();
@@ -4047,7 +6603,7 @@ namespace SmartBotProfiles
             SetSingleCardCombo(board, p, MonthlyModelEmployee, allowCoinBridge: true, forceOverride: false,
                 logWhenSet: "月度魔范员工：ComboSet先贴吸血");
             p.CastMinionsModifiers.AddOrUpdate(MonthlyModelEmployee, -3200, bestTarget.Id);
-            p.PlayOrderModifiers.AddOrUpdate(MonthlyModelEmployee, new Modifier(10000));
+            p.PlayOrderModifiers.AddOrUpdate(MonthlyModelEmployee, new Modifier(9999));
 
             foreach (var friend in attackableFriends)
                 p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
@@ -4092,7 +6648,7 @@ namespace SmartBotProfiles
             if (dangerousHpTauntTempoWindow && enemyHasSurgingShipSurgeon && glacialShardPlayableNow)
             {
                 p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(5200));
-                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9999));
                 AddLog("阿克蒙德：随船外科医师在场且冰川裂片可用，后置让位冰片先手");
                 return;
             }
@@ -4119,11 +6675,14 @@ namespace SmartBotProfiles
                     || enemyAttack >= 8);
             if (highValueMasseridonReviveWindow && !onBoardLethalNow)
             {
+                if (TryDelayArchimondeForSendableAttacks(board, p))
+                    return;
+
                 SetSingleCardCombo(board, p, Archimonde, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "阿克蒙德：复活玛瑟里顿高收益窗口，强制先手");
                 ForceArchimondeFirstThisTurn(board, p, manaNow);
                 p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-6200));
-                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(9999));
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
                 AddLog("阿克蒙德：坟场玛瑟里顿=" + masseridonInGrave
                     + "，预估回合末可清<=3血目标=" + pulseKillCount
@@ -4138,13 +6697,36 @@ namespace SmartBotProfiles
                 && GetFreeBoardSlots(board) >= 1
                 && hasOutsideTauntDemonForArchimonde)
             {
+                if (TryDelayArchimondeForSendableAttacks(board, p))
+                    return;
+
                 SetSingleCardCombo(board, p, Archimonde, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "阿克蒙德：危险血线且套外恶魔池含嘲讽，强制先手保命");
                 ForceArchimondeFirstThisTurn(board, p, manaNow);
                 p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(9999));
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
                 AddLog("阿克蒙德：危险血线且套外恶魔池含嘲讽(" + outsideTauntDemonSnapshot + ")，有场位可用，前置保命");
+                return;
+            }
+
+            // 用户反馈：10费回合命中拍出条件时，应直接下阿克蒙德，避免小怪先占格子。
+            bool turnTenImmediateArchimondeWindow = board.MaxMana >= 10
+                && readyByOutsideDemons
+                && GetFreeBoardSlots(board) >= 1
+                && !onBoardLethalNow;
+            if (turnTenImmediateArchimondeWindow)
+            {
+                if (TryDelayArchimondeForSendableAttacks(board, p))
+                    return;
+
+                SetSingleCardCombo(board, p, Archimonde, allowCoinBridge: true, forceOverride: true,
+                    logWhenSet: "阿克蒙德：10费直拍窗口，ComboSet强制先手");
+                ForceArchimondeFirstThisTurn(board, p, manaNow);
+                p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-7600));
+                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(9999));
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
+                AddLog("阿克蒙德：10费命中直拍规则，前置落地避免小怪先占格");
                 return;
             }
 
@@ -4168,45 +6750,27 @@ namespace SmartBotProfiles
                 return;
             }
 
-            // 用户规则：进入可拍窗口后，阿克蒙德默认后置，不抢本回合前段动作。
+            // 用户规则更新：一旦决定拍阿克蒙德，必须第一优先，
+            // 避免低费随从先占复活随从场位。
             if (GetFreeBoardSlots(board) >= 1)
             {
-                bool lowHpHighPressure = friendHp <= 12 && enemyAttack >= 8;
-                bool hasAttackableFriend = board.MinionFriend != null
-                    && board.MinionFriend.Any(m => m != null && m.CanAttack && m.CurrentAtk > 0);
-                bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
-                int attackNow = board.MinionFriend == null
-                    ? 0
-                    : board.MinionFriend.Where(m => m != null && m.CanAttack).Sum(m => Math.Max(0, m.CurrentAtk));
-                bool onBoardLethal = !enemyHasTaunt && attackNow >= GetHeroHealth(board.HeroEnemy);
-
-                // 用户规则：阿克蒙德必须等场上可攻击随从先完成攻击，再考虑落地。
-                if (hasAttackableFriend)
+                if (onBoardLethalNow)
                 {
-                    if (onBoardLethal)
-                    {
-                        p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9800));
-                        AddLog("阿克蒙德：已具备场攻斩杀，后置不抢先");
-                        return;
-                    }
-
-                    p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9900));
-                    AddLog(lowHpHighPressure
-                        ? "阿克蒙德：低血高压且有可攻击随从，强后置到攻击与其他动作之后"
-                        : "阿克蒙德：场上有可攻击随从，强后置让位攻击与其余动作");
+                    p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9800));
+                    AddLog("阿克蒙德：已具备场攻斩杀，后置不抢先");
                     return;
                 }
 
-                // 无可攻击随从时也默认后置，避免抢占本回合前段节奏。
-                if (lowHpHighPressure)
-                {
-                    p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9900));
-                    AddLog("阿克蒙德：低血高压窗口后置，让位本回合其他动作");
+                if (TryDelayArchimondeForSendableAttacks(board, p))
                     return;
-                }
 
-                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9900));
-                AddLog("阿克蒙德：满足拍出窗口，强后置到本回合后段再落地");
+                SetSingleCardCombo(board, p, Archimonde, allowCoinBridge: true, forceOverride: true,
+                    logWhenSet: "阿克蒙德：命中拍出条件，ComboSet强制先手");
+                ForceArchimondeFirstThisTurn(board, p, manaNow);
+                p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-6200));
+                p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(9999));
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
+                AddLog("阿克蒙德：命中拍出条件，强制第一优先避免低费随从占复活位");
                 return;
             }
 
@@ -4217,7 +6781,7 @@ namespace SmartBotProfiles
 
         // 基尔加丹：
         // 1) 默认“牌库未空后置(+200)”；
-        // 2) 非危急窗口（无明显场压/血压风险）可主动落地；
+        // 2) 用户规则：血量无忧 或 局势占优 时，直接先手落地；
         // 3) 牌库未空但手里无其他可用手牌动作时，也允许落地。
         private void HandleKiljaeden(Board board, ProfileParameters p)
         {
@@ -4243,6 +6807,7 @@ namespace SmartBotProfiles
             bool pressureWindow = ShouldEnterBalancedDefenseMode(board, friendHp, enemyHp);
             bool dangerousHpWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttackSnapshot);
             bool emergencyWindow = (friendHp <= 8 && enemyAttackSnapshot > 0) || (friendHp <= 12 && enemyAttackSnapshot >= 8);
+            bool safeHpWindow = friendHp >= 15 && enemyAttackSnapshot <= 7;
             bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
             int friendAttackNow = GetAttackableBoardAttack(board.MinionFriend);
             bool onBoardLethal = !enemyHasTaunt && friendAttackNow >= enemyHp;
@@ -4264,6 +6829,19 @@ namespace SmartBotProfiles
                     if (onBoardLethal)
                     {
                         AddLog("基尔加丹：场攻可斩杀，后置不插队");
+                        return;
+                    }
+
+                    // 用户新规则：血量无忧 或 局势占优 时，基尔加丹直接先手落地，尽早转化为终结压力。
+                    if (safeHpWindow || boardAdvantage)
+                    {
+                        SetSingleCardCombo(board, p, Kiljaeden, allowCoinBridge: true, forceOverride: true,
+                            logWhenSet: "基尔加丹：血量无忧/局势占优，ComboSet强制先手");
+                        ForceKiljaedenFirstThisTurn(board, p, manaNow);
+                        p.CastMinionsModifiers.AddOrUpdate(Kiljaeden, new Modifier(-3200));
+                        p.PlayOrderModifiers.AddOrUpdate(Kiljaeden, new Modifier(9999));
+                        p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(2600));
+                        AddLog("基尔加丹：血量无忧或局势占优，命中直拍规则，强制先手落地");
                         return;
                     }
 
@@ -4307,6 +6885,68 @@ namespace SmartBotProfiles
             p.CastMinionsModifiers.AddOrUpdate(Kiljaeden, new Modifier(-2600));
             p.PlayOrderModifiers.AddOrUpdate(Kiljaeden, new Modifier(9200));
             AddLog("基尔加丹：牌库为空，优先落地");
+        }
+
+        private void ForceKiljaedenFirstThisTurn(Board board, ProfileParameters p, int manaNow)
+        {
+            if (board == null || board.Hand == null || p == null)
+                return;
+
+            foreach (var card in board.Hand.Where(c => c != null && c.Template != null))
+            {
+                if (card.Template.Id == Kiljaeden || card.Template.Id == TheCoin)
+                    continue;
+                if (card.CurrentCost > manaNow)
+                    continue;
+
+                if (card.Type == Card.CType.MINION)
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(3200));
+                else if (card.Type == Card.CType.SPELL)
+                    p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(3200));
+                else if (card.Type == Card.CType.WEAPON)
+                    p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(3200));
+
+                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800));
+            }
+        }
+
+        // 用户修正：当基尔加丹命中“直拍先手”窗口时，非临时挟持射线链路应让位。
+        private bool ShouldPreferKiljaedenImmediateOverRayChain(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+            if (!board.HasCardInHand(Kiljaeden))
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+
+            bool kiljaedenPlayableNow = board.Hand.Any(c => c != null
+                && c.Template != null
+                && c.Template.Id == Kiljaeden
+                && c.CurrentCost <= manaNow);
+            if (!kiljaedenPlayableNow)
+                return false;
+
+            if (GetFreeBoardSlots(board) <= 0)
+                return false;
+
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int enemyAttackSnapshot = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int friendAttackNow = GetAttackableBoardAttack(board.MinionFriend);
+            bool onBoardLethal = !enemyHasTaunt && friendAttackNow >= enemyHp;
+            if (onBoardLethal)
+                return false;
+
+            // 牌库已空时，基尔加丹默认应优先落地，不应再被射线续链抢先。
+            if (board.FriendDeckCount <= 0)
+                return true;
+
+            bool safeHpWindow = friendHp >= 15 && enemyAttackSnapshot <= 7;
+            bool boardAdvantage = HasFriendlyBoardAdvantageForLegendaryDemons(board, out _);
+            return safeHpWindow || boardAdvantage;
         }
 
         // 传奇高费恶魔（基尔加丹/阿克蒙德）门槛：
@@ -4502,6 +7142,85 @@ namespace SmartBotProfiles
             p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(2600));
         }
 
+        // 用户规则：若本回合计划拍阿克蒙德且场上存在“可送”随从，
+        // 先完成送怪交换腾格，再落阿克蒙德，避免提前占位降低复活收益。
+        private bool TryDelayArchimondeForSendableAttacks(Board board, ProfileParameters p)
+        {
+            if (board == null || p == null || board.MinionFriend == null || board.MinionEnemy == null)
+                return false;
+            if (board.MinionEnemy.Count == 0)
+                return false;
+
+            var attackableFriends = board.MinionFriend
+                .Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0)
+                .ToList();
+            if (attackableFriends.Count == 0)
+                return false;
+
+            var allEnemyTargets = board.MinionEnemy
+                .Where(m => m != null && m.Template != null)
+                .ToList();
+            if (allEnemyTargets.Count == 0)
+                return false;
+
+            var sendableFriends = attackableFriends
+                .Where(friend => allEnemyTargets.Any(enemy => enemy.CurrentAtk >= friend.CurrentHealth))
+                .ToList();
+            if (sendableFriends.Count == 0)
+                return false;
+
+            var sendableTemplateIds = new HashSet<Card.Cards>(sendableFriends.Select(m => m.Template.Id));
+
+            foreach (var enemy in allEnemyTargets)
+            {
+                bool canKillSendable = sendableFriends.Any(friend => enemy.CurrentAtk >= friend.CurrentHealth);
+                if (!canKillSendable && !enemy.IsTaunt)
+                    continue;
+
+                int pri = 900 + Math.Max(0, enemy.CurrentAtk) * 60;
+                if (enemy.IsTaunt) pri += 1200;
+                p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(Math.Min(pri, 9999)));
+            }
+
+            foreach (var friend in sendableFriends)
+            {
+                p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-2600));
+                p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-9999));
+            }
+
+            foreach (var friend in attackableFriends.Where(m => m != null && !sendableTemplateIds.Contains(m.Template.Id)))
+            {
+                p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(3600));
+            }
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            if (board.Hand != null)
+            {
+                foreach (var card in board.Hand.Where(c => c != null && c.Template != null))
+                {
+                    if (card.Template.Id == Archimonde || card.Template.Id == TheCoin)
+                        continue;
+                    if (card.CurrentCost > manaNow)
+                        continue;
+
+                    if (card.Type == Card.CType.MINION)
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(2200));
+                    else if (card.Type == Card.CType.SPELL)
+                        p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(2200));
+                    else if (card.Type == Card.CType.WEAPON)
+                        p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(2200));
+
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800));
+                }
+            }
+
+            p.CastMinionsModifiers.AddOrUpdate(Archimonde, new Modifier(-4200));
+            p.PlayOrderModifiers.AddOrUpdate(Archimonde, new Modifier(-9600));
+            p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(4200));
+            AddLog("阿克蒙德：命中可送窗口，先送" + sendableFriends.Count + "体再下阿克蒙德");
+            return true;
+        }
+
         // 奇利亚斯（输能+计数）：本套是“进攻增伤模块”，不是防守模块
         private void HandleZilliaxTickingPower(Board board, ProfileParameters p, int enemyHp, int friendAttack)
         {
@@ -4599,7 +7318,7 @@ namespace SmartBotProfiles
                     logWhenSet: "奇利亚斯：硬规则先1费随从后奇利亚斯");
 
                 p.CastMinionsModifiers.AddOrUpdate(oneCostMinion.Template.Id, new Modifier(-3200));
-                p.PlayOrderModifiers.AddOrUpdate(oneCostMinion.Template.Id, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(oneCostMinion.Template.Id, new Modifier(9999));
                 p.CastMinionsModifiers.AddOrUpdate(ZilliaxTickingPower, new Modifier(1500));
                 p.CastMinionsModifiers.AddOrUpdate(ZilliaxDeckBuilder, new Modifier(1500));
                 p.PlayOrderModifiers.AddOrUpdate(ZilliaxTickingPower, new Modifier(-9800));
@@ -4632,7 +7351,7 @@ namespace SmartBotProfiles
                     logWhenSet: "奇利亚斯：ComboSet先派对邪犬后奇利亚斯");
 
                 p.CastMinionsModifiers.AddOrUpdate(PartyFiend, new Modifier(-3200));
-                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(PartyFiend, new Modifier(9999));
                 p.CastMinionsModifiers.AddOrUpdate(ZilliaxTickingPower, new Modifier(900));
                 p.CastMinionsModifiers.AddOrUpdate(ZilliaxDeckBuilder, new Modifier(900));
                 p.PlayOrderModifiers.AddOrUpdate(ZilliaxTickingPower, new Modifier(-9000));
@@ -4714,8 +7433,8 @@ namespace SmartBotProfiles
                 return;
             if (ShouldLockCoinBeforeTurnThreeForSketch(board))
             {
-                p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(10000));
-                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(-10000));
+                p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(9999));
+                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(-9999));
                 AddLog("幸运币：手有速写美术家且未到3费回合，硬规则禁用");
                 return;
             }
@@ -4733,7 +7452,7 @@ namespace SmartBotProfiles
             if (ShouldCoinIntoPartyFiendNow(board, manaNow))
             {
                 p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(-5200));
-                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(9999));
                 AddLog("幸运币：命中跳币邪犬窗口，前置硬币");
                 return;
             }
@@ -4795,8 +7514,11 @@ namespace SmartBotProfiles
         private void HandleHeroPower(Board board, ProfileParameters p, int friendHp)
         {
             int manaNow = GetAvailableManaIncludingCoin(board);
+            AbductionRayStartupState rayStartupState = EvaluateAbductionRayStartupState(board, manaNow);
             int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
             bool hasPlayableMinion = HasPlayableMinionWithBoardSpace(board, manaNow);
+            bool windowShopperPlayableNow = HasPlayableWindowShopperFamily(board, manaNow);
+            int playableOutsideDeckDemonsNow = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
             bool hasPlayableMinionExceptStoryteller = HasPlayableMinionWithBoardSpaceExcluding(board, manaNow, TortollanStoryteller);
             bool moargPriorityWindow = ShouldPrioritizeMoargForgefiendNow(board);
             bool pressureDigTapWindow = ShouldPrioritizeLifeTapForPressureDig(board, friendHp, manaNow, hasPlayableMinion);
@@ -4821,30 +7543,9 @@ namespace SmartBotProfiles
             bool wispStorytellerWindow = CanPlayWispThenStorytellerSameTurn(board, manaNow);
             bool storytellerDualOneDropWindow = HasStorytellerDualOneDropRaceWindow(board, manaNow);
             bool rayPlayableNow = IsAbductionRayPlayableNow(board);
-            bool hasTempPlayableRayNow = HasTemporaryPlayableAbductionRay(board);
-            bool hasSketchTrackedPlayableRayNow = HasSketchGeneratedAbductionRayWindow(board);
-            bool hasAnyPlayableRayNow = HasPlayableAbductionRayInHand(board, manaNow);
-            bool hasStartedRayThisTurn = HasStartedOrPlannedAbductionRayThisTurn(board);
             bool forceRayNow = ShouldForceAbductionRayNow(board);
-            int playableRayCountNow = board.Hand.Count(c => c != null && c.Template != null
-                && c.Template.Id == AbductionRay
-                && c.CurrentCost <= manaNow);
-            bool multiPlayableRayNow = playableRayCountNow >= 2;
-            bool rayContinuationWindow = IsAbductionRayContinuationThisTurn(board)
-                || ShouldChainAbductionRayNow(board);
-            bool shouldBlockLifeTapForRayChain = hasAnyPlayableRayNow
-                && (hasTempPlayableRayNow
-                    || hasSketchTrackedPlayableRayNow
-                    || hasStartedRayThisTurn
-                    || rayContinuationWindow
-                    || forceRayNow
-                    || multiPlayableRayNow);
-            bool rayChainOrTempWindow = (rayPlayableNow || hasAnyPlayableRayNow || hasStartedRayThisTurn)
-                && (hasTempPlayableRayNow
-                    || hasSketchTrackedPlayableRayNow
-                    || rayContinuationWindow
-                    || forceRayNow
-                    || multiPlayableRayNow);
+            bool shouldBlockLifeTapForRayChain = ShouldBlockLifeTapForAbductionRay(board, rayStartupState, forceRayNow);
+            bool rayChainOrTempWindow = IsAbductionRayChainOrTempWindow(board, rayStartupState, rayPlayableNow, forceRayNow);
             bool rayOverdrawHigh = IsAbductionRayOverdrawRiskHigh(board, rayChainOrTempWindow);
             bool enemyHasMinionNow = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
             bool friendHasMinionNow = board.MinionFriend != null && board.MinionFriend.Any(m => m != null);
@@ -4853,11 +7554,26 @@ namespace SmartBotProfiles
                 && board.Hand.Any(c => c != null && c.Template != null
                     && c.Template.Id == TortollanStoryteller
                     && c.CurrentCost <= manaNow);
+            var playableMinionsExceptStoryteller = board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Type == Card.CType.MINION
+                    && c.Template.Id != TortollanStoryteller
+                    && c.CurrentCost <= manaNow)
+                .ToList();
+            bool onlyArchimondeAsAlternativeTempo = playableMinionsExceptStoryteller.Count > 0
+                && playableMinionsExceptStoryteller.All(c => c.Template.Id == Archimonde);
+            int outsideDeckDemonsInBoardAndGrave = CountOutsideDeckDemonsInBoardAndGrave(board);
+            bool onlyUnreadyArchimondeAsAlternativeTempo = onlyArchimondeAsAlternativeTempo
+                && outsideDeckDemonsInBoardAndGrave < 6;
             int additionalBodiesWithoutStoryteller = GetMaxAdditionalBodiesWithBudgetExcludingCard(board, manaNow, TortollanStoryteller);
             bool hasAlternativeTempoWithoutStoryteller = additionalBodiesWithoutStoryteller > 0 || hasPlayableMinionExceptStoryteller;
             bool dangerousHpTauntTempoWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
             var playableTauntMinionIds = GetPlayableTauntMinionCardIds(board, manaNow);
             bool hasPlayableTauntMinionNow = playableTauntMinionIds.Count > 0;
+            bool hasPlayableEnergyAmuletNow = board.Hand.Any(c => c != null && c.Template != null
+                && c.Template.Id == EnergyAmulet
+                && c.CurrentCost <= manaNow);
             bool desperateHailMaryTapWindow = ShouldForceDesperateLifeTap(
                 board,
                 friendHp,
@@ -4869,8 +7585,31 @@ namespace SmartBotProfiles
             // 用户硬规则：临时射线/速写射线/可续链射线窗口，一律禁用分流，避免断链抽一口。
             if (shouldBlockLifeTapForRayChain)
             {
-                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(10000));
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(9999));
                 AddLog("分流：检测到可续挟持射线链（含临时/速写/连发），硬规则禁用分流");
+                return;
+            }
+
+            int enemyHpForEnergyAmuletTap = GetHeroHealth(board.HeroEnemy);
+            int attackableFriendAttackForEnergyAmuletTap = GetAttackableBoardAttack(board.MinionFriend);
+            bool enemyHasTauntForEnergyAmuletTap = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            bool onBoardLethalForEnergyAmuletTap = !enemyHasTauntForEnergyAmuletTap
+                && attackableFriendAttackForEnergyAmuletTap >= enemyHpForEnergyAmuletTap;
+            bool shouldBlockLifeTapForEnergyAmulet = hasPlayableEnergyAmuletNow
+                && !onBoardLethalForEnergyAmuletTap
+                && (friendHp <= 8 || enemyAttack >= friendHp || dangerousHpTauntTempoWindow);
+            if (shouldBlockLifeTapForEnergyAmulet)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(9999));
+                AddLog("分流：低血高压且手握能量护符，先回血，禁用先分流");
+                return;
+            }
+
+            bool forceInfernalEmergencyWindow = ShouldForceInfernalEmergency(board, friendHp, manaNow);
+            if (forceInfernalEmergencyWindow)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(9999));
+                AddLog("分流：3血地狱火保命窗口，硬规则禁用先分流");
                 return;
             }
 
@@ -4904,11 +7643,28 @@ namespace SmartBotProfiles
             int enemyHp = GetHeroHealth(board.HeroEnemy);
             int attackableFriendAttackNow = GetAttackableBoardAttack(board.MinionFriend);
             bool onBoardLethalNow = !enemyHasTauntNow && attackableFriendAttackNow >= enemyHp;
+            bool hasPlayableOutsideDeckDemonNow = playableOutsideDeckDemonsNow > 0;
+            bool lowHpForceTapOutsideDeckDemonExempt = CanUseLifeTapNow(board)
+                && friendHp >= 3
+                && friendHp <= 9
+                && enemyHasMinionNow
+                && hasPlayableMinion
+                && hasPlayableOutsideDeckDemonNow
+                && !onBoardLethalNow;
+            if (lowHpForceTapOutsideDeckDemonExempt)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(6200));
+                AddLog("分流：低血强制分流豁免，手里有可下套外恶魔，后置分流先走场面");
+                return;
+            }
+
             bool lowHpDigBeforeFloodWindow = CanUseLifeTapNow(board)
                 && friendHp >= 3
                 && friendHp <= 9
                 && enemyHasMinionNow
                 && hasPlayableMinion
+                && !windowShopperPlayableNow
+                && !hasPlayableOutsideDeckDemonNow
                 && !hasPlayableTauntMinionNow
                 && !onBoardLethalNow
                 && (enemyHasTauntNow || enemyAttack >= 8 || enemyAttack >= friendHp - 1);
@@ -4916,6 +7672,18 @@ namespace SmartBotProfiles
             {
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(-7600));
                 AddLog("分流：低血且敌方嘲讽/高压阻断斩杀，强制先抽一口找解再决策");
+                return;
+            }
+            if (CanUseLifeTapNow(board)
+                && friendHp >= 3
+                && friendHp <= 9
+                && enemyHasMinionNow
+                && hasPlayableMinion
+                && (windowShopperPlayableNow || hasPlayableOutsideDeckDemonNow)
+                && !onBoardLethalNow)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(5200));
+                AddLog("分流：低血窗口但有可下橱窗看客/套外恶魔，后置分流优先先铺场稳场");
                 return;
             }
 
@@ -4933,6 +7701,18 @@ namespace SmartBotProfiles
             {
                 p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(-2100));
                 AddLog("分流：空场低压资源窗口，优先抽一口");
+                return;
+            }
+
+            // Avoid a pass turn when the only "tempo" option is an unready Archimonde.
+            if (emptyBoardNoWispStorytellerWindow
+                && onlyUnreadyArchimondeAsAlternativeTempo
+                && CanUseLifeTapNow(board)
+                && friendHp >= 3
+                && board.Hand.Count < HearthstoneHandLimit)
+            {
+                p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(-2400));
+                AddLog("分流：空场始祖龟窗口仅有未达条件阿克蒙德，优先抽一口防空过");
                 return;
             }
 
@@ -5126,6 +7906,11 @@ namespace SmartBotProfiles
             if (board == null || board.Hand == null)
                 return false;
             if (!hasPlayableMinion)
+                return false;
+            // 用户规则：有可下橱窗看客/套外恶魔时，优先先铺场，不先抽一口。
+            if (HasPlayableWindowShopperFamily(board, manaNow))
+                return false;
+            if (GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow) > 0)
                 return false;
             if (!CanUseLifeTapNow(board))
                 return false;
@@ -5531,40 +8316,82 @@ namespace SmartBotProfiles
             bool boardBehind = enemyMinionCount > friendMinionCount || enemyAttack >= friendAttack + 3;
             bool hpBehind = friendHp + 6 <= enemyHp;
             bool isDisadvantaged = lowHpHighPressure || boardBehind || hpBehind;
-            if (realManaNow <= 0)
+
+            // 既有硬优先链：临时/满费挟持射线 > 咒怨之墓 > 先抽后buff > 速写美术家。
+            // 用户规则：即使是0费收尾，也必须先遵守这些规则，不能提前插队。
+            bool forceRayNow = ShouldForceAbductionRayNow(board);
+            if (forceRayNow && !rushClearWindow)
             {
-                // 回合末兜底：即使费用已用尽，仍要把可下0费随从转化为场面。
-                var zeroCostMinion = GetRightmostPlayableZeroCostNonRayMinion(board, manaNow);
-                if (zeroCostMinion != null)
-                {
-                    SetSingleCardComboByEntityId(board, p, zeroCostMinion.Id,
-                        allowCoinBridge: true, forceOverride: false,
-                        logWhenSet: "节奏：0费收尾窗口，优先落地");
-                    p.CastMinionsModifiers.AddOrUpdate(zeroCostMinion.Id, new Modifier(-5200));
-                    p.PlayOrderModifiers.AddOrUpdate(zeroCostMinion.Id, new Modifier(10000));
-                    AddLog("节奏：费用已用尽但存在可下0费随从，优先落地避免空过");
-                }
+                if (realManaNow <= 0)
+                    AddLog("节奏：0费收尾窗口命中挟持射线锁定，后置不插队");
+                return;
+            }
+            if (forceRayNow && rushClearWindow)
+                AddLog("节奏：命中突袭解场窗口，允许打断射线锁定");
+
+            // 用户规则：命中阿克蒙德直拍窗口时，节奏模块不得插队（尤其0费随从）。
+            // 否则会先占场位，降低阿克蒙德复活收益。
+            bool archimondeCommitWindow = ShouldCommitArchimondeThisTurn(board, manaNow);
+            if (archimondeCommitWindow)
+            {
+                AddLog("节奏：命中阿克蒙德直拍窗口，暂停节奏随从前置避免占位");
                 return;
             }
 
-            // 不打断已定义的硬优先链：临时/满费挟持射线 > 咒怨之墓 > 速写美术家。
-            bool forceRayNow = ShouldForceAbductionRayNow(board);
-            if (forceRayNow && !rushClearWindow)
-                return;
-            if (forceRayNow && rushClearWindow)
-                AddLog("节奏：命中突袭解场窗口，允许打断射线锁定");
             if (ShouldForceTombFirstThisTurn(board))
             {
-                AddLog("节奏：命中咒怨之墓先手规则，后置其余节奏随从");
+                if (realManaNow <= 0)
+                    AddLog("节奏：0费收尾窗口命中咒怨之墓先手规则，后置不插队");
+                else
+                    AddLog("节奏：命中咒怨之墓先手规则，后置其余节奏随从");
                 return;
             }
             if (ShouldTapBeforeEntropicContinuity(board, friendHp))
             {
-                AddLog("节奏：命中先抽后buff规则，后置随从优先先分流");
+                if (realManaNow <= 0)
+                    AddLog("节奏：0费收尾窗口命中先抽后buff规则，后置不插队");
+                else
+                    AddLog("节奏：命中先抽后buff规则，后置随从优先先分流");
                 return;
             }
             if (board.HasCardInHand(SketchArtist) && manaNow >= 4
                 && !HasPlayableMinionWithBoardSpaceExcluding(board, manaNow, SketchArtist))
+            {
+                if (realManaNow <= 0)
+                    AddLog("节奏：0费收尾窗口命中速写优先窗口，后置不插队");
+                return;
+            }
+
+            // 用户新增规则：只要存在可下0费随从，优先先手落地。
+            // 但在危险血线且场位仅剩1格、且存在可下嘲讽时，暂缓0费非嘲讽，避免卡住保命位。
+            var zeroCostMinion = GetRightmostPlayableZeroCostNonRayMinion(board, manaNow);
+            if (zeroCostMinion != null)
+            {
+                var playableTauntMinionIdsForZeroFirst = GetPlayableTauntMinionCardIds(board, manaNow);
+                bool reserveSlotForTaunt = dangerousHpTauntTempoWindow
+                    && freeBoardSlots <= 1
+                    && playableTauntMinionIdsForZeroFirst.Count > 0
+                    && !IsTauntMinionForSurvival(zeroCostMinion);
+
+                if (!reserveSlotForTaunt)
+                {
+                    SetSingleCardComboByEntityId(board, p, zeroCostMinion.Id,
+                        allowCoinBridge: true, forceOverride: true,
+                        logWhenSet: realManaNow <= 0
+                            ? "节奏：0费收尾窗口，优先落地"
+                            : "节奏：检测到可下0费随从，强制先手");
+                    p.CastMinionsModifiers.AddOrUpdate(zeroCostMinion.Id, new Modifier(-5400));
+                    p.PlayOrderModifiers.AddOrUpdate(zeroCostMinion.Id, new Modifier(9999));
+                    AddLog(realManaNow <= 0
+                        ? "节奏：费用已用尽且通过既有规则校验，优先落地0费随从避免空过"
+                        : "节奏：存在可下0费随从，优先先手落地后再考虑其他动作");
+                    return;
+                }
+
+                AddLog("节奏：危险血线且场位紧张，暂缓0费非嘲讽，优先保留场位给嘲讽");
+            }
+
+            if (realManaNow <= 0)
                 return;
 
             bool forcedStorytellerDualOneDrop = false;
@@ -5589,6 +8416,27 @@ namespace SmartBotProfiles
 
             if (ShouldHoldForStorytellerBuff(board) && !forcedStorytellerDualOneDrop)
             {
+                // 用户反馈：即使命中“始祖龟空场吃buff”窗口，若本回合仍剩1费且可下1费随从，
+                // 应先打满费用，避免白白浪费1费后直接结束回合。
+                var playableOneManaMinion = board.Hand
+                    .Where(c => c != null
+                        && c.Template != null
+                        && c.Type == Card.CType.MINION
+                        && c.CurrentCost <= realManaNow
+                        && c.CurrentCost == 1)
+                    .OrderByDescending(c => c.Id)
+                    .FirstOrDefault();
+                if (realManaNow == 1 && freeBoardSlots > 0 && playableOneManaMinion != null)
+                {
+                    SetSingleCardComboByEntityId(board, p, playableOneManaMinion.Id,
+                        allowCoinBridge: true, forceOverride: true,
+                        logWhenSet: "始祖龟窗口：剩余1费优先打满");
+                    p.CastMinionsModifiers.AddOrUpdate(playableOneManaMinion.Id, new Modifier(-3600));
+                    p.PlayOrderModifiers.AddOrUpdate(playableOneManaMinion.Id, new Modifier(9999));
+                    AddLog("始祖龟窗口：剩余1费且可下1费随从，先打满费用再结束回合");
+                    return;
+                }
+
                 AddLog("始祖龟窗口：敌方空场，暂停无收益补下，优先结束回合吃buff");
                 return;
             }
@@ -5609,7 +8457,7 @@ namespace SmartBotProfiles
                 foreach (var tauntId in playableTauntMinionIds)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-5600));
-                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
                 }
 
                 foreach (var card in playableRealManaMinions)
@@ -5653,6 +8501,8 @@ namespace SmartBotProfiles
             var antiFloatTempoCandidates = playableRealManaMinions
                 .Where(c => c != null
                     && c.Template != null
+                    && c.Template.Id != FrenziedWrathguard
+                    && !string.Equals(c.Template.Id.ToString(), KingLlaneCardId, StringComparison.Ordinal)
                     && c.Template.Id != SketchArtist
                     && c.Template.Id != TortollanStoryteller
                     && c.Template.Id != Archimonde
@@ -5662,7 +8512,7 @@ namespace SmartBotProfiles
                 .OrderByDescending(c => c.CurrentCost)
                 .ThenBy(c => c.Id)
                 .ToList();
-            bool startedNonTempRayThisTurn = HasStartedOrPlannedAbductionRayThisTurn(board) && !HasTemporaryPlayableAbductionRay(board);
+            bool startedNonTempRayThisTurn = HasStartedOrLastPlayedAbductionRayThisTurn(board) && !HasTemporaryPlayableAbductionRay(board);
             bool severeManaFloatRiskWindow = realManaNow >= 4
                 && antiFloatTempoCandidates.Count > 0
                 && !ShouldHoldForStorytellerBuff(board)
@@ -5694,6 +8544,7 @@ namespace SmartBotProfiles
             int infernalDelayHpSnapshot = 0;
             bool infernalLowHpPrioritized = false;
             int infernalPriorityHpSnapshot = 0;
+            bool infernalEmergencyForced = false;
             bool doomguardDelayed = false;
             bool doomguardStrongDelayed = false;
             bool doomguardHardDelayedByOtherCards = false;
@@ -5701,11 +8552,15 @@ namespace SmartBotProfiles
             bool alenashiDelayedByOtherHandCards = false;
             bool wrathguardPrioritized = false;
             bool wrathguardHeldForSetup = false;
-            bool wrathguardSlightDelayed = false;
+            bool wrathguardHardDelayed = false;
             bool eredarBruteZeroCostPrioritized = false;
             bool moargForgefiendPrioritized = false;
             bool shadowflameStalkerPrioritized = false;
             bool shadowflameStalkerDelayedForRayChain = false;
+            bool shadowflameStalkerDelayedForArchimonde = false;
+            bool shadowflameStalkerDelayedForOutsideDeckDemons = false;
+            bool kingLlaneDelayed = false;
+            bool monthlyDelayedForNoFriendlyMinion = false;
             bool rushMinionPrioritizedForClear = false;
             bool arsonEyedDemonLifestealPrioritized = false;
             bool arsonEyedDemonDelayedForNoHealTarget = false;
@@ -5716,9 +8571,12 @@ namespace SmartBotProfiles
             bool midCurvePlayOrderRaised = false;
             bool masseridonOrderKept = false;
             bool hasArchimondeOrKiljaedenInHand = board.HasCardInHand(Archimonde) || board.HasCardInHand(Kiljaeden);
+            bool archimondePlayableNowForTempo = IsArchimondePlayableNow(board, manaNow);
+            int playableOutsideDeckDemonsNowForTempo = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
             bool hasOtherCardBesidesAlenashiInHand = board.Hand.Any(c => c != null && c.Template != null && c.Template.Id != Alenashi);
             int playableNonDoomguardCount = playableRealManaMinions.Count(c => c != null && c.Template != null && c.Template.Id != Doomguard);
             bool tapBeforeInfernalWindow = ShouldTapBeforeInfernal(board, friendHp, manaNow);
+            bool forceInfernalEmergencyWindow = ShouldForceInfernalEmergency(board, friendHp, manaNow);
             bool forebodingCorePlayableNow = freeBoardSlots > 0
                 && board.Hand.Any(c => c != null && c.Template != null
                     && c.Template.Id == ForebodingFlame
@@ -5740,7 +8598,7 @@ namespace SmartBotProfiles
                 {
                     // 用户规则：手里有阿克蒙德或基尔加丹时，不走阿莱纳希。
                     p.CastMinionsModifiers.AddOrUpdate(Alenashi, new Modifier(9500));
-                    p.PlayOrderModifiers.AddOrUpdate(Alenashi, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(Alenashi, new Modifier(-9999));
                     alenashiDelayedByCoreDemonPlan = true;
                     continue;
                 }
@@ -5759,10 +8617,27 @@ namespace SmartBotProfiles
                 if (card.Template.Id == PartyFiend && board.MinionFriend.Count > 4)
                     continue;
 
+                if (string.Equals(card.Template.Id.ToString(), KingLlaneCardId, StringComparison.Ordinal))
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(2400));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-7600));
+                    kingLlaneDelayed = true;
+                    continue;
+                }
+
+                if (card.Template.Id == MonthlyModelEmployee
+                    && (board.MinionFriend == null || !board.MinionFriend.Any(m => m != null)))
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
+                    monthlyDelayedForNoFriendlyMinion = true;
+                    continue;
+                }
+
                 if (rushClearWindow && IsRushMinionForClear(card))
                 {
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-5600));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                     rushMinionPrioritizedForClear = true;
                     continue;
                 }
@@ -5783,7 +8658,7 @@ namespace SmartBotProfiles
                         int castBoost = -2200 - Math.Min(3400, missingHp * 180 + enemyMinionsNow * 160);
                         if (castBoost < -6200) castBoost = -6200;
                         int orderBoost = 8400 + Math.Min(1200, missingHp * 60) + (lowHpHighPressure ? 400 : 0);
-                        if (orderBoost > 10000) orderBoost = 10000;
+                        if (orderBoost > 9999) orderBoost = 9999;
 
                         p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castBoost));
                         p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(orderBoost));
@@ -5879,7 +8754,7 @@ namespace SmartBotProfiles
                 if (card.Template.Id == EredarBrute && card.CurrentCost == 0)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-4200));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                     eredarBruteZeroCostPrioritized = true;
                     continue;
                 }
@@ -5898,7 +8773,19 @@ namespace SmartBotProfiles
                 // 用户新规则：影焰猎豹保持原优先级，单独提高使用次序（先后顺序前移）。
                 if (card.Template.Id == ShadowflameStalker)
                 {
-                    if (ShouldDelayShadowflameForAbductionRay(board, manaNow))
+                    if (archimondePlayableNowForTempo)
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(6200));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
+                        shadowflameStalkerDelayedForArchimonde = true;
+                    }
+                    else if (playableOutsideDeckDemonsNowForTempo > 0)
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(6200));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
+                        shadowflameStalkerDelayedForOutsideDeckDemons = true;
+                    }
+                    else if (ShouldDelayShadowflameForAbductionRay(board, manaNow))
                     {
                         p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(4800));
                         p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9950));
@@ -5930,6 +8817,21 @@ namespace SmartBotProfiles
                     continue;
                 }
 
+                // 用户规则：3血且地狱火可用时，地狱火必须保命优先，不再让位分流。
+                if (card.Template.Id == Infernal && forceInfernalEmergencyWindow)
+                {
+                    SetSingleCardCombo(board, p, Infernal, allowCoinBridge: true, forceOverride: false,
+                        logWhenSet: "地狱火！：3血保命窗口，ComboSet强制优先");
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9800));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+                    infernalEmergencyForced = true;
+                    infernalLowHpPrioritized = true;
+                    infernalPriorityHpSnapshot = infernalPriorityHpSnapshot <= 0
+                        ? friendHp
+                        : Math.Min(infernalPriorityHpSnapshot, friendHp);
+                    continue;
+                }
+
                 // 用户规则：可“分流+地狱火”时，地狱火后置到分流之后。
                 if (card.Template.Id == Infernal && tapBeforeInfernalWindow)
                 {
@@ -5948,7 +8850,7 @@ namespace SmartBotProfiles
                     if (friendHp <= 5) castBoost -= 1200;
                     if (castBoost < -5600) castBoost = -5600;
                     int orderBoost = 7200 + hpMissingTo13 * 260 + (friendHp <= 8 ? 900 : 0);
-                    if (orderBoost > 10000) orderBoost = 10000;
+                    if (orderBoost > 9999) orderBoost = 9999;
 
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(castBoost));
                     p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(orderBoost));
@@ -5962,8 +8864,8 @@ namespace SmartBotProfiles
                 // 用户规则：己方血量 > 15 时，地狱火硬禁用，避免被强制压血到15。
                 if (card.Template.Id == Infernal && friendHp > 15)
                 {
-                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                    p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                     infernalDelayed = true;
                     infernalDelayHpSnapshot = Math.Max(infernalDelayHpSnapshot, friendHp);
                     continue;
@@ -6008,14 +8910,14 @@ namespace SmartBotProfiles
                     bool isPoweredUp = GetTag(card, Card.GAME_TAG.POWERED_UP) == 1;
                     if (!isPoweredUp)
                     {
-                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                         AddLog("雷兹迪尔：非标记态，硬规则禁用");
                         continue;
                     }
 
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-3600));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                     AddLog("雷兹迪尔：标记态已激活，强制先手压制对手手牌");
 
                     continue;
@@ -6064,8 +8966,8 @@ namespace SmartBotProfiles
 
                     if (enemyHasTwoOrLessHealthMinion)
                     {
-                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-2600));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(8200));
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-3600));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9400));
                         wrathguardPrioritized = true;
                     }
                     else if (canSetupTwoOrLessHealthWindowByAttack)
@@ -6076,9 +8978,9 @@ namespace SmartBotProfiles
                     }
                     else
                     {
-                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(280));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-1200));
-                        wrathguardSlightDelayed = true;
+                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(5200));
+                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9950));
+                        wrathguardHardDelayed = true;
                     }
                     continue;
                 }
@@ -6100,12 +9002,14 @@ namespace SmartBotProfiles
                 p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(generalPlayOrder));
             }
 
-            if (infernalDelayedForTap)
+            if (infernalEmergencyForced)
+                AddLog("地狱火！：3血保命窗口，强制前置且不再让位分流");
+            else if (infernalDelayedForTap)
                 AddLog("地狱火！：命中先抽后地狱火规则，后置到分流之后");
             else if (infernalDelayed)
-                AddLog($"地狱火！：己方血量>{15}，硬规则禁用（当前血量={infernalDelayHpSnapshot}）");
+                AddLog("地狱火！：己方血量>15，硬规则禁用（当前血量=" + infernalDelayHpSnapshot + "）");
             else if (infernalLowHpPrioritized)
-                AddLog($"地狱火！：血量越低越优先，低血窗口前置（当前血量={infernalPriorityHpSnapshot}）");
+                AddLog("地狱火！：血量越低越优先，低血窗口前置（当前血量=" + infernalPriorityHpSnapshot + "）");
             if (doomguardHardDelayedByOtherCards)
                 AddLog("末日守卫：手里有其他牌，优先使用其他牌并强后置末日守卫");
             else if (doomguardStrongDelayed)
@@ -6120,8 +9024,8 @@ namespace SmartBotProfiles
                 AddLog("躁动的愤怒卫士：敌方存在<=2血随从，前置优先使用");
             else if (wrathguardHeldForSetup)
                 AddLog("躁动的愤怒卫士：可先将目标压到<=2血，后置等待发现窗口");
-            else if (wrathguardSlightDelayed)
-                AddLog("躁动的愤怒卫士：无2血目标，轻微后置");
+            else if (wrathguardHardDelayed)
+                AddLog("躁动的愤怒卫士：无<=2血目标，强后置等待击杀窗口");
             if (eredarBruteZeroCostPrioritized)
                 AddLog("艾瑞达蛮兵：0费可用，前置优先落地");
             if (moargForgefiendPrioritized)
@@ -6132,10 +9036,18 @@ namespace SmartBotProfiles
                 AddLog("纵火眼魔：低血保命窗口，前置突袭解场并吸血回血（缺失血量=" + arsonEyedDemonMissingHpSnapshot + "）");
             else if (arsonEyedDemonDelayedForNoHealTarget)
                 AddLog("纵火眼魔：敌方空场无法立即吸血，低血回合后置避免空拍");
-            if (shadowflameStalkerDelayedForRayChain)
+            if (shadowflameStalkerDelayedForArchimonde)
+                AddLog("影焰猎豹：阿克蒙德可下，强后置到阿克蒙德之后");
+            else if (shadowflameStalkerDelayedForOutsideDeckDemons)
+                AddLog("影焰猎豹：可下套外恶魔，强后置让位套外恶魔");
+            else if (shadowflameStalkerDelayedForRayChain)
                 AddLog("影焰猎豹：命中挟持射线链路窗口，后置到射线之后");
             else if (shadowflameStalkerPrioritized)
                 AddLog("影焰猎豹：保持优先级不变，使用次序前移（PlayOrder=5200）");
+            if (kingLlaneDelayed)
+                AddLog("莱恩国王：降低使用优先级，后置不抢节奏");
+            if (monthlyDelayedForNoFriendlyMinion)
+                AddLog("月度魔范员工：友方无随从，后置暂缓使用");
             if (wispDelayedForStorytellerPlan)
                 AddLog("小精灵：手有始祖龟，后置保留联动避免白给");
             else if (wispDelayedAgainstEnemyMinions)
@@ -6267,7 +9179,7 @@ namespace SmartBotProfiles
             // 用户规则：允许“先分流后地狱火”；仅保留分流不自杀的硬底线。
             if (friendHp > 15)
                 return false;
-            if (friendHp <= 2)
+            if (friendHp <= 3)
                 return false;
             if (!CanUseLifeTapNow(board))
                 return false;
@@ -6307,11 +9219,46 @@ namespace SmartBotProfiles
             return true;
         }
 
+        private bool ShouldForceInfernalEmergency(Board board, int friendHp, int manaNow)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+            if (friendHp > 3)
+                return false;
+
+            bool infernalPlayableNow = board.Hand.Any(c => c != null && c.Template != null
+                && c.Template.Id == Infernal
+                && c.CurrentCost <= manaNow);
+            if (!infernalPlayableNow)
+                return false;
+
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int attackableFriendAttack = GetAttackableBoardAttack(board.MinionFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            bool onBoardLethal = !enemyHasTaunt && attackableFriendAttack >= enemyHp;
+            if (onBoardLethal)
+                return false;
+
+            return true;
+        }
+
         private int GetTag(Card c, Card.GAME_TAG tag)
         {
             if (c != null && c.tags != null && c.tags.ContainsKey(tag))
                 return c.tags[tag];
             return -1;
+        }
+
+        private bool IsCardFrozenByTag(Card c)
+        {
+            if (c == null)
+                return false;
+
+            Card.GAME_TAG frozenTag;
+            if (!Enum.TryParse("FROZEN", out frozenTag))
+                return false;
+
+            return GetTag(c, frozenTag) == 1;
         }
 
         private bool TryApplyRafaamFamilyTempoRules(Board board, ProfileParameters p, Card card, int manaNow, bool isDisadvantaged)
@@ -6373,7 +9320,7 @@ namespace SmartBotProfiles
                 if (!isPoweredUp)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(9800));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9999));
                     AddLog("时空大盗拉法姆：非标记态，硬规则禁用");
                     return true;
                 }
@@ -6383,14 +9330,14 @@ namespace SmartBotProfiles
                 if (forcedTopCombo)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9600));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                     AddLog("时空大盗拉法姆：命中硬规则，强制本回合最先使用");
                     return true;
                 }
 
                 // 兜底：若ComboSet异常未生效，仍保持最高优先级直接使用。
                 p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-9200));
-                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(9999));
                 AddLog("时空大盗拉法姆：ComboSet未命中，按最高优先级兜底");
                 return true;
             }
@@ -6452,6 +9399,260 @@ namespace SmartBotProfiles
             return true;
         }
 
+        private void HandleAmuletCardsByEffect(Board board, ProfileParameters p, int friendHp)
+        {
+            if (board == null || board.Hand == null || p == null)
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return;
+
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int attackableFriendAttack = GetAttackableBoardAttack(board.MinionFriend);
+            bool onBoardLethal = !enemyHasTaunt && attackableFriendAttack >= enemyHp;
+            bool dangerousHpTauntTempoWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
+            int handSpace = HearthstoneHandLimit - board.Hand.Count;
+            int freeSlots = GetFreeBoardSlots(board);
+
+            var trackingAmulet = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == TrackingAmulet
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+            if (trackingAmulet != null)
+            {
+                if (onBoardLethal)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(TrackingAmulet, new Modifier(2600));
+                    p.PlayOrderModifiers.AddOrUpdate(TrackingAmulet, new Modifier(-9800));
+                    AddLog("追踪护符：场攻可斩杀，后置不抢先");
+                }
+                else if (handSpace <= 1)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(TrackingAmulet, new Modifier(6800));
+                    p.PlayOrderModifiers.AddOrUpdate(TrackingAmulet, new Modifier(-9999));
+                    AddLog("追踪护符：手牌空间过小，硬后置防爆牌");
+                }
+                else if (dangerousHpTauntTempoWindow)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(TrackingAmulet, new Modifier(2400));
+                    p.PlayOrderModifiers.AddOrUpdate(TrackingAmulet, new Modifier(-9400));
+                    AddLog("追踪护符：危险血线窗口，后置让位保命动作");
+                }
+                else if (handSpace >= 3)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(TrackingAmulet, new Modifier(-2200));
+                    p.PlayOrderModifiers.AddOrUpdate(TrackingAmulet, new Modifier(7600));
+                    AddLog("追踪护符：手牌空间充足，前置补资源");
+                }
+                else
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(TrackingAmulet, new Modifier(-500));
+                    p.PlayOrderModifiers.AddOrUpdate(TrackingAmulet, new Modifier(1800));
+                }
+            }
+
+            var crittersAmulet = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == CrittersAmulet
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+            if (crittersAmulet != null)
+            {
+                bool friendBoardEmpty = board.MinionFriend == null || board.MinionFriend.Count == 0;
+                if (onBoardLethal)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(CrittersAmulet, new Modifier(2600));
+                    p.PlayOrderModifiers.AddOrUpdate(CrittersAmulet, new Modifier(-9800));
+                    AddLog("生灵护符：场攻可斩杀，后置不抢先");
+                }
+                else if (freeSlots <= 0)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(CrittersAmulet, new Modifier(9999));
+                    p.PlayOrderModifiers.AddOrUpdate(CrittersAmulet, new Modifier(-9999));
+                }
+                else if (dangerousHpTauntTempoWindow || enemyAttack >= friendHp)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(CrittersAmulet, new Modifier(-3400));
+                    p.PlayOrderModifiers.AddOrUpdate(CrittersAmulet, new Modifier(9400));
+                    AddLog("生灵护符：高压窗口前置，优先补嘲讽稳场");
+                }
+                else if (friendBoardEmpty && enemyAttack >= 4)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(CrittersAmulet, new Modifier(-1800));
+                    p.PlayOrderModifiers.AddOrUpdate(CrittersAmulet, new Modifier(6400));
+                    AddLog("生灵护符：空场受压，前置补场");
+                }
+                else
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(CrittersAmulet, new Modifier(-260));
+                    p.PlayOrderModifiers.AddOrUpdate(CrittersAmulet, new Modifier(900));
+                }
+            }
+
+            var stridesAmulet = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == StridesAmulet
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+            if (stridesAmulet != null)
+            {
+                int reducibleNonSpellCount = board.Hand.Count(c => c != null
+                    && c.Template != null
+                    && c.Template.Id != StridesAmulet
+                    && c.Template.Id != TheCoin
+                    && c.Type != Card.CType.SPELL
+                    && c.CurrentCost >= 1);
+                bool archimondePlayableNow = IsArchimondePlayableNow(board, manaNow);
+                bool shouldYieldToArchimonde = archimondePlayableNow && board.MaxMana >= 10;
+
+                if (onBoardLethal)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(2000));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(-9800));
+                    AddLog("挺进护符：场攻可斩杀，后置不抢先");
+                }
+                else if (shouldYieldToArchimonde)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(5200));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(-9999));
+                    AddLog("挺进护符：阿克蒙德可下，后置让位阿克蒙德");
+                }
+                else if (dangerousHpTauntTempoWindow && enemyAttack >= friendHp - 1)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(2600));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(-9600));
+                    AddLog("挺进护符：危险血线高压，后置让位保命动作");
+                }
+                else if (reducibleNonSpellCount >= 3)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(-2600));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(7600));
+                    AddLog("挺进护符：可减费目标>=3，前置赚节奏");
+                }
+                else if (reducibleNonSpellCount >= 2)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(-1200));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(3400));
+                }
+                else
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(StridesAmulet, new Modifier(1800));
+                    p.PlayOrderModifiers.AddOrUpdate(StridesAmulet, new Modifier(-9200));
+                    AddLog("挺进护符：可减费收益偏低，后置");
+                }
+            }
+
+            var energyAmulet = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == EnergyAmulet
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenBy(c => c.Id)
+                .FirstOrDefault();
+            if (energyAmulet != null)
+            {
+                int missingHealth = 0;
+                try
+                {
+                    missingHealth = board.HeroFriend != null
+                        ? Math.Max(0, board.HeroFriend.MaxHealth - board.HeroFriend.CurrentHealth)
+                        : Math.Max(0, 30 - friendHp);
+                }
+                catch
+                {
+                    missingHealth = Math.Max(0, 30 - friendHp);
+                }
+
+                if (onBoardLethal)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(2800));
+                    p.PlayOrderModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-9800));
+                    AddLog("能量护符：场攻可斩杀，后置不抢先");
+                }
+                else if (dangerousHpTauntTempoWindow || enemyAttack >= friendHp)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-3200));
+                    p.PlayOrderModifiers.AddOrUpdate(EnergyAmulet, new Modifier(8600));
+                    AddLog("能量护符：危险血线窗口，前置回血");
+                }
+                else if (missingHealth >= 7)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-1600));
+                    p.PlayOrderModifiers.AddOrUpdate(EnergyAmulet, new Modifier(4600));
+                    AddLog("能量护符：缺失生命较高，前置回补血线");
+                }
+                else if (missingHealth <= 3)
+                {
+                    p.CastSpellsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(1600));
+                    p.PlayOrderModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-9000));
+                    AddLog("能量护符：缺失生命较少，后置避免低收益自伤");
+                }
+            }
+        }
+
+        private void HandleEnergyAmuletEmergency(Board board, ProfileParameters p, int friendHp)
+        {
+            if (board == null || board.Hand == null || p == null)
+                return;
+
+            int manaNow = GetAvailableManaIncludingCoin(board);
+            var energyAmuletCard = board.Hand
+                .Where(c => c != null && c.Template != null
+                    && c.Template.Id == EnergyAmulet
+                    && c.CurrentCost <= manaNow)
+                .OrderBy(c => c.CurrentCost)
+                .ThenByDescending(c => c.Id)
+                .FirstOrDefault();
+            if (energyAmuletCard == null)
+                return;
+
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int attackableFriendAttack = GetAttackableBoardAttack(board.MinionFriend);
+            bool onBoardLethal = !enemyHasTaunt && attackableFriendAttack >= enemyHp;
+            bool emergencyWindow = !onBoardLethal
+                && (friendHp <= 8
+                    || enemyAttack >= friendHp
+                    || IsDangerousHpTauntTempoWindow(friendHp, enemyAttack));
+            if (!emergencyWindow)
+                return;
+
+            SetSingleCardComboByEntityId(board, p, energyAmuletCard.Id, allowCoinBridge: true, forceOverride: true,
+                logWhenSet: "能量护符：低血高压，ComboSet前置回血");
+
+            if (energyAmuletCard.Type == Card.CType.MINION)
+            {
+                p.CastMinionsModifiers.AddOrUpdate(energyAmuletCard.Id, new Modifier(-9800));
+                p.CastMinionsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-4200));
+            }
+            else if (energyAmuletCard.Type == Card.CType.WEAPON)
+            {
+                p.CastWeaponsModifiers.AddOrUpdate(energyAmuletCard.Id, new Modifier(-9800));
+                p.CastWeaponsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-4200));
+            }
+            else
+            {
+                p.CastSpellsModifiers.AddOrUpdate(energyAmuletCard.Id, new Modifier(-9800));
+                p.CastSpellsModifiers.AddOrUpdate(EnergyAmulet, new Modifier(-4200));
+            }
+
+            p.PlayOrderModifiers.AddOrUpdate(energyAmuletCard.Id, new Modifier(9999));
+            p.PlayOrderModifiers.AddOrUpdate(EnergyAmulet, new Modifier(9800));
+            p.CastHeroPowerModifier.AddOrUpdate(LifeTap, new Modifier(9999));
+            AddLog("能量护符：低血高压窗口，强制前置回血并禁用先分流");
+        }
+
         private void HandleTemporaryCards(Board board, ProfileParameters p)
         {
             if (board == null || board.Hand == null || p == null)
@@ -6482,6 +9683,7 @@ namespace SmartBotProfiles
             bool sketchShouldPreemptTemporary = sketchPlayableNow && board.Hand.Count <= 6;
             bool holdTemporaryEntropyForZilliax = CanPlayZilliaxThenEntropySameTurn(board, manaNow);
             var playableTauntMinionIds = GetPlayableTauntMinionCardIds(board, manaNow);
+            var playableOutsideDeckTauntMinionIds = GetPlayableOutsideDeckTauntMinionCardIds(board, manaNow);
             bool dangerousHpTauntBreakWindow = IsDangerousHpTauntTempoWindow(friendHpNow, enemyAttackNow)
                                                && playableTauntMinionIds.Count > 0;
 
@@ -6491,12 +9693,60 @@ namespace SmartBotProfiles
                 foreach (var tauntId in playableTauntMinionIds)
                 {
                     p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-5600));
-                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
                 }
 
                 p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5200));
-                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-10000));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
                 AddLog("临时牌：危险血线且有可下嘲讽，允许断链先下嘲讽稳场");
+                return;
+            }
+
+            // 用户规则：只要手里有可下套外嘲讽恶魔，就先下嘲讽，临时射线可暂缓。
+            if (playableOutsideDeckTauntMinionIds.Count > 0)
+            {
+                var preferredOutsideTaunt = board.Hand
+                    .Where(c => c != null
+                        && c.Template != null
+                        && c.Type == Card.CType.MINION
+                        && c.CurrentCost <= manaNow
+                        && c.IsRace(Card.CRace.DEMON)
+                        && IsOutsideDeckDemonByDeckList(board, c.Template.Id)
+                        && IsTauntMinionForSurvival(c))
+                    .OrderBy(c => c.CurrentCost)
+                    .ThenBy(c => c.Id)
+                    .FirstOrDefault();
+                if (preferredOutsideTaunt != null)
+                {
+                    SetSingleCardComboByEntityId(board, p, preferredOutsideTaunt.Id,
+                        allowCoinBridge: true, forceOverride: true,
+                        logWhenSet: "临时牌：命中套外嘲讽优先窗口，ComboSet先下嘲讽");
+                }
+
+                foreach (var tauntId in playableOutsideDeckTauntMinionIds)
+                {
+                    p.CastMinionsModifiers.AddOrUpdate(tauntId, new Modifier(-6200));
+                    p.PlayOrderModifiers.AddOrUpdate(tauntId, new Modifier(9999));
+                }
+
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5600));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                AddLog("临时牌：手有可下套外嘲讽恶魔，暂缓临时射线先下嘲讽");
+                return;
+            }
+
+            // 用户规则：套外随从较多且手牌偏满时，临时射线也可暂缓，优先先用手牌。
+            int outsideDeckDemonsInHand = CountOutsideDeckDemonsInHand(board);
+            int playableOutsideDeckDemonsNow = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
+            bool delayTemporaryRayForHeavyOutsideHandWindow = !HasStartedOrLastPlayedAbductionRayThisTurn(board)
+                && board.Hand.Count >= 7
+                && outsideDeckDemonsInHand >= 2
+                && playableOutsideDeckDemonsNow > 0;
+            if (delayTemporaryRayForHeavyOutsideHandWindow)
+            {
+                p.CastSpellsModifiers.AddOrUpdate(AbductionRay, new Modifier(5600));
+                p.PlayOrderModifiers.AddOrUpdate(AbductionRay, new Modifier(-9999));
+                AddLog("临时牌：手里套外随从较多且手牌偏满，暂缓挟持射线先用手牌");
                 return;
             }
 
@@ -6521,7 +9771,7 @@ namespace SmartBotProfiles
                 SetSingleCardComboByEntityId(board, p, immediateTempRay.Id, allowCoinBridge: true, forceOverride: true,
                     logWhenSet: "临时牌：挟持射线临时链硬规则，有就直接用");
                 p.CastSpellsModifiers.AddOrUpdate(immediateTempRay.Id, new Modifier(-9800));
-                p.PlayOrderModifiers.AddOrUpdate(immediateTempRay.Id, new Modifier(10000));
+                p.PlayOrderModifiers.AddOrUpdate(immediateTempRay.Id, new Modifier(9999));
                 // 同名保护：临时链路命中时，同回合可打的非临时射线后置，避免错打到普通副本。
                 foreach (var ray in board.Hand.Where(c => c != null
                     && c.Template != null
@@ -6565,8 +9815,8 @@ namespace SmartBotProfiles
                 // 敌方空场时，低费(<3)仅在友方随从<3时禁用。
                 if (card.Template.Id == EntropicContinuity && entropyHardDisabledForCurrentBoard)
                 {
-                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(10000));
-                    p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-10000));
+                    p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(9999));
+                    p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(-9999));
                     AddLog("临时牌：续连熵能" + entropyHardDisabledReason + "，硬规则禁用");
                     continue;
                 }
@@ -6624,7 +9874,7 @@ namespace SmartBotProfiles
                     SetSingleCardComboByEntityId(board, p, zeroCostRelease.Id, allowCoinBridge: true, forceOverride: true,
                         logWhenSet: "临时牌：挟持射线链放行0费随从");
                     p.CastMinionsModifiers.AddOrUpdate(zeroCostRelease.Id, new Modifier(-5000));
-                    p.PlayOrderModifiers.AddOrUpdate(zeroCostRelease.Id, new Modifier(10000));
+                    p.PlayOrderModifiers.AddOrUpdate(zeroCostRelease.Id, new Modifier(9999));
 
                     // 先放行0费，再续临时射线，避免手牌顶满。
                     p.CastSpellsModifiers.AddOrUpdate(rightmostPlayableTemporary.Id, new Modifier(900));
@@ -6706,7 +9956,7 @@ namespace SmartBotProfiles
             else if (rightmostPlayableTemporary.Type == Card.CType.WEAPON)
                 p.CastWeaponsModifiers.AddOrUpdate(rightmostPlayableTemporary.Id, new Modifier(-4200));
 
-            p.PlayOrderModifiers.AddOrUpdate(rightmostPlayableTemporary.Id, new Modifier(10000));
+            p.PlayOrderModifiers.AddOrUpdate(rightmostPlayableTemporary.Id, new Modifier(9999));
             AddLog("临时牌：最右可用临时牌=" + rightmostPlayableTemporary.Template.Id + "，按实体ID强制优先");
 
             // 同名不同实体时，把非目标副本后置，防止误打到非临时那张。
@@ -7439,6 +10689,18 @@ namespace SmartBotProfiles
             }
         }
 
+        // 某些环境下 Turn 字段会在同回合重算中漂移；用“可用法力是否回满”辅助判断是否进入新回合。
+        private static bool IsLikelyTurnStartByMana(Board board)
+        {
+            if (board == null)
+                return false;
+            int manaAvailable = 0;
+            int maxMana = 0;
+            try { manaAvailable = Math.Max(0, board.ManaAvailable); } catch { manaAvailable = 0; }
+            try { maxMana = Math.Max(0, board.MaxMana); } catch { maxMana = 0; }
+            return maxMana > 0 && manaAvailable >= maxMana;
+        }
+
         private void UpdateInitialDeckCardSnapshot(Board board)
         {
             if (board == null)
@@ -7712,10 +10974,10 @@ namespace SmartBotProfiles
 
             // 用户修正：本回合已起射线后，临时射线窗口强续链；
             // 非临时射线在不高爆牌风险时也允许续打，避免中途断链。
-            if (!HasStartedOrPlannedAbductionRayThisTurn(board))
+            if (!HasStartedOrLastPlayedAbductionRayThisTurn(board))
                 return false;
 
-            bool tempContinuationWindow = HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
+            bool tempContinuationWindow = HasTemporaryOrSketchGeneratedAbductionRay(board);
             if (tempContinuationWindow)
                 return true;
 
@@ -7729,41 +10991,148 @@ namespace SmartBotProfiles
             return !IsAbductionRayOverdrawRiskHigh(board, false);
         }
 
+        private int GetMaxPlayableOutsideDeckDemonsThisTurn(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return 0;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return 0;
+
+            int freeSlots = GetFreeBoardSlots(board);
+            if (freeSlots <= 0)
+                return 0;
+
+            var costs = board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Type == Card.CType.MINION
+                    && c.IsRace(Card.CRace.DEMON)
+                    && c.CurrentCost <= manaNow
+                    && IsOutsideDeckDemonByDeckList(board, c.Template.Id))
+                .Select(c => Math.Max(0, c.CurrentCost))
+                .OrderBy(cost => cost)
+                .ToList();
+            if (costs.Count == 0)
+                return 0;
+
+            int manaLeft = manaNow;
+            int playable = 0;
+            foreach (var cost in costs)
+            {
+                if (playable >= freeSlots)
+                    break;
+                if (cost > manaLeft)
+                    continue;
+
+                manaLeft -= cost;
+                playable++;
+            }
+
+            return playable;
+        }
+
+        private bool ShouldDelayAbductionRayStartupForOutsideDeckDemons(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return false;
+            if (board.Hand.Count < AbductionRayOutsideDemonDelayMinHand)
+                return false;
+            if (!HasPlayableAbductionRayInHand(board, manaNow))
+                return false;
+            if (HasStartedOrLastPlayedAbductionRayThisTurn(board))
+                return false;
+            if (HasTemporaryOrSketchGeneratedAbductionRay(board))
+                return false;
+
+            int playableOutsideDeckDemons = GetMaxPlayableOutsideDeckDemonsThisTurn(board, manaNow);
+            int outsideDeckDemonsInHand = CountOutsideDeckDemonsInHand(board);
+            int minPlayable = GetAbductionRayOutsideDemonDelayMinPlayable(board);
+            bool handHeavyOutsideDeckWindow = board.Hand.Count >= 7
+                && outsideDeckDemonsInHand >= 2
+                && playableOutsideDeckDemons > 0;
+            if (handHeavyOutsideDeckWindow)
+                return true;
+
+            return playableOutsideDeckDemons >= minPlayable;
+        }
+
+        private int GetAbductionRayOutsideDemonDelayMinPlayable(Board board)
+        {
+            if (board == null)
+                return AbductionRayOutsideDemonDelayMinPlayable;
+
+            int friendHp = GetHeroHealth(board.HeroFriend);
+            int enemyHp = GetHeroHealth(board.HeroEnemy);
+            int friendAttack = GetBoardAttack(board.MinionFriend);
+            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
+            bool highPressureWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack)
+                || ShouldEnterBalancedDefenseMode(board, friendHp, enemyHp)
+                || ShouldPrioritizeRushMinionClear(board, friendHp, enemyHp, friendAttack, enemyAttack);
+            return highPressureWindow
+                ? AbductionRayOutsideDemonDelayMinPlayableUnderPressure
+                : AbductionRayOutsideDemonDelayMinPlayable;
+        }
+
+        private bool ShouldDelayAbductionRayForPlayableOutsideDeckTaunt(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return false;
+            if (!HasPlayableAbductionRayInHand(board, manaNow))
+                return false;
+
+            return GetPlayableOutsideDeckTauntMinionCardIds(board, manaNow).Count > 0;
+        }
+
         private bool ShouldForceAbductionRayNow(Board board)
         {
             if (!IsAbductionRayPlayableNow(board))
                 return false;
-            int manaNow = GetAvailableManaIncludingCoin(board);
-            bool rayStartedThisTurn = HasStartedOrPlannedAbductionRayThisTurn(board);
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board);
+            int manaNow = startupState.ManaNow;
+            bool tempLikeWindow = startupState.TempLikeWindow;
+            if (!tempLikeWindow && ShouldPreferKiljaedenImmediateOverRayChain(board, manaNow))
+                return false;
+            if (ShouldDelayAbductionRayForPlayableOutsideDeckTaunt(board, manaNow))
+                return false;
+            bool rayStartedThisTurn = startupState.RayStartedThisTurn;
             if (rayStartedThisTurn)
             {
-                // 用户硬规则：本回合起过射线且仍有可打射线时，默认强制续链；
-                // 仅在高爆牌风险时放弃强锁（让位0费腾手牌/其它降手牌动作）。
-                bool hasPlayableRayInHandNow = HasPlayableAbductionRayInHand(board, manaNow);
+                // 用户修正：本回合起过射线且仍有可打射线时，续链锁定优先于爆牌顾虑；
+                // 若需腾手牌，交给HandleAbductionRay内部的“0费放行”分支处理。
+                bool hasPlayableRayInHandNow = startupState.PlayableRayCount > 0;
                 if (!hasPlayableRayInHandNow)
                     return false;
-                return !IsAbductionRayOverdrawRiskHigh(board, false);
+                return true;
             }
 
             bool slitherspearLethalWindow = IsAbductionRaySlitherspearLethalWindow(board, manaNow);
             if (slitherspearLethalWindow)
                 return true;
+            if (startupState.DelayStartupForOutsideDeckDemonsWindow)
+                return false;
 
-            int rayStartupHandCount = GetAbductionRayStartupEffectiveHandCount(board);
-            bool allowNonTempResourceWindow = rayStartupHandCount <= AbductionRayNonTempPreferredMaxHand;
-            bool tempRayWindow = HasTemporaryPlayableAbductionRay(board);
-            bool sketchGeneratedRayWindow = HasSketchGeneratedAbductionRayWindow(board);
-            bool continuationWindow = IsAbductionRayContinuationThisTurn(board) || ShouldChainAbductionRayNow(board);
+            int rayStartupHandCount = startupState.RayStartupHandCount;
+            bool allowNonTempResourceWindow = startupState.AllowNonTempResourceWindow;
+            bool continuationWindow = IsAbductionRayContinuationOrChainWindow(board);
             bool emergencySurvivalWindow = IsAbductionRayEmergencySurvivalWindow(board, manaNow);
-            bool handFullWithZeroCostMinionWindow = board != null
-                && board.Hand != null
-                && board.Hand.Count >= HearthstoneHandLimit
-                && !HasStartedOrPlannedAbductionRayThisTurn(board)
-                && GetRightmostPlayableZeroCostNonRayMinion(board, manaNow) != null;
-            bool midLateMultiRayWindow = IsAbductionRayMidLateMultiRayPriorityWindow(board, manaNow);
+            bool handFullWithZeroCostMinionWindow = startupState.HandFullWithZeroCostMinionWindow;
+            bool midLateMultiRayWindow = startupState.MidLateMultiRayWindow;
             int stageMana = board != null ? Math.Max(0, board.MaxMana) : 0;
             bool fullManaPriorityWindow = IsFullManaTurn(board) && stageMana >= 3;
-            bool nonTempStartupManaWindow = IsNonTempAbductionRayStartupManaWindow(board, manaNow);
+            bool nonTempStartupManaWindow = startupState.NonTempStartupManaWindow;
             bool partyEmergencyWindow = ShouldPrioritizePartyFiendNow(board, manaNow);
             bool forebodingPlayableNow = board != null && board.Hand != null && board.Hand.Any(c => c != null && c.Template != null
                 && c.Template.Id == ForebodingFlame
@@ -7776,11 +11145,9 @@ namespace SmartBotProfiles
                 && board != null
                 && board.Hand != null
                 && rayStartupHandCount >= 1
-                && !tempRayWindow
-                && !sketchGeneratedRayWindow
+                && !tempLikeWindow
                 && nonTempStartupManaWindow
                 && (doomguardInHand >= 2 || enemyAttack >= 6);
-            bool tempLikeWindow = tempRayWindow || sketchGeneratedRayWindow;
             // 连发窗口命中后维持高优先；但是否可打仍受“非临时可用费>=4”硬门槛约束。
             if (continuationWindow)
                 return true;
@@ -7811,6 +11178,12 @@ namespace SmartBotProfiles
                 && !tempLikeWindow
                 && !continuationWindow
                 && !HasPlayedCard(board, AbductionRay);
+            bool sketchFirstAtFourToSixWithRayWindow = sketchPlayableNow
+                && stageMana >= 4
+                && stageMana <= 6
+                && !tempLikeWindow
+                && !continuationWindow
+                && !HasPlayedCard(board, AbductionRay);
 
             if (handFullWithZeroCostMinionWindow)
                 return false;
@@ -7827,6 +11200,8 @@ namespace SmartBotProfiles
                 return false;
             if (tempLikeWindow)
                 return true;
+            if (sketchFirstAtFourToSixWithRayWindow)
+                return false;
             if (preferSketchFirstWindow)
                 return false;
 
@@ -7873,64 +11248,33 @@ namespace SmartBotProfiles
             if (!IsAbductionRayPlayableNow(board))
                 return false;
 
-            int manaNow = GetAvailableManaIncludingCoin(board);
-            int rayStartupHandCount = GetAbductionRayStartupEffectiveHandCount(board);
-            bool allowNonTempResourceWindow = rayStartupHandCount <= AbductionRayNonTempPreferredMaxHand;
-            bool rayStartedThisTurn = HasStartedOrPlannedAbductionRayThisTurn(board);
-            if (!rayStartedThisTurn)
-            {
-                try
-                {
-                    rayStartedThisTurn = board.PlayedCards != null
-                        && board.PlayedCards.Count > 0
-                        && board.PlayedCards.Last() == AbductionRay;
-                }
-                catch
-                {
-                    rayStartedThisTurn = false;
-                }
-            }
-            bool tempLikeWindow = HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
-            bool midLateMultiRayWindow = IsAbductionRayMidLateMultiRayPriorityWindow(board, manaNow);
-            if (!rayStartedThisTurn
-                && board.Hand.Count >= HearthstoneHandLimit
-                && GetRightmostPlayableZeroCostNonRayMinion(board, manaNow) != null)
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board);
+            int manaNow = startupState.ManaNow;
+            bool tempLikeWindow = startupState.TempLikeWindow;
+            if (!tempLikeWindow && ShouldPreferKiljaedenImmediateOverRayChain(board, manaNow))
+                return false;
+            if (ShouldDelayAbductionRayForPlayableOutsideDeckTaunt(board, manaNow))
+                return false;
+            bool allowNonTempResourceWindow = startupState.AllowNonTempResourceWindow;
+            bool rayStartedThisTurn = startupState.RayStartedThisTurn;
+            bool midLateMultiRayWindow = startupState.MidLateMultiRayWindow;
+            if (startupState.DelayStartupForOutsideDeckDemonsWindow)
+                return false;
+            if (startupState.HandFullWithZeroCostMinionWindow)
                 return false;
             bool chainStartupWindow = !rayStartedThisTurn;
-            bool nonTempStartupManaWindow = IsNonTempAbductionRayStartupManaWindow(board, manaNow);
+            bool nonTempStartupManaWindow = startupState.NonTempStartupManaWindow;
             if (chainStartupWindow && !nonTempStartupManaWindow && !midLateMultiRayWindow)
                 return false;
-            int playableRays = board.Hand.Count(c => c != null && c.Template != null
-                && c.Template.Id == AbductionRay
-                && c.CurrentCost <= manaNow);
+            int playableRays = startupState.PlayableRayCount;
             if (rayStartedThisTurn)
             {
-                // 本回合已起射线：临时链优先；非临时链在不高爆牌风险时也允许续打，
-                // 避免被阿克蒙德/分流等动作插队打断。
-                if (tempLikeWindow && playableRays >= 1)
-                    return true;
-                if (playableRays >= 1 && !IsAbductionRayOverdrawRiskHigh(board, false))
-                    return true;
-                return false;
+                // 本回合已起射线：优先续到底，避免被阿克蒙德/分流/低费随从插队打断。
+                return playableRays >= 1;
             }
 
             if (playableRays >= 2)
                 return allowNonTempResourceWindow || midLateMultiRayWindow;
-
-            // 增强连发稳定性：刚打过一张挟持射线时，本回合优先续打下一张。
-            try
-            {
-                if (board.PlayedCards != null && board.PlayedCards.Count > 0)
-                {
-                    var lastPlayed = board.PlayedCards.Last();
-                    if (lastPlayed == AbductionRay)
-                        return true;
-                }
-            }
-            catch
-            {
-                // ignore
-            }
 
             return false;
         }
@@ -7967,6 +11311,8 @@ namespace SmartBotProfiles
             bool dangerousHpWindow = IsDangerousHpTauntTempoWindow(friendHp, enemyAttack);
             bool hasPlayableTauntMinionNow = GetPlayableTauntMinionCardIds(board, manaNow).Count > 0;
             if (dangerousHpWindow && hasPlayableTauntMinionNow)
+                return false;
+            if (GetPlayableOutsideDeckTauntMinionCardIds(board, manaNow).Count > 0)
                 return false;
 
             if (IsAbductionRayOverdrawRiskHigh(board, false))
@@ -8005,16 +11351,64 @@ namespace SmartBotProfiles
                 && IsRushMinionForClear(c));
         }
 
+        private List<Card.Cards> GetPlayableOutsideDeckRushMinionCardIdsForClear(Board board, int manaNow)
+        {
+            if (board == null || board.Hand == null)
+                return new List<Card.Cards>();
+            if (board.MinionEnemy == null || board.MinionEnemy.Count == 0)
+                return new List<Card.Cards>();
+            if (GetFreeBoardSlots(board) <= 0)
+                return new List<Card.Cards>();
+            if (manaNow <= 0)
+                return new List<Card.Cards>();
+
+            return board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Type == Card.CType.MINION
+                    && c.CurrentCost <= manaNow
+                    && c.IsRace(Card.CRace.DEMON)
+                    && IsOutsideDeckDemonByDeckList(board, c.Template.Id)
+                    && IsRushMinionForClear(c))
+                .Select(c => c.Template.Id)
+                .Distinct()
+                .ToList();
+        }
+
+        private List<Card.Cards> GetPlayableOutsideDeckTauntMinionCardIds(Board board, int manaNow)
+        {
+            if (board == null || board.Hand == null)
+                return new List<Card.Cards>();
+            if (GetFreeBoardSlots(board) <= 0)
+                return new List<Card.Cards>();
+            if (manaNow <= 0)
+                return new List<Card.Cards>();
+
+            return board.Hand
+                .Where(c => c != null
+                    && c.Template != null
+                    && c.Type == Card.CType.MINION
+                    && c.CurrentCost <= manaNow
+                    && c.IsRace(Card.CRace.DEMON)
+                    && IsOutsideDeckDemonByDeckList(board, c.Template.Id)
+                    && IsTauntMinionForSurvival(c))
+                .Select(c => c.Template.Id)
+                .Distinct()
+                .ToList();
+        }
+
         private bool IsRushMinionForClear(Card card)
         {
             if (card == null || card.Template == null || card.Type != Card.CType.MINION)
                 return false;
 
             string cardId = card.Template.Id.ToString();
-            // 已确认突袭：狂飙邪魔（VAC_927）、伊利达雷审判官（CS3_020）、纵火眼魔（EDR_486）。
+            // 已确认突袭：狂飙邪魔（VAC_927）、伊利达雷审判官（CS3_020）、
+            // 纵火眼魔（EDR_486）、精魂商贩（WORK_015）。
             return string.Equals(cardId, "VAC_927", StringComparison.Ordinal)
                 || string.Equals(cardId, "CS3_020", StringComparison.Ordinal)
-                || string.Equals(cardId, ArsonEyedDemonCardId, StringComparison.Ordinal);
+                || string.Equals(cardId, ArsonEyedDemonCardId, StringComparison.Ordinal)
+                || string.Equals(cardId, SoulDealerCardId, StringComparison.Ordinal);
         }
 
         private bool ShouldPrioritizeRushMinionClear(Board board, int friendHp, int enemyHp, int friendAttack, int enemyAttack)
@@ -8038,14 +11432,11 @@ namespace SmartBotProfiles
                 return false;
             if (manaNow < 0)
                 manaNow = GetAvailableManaIncludingCoin(board);
-            if (!HasPlayableAbductionRayInHand(board, manaNow))
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
+            if (startupState.PlayableRayCount <= 0)
                 return false;
 
             bool rayHardLockWindow = ShouldForceAbductionRayNow(board);
-            bool rayContinuationWindow = IsAbductionRayContinuationThisTurn(board)
-                || ShouldChainAbductionRayNow(board)
-                || HasStartedOrPlannedAbductionRayThisTurn(board);
-            bool rayTempWindow = HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
             bool emergencyRayWindow = IsAbductionRayEmergencySurvivalWindow(board, manaNow);
 
             int friendHp = GetHeroHealth(board.HeroFriend);
@@ -8053,7 +11444,9 @@ namespace SmartBotProfiles
             bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
             bool pressureTauntWindow = enemyHasTaunt && (friendHp <= 12 || enemyAttack >= 8);
 
-            return rayHardLockWindow || rayContinuationWindow || rayTempWindow || emergencyRayWindow || pressureTauntWindow;
+            return HasAbductionRayPriorityWindow(board, startupState, rayHardLockWindow)
+                || emergencyRayWindow
+                || pressureTauntWindow;
         }
 
         private bool ShouldPrioritizePartyFiendNow(Board board, int manaNow)
@@ -8091,9 +11484,10 @@ namespace SmartBotProfiles
                 return false;
             if (manaNow < 0)
                 manaNow = GetAvailableManaIncludingCoin(board);
-            if (!HasPlayableAbductionRayInHand(board, manaNow))
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
+            if (startupState.PlayableRayCount <= 0)
                 return false;
-            if (HasStartedOrPlannedAbductionRayThisTurn(board))
+            if (startupState.RayStartedThisTurn)
                 return false;
             if (GetFreeBoardSlots(board) <= 0)
                 return false;
@@ -8135,6 +11529,22 @@ namespace SmartBotProfiles
             return board.Hand.Any(c => c != null && c.Template != null
                 && c.Type == Card.CType.MINION
                 && c.Template.Id != excluded
+                && c.CurrentCost <= manaNow);
+        }
+
+        private bool IsArchimondePlayableNow(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null)
+                return false;
+            if (GetFreeBoardSlots(board) <= 0)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+
+            return board.Hand.Any(c => c != null && c.Template != null
+                && c.Type == Card.CType.MINION
+                && c.Template.Id == Archimonde
                 && c.CurrentCost <= manaNow);
         }
 
@@ -8357,6 +11767,42 @@ namespace SmartBotProfiles
             return false;
         }
 
+        private bool IsEnemyLikelyKilledByFriendlyAttacksThisTurn(Board board, Card enemy)
+        {
+            if (board == null || enemy == null || board.MinionFriend == null || board.MinionEnemy == null)
+                return false;
+            if (enemy.CurrentHealth <= 0 || enemy.IsDivineShield)
+                return false;
+
+            var attacks = board.MinionFriend
+                .Where(m => m != null && m.Template != null && m.CanAttack && m.CurrentAtk > 0)
+                .Select(m => Math.Max(0, m.CurrentAtk))
+                .OrderByDescending(v => v)
+                .ToList();
+            if (attacks.Count == 0)
+                return false;
+
+            int totalAttack = attacks.Sum();
+            if (totalAttack < enemy.CurrentHealth)
+                return false;
+
+            bool enemyHasTaunt = board.MinionEnemy.Any(m => m != null && m.IsTaunt);
+            if (enemy.IsTaunt)
+                return true;
+
+            if (!enemyHasTaunt)
+                return true;
+
+            int attackableFriendCount = attacks.Count;
+            if (!CanClearAllEnemyTauntsWithFewAttackers(board, Math.Max(1, attackableFriendCount)))
+                return false;
+
+            int tauntHpSum = board.MinionEnemy
+                .Where(m => m != null && m.IsTaunt)
+                .Sum(m => Math.Max(1, m.CurrentHealth));
+            return (totalAttack - tauntHpSum) >= enemy.CurrentHealth;
+        }
+
         // 用户规则：仅当“本回合可低损清掉全部嘲讽”时，才允许判定为可先解后续动作。
         // 防止出现“能清一个薄嘲讽”就误判为可解嘲讽，导致关键链路（如挟持射线）被错误后置。
         private bool CanClearAllEnemyTauntsWithFewAttackers(Board board, int maxAttackers)
@@ -8493,7 +11939,9 @@ namespace SmartBotProfiles
             }
 
             // 1) 月度魔范员工：先贴吸血再攻击。
-            bool monthlyLifestealWindow = board.Hand.Any(c => c != null && c.Template != null
+            bool monthlyLifestealWindow = board.MinionFriend != null
+                && board.MinionFriend.Any(m => m != null)
+                && board.Hand.Any(c => c != null && c.Template != null
                 && c.Template.Id == MonthlyModelEmployee
                 && c.CurrentCost <= manaNow)
                 && GetFreeBoardSlots(board) > 0;
@@ -8551,12 +11999,11 @@ namespace SmartBotProfiles
                 AddLog("攻击顺序：临时奇利亚斯可下且本回合无法兼容续连，取消攻前续连强推");
                 return false;
             }
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board, manaNow);
             bool rayPlayableNow = IsAbductionRayPlayableNow(board);
             bool rayForceWindow = ShouldForceAbductionRayNow(board);
-            bool rayTemporaryOrChainWindow = HasTemporaryPlayableAbductionRay(board)
-                || HasSketchGeneratedAbductionRayWindow(board)
-                || IsAbductionRayContinuationThisTurn(board)
-                || ShouldChainAbductionRayNow(board);
+            bool rayTemporaryOrChainWindow = startupState.TempLikeWindow
+                || IsAbductionRayContinuationOrChainWindow(board);
             if (canReachMinEntropyBeforeCast && rayPlayableNow
                 && (rayForceWindow || rayTemporaryOrChainWindow))
             {
@@ -8659,20 +12106,12 @@ namespace SmartBotProfiles
             }
 
             // 3) 射线+滑矛buff窗口：先射线，再攻击（包含临时链路，不仅限强制射线）。
-            bool hasAttackableNaga = board.MinionFriend.Any(m => m != null && m.CanAttack
-                && m.Template != null && m.Template.Id == ViciousSlitherspear);
-            bool nagaRayBuffWindow = hasAttackableNaga
-                && IsAbductionRayPlayableNow(board)
-                && (ShouldForceAbductionRayNow(board)
-                    || HasTemporaryPlayableAbductionRay(board)
-                    || HasSketchGeneratedAbductionRayWindow(board)
-                    || IsAbductionRayContinuationThisTurn(board)
-                    || ShouldChainAbductionRayNow(board));
+            bool nagaRayBuffWindow = IsRayAttackDelayWindow(board);
             if (nagaRayBuffWindow)
             {
                 bool setRayCombo = SetAbductionRayCombo(board, p,
                     allowCoinBridge: true,
-                    chainAll: IsAbductionRayContinuationThisTurn(board) || ShouldChainAbductionRayNow(board),
+                    chainAll: IsAbductionRayContinuationOrChainWindow(board),
                     forceOverride: true,
                     logWhenSet: "攻击顺序：ComboSet先射线后攻击");
                 if (setRayCombo)
@@ -8725,110 +12164,7 @@ namespace SmartBotProfiles
         // 用户规则：本回合存在可执行的关键buff时，优先“先buff后攻击”。
         private bool ShouldDelayAttacksUntilBuff(Board board, int enemyHp)
         {
-            if (board == null || board.Hand == null || board.MinionFriend == null)
-                return false;
-
-            var attackers = board.MinionFriend
-                .Where(m => m != null && m.CanAttack && m.CurrentAtk > 0)
-                .ToList();
-            if (attackers.Count == 0)
-                return false;
-
-            int manaNow = GetAvailableManaIncludingCoin(board);
-            int friendHp = GetHeroHealth(board.HeroFriend);
-            int enemyAttack = GetBoardAttack(board.MinionEnemy) + (board.WeaponEnemy != null ? board.WeaponEnemy.CurrentAtk : 0);
-            bool enemyHasBoard = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
-            bool enemyHasSecret = board.SecretEnemy || board.SecretEnemyCount > 0;
-            bool hasAttackableLifesteal = attackers.Any(m => m != null && m.IsLifeSteal);
-            bool lowHpSecretRisk = friendHp <= 8 || enemyAttack >= friendHp || (friendHp <= 12 && enemyAttack >= 6);
-            if (enemyHasSecret && enemyHasBoard && hasAttackableLifesteal && lowHpSecretRisk)
-            {
-                AddLog("攻击顺序：低血且敌方有奥秘，先用吸血随从攻击回血，不后置攻击");
-                return false;
-            }
-
-            if (friendHp <= 8 && enemyHasBoard)
-                return false;
-            if (friendHp <= 12 && enemyAttack >= 8)
-                return false;
-
-            bool enemyHasTaunt = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
-            int canAttackDamageNow = attackers.Sum(m => Math.Max(0, m.CurrentAtk));
-            if (!enemyHasTaunt && canAttackDamageNow >= enemyHp)
-                return false;
-
-            var entropyPlayableCard = board.Hand
-                .Where(c => c != null && c.Template != null
-                    && c.Template.Id == EntropicContinuity
-                    && c.CurrentCost <= manaNow)
-                .OrderBy(c => c.CurrentCost)
-                .ThenBy(c => c.Id)
-                .FirstOrDefault();
-            bool entropyPlayableNow = false;
-            if (entropyPlayableCard != null)
-            {
-                int manaBeforeEntropy = Math.Max(0, manaNow - entropyPlayableCard.CurrentCost);
-                int maxAdditionalBodiesBeforeEntropy = GetMaxAdditionalBodiesBeforeEntropy(board, manaBeforeEntropy);
-                entropyPlayableNow = board.MinionFriend.Count + maxAdditionalBodiesBeforeEntropy >= 3;
-            }
-
-            bool hasAttackableNaga = board.MinionFriend.Any(m => m != null && m.CanAttack
-                && m.Template != null && m.Template.Id == ViciousSlitherspear);
-            bool rayBuffWindowNow = ShouldForceAbductionRayNow(board) && hasAttackableNaga;
-            bool rayTemporaryChainBuffWindowNow = hasAttackableNaga
-                && (HasTemporaryPlayableAbductionRay(board)
-                    || HasSketchGeneratedAbductionRayWindow(board)
-                    || IsAbductionRayContinuationThisTurn(board)
-                    || ShouldChainAbductionRayNow(board));
-
-            bool sketchPlayableNow = board.Hand.Any(c => c != null && c.Template != null
-                && c.Template.Id == SketchArtist
-                && c.CurrentCost <= manaNow);
-            bool sketchToRayBuffWindow = sketchPlayableNow
-                && hasAttackableNaga
-                && manaNow >= 4
-                && board.Hand.Count < 6
-                && GetFreeBoardSlots(board) > 0
-                && !IsAbductionRayPlayableNow(board);
-            bool monthlyLifestealWindow = board.Hand.Any(c => c != null && c.Template != null
-                && c.Template.Id == MonthlyModelEmployee
-                && c.CurrentCost <= manaNow)
-                && GetFreeBoardSlots(board) > 0
-                && attackers.Count > 0;
-            bool bananaBuffWindow = board.Hand.Any(c => c != null && c.Template != null
-                && c.Template.Id == Banana
-                && c.CurrentCost <= manaNow)
-                && board.MinionEnemy != null
-                && board.MinionEnemy.Any(m => m != null);
-            bool tombBuffScoutWindow = ShouldForceTombBuffScoutBeforeAttack(board, manaNow, enemyHp);
-
-            bool zeroCostPlayableBeforeAttack = GetRightmostPlayableZeroCostNonRayMinion(board, manaNow) != null;
-            bool shouldDelay = entropyPlayableNow
-                               || rayBuffWindowNow
-                               || rayTemporaryChainBuffWindowNow
-                               || sketchToRayBuffWindow
-                               || monthlyLifestealWindow
-                               || bananaBuffWindow
-                               || tombBuffScoutWindow
-                               || zeroCostPlayableBeforeAttack;
-            if (!shouldDelay)
-                return false;
-
-            bool enemyBoardEmpty = board.MinionEnemy == null || !board.MinionEnemy.Any(m => m != null);
-            bool emptyBoardBuffChainWindow = ShouldKeepAttackDelayOnEmptyBoard(board, manaNow);
-            if (enemyBoardEmpty && !enemyHasTaunt && canAttackDamageNow > 0)
-            {
-                bool buffCanConvertToImmediateLethal = CanImmediateBuffConvertToLethal(board, enemyHp, canAttackDamageNow);
-                if (!buffCanConvertToImmediateLethal && !emptyBoardBuffChainWindow)
-                {
-                    AddLog("攻击顺序：敌方空场且buff非当回合斩杀，取消攻前后置");
-                    return false;
-                }
-                if (!buffCanConvertToImmediateLethal && emptyBoardBuffChainWindow)
-                    AddLog("攻击顺序：敌方空场但命中攻前buff链，保持后置攻击");
-            }
-
-            return true;
+            return EvaluateBuffAttackDelayWindow(board, enemyHp, true);
         }
 
         private bool ShouldForceTombBuffScoutBeforeAttack(Board board, int manaNow, int enemyHp)
@@ -8845,9 +12181,7 @@ namespace SmartBotProfiles
             if (tomb == null || tomb.CurrentCost > manaNow)
                 return false;
 
-            if (ShouldPrioritizeSketchArtistOverTomb(board, manaNow))
-                return false;
-            if (ShouldReserveTombForAbductionRay(board, manaNow))
+            if (ShouldSkipTombForSketchOrRayThisTurn(board, manaNow))
                 return false;
 
             bool enemyHasMinion = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null);
@@ -8886,15 +12220,7 @@ namespace SmartBotProfiles
                 && c.CurrentCost <= manaNow)
                 && GetFreeBoardSlots(board) > 0;
 
-            bool hasAttackableNaga = board.MinionFriend.Any(m => m != null && m.CanAttack
-                && m.Template != null && m.Template.Id == ViciousSlitherspear);
-            bool rayBuffPlayableNow = hasAttackableNaga
-                && IsAbductionRayPlayableNow(board)
-                && (ShouldForceAbductionRayNow(board)
-                    || HasTemporaryPlayableAbductionRay(board)
-                    || HasSketchGeneratedAbductionRayWindow(board)
-                    || IsAbductionRayContinuationThisTurn(board)
-                    || ShouldChainAbductionRayNow(board));
+            bool rayBuffPlayableNow = IsRayAttackDelayWindow(board);
 
             var entropy = board.Hand
                 .Where(c => c != null && c.Template != null
@@ -8999,7 +12325,7 @@ namespace SmartBotProfiles
             }
 
             foreach (var lifesteal in lifestealAttackers)
-                p.AttackOrderModifiers.AddOrUpdate(lifesteal.Template.Id, new Modifier(-10000));
+                p.AttackOrderModifiers.AddOrUpdate(lifesteal.Template.Id, new Modifier(-9999));
 
             p.GlobalAggroModifier = -180;
             AddLog("奥秘保命：低血且敌方有奥秘，强制先用吸血随从攻击回血，再考虑出牌");
@@ -9024,7 +12350,7 @@ namespace SmartBotProfiles
             if (!lowHpRisk || lethalWithoutHero)
                 return;
 
-            const int heroAttackBlockValue = 10000;
+            const int heroAttackBlockValue = 9999;
             p.GlobalWeaponsAttackModifier = heroAttackBlockValue;
 
             // 兼容“无武器但英雄有攻击力”的场景：直接按英雄实体屏蔽英雄攻击。
@@ -9051,12 +12377,12 @@ namespace SmartBotProfiles
             if (onBoardLethalNow)
             {
                 foreach (var enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-10000));
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-9999));
 
                 foreach (var friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
                 {
-                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-10000));
+                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(9999));
+                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(-9999));
                 }
 
                 p.GlobalAggroModifier = 300;
@@ -9142,7 +12468,7 @@ namespace SmartBotProfiles
                 else if (!canClearAllTauntsNow)
                 {
                     p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(2600));
-                    p.AttackOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(10000));
+                    p.AttackOrderModifiers.AddOrUpdate(TortollanStoryteller, new Modifier(9999));
                     AddLog("始祖龟窗口：嘲讽本回合解不净，强保始祖龟不送，优先结束回合吃buff");
                 }
                 else
@@ -9192,7 +12518,7 @@ namespace SmartBotProfiles
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(urgent));
                 }
 
-                int dreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -10000);
+                int dreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -9999);
                 if (dreadlordAutoClearCount > 0)
                     AddLog("恐惧魔王：敌方1血非嘲讽将被回合末清理，降低主动交换优先级");
 
@@ -9218,15 +12544,7 @@ namespace SmartBotProfiles
             bool safeToHoldForBuff = friendHp >= enemyAttack + 4;
             bool onBoardLethalNowForPlatysaurHold = !hasEnemyTauntForPlatysaurHold && friendAttack >= enemyHp;
             // 用户规则：若命中“滑矛+射线”攻前buff窗口，优先法术后攻击，不让栉龙保守逻辑抢先return。
-            bool rayNagaBuffFirstWindowForPlatysaurHold = IsAbductionRayPlayableNow(board)
-                && board.MinionFriend != null
-                && board.MinionFriend.Any(m => m != null && m.CanAttack
-                    && m.Template != null && m.Template.Id == ViciousSlitherspear)
-                && (ShouldForceAbductionRayNow(board)
-                    || HasTemporaryPlayableAbductionRay(board)
-                    || HasSketchGeneratedAbductionRayWindow(board)
-                    || IsAbductionRayContinuationThisTurn(board)
-                    || ShouldChainAbductionRayNow(board));
+            bool rayNagaBuffFirstWindowForPlatysaurHold = IsRayAttackDelayWindow(board);
             bool shouldProtectPlatysaurFromDiscard = hasAttackablePlatysaurToProtect
                 && hasTemporaryCardInHandForPlatysaurHold
                 && !hasEnemyTauntForPlatysaurHold
@@ -9276,7 +12594,7 @@ namespace SmartBotProfiles
                     AddLog("威胁：攻守平衡窗口检测到随船外科医师，强制优先解");
                 }
 
-                int dreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -10000);
+                int dreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -9999);
                 if (dreadlordAutoClearCount > 0)
                     AddLog("恐惧魔王：敌方1血非嘲讽将被回合末清理，降低主动交换优先级");
 
@@ -9292,38 +12610,26 @@ namespace SmartBotProfiles
                 // 还用 AttackOrder 硬后置可攻击随从，避免先攻后buff。
                 bool forcedBuffCombo = TryForceBuffComboBeforeAttacks(board, p, enemyHp);
                 int manaNowForDelay = GetAvailableManaIncludingCoin(board);
-                int freeSlotsForDelay = GetFreeBoardSlots(board);
-                bool hasPlayableHandActionNow = board.Hand != null
-                    && board.Hand.Any(c => c != null && c.Template != null
-                        && c.CurrentCost <= manaNowForDelay
-                        && (c.Type != Card.CType.MINION || freeSlotsForDelay > 0));
-                bool rayChainAttackHoldWindow = IsAbductionRayPlayableNow(board)
-                    && board.MinionFriend != null
-                    && board.MinionFriend.Any(m => m != null && m.CanAttack
-                        && m.Template != null && m.Template.Id == ViciousSlitherspear)
-                    && (ShouldForceAbductionRayNow(board)
-                        || HasTemporaryPlayableAbductionRay(board)
-                        || IsAbductionRayContinuationThisTurn(board)
-                        || ShouldChainAbductionRayNow(board));
+                bool hasPlayableHandActionNow = HasPlayableHandActionNow(board, manaNowForDelay);
+                bool temporaryRayNagaAttackHoldWindow = IsTemporaryRaySlitherspearAttackHoldWindow(board, manaNowForDelay);
+                bool rayChainAttackHoldWindow = IsRayAttackDelayWindow(board);
                 bool emptyBoardBuffChainWindow = ShouldKeepAttackDelayOnEmptyBoard(board, manaNowForDelay);
                 bool shouldHardDelayAttacks = forcedBuffCombo || rayChainAttackHoldWindow || emptyBoardBuffChainWindow;
                 bool enemyHasTauntForAttackDelay = board.MinionEnemy != null && board.MinionEnemy.Any(m => m != null && m.IsTaunt);
-                bool enemyBoardEmptyForAttackDelay = board.MinionEnemy == null || !board.MinionEnemy.Any(m => m != null);
-                int canAttackDamageNowForDelay = board.MinionFriend == null
-                    ? 0
-                    : board.MinionFriend.Where(m => m != null && m.CanAttack).Sum(m => Math.Max(0, m.CurrentAtk));
-                bool buffCanConvertToImmediateLethal = CanImmediateBuffConvertToLethal(board, enemyHp, canAttackDamageNowForDelay);
+                int canAttackDamageNowForDelay = GetAttackableBoardAttack(board.MinionFriend);
 
                 // 用户规则：敌方空场且buff不能转化为当回合斩杀时，不强制后置攻击，避免空过。
                 if (shouldHardDelayAttacks
-                    && enemyBoardEmptyForAttackDelay
-                    && !enemyHasTauntForAttackDelay
-                    && canAttackDamageNowForDelay > 0
-                    && !buffCanConvertToImmediateLethal
-                    && !emptyBoardBuffChainWindow)
+                    && ShouldCancelBuffAttackDelayOnEmptyBoard(
+                        board,
+                        enemyHp,
+                        canAttackDamageNowForDelay,
+                        enemyHasTauntForAttackDelay,
+                        temporaryRayNagaAttackHoldWindow,
+                        emptyBoardBuffChainWindow,
+                        true))
                 {
                     shouldHardDelayAttacks = false;
-                    AddLog("攻击顺序：敌方空场且buff非当回合斩杀，不强制后置攻击避免空过");
                 }
 
                 // 若攻前buff链未建立成功，也不在射线强锁窗口，则取消攻击后置，
@@ -9334,27 +12640,21 @@ namespace SmartBotProfiles
                 }
                 else
                 {
-
-                    foreach (var enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
-                        p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-2200));
-
-                    foreach (var friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
-                    {
-                        // 强化“先buff后攻击”硬约束：拉满保留权重和攻击后置顺序。
-                        // Modifier range is [-10000, 10000], cap to hard max to keep "buff before attack" intent.
-                        p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                        p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                    }
+                    ApplyLocalRuleHoldAttacksBias(p, board, applyAggroModifier: hasPlayableHandActionNow);
 
                     // 命中攻前buff链且本回合确有可出牌动作时，统一强压走脸倾向，避免“先攻击后buff”。
                     if (hasPlayableHandActionNow)
                     {
-                        p.GlobalAggroModifier = rayChainAttackHoldWindow ? -3200 : -2200;
-                        AddLog(rayChainAttackHoldWindow
-                            ? "攻击顺序：命中挟持射线链路，强制后置滑矛与走脸到射线之后"
-                            : (forcedBuffCombo
-                                ? "攻击顺序：命中攻前buff链，强制后置攻击到buff落地后"
-                                : "攻击顺序：检测到可执行buff窗口，临时强压进攻避免先攻"));
+                        if (rayChainAttackHoldWindow)
+                            p.GlobalAggroModifier = Math.Min(p.GlobalAggroModifier.Value, -3200);
+
+                        AddLog(temporaryRayNagaAttackHoldWindow
+                            ? "攻击顺序：手握可用临时挟持射线，强制后置滑矛与走脸到射线之后"
+                            : (rayChainAttackHoldWindow
+                                ? "攻击顺序：命中挟持射线链路，强制后置滑矛与走脸到射线之后"
+                                : (forcedBuffCombo
+                                    ? "攻击顺序：命中攻前buff链，强制后置攻击到buff落地后"
+                                    : "攻击顺序：检测到可执行buff窗口，临时强压进攻避免先攻")));
                     }
 
                     AddLog("攻击顺序：存在可执行buff，强制后置攻击到buff之后");
@@ -9368,15 +12668,7 @@ namespace SmartBotProfiles
                 ForceTombFirstThisTurn(board, p, manaNow);
                 SetSingleCardCombo(board, p, TombOfSuffering, allowCoinBridge: false, forceOverride: true,
                     logWhenSet: "攻击顺序：ComboSet先咒怨之墓后攻击");
-
-                foreach (var enemy in board.MinionEnemy.Where(m => m != null && m.Template != null))
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(-2200));
-
-                foreach (var friend in board.MinionFriend.Where(m => m != null && m.Template != null && m.CanAttack))
-                {
-                    p.OnBoardFriendlyMinionsValuesModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                    p.AttackOrderModifiers.AddOrUpdate(friend.Template.Id, new Modifier(10000));
-                }
+                ApplyLocalRuleHoldAttacksBias(p, board, applyAggroModifier: false);
 
                 AddLog("攻击顺序：咒怨之墓回合，强制先墓后攻击");
                 return;
@@ -9405,11 +12697,14 @@ namespace SmartBotProfiles
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(7600));
                 if (enemy.Template.Id == DespicableDreadlord)
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(7000));
+                if (enemy.Template.Id == Card.Cards.VAC_435)
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(7800));
                 if (IsLabPartnerCardId(enemy.Template.Id))
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(6900));
             }
             bool enemyHasBattlefieldNecromancer = board.MinionEnemy.Any(m => m != null && m.Template != null && m.Template.Id == BattlefieldNecromancer);
             bool enemyHasDespicableDreadlord = board.MinionEnemy.Any(m => m != null && m.Template != null && m.Template.Id == DespicableDreadlord);
+            bool enemyHasMaroonedArchmage = board.MinionEnemy.Any(m => m != null && m.Template != null && m.Template.Id == Card.Cards.VAC_435);
             bool enemyHasLabPartner = board.MinionEnemy.Any(m => m != null && m.Template != null && IsLabPartnerCardId(m.Template.Id));
             bool enemyHasShadowAscendant = board.MinionEnemy.Any(m => m != null && m.Template != null && IsShadowAscendantCardId(m.Template.Id));
             bool enemyHasSurgingShipSurgeon = board.MinionEnemy.Any(m => m != null && m.Template != null && m.Template.Id == Card.Cards.CORE_WON_065);
@@ -9418,6 +12713,8 @@ namespace SmartBotProfiles
                 AddLog("威胁：检测到战场通灵师，强制优先解");
             else if (enemyHasDespicableDreadlord)
                 AddLog("威胁：检测到卑鄙的恐惧魔王，强制优先解");
+            else if (enemyHasMaroonedArchmage)
+                AddLog("威胁：检测到落难的大法师，强制优先解");
             else if (enemyHasLabPartner)
                 AddLog("威胁：检测到研究伙伴，强制优先解");
             else if (enemyHasShadowAscendant)
@@ -9463,13 +12760,13 @@ namespace SmartBotProfiles
                     }
                 }
 
-                var surgeonTarget = dangerTargets.FirstOrDefault(m => m.Template.Id == Card.Cards.CORE_WON_065);
+                var surgeonTarget = dangerTargets.FirstOrDefault(m => m != null && m.Template != null && m.Template.Id == Card.Cards.CORE_WON_065);
                 if (surgeonTarget != null)
                 {
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(surgeonTarget.Template.Id, new Modifier(8200));
                     AddLog("威胁：斩杀筹备窗口检测到随船外科医师，强制优先解");
                 }
-                var necromancerTarget = dangerTargets.FirstOrDefault(m => m.Template.Id == BattlefieldNecromancer);
+                var necromancerTarget = dangerTargets.FirstOrDefault(m => m != null && m.Template != null && m.Template.Id == BattlefieldNecromancer);
                 if (necromancerTarget != null)
                 {
                     p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(necromancerTarget.Template.Id, new Modifier(9000));
@@ -9506,7 +12803,7 @@ namespace SmartBotProfiles
                     : "威胁：进入抢血窗口，降低非嘲讽交换");
             }
 
-            int lateDreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -10000);
+            int lateDreadlordAutoClearCount = ApplyDreadlordOneHealthAutoClearThreatOverride(board, p, -9999);
             if (lateDreadlordAutoClearCount > 0)
                 AddLog("恐惧魔王：敌方1血非嘲讽将被回合末清理，降低主动交换优先级");
         }
@@ -9633,8 +12930,8 @@ namespace SmartBotProfiles
                 return 0;
 
             // 防止调用方误传导致 Modifier 越界崩溃。
-            if (oneHealthTargetPenalty < -10000) oneHealthTargetPenalty = -10000;
-            if (oneHealthTargetPenalty > 10000) oneHealthTargetPenalty = 10000;
+            if (oneHealthTargetPenalty < -9999) oneHealthTargetPenalty = -9999;
+            if (oneHealthTargetPenalty > 9999) oneHealthTargetPenalty = 9999;
 
             bool dreadlordOnBoard = board.MinionFriend.Any(m => m != null && m.Template != null && m.Template.Id == DespicableDreadlord);
             if (!dreadlordOnBoard)
@@ -9665,11 +12962,6 @@ namespace SmartBotProfiles
             int added = 0;
             foreach (var c in board.Hand.Where(x => x != null && x.Template != null))
             {
-                if (c.Template.Id == TheCoin)
-                    continue;
-                // 用户规则：使用小精灵后不重新思考，避免0费补位打断既定动作链。
-                if (c.Template.Id == Wisp)
-                    continue;
                 // 用户规则修正：临时挟持射线不加入重算名单，避免连锁抖动；
                 // 非临时挟持射线仍纳入重算，确保“用完后继续思考”。
                 if (c.Template.Id == AbductionRay && IsTemporaryCard(c))
@@ -9837,15 +13129,17 @@ namespace SmartBotProfiles
             if (!IsAbductionRayTurnUnlocked(board))
                 return false;
 
-            int manaNow = GetAvailableManaIncludingCoin(board);
-            bool hasPlayableRay = HasPlayableAbductionRayInHand(board, manaNow);
+            AbductionRayStartupState startupState = EvaluateAbductionRayStartupState(board);
+            int manaNow = startupState.ManaNow;
+            bool hasPlayableRay = startupState.PlayableRayCount > 0;
             if (!hasPlayableRay)
                 return false;
 
-            bool tempRayWindow = HasTemporaryPlayableAbductionRay(board) || HasSketchGeneratedAbductionRayWindow(board);
+            bool tempRayWindow = startupState.TempLikeWindow;
+            bool rayStartedThisTurn = startupState.RayStartedThisTurn;
 
-            // 用户硬规则：非临时挟持射线仅在可用费用>=4时允许使用；临时牌不受影响。
-            if (manaNow < AbductionRayMinManaNonTemp && !tempRayWindow)
+            // 用户硬规则：非临时挟持射线仅在可用费用>=4时允许起链；临时牌/已起链续链不受影响。
+            if (manaNow < AbductionRayMinManaNonTemp && !tempRayWindow && !rayStartedThisTurn)
                 return false;
 
             // 用户规则：滑矛可攻且射线法术增伤可直接补足斩杀时，放宽起链门槛直接允许使用。
@@ -9853,7 +13147,7 @@ namespace SmartBotProfiles
                 return true;
 
             // 用户规则：手里有墓且射线可打时，允许直接启动射线，不受常规起链费用门槛限制。
-            if (board.HasCardInHand(TombOfSuffering) && !HasStartedOrPlannedAbductionRayThisTurn(board))
+            if (board.HasCardInHand(TombOfSuffering) && !rayStartedThisTurn)
                 return true;
 
             // 用户规则：绝境保命窗口允许放宽起链门槛，优先射线找嘲讽。
@@ -9861,29 +13155,38 @@ namespace SmartBotProfiles
                 return true;
 
             // 用户硬规则：挟持射线非临时需达到起链费用窗口；临时牌不受影响。
-            if (IsNonTempAbductionRayStartupManaWindow(board, manaNow))
+            if (startupState.NonTempStartupManaWindow)
                 return true;
 
             // 用户规则：中后期若可连续打出多张射线（>=2），允许直接启动连发，不再被始祖龟插队。
-            if (IsAbductionRayMidLateMultiRayPriorityWindow(board, manaNow))
+            if (startupState.MidLateMultiRayWindow)
                 return true;
 
             if (tempRayWindow)
                 return true;
 
-            // 用户规则：非临时射线在满足可用费用门槛时，才允许继续本回合链路。
-            bool lastPlayedRayNow = false;
-            try
-            {
-                lastPlayedRayNow = board.PlayedCards != null
-                    && board.PlayedCards.Count > 0
-                    && board.PlayedCards.Last() == AbductionRay;
-            }
-            catch
-            {
-                lastPlayedRayNow = false;
-            }
-            return HasStartedOrPlannedAbductionRayThisTurn(board) || lastPlayedRayNow;
+            // 本回合已起链时，即使可用费降到<4也允许继续射线链。
+            return rayStartedThisTurn;
+        }
+
+        // 攻击后置窗口：手握可用“临时挟持射线”且场上有可攻击滑矛时，优先先射线再攻击。
+        private bool IsTemporaryRaySlitherspearAttackHoldWindow(Board board, int manaNow = -1)
+        {
+            if (board == null || board.Hand == null || board.MinionFriend == null)
+                return false;
+
+            if (manaNow < 0)
+                manaNow = GetAvailableManaIncludingCoin(board);
+            if (manaNow <= 0)
+                return false;
+
+            if (!HasAttackableNaga(board))
+                return false;
+
+            if (!IsAbductionRayPlayableNow(board))
+                return false;
+
+            return HasTemporaryOrSketchGeneratedAbductionRay(board);
         }
 
         private bool IsAbductionRaySlitherspearLethalWindow(Board board, int manaNow = -1)
@@ -9957,73 +13260,101 @@ namespace SmartBotProfiles
                 return false;
 
             int currentRayCount = CountPlayedCardInLog(board, AbductionRay);
+            int manaAvailable = 0;
+            int maxMana = 0;
+            try { manaAvailable = Math.Max(0, board.ManaAvailable); } catch { manaAvailable = 0; }
+            try { maxMana = Math.Max(0, board.MaxMana); } catch { maxMana = 0; }
+            bool likelyTurnStartByMana = maxMana > 0 && manaAvailable >= maxMana;
             int turn = GetBoardTurn(board);
             if (turn >= 0)
             {
+                // Turn 字段可用时，停用“无 Turn 兜底追踪”，避免两套状态互相污染。
+                _abductionRayNoTurnInitialized = false;
+                _abductionRayNoTurnBasePlayedCount = 0;
+                _abductionRayNoTurnLastMaxMana = -1;
+                _abductionRayNoTurnLastManaAvailable = -1;
+                _abductionRayNoTurnLastDeckCount = -1;
+
                 // 以“本回合起始时射线总计”为基线，只有本回合新增才算“已起链”。
                 if (turn != _abductionRayTrackTurn)
                 {
-                    _abductionRayTrackTurn = turn;
-
-                    int baseCount = currentRayCount;
-                    bool likelyAfterAction = false;
-                    bool lastPlayedRay = false;
-
-                    int manaAvailable = 0;
-                    int maxMana = 0;
-                    try { manaAvailable = Math.Max(0, board.ManaAvailable); } catch { manaAvailable = 0; }
-                    try { maxMana = Math.Max(0, board.MaxMana); } catch { maxMana = 0; }
-                    likelyAfterAction = manaAvailable < maxMana;
-
-                    try
+                    // 某些环境 Turn 会在同回合重算时变化；只有到“回满法力”边界时才重置基线。
+                    bool unstableTurnDrift = _abductionRayTrackTurn != int.MinValue && !likelyTurnStartByMana;
+                    if (!unstableTurnDrift)
                     {
-                        if (board.PlayedCards != null && board.PlayedCards.Count > 0)
-                            lastPlayedRay = board.PlayedCards.Last() == AbductionRay;
-                    }
-                    catch
-                    {
-                        lastPlayedRay = false;
-                    }
+                        _abductionRayTrackTurn = turn;
 
-                    // 若本回合首次观测就发生在“首发射线之后”，把基线回退1，避免续链被误断。
-                    if (currentRayCount > 0 && likelyAfterAction && lastPlayedRay)
-                        baseCount = Math.Max(0, currentRayCount - 1);
+                        int baseCount = currentRayCount;
+                        bool likelyAfterAction = manaAvailable < maxMana;
+                        bool lastPlayedRayAtTurnStart = WasAbductionRayLastPlayed(board);
 
-                    _abductionRayBasePlayedCount = baseCount;
+                        // 若本回合首次观测就发生在“首发射线之后”，把基线回退1，避免续链被误断。
+                        if (currentRayCount > 0 && likelyAfterAction && lastPlayedRayAtTurnStart)
+                            baseCount = Math.Max(0, currentRayCount - 1);
+
+                        _abductionRayBasePlayedCount = baseCount;
+                    }
                 }
 
                 return currentRayCount > _abductionRayBasePlayedCount;
             }
 
-            if (currentRayCount <= 0)
-                return false;
+            // 回合号不可用时兜底：
+            // 用“法力回满 / 最大法力变化 / 牌库抽1”重置本回合射线基线，避免跨回合误判“已起链”。
+            bool lastPlayedRay = WasAbductionRayLastPlayed(board);
 
-            // 回合号不可用时的兜底：仅在明显处于本回合中段时认定已起链，避免跨回合误判。
-            int fallbackMana = 0;
-            int fallbackMaxMana = 0;
-            try { fallbackMana = Math.Max(0, board.ManaAvailable); } catch { fallbackMana = 0; }
-            try { fallbackMaxMana = Math.Max(0, board.MaxMana); } catch { fallbackMaxMana = 0; }
-            if (fallbackMana < fallbackMaxMana)
-                return true;
+            int deckCount = -1;
+            try { deckCount = board.FriendDeckCount; } catch { deckCount = -1; }
 
-            try
+            if (!_abductionRayNoTurnInitialized)
             {
-                return board.PlayedCards != null
-                    && board.PlayedCards.Count > 0
-                    && board.PlayedCards.Last() == AbductionRay;
+                int baseCount = currentRayCount;
+                // 若首次观测就发生在“打出射线之后”，回退1，避免同回合续链被误断。
+                if (currentRayCount > 0 && manaAvailable < maxMana && lastPlayedRay)
+                    baseCount = Math.Max(0, currentRayCount - 1);
+
+                _abductionRayNoTurnBasePlayedCount = baseCount;
+                _abductionRayNoTurnInitialized = true;
             }
-            catch
+            else
             {
-                return false;
+                bool maxManaIncreased = _abductionRayNoTurnLastMaxMana >= 0
+                    && maxMana > _abductionRayNoTurnLastMaxMana;
+                bool manaRefilled = _abductionRayNoTurnLastMaxMana == maxMana
+                    && maxMana > 0
+                    && _abductionRayNoTurnLastManaAvailable >= 0
+                    && _abductionRayNoTurnLastManaAvailable < maxMana
+                    && manaAvailable >= maxMana;
+                bool deckDrew = _abductionRayNoTurnLastDeckCount >= 0
+                    && deckCount >= 0
+                    && deckCount < _abductionRayNoTurnLastDeckCount;
+
+                if (maxManaIncreased || manaRefilled || deckDrew)
+                    _abductionRayNoTurnBasePlayedCount = currentRayCount;
             }
+
+            bool startedInNoTurnMode = currentRayCount > _abductionRayNoTurnBasePlayedCount;
+
+            _abductionRayNoTurnLastMaxMana = maxMana;
+            _abductionRayNoTurnLastManaAvailable = manaAvailable;
+            _abductionRayNoTurnLastDeckCount = deckCount;
+
+            return startedInNoTurnMode;
         }
 
         private static bool HasPlannedAbductionRayThisTurn(Board board)
         {
-            int turn = GetBoardTurn(board);
-            if (turn < 0)
+            if (!_abductionRayPlannedThisTurn)
                 return false;
-            return _abductionRayPlannedThisTurn && turn == _abductionRayPlannedTurn;
+
+            int turn = GetBoardTurn(board);
+            if (turn < 0 || _abductionRayPlannedTurn < 0)
+                return true;
+            if (turn == _abductionRayPlannedTurn)
+                return true;
+
+            // Turn 漂移但未到回合起点时，仍视为同回合计划有效，避免中途掉锁。
+            return !IsLikelyTurnStartByMana(board);
         }
 
         private static bool HasStartedOrPlannedAbductionRayThisTurn(Board board)
@@ -10077,8 +13408,8 @@ namespace SmartBotProfiles
             if (!ShouldLockCoinBeforeTurnThreeForSketch(board))
                 return;
 
-            p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(10000));
-            p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(-10000));
+            p.CastSpellsModifiers.AddOrUpdate(TheCoin, new Modifier(9999));
+            p.PlayOrderModifiers.AddOrUpdate(TheCoin, new Modifier(-9999));
             AddLog("幸运币：终局校验命中速写前置锁币，保持禁用");
         }
 
@@ -10621,6 +13952,8 @@ namespace SmartBotProfiles
                     return 2600;
                 case Card.Cards.BRM_002:      // 火妖
                     return 2200;
+                case Card.Cards.VAC_435:      // 落难的大法师
+                    return 7800;
 
                 case Card.Cards.VAC_402:      // 霜噬海盗
                     return 520;
@@ -10796,6 +14129,9 @@ namespace SmartBotProfiles
 
         private void AddLog(string line)
         {
+            if (!ShouldKeepDecisionLogLine(line))
+                return;
+
             if (!_turnMetaLogged && (_logTurn >= 0 || _logMaxMana >= 0))
             {
                 if (_log.Length > 0)
@@ -10810,5 +14146,258 @@ namespace SmartBotProfiles
                 _log += "\r\n";
             _log += line;
         }
+
+        private bool ShouldKeepDecisionLogLine(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line))
+                return false;
+
+            if (line.StartsWith("[BoxOCR]", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            if (line.StartsWith("\u6295\u964d\uff1a", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            return line.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0
+                || line.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
+                || line.IndexOf("exception", StringComparison.OrdinalIgnoreCase) >= 0
+                || line.IndexOf("\u5f02\u5e38", StringComparison.OrdinalIgnoreCase) >= 0
+                || line.IndexOf("\u5931\u8d25", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        #region SmartBot single-file compile compatibility
+        private static bool ApplyLiveMemoryBiasCompat(Board board, ProfileParameters p)
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var profileCommonType = assembly.GetType("SmartBotProfiles.ProfileCommon", false);
+                    if (profileCommonType == null)
+                        continue;
+
+                    var method = profileCommonType.GetMethod(
+                        "ApplyLiveMemoryBias",
+                        new[] { typeof(Board), typeof(ProfileParameters) });
+                    if (method == null)
+                        continue;
+
+                    object result = method.Invoke(null, new object[] { board, p });
+                    if (result is bool applied)
+                        return applied;
+                    return false;
+                }
+            }
+            catch
+            {
+                // Ignore and fall back to local behavior.
+            }
+
+            return false;
+        }
+
+        private static bool ApplyExactAttackModifierCompat(ProfileParameters p, Card source, Card target, int modifier)
+        {
+            if (p == null || source == null || source.Template == null || target == null || target.Template == null)
+                return false;
+
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var profileCommonType = assembly.GetType("SmartBotProfiles.ProfileCommon", false);
+                    if (profileCommonType == null)
+                        continue;
+
+                    var method = profileCommonType.GetMethod(
+                        "ApplyExactAttackModifier",
+                        new[] { typeof(ProfileParameters), typeof(Card), typeof(Card), typeof(int) });
+                    if (method == null)
+                        continue;
+
+                    object result = method.Invoke(null, new object[] { p, source, target, modifier });
+                    if (result is bool applied)
+                        return applied;
+                    return false;
+                }
+            }
+            catch
+            {
+                // Ignore and fall back to direct modifier application.
+            }
+
+            if (modifier == 0)
+                return false;
+
+            if (source.Id > 0 && target.Id > 0)
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(source.Id, modifier, target.Id);
+                return true;
+            }
+
+            if (source.Id > 0)
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(source.Id, modifier, target.Template.Id);
+                return true;
+            }
+
+            p.MinionsAttackModifiers.AddOrUpdate(source.Template.Id, modifier, target.Template.Id);
+            return true;
+        }
+
+        private sealed class DecisionTeacherHintMatch
+        {
+            public string Kind = string.Empty;
+            public Card.Cards CardId = default(Card.Cards);
+            public int Slot = 0;
+            public double Score = 0d;
+        }
+
+        private sealed class DecisionTeacherHintState
+        {
+            public DateTime TimestampUtc = DateTime.MinValue;
+            public string Status = string.Empty;
+            public string Stage = string.Empty;
+            public string SBProfile = string.Empty;
+            public readonly List<DecisionTeacherHintMatch> Matches = new List<DecisionTeacherHintMatch>();
+
+            public bool IsFresh(int maxAgeSeconds)
+            {
+                if (TimestampUtc == DateTime.MinValue)
+                    return false;
+
+                return TimestampUtc >= DateTime.UtcNow.AddSeconds(-Math.Max(1, maxAgeSeconds));
+            }
+
+            public bool MatchesProfile(string expectedProfileName)
+            {
+                string expected = NormalizeStrategyName(expectedProfileName);
+                if (string.IsNullOrWhiteSpace(expected))
+                    return true;
+
+                string actual = NormalizeStrategyName(SBProfile);
+                if (string.IsNullOrWhiteSpace(actual))
+                    return false;
+
+                return string.Equals(actual, expected, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static string NormalizeStrategyName(string raw)
+            {
+                if (string.IsNullOrWhiteSpace(raw))
+                    return string.Empty;
+
+                string value = raw.Trim().Replace('/', '\\');
+                return Path.GetFileName(value).Trim();
+            }
+        }
+
+        private sealed class GameStateSnapshot
+        {
+            public int ManaAvailable = 0;
+            public DecisionTeacherHintState TeacherHint = null;
+            public readonly HashSet<string> Facts = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            public void AddFact(string fact)
+            {
+                if (!string.IsNullOrWhiteSpace(fact))
+                    Facts.Add(fact);
+            }
+        }
+
+        private sealed class DecisionRuleAction
+        {
+            public string type = string.Empty;
+            public string card_id = string.Empty;
+            public int? slot = null;
+            public string attack_plan = string.Empty;
+            public bool? delay_non_attack_actions = null;
+            public string source_selector = string.Empty;
+            public string target_kind = string.Empty;
+            public string target_selector = string.Empty;
+            public string target_card_id = string.Empty;
+            public string source_card_id = string.Empty;
+            public int? source_slot = null;
+            public int? target_slot = null;
+        }
+
+        private sealed class DecisionRuleDefinition
+        {
+            public string id = string.Empty;
+            public DecisionRuleAction then = null;
+        }
+
+        private sealed class DecisionRuleMatchResult
+        {
+            public DecisionRuleDefinition Rule = null;
+            public string Reason = string.Empty;
+        }
+
+        private static class DecisionStateExtractor
+        {
+            public static GameStateSnapshot Build(Board board)
+            {
+                GameStateSnapshot snapshot = new GameStateSnapshot();
+                snapshot.TeacherHint = LoadTeacherHint();
+                return snapshot;
+            }
+
+            public static DecisionTeacherHintState LoadTeacherHint()
+            {
+                return new DecisionTeacherHintState();
+            }
+        }
+
+        private static class DecisionRuleEngine
+        {
+            public static List<DecisionRuleMatchResult> EvaluatePlayRules(GameStateSnapshot state, string profileName)
+            {
+                return new List<DecisionRuleMatchResult>();
+            }
+        }
+
+        private static class DecisionLearningCapture
+        {
+            public static void CapturePlayTeacherSample(
+                GameStateSnapshot snapshot,
+                string profileName,
+                List<DecisionRuleMatchResult> matches,
+                DecisionRuleMatchResult appliedMatch,
+                string appliedSource)
+            {
+                // Shared capture is unavailable during SmartBot single-file compilation.
+            }
+        }
+        #endregion
+    internal static class ProfileCommon
+    {
+        public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+        {
+            try
+            {
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                {
+                    var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                    if (executorType == null)
+                        continue;
+
+                    var method = executorType.GetMethod(
+                        "TryRunPureLearningPlayExecutor",
+                        new[] { typeof(Board), typeof(ProfileParameters) });
+                    if (method == null)
+                        continue;
+
+                    object result = method.Invoke(null, new object[] { board, p });
+                    return result is bool && (bool)result;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return false;
+        }
+    }
     }
 }

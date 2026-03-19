@@ -1,20 +1,90 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Reflection;
 using SmartBot.Database;
 using SmartBot.Plugins.API;
 
 namespace SmartBotProfiles
 {
-    // Profiles 公共工具：尽量只放“通用逻辑”，避免绑死某个卡组。
-    // tip: 项目是 c#6，不要用新语法
     public static class ProfileCommon
     {
+        public static bool TryRunPureLearningPlayExecutor(Board board, ProfileParameters p)
+        {
+            try
+            {
+                EnsureDecisionSupportAssemblyLoaded();
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                for (int i = assemblies.Length - 1; i >= 0; i--)
+                {
+                    var assembly = assemblies[i];
+                    var executorType = assembly.GetType("SmartBotProfiles.DecisionPlayExecutor", false);
+                    if (executorType == null)
+                        continue;
+
+                    var method = executorType.GetMethod(
+                        "TryRunPureLearningPlayExecutor",
+                        new[] { typeof(Board), typeof(ProfileParameters) });
+                    if (method == null)
+                        continue;
+
+                    try
+                    {
+                        object result = method.Invoke(null, new object[] { board, p });
+                        if (result is bool)
+                            return (bool)result;
+                    }
+                    catch
+                    {
+                        // ignore and try older loaded versions
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return false;
+        }
+
+        private static void EnsureDecisionSupportAssemblyLoaded()
+        {
+            string[] candidates = new[]
+            {
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "compilecheck_decisionplayexecutor", "bin", "Debug", "net8.0", "compilecheck_decisionplayexecutor.dll"),
+                Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "compilecheck_decisionplayexecutor", "bin", "Release", "net8.0", "compilecheck_decisionplayexecutor.dll")
+            };
+
+            foreach (string candidate in candidates)
+            {
+                try
+                {
+                    if (!File.Exists(candidate))
+                        continue;
+
+                    Assembly.LoadFrom(candidate);
+                    return;
+                }
+                catch
+                {
+                    // ignore
+                }
+            }
+        }
+
         public static void AddLog(ref string log, string line)
         {
-            if (log == null) log = "";
+            if (string.IsNullOrWhiteSpace(line))
+                return;
+
+            if (log == null)
+                log = string.Empty;
+
             if (log.Length > 0)
                 log += "\r\n";
+
             log += line;
         }
 
@@ -22,10 +92,14 @@ namespace SmartBotProfiles
         {
             try
             {
-                var t = CardTemplate.LoadFromId(id);
-                var cn = t != null ? t.NameCN : null;
-                if (!string.IsNullOrWhiteSpace(cn))
-                    return cn + "(" + id + ")";
+                CardTemplate template = CardTemplate.LoadFromId(id);
+                if (template != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(template.NameCN))
+                        return template.NameCN + "(" + id + ")";
+                    if (!string.IsNullOrWhiteSpace(template.Name))
+                        return template.Name + "(" + id + ")";
+                }
             }
             catch
             {
@@ -52,113 +126,372 @@ namespace SmartBotProfiles
 
         public static void ApplyEnemyThreatTable(ProfileParameters p, IEnumerable<KeyValuePair<Card.Cards, int>> table)
         {
-            if (p == null || table == null) return;
+            if (p == null || table == null)
+                return;
 
-            foreach (var kv in table)
+            foreach (KeyValuePair<Card.Cards, int> kv in table)
                 p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(kv.Key, new Modifier(kv.Value));
         }
-
-        // ===== 攻击优先 / 卡牌威胁：通用辅助 =====
-        // 注意：威胁表本身应由具体卡组维护（不同卡组对同一随从的威胁口径可能不同）。
 
         public static HashSet<Card.Cards> GetEnemyMinionCardIds(Board board)
         {
-            var ids = new HashSet<Card.Cards>();
-            if (board == null || board.MinionEnemy == null) return ids;
+            HashSet<Card.Cards> ids = new HashSet<Card.Cards>();
+            if (board == null || board.MinionEnemy == null)
+                return ids;
 
-            foreach (var m in board.MinionEnemy)
+            foreach (Card enemy in board.MinionEnemy)
             {
-                if (m == null || m.Template == null) continue;
-                ids.Add(m.Template.Id);
+                if (enemy == null || enemy.Template == null)
+                    continue;
+
+                ids.Add(enemy.Template.Id);
             }
+
             return ids;
         }
 
-        // 构建“每个随从 id 的最大威胁值”，用于后续做“走脸覆盖”后回拉关键威胁。
         public static Dictionary<Card.Cards, int> BuildMaxValueById(IEnumerable<KeyValuePair<Card.Cards, int>> table)
         {
-            var maxById = new Dictionary<Card.Cards, int>();
-            if (table == null) return maxById;
+            Dictionary<Card.Cards, int> maxById = new Dictionary<Card.Cards, int>();
+            if (table == null)
+                return maxById;
 
-            foreach (var kv in table)
+            foreach (KeyValuePair<Card.Cards, int> kv in table)
             {
-                int cur;
-                if (maxById.TryGetValue(kv.Key, out cur))
-                    maxById[kv.Key] = Math.Max(cur, kv.Value);
+                int current;
+                if (maxById.TryGetValue(kv.Key, out current))
+                    maxById[kv.Key] = Math.Max(current, kv.Value);
                 else
                     maxById[kv.Key] = kv.Value;
             }
+
             return maxById;
         }
 
-        // 只对“当前对面场上存在的随从”应用威胁表，减少无意义的 AddOrUpdate。
-        public static void ApplyThreatTableIfPresent(ProfileParameters p, HashSet<Card.Cards> presentEnemyIds, IEnumerable<KeyValuePair<Card.Cards, int>> table)
+        public static void ApplyThreatTableIfPresent(
+            ProfileParameters p,
+            HashSet<Card.Cards> presentEnemyIds,
+            IEnumerable<KeyValuePair<Card.Cards, int>> table)
         {
-            if (p == null || presentEnemyIds == null || presentEnemyIds.Count == 0 || table == null) return;
+            if (p == null || presentEnemyIds == null || presentEnemyIds.Count == 0 || table == null)
+                return;
 
-            foreach (var kv in table)
+            foreach (KeyValuePair<Card.Cards, int> kv in table)
             {
                 if (!presentEnemyIds.Contains(kv.Key))
                     continue;
+
                 p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(kv.Key, new Modifier(kv.Value));
             }
         }
 
-        // “走脸覆盖”：当你决定在无嘲讽窗口尽量走脸时，降低所有非嘲讽随从的被攻击优先级；
-        // 但保留对关键威胁随从的回拉（例如威胁值>=阈值）。
-        public static void ApplyGoFaceOverrideWithThreatPullback(ProfileParameters p, Board board, Dictionary<Card.Cards, int> threatMaxById, int goFaceOverrideValue, int criticalThreatOverrideThreshold)
+        public static void ApplyGoFaceOverrideWithThreatPullback(
+            ProfileParameters p,
+            Board board,
+            Dictionary<Card.Cards, int> threatMaxById,
+            int goFaceOverrideValue,
+            int criticalThreatOverrideThreshold)
         {
             if (p == null || board == null || board.MinionEnemy == null || board.MinionEnemy.Count == 0)
                 return;
 
-            foreach (var em in board.MinionEnemy)
+            foreach (Card enemy in board.MinionEnemy)
             {
-                if (em == null || em.Template == null) continue;
-                if (em.IsTaunt) continue;
-                p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(em.Template.Id, new Modifier(goFaceOverrideValue));
+                if (enemy == null || enemy.Template == null || enemy.IsTaunt)
+                    continue;
+
+                p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(goFaceOverrideValue));
             }
 
             if (threatMaxById == null || threatMaxById.Count == 0)
                 return;
 
-            foreach (var em in board.MinionEnemy)
+            foreach (Card enemy in board.MinionEnemy)
             {
-                if (em == null || em.Template == null) continue;
-                if (em.IsTaunt) continue;
+                int threatValue;
+                if (enemy == null || enemy.Template == null || enemy.IsTaunt)
+                    continue;
 
-                int t;
-                if (threatMaxById.TryGetValue(em.Template.Id, out t) && t >= criticalThreatOverrideThreshold)
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(em.Template.Id, new Modifier(t));
+                if (threatMaxById.TryGetValue(enemy.Template.Id, out threatValue)
+                    && threatValue >= criticalThreatOverrideThreshold)
+                {
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(threatValue));
+                }
             }
         }
 
-        // 通用动态威胁评估：
-        // - 嘲讽优先解（避免卡住节奏/斩杀）
-        // - 高攻优先解（保命口径）
-        // 说明：这是“兜底逻辑”，更细的对局/职业特化可以在具体策略里再加。
         public static void ApplyDynamicEnemyThreat(Board board, ProfileParameters p, bool enableLogs, Action<string> addLog)
         {
             if (board == null || p == null || board.MinionEnemy == null || board.MinionEnemy.Count == 0)
                 return;
 
-            foreach (var m in board.MinionEnemy)
+            foreach (Card enemy in board.MinionEnemy)
             {
-                if (m == null || m.Template == null) continue;
+                if (enemy == null || enemy.Template == null)
+                    continue;
 
-                if (m.IsTaunt)
+                if (enemy.IsTaunt)
                 {
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(m.Template.Id, new Modifier(150));
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(150));
                     if (enableLogs && addLog != null)
-                        addLog("[威胁] " + CardName(m.Template.Id) + " 嘲讽优先解");
+                        addLog("[Threat] " + CardName(enemy.Template.Id) + " taunt");
                 }
 
-                if (m.CurrentAtk >= 6)
+                if (enemy.CurrentAtk >= 6)
                 {
-                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(m.Template.Id, new Modifier(80));
+                    p.OnBoardBoardEnemyMinionsModifiers.AddOrUpdate(enemy.Template.Id, new Modifier(80));
                     if (enableLogs && addLog != null)
-                        addLog("[威胁] " + CardName(m.Template.Id) + " 高攻" + m.CurrentAtk + "点（优先控场）");
+                        addLog("[Threat] " + CardName(enemy.Template.Id) + " atk=" + enemy.CurrentAtk);
                 }
             }
+        }
+
+        public static bool ApplyExactAttackModifier(ProfileParameters p, Card source, Card target, int modifier)
+        {
+            if (source == null || source.Template == null || target == null || target.Template == null)
+                return false;
+
+            return ApplyExactAttackModifier(
+                p,
+                source.Id,
+                source.Template.Id,
+                target.Id,
+                target.Template.Id,
+                modifier);
+        }
+
+        public static bool ApplyExactAttackModifier(
+            ProfileParameters p,
+            int sourceEntityId,
+            Card.Cards sourceCardId,
+            int targetEntityId,
+            Card.Cards targetCardId,
+            int modifier)
+        {
+            if (p == null || modifier == 0)
+                return false;
+
+            if (sourceEntityId > 0 && targetEntityId > 0)
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(sourceEntityId, modifier, targetEntityId);
+                return true;
+            }
+
+            if (sourceEntityId > 0 && targetCardId != default(Card.Cards))
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(sourceEntityId, modifier, targetCardId);
+                return true;
+            }
+
+            if (sourceCardId != default(Card.Cards) && targetEntityId > 0)
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(sourceCardId, modifier, targetEntityId);
+                return true;
+            }
+
+            if (sourceCardId != default(Card.Cards) && targetCardId != default(Card.Cards))
+            {
+                p.MinionsAttackModifiers.AddOrUpdate(sourceCardId, modifier, targetCardId);
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool ApplyExactWeaponAttackModifier(
+            ProfileParameters p,
+            int sourceEntityId,
+            Card.Cards sourceCardId,
+            int targetEntityId,
+            Card.Cards targetCardId,
+            int modifier)
+        {
+            if (p == null || modifier == 0)
+                return false;
+
+            if (sourceEntityId > 0 && targetEntityId > 0)
+            {
+                p.WeaponsAttackModifiers.AddOrUpdate(sourceEntityId, modifier, targetEntityId);
+                return true;
+            }
+
+            if (sourceEntityId > 0 && targetCardId != default(Card.Cards))
+            {
+                p.WeaponsAttackModifiers.AddOrUpdate(sourceEntityId, modifier, targetCardId);
+                return true;
+            }
+
+            if (sourceCardId != default(Card.Cards) && targetEntityId > 0)
+            {
+                p.WeaponsAttackModifiers.AddOrUpdate(sourceCardId, modifier, targetEntityId);
+                return true;
+            }
+
+            if (sourceCardId != default(Card.Cards) && targetCardId != default(Card.Cards))
+            {
+                p.WeaponsAttackModifiers.AddOrUpdate(sourceCardId, modifier, targetCardId);
+                return true;
+            }
+
+            return false;
+        }
+
+        public static bool ApplyExactCastModifier(ProfileParameters p, Card source, Card target, int modifier)
+        {
+            if (source == null || source.Template == null || target == null || target.Template == null)
+                return false;
+
+            return ApplyExactCastModifier(
+                p,
+                source.Type,
+                source.Id,
+                source.Template.Id,
+                target.Id,
+                target.Template.Id,
+                modifier);
+        }
+
+        public static bool ApplyExactCastModifier(
+            ProfileParameters p,
+            Card.CType sourceType,
+            int sourceEntityId,
+            Card.Cards sourceCardId,
+            int targetEntityId,
+            Card.Cards targetCardId,
+            int modifier)
+        {
+            if (p == null || modifier == 0)
+                return false;
+
+            try
+            {
+                if (sourceType == Card.CType.MINION)
+                {
+                    if (sourceEntityId > 0 && targetEntityId > 0)
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceEntityId > 0 && targetCardId != default(Card.Cards))
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetEntityId > 0)
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetCardId != default(Card.Cards))
+                    {
+                        p.CastMinionsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+                }
+                else if (sourceType == Card.CType.SPELL)
+                {
+                    if (sourceEntityId > 0 && targetEntityId > 0)
+                    {
+                        p.CastSpellsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceEntityId > 0 && targetCardId != default(Card.Cards))
+                    {
+                        p.CastSpellsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetEntityId > 0)
+                    {
+                        p.CastSpellsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetCardId != default(Card.Cards))
+                    {
+                        p.CastSpellsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+                }
+                else if (sourceType == Card.CType.WEAPON)
+                {
+                    if (sourceEntityId > 0 && targetEntityId > 0)
+                    {
+                        p.CastWeaponsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceEntityId > 0 && targetCardId != default(Card.Cards))
+                    {
+                        p.CastWeaponsModifiers.AddOrUpdate(sourceEntityId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetEntityId > 0)
+                    {
+                        p.CastWeaponsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetEntityId));
+                        return true;
+                    }
+
+                    if (sourceCardId != default(Card.Cards) && targetCardId != default(Card.Cards))
+                    {
+                        p.CastWeaponsModifiers.AddOrUpdate(sourceCardId, new Modifier(modifier, targetCardId));
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return false;
+        }
+
+        public static bool ApplyExactHeroPowerModifier(
+            ProfileParameters p,
+            Card.Cards heroPowerId,
+            int targetEntityId,
+            Card.Cards targetCardId,
+            int modifier)
+        {
+            if (p == null || heroPowerId == default(Card.Cards) || modifier == 0)
+                return false;
+
+            try
+            {
+                if (targetEntityId > 0)
+                {
+                    p.CastHeroPowerModifier.AddOrUpdate(heroPowerId, new Modifier(modifier, targetEntityId));
+                    return true;
+                }
+
+                if (targetCardId != default(Card.Cards))
+                {
+                    p.CastHeroPowerModifier.AddOrUpdate(heroPowerId, new Modifier(modifier, targetCardId));
+                    return true;
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return false;
+        }
+
+        public static bool ApplyLiveMemoryBias(Board board, ProfileParameters p)
+        {
+            return false;
+        }
+
+        public static bool ApplyLiveMemoryBias(Board board, ProfileParameters p, bool enableLogs, Action<string> addLog)
+        {
+            return false;
         }
     }
 }
