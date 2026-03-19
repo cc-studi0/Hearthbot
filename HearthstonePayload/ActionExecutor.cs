@@ -122,7 +122,16 @@ namespace HearthstonePayload
                 || !string.IsNullOrWhiteSpace(subOptionCardId);
 
             if (!needsStructuredOption)
+            {
+                if (WaitForTargetSelectionReady(1200))
+                {
+                    var targetClickResult = TryClickPendingTarget(sourceId);
+                    if (targetClickResult != null)
+                        return targetClickResult;
+                }
+
                 return _coroutine.RunAndWait(MouseClickChoice(sourceId, allowApiFallback: false));
+            }
 
             var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
             if (submitDetail == null)
@@ -199,7 +208,7 @@ namespace HearthstonePayload
             // 子选项已选定后，目标列表有时会晚于“子选项关闭”信号出现。
             // 因此这里不能把“未探测到 TARGET 模式”直接当作结束条件，
             // 而是继续在短时间内重试网络提交，并在后半段直接尝试鼠标点目标。
-            WaitForOptionTargetSelectionReady(sourceId, 700);
+            WaitForTargetSelectionReady(700);
 
             for (var retry = 0; retry < 14; retry++)
             {
@@ -207,7 +216,7 @@ namespace HearthstonePayload
                 if (targetSubmitDetail == null)
                     return "OK:OPTION:sub_then_target_network:" + sourceId;
 
-                var allowDirectTargetClick = retry >= 3 || HasPendingTargetSelection(sourceId);
+                var allowDirectTargetClick = retry >= 3 || HasTargetSelectionReady();
                 if (targetId > 0 && allowDirectTargetClick && TryClickOptionTarget(sourceId, targetId))
                     return "OK:OPTION:sub_then_target_click:" + sourceId;
 
@@ -245,7 +254,21 @@ namespace HearthstonePayload
             var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
             while (Environment.TickCount < deadline)
             {
-                if (HasPendingTargetSelection(sourceId))
+                if (HasTargetSelectionReady())
+                    return true;
+
+                Thread.Sleep(40);
+            }
+
+            return false;
+        }
+
+        private static bool WaitForTargetSelectionReady(int timeoutMs)
+        {
+            var deadline = Environment.TickCount + Math.Max(80, timeoutMs);
+            while (Environment.TickCount < deadline)
+            {
+                if (HasTargetSelectionReady())
                     return true;
 
                 Thread.Sleep(40);
@@ -279,13 +302,33 @@ namespace HearthstonePayload
             return false;
         }
 
+        private static bool HasTargetSelectionReady()
+        {
+            try
+            {
+                var gs = GetGameState();
+                if (gs == null)
+                    return false;
+
+                if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
+                {
+                    return string.Equals(modeObj.ToString(), "TARGET", StringComparison.OrdinalIgnoreCase);
+                }
+            }
+            catch
+            {
+            }
+
+            return false;
+        }
+
         private static bool TryClickOptionTarget(int sourceId, int targetId)
         {
             if (sourceId <= 0 || targetId <= 0)
                 return false;
 
             // 必须先确认游戏确实处于 TARGET 模式，避免假阳性。
-            if (!HasPendingTargetSelection(sourceId))
+            if (!HasTargetSelectionReady())
                 return false;
 
             var targetHeroSide = -1;
@@ -305,13 +348,46 @@ namespace HearthstonePayload
             var deadline = Environment.TickCount + 1800;
             while (Environment.TickCount < deadline)
             {
-                if (!HasPendingTargetSelection(sourceId))
+                if (!HasTargetSelectionReady())
                     return true;
 
                 Thread.Sleep(60);
             }
 
             return false;
+        }
+
+        private static string TryClickPendingTarget(int targetId)
+        {
+            if (targetId <= 0)
+                return null;
+
+            if (!HasTargetSelectionReady())
+                return null;
+
+            var targetHeroSide = -1;
+            if (IsFriendlyHeroEntityId(targetId))
+                targetHeroSide = 0;
+            else if (IsEnemyHeroEntityId(targetId))
+                targetHeroSide = 1;
+
+            if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
+                return "FAIL:OPTION_TARGET:pos_not_found:" + targetId;
+
+            var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
+            if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                return clickResult ?? "FAIL:OPTION_TARGET:click_failed:" + targetId;
+
+            var deadline = Environment.TickCount + 1800;
+            while (Environment.TickCount < deadline)
+            {
+                if (!HasTargetSelectionReady())
+                    return "OK:OPTION:target_click:" + targetId;
+
+                Thread.Sleep(60);
+            }
+
+            return "FAIL:OPTION_TARGET:not_confirmed:" + targetId;
         }
 
         private static IEnumerator<float> MouseClickTargetCoroutine(int x, int y)
