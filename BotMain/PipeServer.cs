@@ -27,6 +27,7 @@ namespace BotMain
         private StreamWriter _writer;
         // 缓存上次超时未完成的 ReadLineAsync，避免下次调用启动新 Task 导致消息错位
         private System.Threading.Tasks.Task<string> _pendingRead;
+        private readonly object _ioLock = new object();
 
         public string LastWaitDetail { get; private set; }
 
@@ -157,8 +158,22 @@ namespace BotMain
         /// </summary>
         public string SendAndReceive(string command, int timeoutMs = 5000)
         {
-            if (!Send(command)) return null;
-            return Receive(timeoutMs);
+            return ExecuteExclusive(() =>
+            {
+                if (!Send(command)) return null;
+                return Receive(timeoutMs);
+            });
+        }
+
+        public T ExecuteExclusive<T>(Func<T> action)
+        {
+            if (action == null)
+                throw new ArgumentNullException(nameof(action));
+
+            lock (_ioLock)
+            {
+                return action();
+            }
         }
 
         public void Dispose()

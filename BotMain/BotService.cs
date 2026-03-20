@@ -1621,6 +1621,7 @@ namespace BotMain
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             int seedNotReadyStreak = 0;
+            int seedNullStreak = 0;
             int planningBoardUnavailableStreak = 0;
             string lastSeedNotReadySignature = string.Empty;
             string lastPlanningBoardUnavailableSignature = string.Empty;
@@ -1709,10 +1710,36 @@ namespace BotMain
                 }
                 if (!gotSeedResp || resp == null)
                 {
+                    seedNullStreak++;
                     Log("[MainLoop] GET_SEED -> null");
+                    if (wasInGame && seedNullStreak >= 3)
+                    {
+                        var nullRecovery = ResolveSeedNullStall(pipe, "MainLoopSeedNull", out var nullRecoveryScene);
+                        if (nullRecovery == EndgamePendingResolution.GameLeftGameplay)
+                        {
+                            Log($"[MainLoop] GET_SEED 连续 {seedNullStreak} 次为 null，scene={nullRecoveryScene}，按对局结束处理。");
+                            FinalizeMatchAndAutoQueue(
+                                pipe,
+                                ref wasInGame,
+                                ref lastTurnNumber,
+                                ref currentTurnStartedUtc,
+                                ref notOurTurnStreak,
+                                ref nextPostGameDismissUtc,
+                                ref mulliganStreak,
+                                ref mulliganHandled,
+                                ref nextMulliganAttemptUtc,
+                                ref mulliganPhaseStartedUtc,
+                                ref seedNullStreak,
+                                playActionFailStreakByEntity,
+                                "seed_null_stall");
+                            continue;
+                        }
+                    }
                     Thread.Sleep(300);
                     continue;
                 }
+
+                seedNullStreak = 0;
 
                 if (resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
                     || resp.StartsWith("SCENE:", StringComparison.Ordinal)
@@ -1788,6 +1815,7 @@ namespace BotMain
                                 ref mulliganHandled,
                                 ref nextMulliganAttemptUtc,
                                 ref mulliganPhaseStartedUtc,
+                                ref seedNullStreak,
                                 playActionFailStreakByEntity,
                                 "endgame_pending");
                         }
@@ -1809,6 +1837,7 @@ namespace BotMain
                             ref mulliganHandled,
                             ref nextMulliganAttemptUtc,
                             ref mulliganPhaseStartedUtc,
+                            ref seedNullStreak,
                             playActionFailStreakByEntity,
                             "no_game");
                     }
@@ -1888,6 +1917,7 @@ namespace BotMain
                                     ref mulliganHandled,
                                     ref nextMulliganAttemptUtc,
                                     ref mulliganPhaseStartedUtc,
+                                    ref seedNullStreak,
                                     playActionFailStreakByEntity,
                                     "leave_gameplay_scene");
                                 continue;
@@ -5839,40 +5869,50 @@ namespace BotMain
             out string response,
             string scope)
         {
-            response = null;
             if (pipe == null || !pipe.IsConnected || string.IsNullOrWhiteSpace(command))
-                return false;
-
-            if (!pipe.Send(command))
-                return false;
-
-            var sw = Stopwatch.StartNew();
-            while (sw.ElapsedMilliseconds < timeoutMs)
             {
-                var remaining = (int)Math.Max(50, timeoutMs - sw.ElapsedMilliseconds);
-                var resp = pipe.Receive(remaining);
-                if (string.IsNullOrWhiteSpace(resp))
-                    continue;
+                response = null;
+                return false;
+            }
 
-                if (isExpected != null && isExpected(resp))
+            var capturedResponse = (string)null;
+            var gotResponse = pipe.ExecuteExclusive(() =>
+            {
+                capturedResponse = null;
+                if (!pipe.Send(command))
+                    return false;
+
+                var sw = Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < timeoutMs)
                 {
-                    response = resp;
+                    var remaining = (int)Math.Max(50, timeoutMs - sw.ElapsedMilliseconds);
+                    var resp = pipe.Receive(remaining);
+                    if (string.IsNullOrWhiteSpace(resp))
+                        continue;
+
+                    if (isExpected != null && isExpected(resp))
+                    {
+                        capturedResponse = resp;
+                        return true;
+                    }
+
+                    if (IsCrossCommandResponse(resp))
+                    {
+                        var shortResp = resp.Length > 80 ? resp.Substring(0, 80) : resp;
+                        Log($"[{scope}] {command} 收到错位响应，丢弃  {shortResp}");
+                        continue;
+                    }
+
+                    // 未识别为串包的未知响应，仍返回给调用方处理。
+                    capturedResponse = resp;
                     return true;
                 }
 
-                if (IsCrossCommandResponse(resp))
-                {
-                    var shortResp = resp.Length > 80 ? resp.Substring(0, 80) : resp;
-                    Log($"[{scope}] {command} 收到错位响应，丢弃  {shortResp}");
-                    continue;
-                }
+                return false;
+            });
 
-                // 未识别为串包的未知响应，仍返回给调用方处理。
-                response = resp;
-                return true;
-            }
-
-            return false;
+            response = capturedResponse;
+            return gotResponse;
         }
 
         private static bool IsCrossCommandResponse(string resp)
@@ -5987,6 +6027,20 @@ namespace BotMain
                 timeoutMs,
                 r => string.Equals(r, "READY", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(r, "BUSY", StringComparison.OrdinalIgnoreCase),
+                out response,
+                scope);
+        }
+
+        private bool TryGetResultResponse(PipeServer pipe, int timeoutMs, out string response, string scope)
+        {
+            response = null;
+            return TrySendAndReceiveExpected(
+                pipe,
+                "GET_RESULT",
+                timeoutMs,
+                r => !string.IsNullOrWhiteSpace(r)
+                    && (r.StartsWith("RESULT:", StringComparison.Ordinal)
+                        || r.StartsWith("ERROR:", StringComparison.Ordinal)),
                 out response,
                 scope);
         }
@@ -6572,6 +6626,98 @@ namespace BotMain
             return true;
         }
 
+        private static string InferGameResultFromEndgameClass(string endgameClass)
+        {
+            if (string.IsNullOrWhiteSpace(endgameClass))
+                return null;
+
+            var lower = endgameClass.ToLowerInvariant();
+            if (lower.Contains("victory")) return "WIN";
+            if (lower.Contains("defeat")) return "LOSS";
+            if (lower.Contains("tie") || lower.Contains("draw")) return "TIE";
+            return null;
+        }
+
+        private void TryCacheEarlyGameResult(PipeServer pipe, string scope, string endgameClass = null)
+        {
+            if (_earlyGameResult == null
+                && TryGetResultResponse(pipe, 1000, out var resultResp, scope + ".Result")
+                && !string.IsNullOrWhiteSpace(resultResp)
+                && resultResp.StartsWith("RESULT:", StringComparison.Ordinal))
+            {
+                var resultPayload = resultResp.Substring(7);
+                if (!string.Equals(resultPayload, "NONE", StringComparison.OrdinalIgnoreCase))
+                {
+                    _earlyGameResult = resultPayload;
+                    Log($"[{scope}] 提前获取对局结果: {resultPayload}");
+                }
+            }
+
+            if (_earlyGameResult != null)
+                return;
+
+            var inferred = InferGameResultFromEndgameClass(endgameClass);
+            if (inferred != null)
+            {
+                _earlyGameResult = inferred;
+                Log($"[{scope}] 从结算页类名推断结果: {inferred} (class={endgameClass})");
+            }
+        }
+
+        private EndgamePendingResolution ResolveSeedNullStall(
+            PipeServer pipe,
+            string scope,
+            out string sceneAfter)
+        {
+            sceneAfter = "GAMEPLAY";
+
+            if (!TryGetSceneValue(pipe, 2000, out var scene, scope))
+            {
+                Log($"[{scope}] 连续 GET_SEED 超时后，场景探测仍超时/串包。");
+                return EndgamePendingResolution.Waiting;
+            }
+
+            sceneAfter = scene;
+            if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+            {
+                return BotProtocol.IsStableLobbyScene(scene)
+                    ? EndgamePendingResolution.GameLeftGameplay
+                    : EndgamePendingResolution.Waiting;
+            }
+
+            if (!TryGetEndgameState(pipe, 2000, out var endgameShown, out var endgameClass, scope))
+            {
+                Log($"[{scope}] 连续 GET_SEED 超时后，结算页探测仍超时/串包。");
+                return EndgamePendingResolution.Waiting;
+            }
+
+            if (endgameShown)
+            {
+                Log($"[{scope}] 连续 GET_SEED 超时后检测到结算页({endgameClass})，开始连续点击跳过...");
+                TryCacheEarlyGameResult(pipe, scope, endgameClass);
+                return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
+                    ? EndgamePendingResolution.GameLeftGameplay
+                    : EndgamePendingResolution.Waiting;
+            }
+
+            if (!TryGetSeedProbe(pipe, 1500, out var seedProbe, scope))
+                return EndgamePendingResolution.Waiting;
+
+            if (string.Equals(seedProbe, "NO_GAME", StringComparison.Ordinal)
+                || BotProtocol.IsEndgamePendingState(seedProbe))
+            {
+                Log($"[{scope}] 连续 GET_SEED 超时后补探测到 {ShortenSeedProbe(seedProbe)}，按结算流程点击跳过...");
+                TryCacheEarlyGameResult(pipe, scope, endgameClass);
+                return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
+                    ? EndgamePendingResolution.GameLeftGameplay
+                    : EndgamePendingResolution.Waiting;
+            }
+
+            return BotProtocol.ShouldAbortPostGameDismiss(seedProbe)
+                ? EndgamePendingResolution.GameplayContinues
+                : EndgamePendingResolution.Waiting;
+        }
+
         private EndgamePendingResolution ResolveEndgamePending(
             PipeServer pipe,
             string scope,
@@ -6609,38 +6755,7 @@ namespace BotMain
                 if (shouldClickDismiss)
                 {
                     Log($"[{scope}] 检测到结算页显示({endgameClass})，开始连续点击跳过...");
-
-                    // 在点击跳过前尝试获取结果
-                    try
-                    {
-                        var resultResp = pipe.SendAndReceive("GET_RESULT", 1000);
-                        if (!string.IsNullOrWhiteSpace(resultResp) && resultResp.StartsWith("RESULT:"))
-                        {
-                            var result = resultResp.Substring(7);
-                            if (result != "NONE")
-                            {
-                                Log($"[{scope}] 提前获取对局结果: {result}");
-                                _earlyGameResult = result;
-                            }
-                        }
-                    }
-                    catch { }
-
-                    // Payload 未能确定结果时，从结算页类名兜底推断
-                    if (_earlyGameResult == null && !string.IsNullOrWhiteSpace(endgameClass))
-                    {
-                        var lower = endgameClass.ToLowerInvariant();
-                        string inferred = null;
-                        if (lower.Contains("victory")) inferred = "WIN";
-                        else if (lower.Contains("defeat")) inferred = "LOSS";
-                        else if (lower.Contains("tie") || lower.Contains("draw")) inferred = "TIE";
-
-                        if (inferred != null)
-                        {
-                            _earlyGameResult = inferred;
-                            Log($"[{scope}] 从结算页类名推断结果: {inferred} (class={endgameClass})");
-                        }
-                    }
+                    TryCacheEarlyGameResult(pipe, scope, endgameClass);
 
                     return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
                         ? EndgamePendingResolution.GameLeftGameplay
@@ -6682,6 +6797,7 @@ namespace BotMain
             ref bool mulliganHandled,
             ref DateTime nextMulliganAttemptUtc,
             ref DateTime mulliganPhaseStartedUtc,
+            ref int seedNullStreak,
             Dictionary<int, int> playActionFailStreakByEntity,
             string clearChoiceReason)
         {
@@ -6700,7 +6816,9 @@ namespace BotMain
 
                 var resultResp = _earlyGameResult != null
                     ? $"RESULT:{_earlyGameResult}"
-                    : pipe.SendAndReceive("GET_RESULT", 3000);
+                    : (TryGetResultResponse(pipe, 3000, out var fetchedResultResp, "GameResult")
+                        ? fetchedResultResp
+                        : null);
 
                 _earlyGameResult = null;
                 HandleGameResult(resultResp);
@@ -6720,6 +6838,7 @@ namespace BotMain
             mulliganHandled = false;
             nextMulliganAttemptUtc = DateTime.MinValue;
             mulliganPhaseStartedUtc = DateTime.MinValue;
+            seedNullStreak = 0;
             playActionFailStreakByEntity.Clear();
             _currentDeckContext = null;
             _currentLearningMatchId = string.Empty;

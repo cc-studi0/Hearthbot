@@ -306,7 +306,13 @@ namespace HearthstonePayload
                     {
                         var scene = nav.GetScene();
                         if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                            _pipe.Write("NOT_OUR_TURN");
+                        {
+                            if (!string.IsNullOrWhiteSpace(_lastGameResult)
+                                && !string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase))
+                                _pipe.Write(EndgamePending);
+                            else
+                                _pipe.Write("NOT_OUR_TURN");
+                        }
                         else
                             _pipe.Write("NO_GAME");
                     }
