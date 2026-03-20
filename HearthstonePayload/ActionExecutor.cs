@@ -6473,8 +6473,6 @@ namespace HearthstonePayload
                 return CreateBusyReadyState("input_denied");
 
             // 战吼/动画处理中检查（PowerProcessor 正在运行时游戏状态尚未稳定）
-            if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
-                return CreateBusyReadyState("game_busy");
             if (TryInvokeBoolMethod(gs, "IsBlockingPowerProcessor", out var bpp) && bpp)
                 return CreateBusyReadyState("blocking_power_processor");
 
@@ -6515,12 +6513,125 @@ namespace HearthstonePayload
             if (IsFriendlyDrawGateBlocking(gs, observedFriendlyDraw))
                 return CreateBusyReadyState("friendly_draw", GetFriendlyDrawGateEntityId());
 
+            if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
+            {
+                if (TryTreatFriendlyHeroAttackBusyAsReady(gs, out var bypassDetail))
+                {
+                    AppendActionTrace("WAIT_READY bypass game_busy due to hero_attack_ready " + bypassDetail);
+                    return new ReadyWaitDiagnosticState
+                    {
+                        IsReady = true,
+                        PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
+                        Flags = Array.Empty<string>()
+                    };
+                }
+
+                return CreateBusyReadyState("game_busy");
+            }
+
             return new ReadyWaitDiagnosticState
             {
                 IsReady = true,
                 PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
                 Flags = Array.Empty<string>()
             };
+        }
+
+        private static bool TryTreatFriendlyHeroAttackBusyAsReady(object gameState, out string detail)
+        {
+            detail = "unavailable";
+            if (gameState == null)
+            {
+                detail = "game_state_null";
+                return false;
+            }
+
+            GameStateData state = null;
+            try
+            {
+                state = new GameReader().ReadGameState();
+            }
+            catch (Exception ex)
+            {
+                detail = "read_state_exception:" + SimplifyException(ex);
+                return false;
+            }
+
+            if (state == null)
+            {
+                detail = "state_null";
+                return false;
+            }
+
+            if (!state.IsOurTurn)
+            {
+                detail = "not_our_turn";
+                return false;
+            }
+
+            var hero = state.HeroFriend;
+            if (hero == null)
+            {
+                detail = "hero_null";
+                return false;
+            }
+
+            var heroAttack = Math.Max(hero.Atk, hero.TempAtk);
+            if (heroAttack <= 0)
+            {
+                detail = "hero_atk_le_0";
+                return false;
+            }
+
+            if (hero.Frozen || hero.Freeze)
+            {
+                detail = "hero_frozen";
+                return false;
+            }
+
+            var maxAttack = GetMaxAttackCountThisTurn(state, hero.EntityId, hero);
+            if (hero.AttackCount >= maxAttack)
+            {
+                detail = "hero_attack_count_limit";
+                return false;
+            }
+
+            if (!HasFriendlyHeroLegalAttackTarget(state, hero))
+            {
+                detail = "hero_no_legal_target";
+                return false;
+            }
+
+            detail =
+                "entity=" + hero.EntityId
+                + " atk=" + heroAttack
+                + " attackCount=" + hero.AttackCount + "/" + maxAttack
+                + " exhausted=" + hero.Exhausted
+                + " canAttackHeroes=" + hero.CanAttackHeroes
+                + " enemyMinions=" + (state.MinionEnemy?.Count ?? 0);
+            return true;
+        }
+
+        private static bool HasFriendlyHeroLegalAttackTarget(GameStateData state, EntityData hero)
+        {
+            if (state == null || hero == null)
+                return false;
+
+            var enemyMinions = state.MinionEnemy ?? new List<EntityData>();
+            var visibleEnemyMinions = enemyMinions
+                .Where(m => m != null && m.Health > 0 && !m.Stealth)
+                .ToList();
+
+            if (visibleEnemyMinions.Any(m => m.Taunt))
+                return true;
+
+            if (visibleEnemyMinions.Count > 0)
+                return true;
+
+            return hero.CanAttackHeroes
+                && state.HeroEnemy != null
+                && state.HeroEnemy.Health > 0
+                && !state.HeroEnemy.Immune;
         }
 
         private static ReadyWaitDiagnosticState CreateBusyReadyState(
