@@ -885,7 +885,8 @@ namespace BotCore.Tests
 
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "PLAY|95|61|0" }, result.Actions);
-            Assert.Contains("merge=body_target_hint", result.Detail);
+            // seed_compat 位置兜底使结构化数据直接解析出目标，不再需要 body merge
+            Assert.DoesNotContain("merge=body_target_hint", result.Detail);
         }
 
         [Fact]

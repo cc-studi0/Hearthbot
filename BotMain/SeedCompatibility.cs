@@ -35,50 +35,7 @@ namespace BotMain
         internal static string GetCompatibleSeed(string seed, out string detail)
         {
             detail = string.Empty;
-            if (string.IsNullOrWhiteSpace(seed))
-                return seed ?? string.Empty;
-
-            var parts = seed.Split('~');
-            if (parts.Length < 21)
-                return seed;
-
-            var replacements = new List<string>();
-
-            foreach (var index in SingleEntityParts)
-            {
-                if (index < parts.Length)
-                    parts[index] = SanitizeEntity(parts[index], index, replacements);
-            }
-
-            foreach (var index in EntityListParts)
-            {
-                if (index < parts.Length)
-                    parts[index] = SanitizeEntityList(parts[index], index, replacements);
-            }
-
-            foreach (var index in MinionCardIdListParts)
-            {
-                if (index < parts.Length)
-                    parts[index] = SanitizeCardIdList(parts[index], index, MinionPlaceholder, replacements);
-            }
-
-            foreach (var index in SpellCardIdListParts)
-            {
-                if (index < parts.Length)
-                    parts[index] = SanitizeCardIdList(parts[index], index, SpellPlaceholder, replacements);
-            }
-
-            foreach (var index in SingleSpellCardIdParts)
-            {
-                if (index < parts.Length)
-                    parts[index] = SanitizeSingleCardId(parts[index], index, SpellPlaceholder, replacements);
-            }
-
-            if (replacements.Count == 0)
-                return seed;
-
-            detail = BuildDetail(replacements);
-            return string.Join("~", parts);
+            return seed ?? string.Empty;
         }
 
         private static string SanitizeEntityList(string raw, int partIndex, List<string> replacements)

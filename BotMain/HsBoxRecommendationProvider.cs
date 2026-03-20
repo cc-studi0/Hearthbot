@@ -4393,7 +4393,7 @@ namespace BotMain
                 case "hero_attack":
                     return TryMapHeroAttack(step, board, out command, out reason);
                 case "minion_attack":
-                    return TryMapMinionAttack(step, board, out command, out reason);
+                    return TryMapMinionAttack(step, board, friendlyEntities, out command, out reason);
                 case "hero_skill":
                     return TryMapHeroPower(step, board, friendlyEntities, out command, out reason);
                 case "location_power":
@@ -4694,10 +4694,10 @@ namespace BotMain
             return true;
         }
 
-        private static bool TryMapMinionAttack(HsBoxActionStep step, Board board, out string command, out string reason)
+        private static bool TryMapMinionAttack(HsBoxActionStep step, Board board, IReadOnlyList<EntityContextSnapshot> friendlyEntities, out string command, out string reason)
         {
             command = null;
-            var source = ResolveFriendlyBoardEntityId(board, null, step.GetPrimaryCard());
+            var source = ResolveFriendlyBoardEntityId(board, friendlyEntities, step.GetPrimaryCard());
             if (source <= 0)
             {
                 reason = "minion_attack_source_not_found";
@@ -5176,7 +5176,20 @@ namespace BotMain
                     return candidate?.Id ?? 0;
             }
 
-            return cards.FirstOrDefault(candidate => MatchesCardId(candidate, card.CardId))?.Id ?? 0;
+            var byCard = cards.FirstOrDefault(candidate => MatchesCardId(candidate, card.CardId));
+            if (byCard != null)
+                return byCard.Id;
+
+            // seed_compat 可能将卡牌替换为其他 cardId，位置不变。
+            // cardId 匹配全部失败时，按纯位置兜底。
+            if (zonePosition > 0 && zonePosition <= cards.Count)
+            {
+                var positional = cards[zonePosition - 1];
+                if (positional != null)
+                    return positional.Id;
+            }
+
+            return 0;
         }
 
         private static int ResolveFriendlyEntityIdFromSnapshots(
@@ -5710,7 +5723,7 @@ namespace BotMain
             if (board == null || string.IsNullOrWhiteSpace(bodyText))
                 return false;
 
-            var match = Regex.Match(bodyText, @"使用\s*(\d+)\s*号位地标", RegexOptions.CultureInvariant);
+            var match = Regex.Match(bodyText, @"(?:使用|操作)\s*(\d+)\s*号位地标", RegexOptions.CultureInvariant);
             if (!match.Success || match.Groups.Count < 2)
                 return false;
 
@@ -5727,8 +5740,19 @@ namespace BotMain
                 return false;
             }
 
-            command = $"USE_LOCATION|{source}|0";
-            detail = $"location_text slot={oneBasedIndex}";
+            var actionBlock = ExtractActionBlock(bodyText, match.Index);
+            var target = 0;
+            if (TryResolvePlayTargetFromActionBlock(actionBlock, board, out var resolvedTarget, out var targetDetail, out _))
+            {
+                target = resolvedTarget;
+                detail = $"location_text slot={oneBasedIndex}, target={targetDetail}";
+            }
+            else
+            {
+                detail = $"location_text slot={oneBasedIndex}";
+            }
+
+            command = $"USE_LOCATION|{source}|{target}";
             return true;
         }
 

@@ -6,7 +6,7 @@ namespace BotCore.Tests
     public class SeedCompatibilityTests
     {
         [Fact]
-        public void GetCompatibleSeed_ReplacesUnknownHandMinionWithKnownPlaceholder()
+        public void GetCompatibleSeed_PassesThroughUnknownCardIdsUnchanged()
         {
             var seed = BuildSeedWithEntityListPart(
                 20,
@@ -14,13 +14,12 @@ namespace BotCore.Tests
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Contains("CORE_CS2_231", compatible);
-            Assert.DoesNotContain("CATA_131*", compatible);
-            Assert.Contains("CATA_131->CORE_CS2_231", detail);
+            Assert.Equal(seed, compatible);
+            Assert.Equal(string.Empty, detail);
         }
 
         [Fact]
-        public void GetCompatibleSeed_ReplacesUnknownLocationWithLocationPlaceholder()
+        public void GetCompatibleSeed_PassesThroughUnknownLocationUnchanged()
         {
             var seed = BuildSeedWithEntityListPart(
                 20,
@@ -28,21 +27,19 @@ namespace BotCore.Tests
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Contains("VAC_929", compatible);
-            Assert.DoesNotContain("LOC_TEST_001*", compatible);
-            Assert.Contains("LOC_TEST_001->VAC_929", detail);
+            Assert.Equal(seed, compatible);
+            Assert.Equal(string.Empty, detail);
         }
 
         [Fact]
-        public void GetCompatibleSeed_ReplacesUnknownDeckCardIds()
+        public void GetCompatibleSeed_PassesThroughUnknownDeckCardIdsUnchanged()
         {
             var seed = BuildSeedWithRawPart(31, "CATA_131|CATA_999");
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Equal(2, CountOccurrences(compatible, "CORE_CS2_231"));
-            Assert.DoesNotContain("CATA_131", compatible);
-            Assert.Contains("replacements=2", detail);
+            Assert.Equal(seed, compatible);
+            Assert.Equal(string.Empty, detail);
         }
 
         [Fact]
