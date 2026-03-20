@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using SmartBot.Plugins.API;
 
 namespace BotMain.AI
@@ -98,6 +99,8 @@ namespace BotMain.AI
                 sb.EnemyMinions = board.MinionEnemy.Select(c => ConvertCard(c, false)).ToList();
             if (board.Hand != null)
                 sb.Hand = board.Hand.Select(c => ConvertCard(c, true)).ToList();
+            if (board.Secret != null)
+                sb.FriendSecrets = board.Secret.ToList();
 
             return sb;
         }
@@ -160,6 +163,7 @@ namespace BotMain.AI
                 IsStealth = c.IsStealth,
                 HasCharge = c.IsCharge,
                 HasRush = c.HasRush,
+                CanAttackHeroes = ReadCanAttackHeroes(c),
                 IsTired = isTired,
                 IsTradeable = c.GetTag(Card.GAME_TAG.TRADEABLE) > 0,
                 HasBattlecry = c.Template?.HasBattlecry ?? false,
@@ -189,6 +193,36 @@ namespace BotMain.AI
             }
 
             return Math.Max(0, c.CountAttack);
+        }
+
+        private static bool ReadCanAttackHeroes(Card c)
+        {
+            if (c == null) return true;
+
+            try
+            {
+                var prop = typeof(Card).GetProperty("CanAttackHeroes", BindingFlags.Public | BindingFlags.Instance);
+                if (prop != null && prop.PropertyType == typeof(bool) && prop.CanRead)
+                {
+                    var value = prop.GetValue(c);
+                    if (value is bool canAttackHeroes)
+                        return canAttackHeroes;
+                }
+            }
+            catch
+            {
+            }
+
+            try
+            {
+                if (Enum.TryParse("CANNOT_ATTACK_HEROES", out Card.GAME_TAG tag))
+                    return c.GetTag(tag) != 1;
+            }
+            catch
+            {
+            }
+
+            return true;
         }
 
         private static int ReadOverloadedCrystals(Card c)

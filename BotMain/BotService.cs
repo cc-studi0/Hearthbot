@@ -5760,7 +5760,10 @@ namespace BotMain
                 var seedResp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
                 if (string.IsNullOrWhiteSpace(seedResp)
                     || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
+                {
+                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-unavailable");
                     return false;
+                }
 
                 Board liveBoard;
                 try
@@ -5770,13 +5773,17 @@ namespace BotMain
                 }
                 catch
                 {
+                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-parse-failed");
                     return false;
                 }
 
                 if (!ShouldConcedeWhenEnemyHasLethalNextTurn(liveBoard, out var detail))
+                {
+                    Log($"[ConcedeWhenLethal] {detail}");
                     return false;
+                }
 
-                Log($"[ConcedeWhenLethal] trigger: {detail}");
+                Log($"[ConcedeWhenLethal] {detail}");
                 var concedeResp = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
                 Log($"[Action] CONCEDE -> {concedeResp}");
                 if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
@@ -5794,55 +5801,9 @@ namespace BotMain
 
         private static bool ShouldConcedeWhenEnemyHasLethalNextTurn(Board board, out string detail)
         {
-            detail = null;
-            if (board?.HeroFriend == null || board.HeroEnemy == null)
-                return false;
-
-            int heroEffectiveHealth = Math.Max(0, board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor);
-
-            int tauntBuffer = 0;
-            if (board.MinionFriend != null)
-            {
-                foreach (var minion in board.MinionFriend.Where(m => m != null && m.IsTaunt && m.CurrentHealth > 0))
-                {
-                    var barrier = minion.CurrentHealth;
-                    if (minion.IsDivineShield) barrier += 1;
-                    if (minion.HasReborn) barrier += 1;
-                    tauntBuffer += Math.Max(0, barrier);
-                }
-            }
-
-            int enemyPotentialDamage = 0;
-            if (board.MinionEnemy != null)
-            {
-                foreach (var enemy in board.MinionEnemy.Where(m =>
-                    m != null && m.CurrentHealth > 0 && m.CurrentAtk > 0 && !m.IsFrozen))
-                {
-                    int strikes = enemy.IsWindfury ? 2 : 1;
-                    enemyPotentialDamage += enemy.CurrentAtk * strikes;
-                }
-            }
-
-            int enemyHeroDamage = 0;
-            if (board.HeroEnemy != null && !board.HeroEnemy.IsFrozen)
-            {
-                enemyHeroDamage = Math.Max(enemyHeroDamage, Math.Max(0, board.HeroEnemy.CurrentAtk));
-            }
-
-            if (board.WeaponEnemy != null && board.WeaponEnemy.CurrentHealth > 0 && board.WeaponEnemy.CurrentAtk > 0)
-            {
-                int weaponStrikes = board.WeaponEnemy.IsWindfury ? 2 : 1;
-                enemyHeroDamage = Math.Max(enemyHeroDamage, board.WeaponEnemy.CurrentAtk * weaponStrikes);
-            }
-
-            enemyPotentialDamage += enemyHeroDamage;
-
-            int requiredDamage = heroEffectiveHealth + tauntBuffer;
-            if (enemyPotentialDamage < requiredDamage)
-                return false;
-
-            detail = $"enemyDamage={enemyPotentialDamage}, heroEhp={heroEffectiveHealth}, tauntBuffer={tauntBuffer}, required={requiredDamage}";
-            return true;
+            var result = EnemyBoardLethalFinder.Evaluate(SimBoard.FromBoard(board));
+            detail = $"reason={result.Reason}, estimatedFaceDamage={result.EstimatedFaceDamage}, searchNodes={result.SearchNodes}";
+            return result.ShouldConcede;
         }
 
         private static bool IsMulliganTransientFailure(string result)
