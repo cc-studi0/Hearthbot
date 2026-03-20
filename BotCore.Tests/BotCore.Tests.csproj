@@ -25,6 +25,7 @@
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
+    <Compile Include="..\BotMain\ReadyWaitDiagnostics.cs" Link="ReadyWaitDiagnostics.cs" />
     <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
     <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />

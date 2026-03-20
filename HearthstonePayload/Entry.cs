@@ -631,6 +631,10 @@ namespace HearthstonePayload
             {
                 _pipe.Write(ActionExecutor.IsGameReady() ? "READY" : "BUSY");
             }
+            else if (cmd == "WAIT_READY_DETAIL")
+            {
+                _pipe.Write(ActionExecutor.DescribeGameReady());
+            }
             else if (cmd == "PING")
             {
                 _pipe.Write("PONG");

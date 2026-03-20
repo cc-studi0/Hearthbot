@@ -51,6 +51,7 @@ namespace BotMain
         private const int PlanningBoardProbeTimeoutMs = 1200;
         private const int PlanningBoardRecoveryRetries = 8;
         private const int PlanningBoardRecoveryDelayMs = 120;
+        private const int ReadyWaitSlowLogThresholdMs = 1000;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private static readonly string[] ChoiceStateTextMembers =
@@ -2010,7 +2011,7 @@ namespace BotMain
                     continue;
                 }
 
-                if (!WaitForGameReady(pipe, 30, 300, 3000))
+                if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "TurnStart"))
                 {
                     gameReadyWaitStreak++;
                     if (gameReadyWaitStreak % 8 == 1)
@@ -2188,7 +2189,7 @@ namespace BotMain
                         // OPTION 命令在 Payload 端自带 UI 就绪等待逻辑，
                         // Choose One 打出后游戏进入子选项选择状态导致 IsGameReady=false，
                         // 此处跳过前置就绪检查以避免中断抉择链路。
-                        if (!isOption && !WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs))
+                        if (!isOption && !WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action))
                         {
                             actionFailed = true;
                             Log($"[Action] wait ready timeout before {action}");
@@ -2282,7 +2283,7 @@ namespace BotMain
                         // 连续攻击：快速轮询就绪，跳过固定延迟
                         if (isAttack && nextIsAttack)
                         {
-                            WaitForGameReady(pipe, 40, 50);
+                            WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
                         }
                         else if (nextIsOption)
                         {
@@ -2300,7 +2301,7 @@ namespace BotMain
                                 resimulationReason = choiceResimulationReason;
                                 break;
                             }
-                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs);
+                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
                         }
 
                         if (decision != null
@@ -2423,33 +2424,113 @@ namespace BotMain
             }
         }
 
-        private static bool WaitForGameReady(PipeServer pipe, int maxRetries = 15)
+        private bool WaitForGameReady(PipeServer pipe, int maxRetries = 15, string waitScope = null, string action = null)
         {
-            return WaitForGameReady(pipe, maxRetries, 300);
+            return WaitForGameReady(pipe, maxRetries, 300, 3000, waitScope, action);
         }
 
         /// <summary>
         /// 等待游戏就绪，支持自定义轮询间隔
         /// </summary>
-        private static bool WaitForGameReady(PipeServer pipe, int maxRetries, int intervalMs)
+        private bool WaitForGameReady(PipeServer pipe, int maxRetries, int intervalMs, string waitScope = null, string action = null)
         {
-            return WaitForGameReady(pipe, maxRetries, intervalMs, 3000);
+            return WaitForGameReady(pipe, maxRetries, intervalMs, 3000, waitScope, action);
         }
 
         /// <summary>
         /// 等待游戏就绪，支持自定义轮询间隔与单次命令超时
         /// </summary>
-        private static bool WaitForGameReady(PipeServer pipe, int maxRetries, int intervalMs, int commandTimeoutMs)
+        private bool WaitForGameReady(
+            PipeServer pipe,
+            int maxRetries,
+            int intervalMs,
+            int commandTimeoutMs,
+            string waitScope = null,
+            string action = null)
         {
+            var sw = Stopwatch.StartNew();
+            var polls = 0;
+            var busyPolls = 0;
+            var firstBusyReason = string.Empty;
+            var lastBusyReason = string.Empty;
+            var uniqueReasons = new List<string>();
+
             for (int i = 0; i < maxRetries; i++)
             {
+                polls++;
                 var resp = pipe.SendAndReceive("WAIT_READY", Math.Max(100, commandTimeoutMs));
-                if (resp == "READY") return true;
+                if (resp == "READY")
+                {
+                    LogReadyWaitSummary(waitScope, action, sw.ElapsedMilliseconds, polls, busyPolls, firstBusyReason, lastBusyReason, uniqueReasons, timedOut: false);
+                    return true;
+                }
+
+                busyPolls++;
+                var reason = ResolveReadyWaitReason(resp, commandTimeoutMs, pipe);
+                if (string.IsNullOrWhiteSpace(firstBusyReason))
+                    firstBusyReason = reason;
+
+                lastBusyReason = reason;
+                if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
+                    uniqueReasons.Add(reason);
+
                 if (i < maxRetries - 1 && intervalMs > 0)
                     Thread.Sleep(intervalMs);
             }
 
+            LogReadyWaitSummary(waitScope, action, sw.ElapsedMilliseconds, polls, busyPolls, firstBusyReason, lastBusyReason, uniqueReasons, timedOut: true);
             return false;
+        }
+
+        private string ResolveReadyWaitReason(string waitReadyResponse, int commandTimeoutMs, PipeServer pipe)
+        {
+            if (string.Equals(waitReadyResponse, "BUSY", StringComparison.OrdinalIgnoreCase)
+                && TryGetReadyWaitDiagnostic(pipe, commandTimeoutMs, out var diagnosticState)
+                && diagnosticState != null
+                && !diagnosticState.IsReady
+                && !string.IsNullOrWhiteSpace(diagnosticState.PrimaryReason))
+            {
+                return diagnosticState.PrimaryReason;
+            }
+
+            if (string.IsNullOrWhiteSpace(waitReadyResponse))
+                return "no_response";
+
+            return string.Equals(waitReadyResponse, "BUSY", StringComparison.OrdinalIgnoreCase)
+                ? ReadyWaitDiagnostics.UnknownBusyReason
+                : "unexpected_response";
+        }
+
+        private bool TryGetReadyWaitDiagnostic(PipeServer pipe, int commandTimeoutMs, out ReadyWaitDiagnosticState diagnosticState)
+        {
+            diagnosticState = null;
+            var response = pipe.SendAndReceive("WAIT_READY_DETAIL", Math.Max(100, commandTimeoutMs));
+            return ReadyWaitDiagnostics.TryParseResponse(response, out diagnosticState);
+        }
+
+        private void LogReadyWaitSummary(
+            string waitScope,
+            string action,
+            long elapsedMs,
+            int polls,
+            int busyPolls,
+            string firstBusyReason,
+            string lastBusyReason,
+            IReadOnlyList<string> uniqueReasons,
+            bool timedOut)
+        {
+            if (!timedOut && elapsedMs < ReadyWaitSlowLogThresholdMs)
+                return;
+
+            var scopeValue = string.IsNullOrWhiteSpace(waitScope) ? "Unspecified" : waitScope;
+            var actionValue = string.IsNullOrWhiteSpace(action) ? "-" : TrimForLog(action, 80);
+            var firstReasonValue = string.IsNullOrWhiteSpace(firstBusyReason) ? "-" : firstBusyReason;
+            var lastReasonValue = string.IsNullOrWhiteSpace(lastBusyReason) ? "-" : lastBusyReason;
+            var reasonsValue = uniqueReasons == null || uniqueReasons.Count == 0
+                ? "-"
+                : string.Join(",", uniqueReasons.Where(reason => !string.IsNullOrWhiteSpace(reason)));
+            var resultValue = timedOut ? "timeout" : "ready";
+            Log($"[ReadyWait] scope={scopeValue} action={actionValue} elapsedMs={elapsedMs} polls={polls} busyPolls={busyPolls} firstBusyReason={firstReasonValue} lastBusyReason={lastReasonValue} reasons={reasonsValue} result={resultValue}");
         }
 
         /// <summary>
@@ -6730,6 +6811,19 @@ namespace BotMain
 
             if (!TryGetSceneValue(pipe, 2000, out var scene, scope))
             {
+                // 场景探测失败可能是因为管道中残留 NO_GAME 等 seed 响应被当作串包丢弃。
+                // 补充一次直接 seed 探测来确认是否已离开对局。
+                if (TryGetSeedProbe(pipe, 1500, out var fallbackProbe, scope)
+                    && (string.Equals(fallbackProbe, "NO_GAME", StringComparison.Ordinal)
+                        || BotProtocol.IsEndgamePendingState(fallbackProbe)))
+                {
+                    Log($"[{scope}] 场景探测失败但 seed 补探到 {ShortenSeedProbe(fallbackProbe)}，按结算流程处理...");
+                    TryCacheEarlyGameResult(pipe, scope, null);
+                    return RunPostGameDismissLoop(pipe, scope, out sceneAfter)
+                        ? EndgamePendingResolution.GameLeftGameplay
+                        : EndgamePendingResolution.Waiting;
+                }
+
                 Log($"[{scope}] 连续 GET_SEED 超时后，场景探测仍超时/串包。");
                 return EndgamePendingResolution.Waiting;
             }

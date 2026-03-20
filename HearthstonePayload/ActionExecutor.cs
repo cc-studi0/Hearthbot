@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
+using BotMain;
 
 namespace HearthstonePayload
 {
@@ -6241,62 +6242,66 @@ namespace HearthstonePayload
         /// </summary>
         public static bool IsGameReady()
         {
-            if (!EnsureTypes()) return false;
+            return EvaluateGameReadyState().IsReady;
+        }
+
+        public static string DescribeGameReady()
+        {
+            var state = EvaluateGameReadyState();
+            return ReadyWaitDiagnostics.FormatResponse(
+                state.IsReady,
+                state.PrimaryReason,
+                state.Flags,
+                state.DrawEntityId,
+                state.DrawCount);
+        }
+
+        private static ReadyWaitDiagnosticState EvaluateGameReadyState()
+        {
+            if (!EnsureTypes())
+                return CreateBusyReadyState("types_unavailable");
 
             var gs = GetGameState();
-            if (gs == null) return false;
+            if (gs == null)
+                return CreateBusyReadyState("game_state_null");
 
             var observedFriendlyDraw = TryGetFriendlyCardBeingDrawn(gs, out var currentFriendlyDraw, out var currentFriendlyDrawEntityId);
             if (observedFriendlyDraw && currentFriendlyDraw != null)
             {
                 UpdateFriendlyDrawGate(currentFriendlyDraw, currentFriendlyDrawEntityId);
-                return false;
+                return CreateBusyReadyState("friendly_draw", currentFriendlyDrawEntityId);
             }
 
             // 网络包阻塞检查
             if (TryInvokeBoolMethod(gs, "IsResponsePacketBlocked", out var blocked) && blocked)
-                return false;
+                return CreateBusyReadyState("response_packet_blocked");
 
             // 输入权限检查
             var inputMgr = GetSingleton(_inputMgrType);
             if (inputMgr != null
                 && TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permit)
                 && !permit)
-                return false;
+                return CreateBusyReadyState("input_denied");
 
             // 战吼/动画处理中检查（PowerProcessor 正在运行时游戏状态尚未稳定）
             if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
-                return false;
+                return CreateBusyReadyState("game_busy");
             if (TryInvokeBoolMethod(gs, "IsBlockingPowerProcessor", out var bpp) && bpp)
-                return false;
+                return CreateBusyReadyState("blocking_power_processor");
 
             var ppType = _asm?.GetType("PowerProcessor");
             if (ppType != null)
             {
                 var pp = GetSingleton(ppType);
                 if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var ppRunning) && ppRunning)
-                    return false;
+                    return CreateBusyReadyState("power_processor_running");
 
                 // 精准抽牌检测：检查任务列表中是否有未完成的抽牌任务
                 if (pp != null)
                 {
-                    var taskList = Invoke(pp, "GetCurrentTaskList");
-                    if (taskList != null)
-                    {
-                        var tasks = Invoke(taskList, "GetTaskList") as IEnumerable;
-                        if (tasks != null)
-                        {
-                            foreach (var task in tasks)
-                            {
-                                if (task == null) continue;
-                                if (TryInvokeBoolMethod(task, "IsCardDraw", out var isCardDraw) && isCardDraw)
-                                {
-                                    if (TryInvokeBoolMethod(task, "IsCompleted", out var isCompleted) && !isCompleted)
-                                        return false;
-                                }
-                            }
-                        }
-                    }
+                    var pendingDrawTaskCount = CountPendingDrawTasks(pp);
+                    if (pendingDrawTaskCount > 0)
+                        return CreateBusyReadyState("pending_draw_task", drawCount: pendingDrawTaskCount);
                 }
             }
 
@@ -6309,18 +6314,86 @@ namespace HearthstonePayload
                 {
                     if (TryInvokeMethod(tsm, "GetCardDrawCount", Array.Empty<object>(), out var countObj)
                         && countObj is int count && count > 0)
-                        return false;
+                        return CreateBusyReadyState("turn_start_draw_count", drawCount: count);
                 }
             }
 
             // 手牌区域布局检查（抽牌动画、卡牌移动等）
-            if (!IsHandZoneReady(gs))
-                return false;
+            var handZoneBlockingReason = GetHandZoneBlockingReason(gs);
+            if (!string.IsNullOrWhiteSpace(handZoneBlockingReason))
+                return CreateBusyReadyState(handZoneBlockingReason);
 
             if (IsFriendlyDrawGateBlocking(gs, observedFriendlyDraw))
-                return false;
+                return CreateBusyReadyState("friendly_draw", GetFriendlyDrawGateEntityId());
 
-            return true;
+            return new ReadyWaitDiagnosticState
+            {
+                IsReady = true,
+                PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
+                Flags = Array.Empty<string>()
+            };
+        }
+
+        private static ReadyWaitDiagnosticState CreateBusyReadyState(
+            string primaryReason,
+            int drawEntityId = 0,
+            int drawCount = 0)
+        {
+            var normalizedPrimaryReason = string.IsNullOrWhiteSpace(primaryReason)
+                ? ReadyWaitDiagnostics.UnknownBusyReason
+                : primaryReason.Trim();
+            return new ReadyWaitDiagnosticState
+            {
+                IsReady = false,
+                PrimaryReason = normalizedPrimaryReason,
+                Flags = new[] { normalizedPrimaryReason },
+                DrawEntityId = drawEntityId > 0 ? drawEntityId : 0,
+                DrawCount = drawCount > 0 ? drawCount : 0
+            };
+        }
+
+        private static int CountPendingDrawTasks(object powerProcessor)
+        {
+            if (powerProcessor == null)
+                return 0;
+
+            var pendingDrawTaskCount = 0;
+            var taskList = Invoke(powerProcessor, "GetCurrentTaskList");
+            if (taskList == null)
+                return 0;
+
+            var tasks = Invoke(taskList, "GetTaskList") as IEnumerable;
+            if (tasks == null)
+                return 0;
+
+            foreach (var task in tasks)
+            {
+                if (task == null)
+                    continue;
+
+                if (!TryInvokeBoolMethod(task, "IsCardDraw", out var isCardDraw) || !isCardDraw)
+                    continue;
+
+                if (TryInvokeBoolMethod(task, "IsCompleted", out var isCompleted) && !isCompleted)
+                    pendingDrawTaskCount++;
+            }
+
+            return pendingDrawTaskCount;
+        }
+
+        private static int GetFriendlyDrawGateEntityId()
+        {
+            lock (_friendlyDrawGateSync)
+            {
+                TrimExpiredRecentDrawGuard_NoLock();
+                if (_friendlyDrawGate.Active && _friendlyDrawGate.EntityId > 0)
+                    return _friendlyDrawGate.EntityId;
+
+                if (_friendlyDrawGate.RecentReleasedEntityId > 0)
+                    return _friendlyDrawGate.RecentReleasedEntityId;
+            }
+
+            return 0;
         }
 
         /// <summary>
@@ -6558,27 +6631,32 @@ namespace HearthstonePayload
 
         private static bool IsHandZoneReady(object gameState)
         {
+            return string.IsNullOrWhiteSpace(GetHandZoneBlockingReason(gameState));
+        }
+
+        private static string GetHandZoneBlockingReason(object gameState)
+        {
             try
             {
                 var friendlyPlayer = Invoke(gameState, "GetFriendlySidePlayer");
-                if (friendlyPlayer == null) return true;
+                if (friendlyPlayer == null) return string.Empty;
 
                 var handZone = Invoke(friendlyPlayer, "GetHandZone");
-                if (handZone == null) return true;
+                if (handZone == null) return string.Empty;
 
                 // 检查手牌区域是否正在更新布局（抽牌动画、卡牌移动等）
                 if (TryInvokeBoolMethod(handZone, "IsUpdatingLayout", out var updating) && updating)
-                    return false;
+                    return "hand_layout_updating";
 
                 // 检查布局是否脏（需要更新但还未开始）
                 if (TryInvokeBoolMethod(handZone, "IsLayoutDirty", out var dirty) && dirty)
-                    return false;
+                    return "hand_layout_dirty";
 
-                return true;
+                return string.Empty;
             }
             catch
             {
-                return true; // 出错时不阻塞
+                return string.Empty; // 出错时不阻塞
             }
         }
 

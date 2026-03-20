@@ -6,6 +6,7 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);obj_*\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\BotMain\ReadyWaitDiagnostics.cs" Link="ReadyWaitDiagnostics.cs" />
     <Reference Include="BepInEx">
       <HintPath>..\Libs\BepInEx.dll</HintPath>
       <Private>false</Private>
