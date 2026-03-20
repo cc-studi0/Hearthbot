@@ -314,6 +314,19 @@ namespace HearthstonePayload
             return false;
         }
 
+        private static bool IsTargetSelectionResponseMode(object responseMode)
+        {
+            if (responseMode == null)
+                return false;
+
+            var modeName = responseMode.ToString();
+            if (string.IsNullOrWhiteSpace(modeName))
+                return false;
+
+            return string.Equals(modeName, "TARGET", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(modeName, "OPTION_TARGET", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static bool HasPendingTargetSelection(int sourceId)
         {
             try
@@ -327,8 +340,7 @@ namespace HearthstonePayload
 
                 if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
                 {
-                    var mode = modeObj.ToString();
-                    if (string.Equals(mode, "TARGET", StringComparison.OrdinalIgnoreCase))
+                    if (IsTargetSelectionResponseMode(modeObj))
                         return true;
                 }
             }
@@ -348,9 +360,7 @@ namespace HearthstonePayload
                     return false;
 
                 if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
-                {
-                    return string.Equals(modeObj.ToString(), "TARGET", StringComparison.OrdinalIgnoreCase);
-                }
+                    return IsTargetSelectionResponseMode(modeObj);
             }
             catch
             {
@@ -1712,7 +1722,7 @@ namespace HearthstonePayload
                 {
                     var modeName = modeObj.ToString();
                     if (string.Equals(modeName, "OPTION", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(modeName, "TARGET", StringComparison.OrdinalIgnoreCase))
+                        || IsTargetSelectionResponseMode(modeObj))
                     {
                         return true;
                     }
@@ -3488,7 +3498,7 @@ namespace HearthstonePayload
             var modeName = responseMode.ToString();
             if (string.Equals(modeName, "CHOICE", StringComparison.OrdinalIgnoreCase))
                 return true;
-            if (string.Equals(modeName, "TARGET", StringComparison.OrdinalIgnoreCase))
+            if (IsTargetSelectionResponseMode(responseMode))
                 return true;
 
             try
@@ -3570,7 +3580,8 @@ namespace HearthstonePayload
                 return "DREDGE";
             if (string.Equals(choiceType, "ADAPT", StringComparison.OrdinalIgnoreCase))
                 return "ADAPT";
-            if (string.Equals(choiceType, "TARGET", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(choiceType)
+                && choiceType.IndexOf("TARGET", StringComparison.OrdinalIgnoreCase) >= 0)
                 return "TARGET";
 
             // 与 HB1.1.8 的判定一致：优先用来源实体标签区分具体选择模式。
@@ -5002,7 +5013,8 @@ namespace HearthstonePayload
             if (snapshot == null)
                 return false;
 
-            if (string.Equals(snapshot.Mode, "TARGET", StringComparison.OrdinalIgnoreCase))
+            if (!string.IsNullOrWhiteSpace(snapshot.Mode)
+                && snapshot.Mode.IndexOf("TARGET", StringComparison.OrdinalIgnoreCase) >= 0)
                 return true;
 
             return !string.IsNullOrWhiteSpace(snapshot.RawChoiceType)
@@ -5986,6 +5998,7 @@ namespace HearthstonePayload
                 case "GENERAL":
                 case "CHOOSE_ONE":
                 case "TARGET":
+                case "OPTION_TARGET":
                     return true;
                 default:
                     return false;
