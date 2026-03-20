@@ -127,6 +127,10 @@ namespace BotMain
         private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
         private const int PostGameLobbyConfirmationsRequired = 2;
         private const int PostGameDismissCommandTimeoutMs = 4000;
+        private const int PostGameResultWindowMs = 1800;
+        private const int PostGameResultDrainWindowMs = 900;
+        private const int PostGameResultPollIntervalMs = 150;
+        private const int PostGameResultResyncAutoQueueDelayMs = 300;
         private const int ConsumedBattlegroundRecommendationRepeatThreshold = BattlegroundRecommendationConsumptionTracker.ReleaseThreshold;
         /// <summary>
         /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
@@ -1277,19 +1281,17 @@ namespace BotMain
 
         private void HandleGameResult(string resultResp)
         {
+            resultResp = string.IsNullOrWhiteSpace(resultResp)
+                ? BotProtocol.UnknownGameResultResponse
+                : resultResp;
             Log($"[GameResult] 收到结果响应: {resultResp}");
 
-            if (string.IsNullOrWhiteSpace(resultResp) || !resultResp.StartsWith("RESULT:", StringComparison.Ordinal))
+            if (!BotProtocol.TryParseGameResultResponse(resultResp, out var result, out var concedeFromGame))
             {
-                Log("[GameResult] 结果响应格式无效");
-                return;
+                Log("[GameResult] 结果响应格式无效，按未知结果处理。");
+                result = "NONE";
+                concedeFromGame = false;
             }
-
-            var payload = resultResp.Substring(7);
-            var parts = payload.Split(new[] { ':' }, 2);
-            var result = parts[0];
-            var concedeFromGame = parts.Length > 1
-                && string.Equals(parts[1], "CONCEDED", StringComparison.OrdinalIgnoreCase);
             var learnedOutcome = LearnedMatchOutcome.Unknown;
 
             Log($"[GameResult] 解析结果: {result}{(concedeFromGame ? " (投降)" : "")}");
@@ -1324,6 +1326,11 @@ namespace BotMain
                 Log("[GameResult] 平局，不计入胜负");
                 ClearPendingConcedeLoss();
                 learnedOutcome = LearnedMatchOutcome.Tie;
+            }
+            else if (string.Equals(result, "NONE", StringComparison.OrdinalIgnoreCase))
+            {
+                Log("[GameResult] 结果未知，本局不计入胜负/投降。");
+                ClearPendingConcedeLoss();
             }
             else
             {
@@ -6006,6 +6013,99 @@ namespace BotMain
                 scope);
         }
 
+        private bool TryReceivePostGameResultResponse(
+            PipeServer pipe,
+            int timeoutMs,
+            string phase,
+            ref string response,
+            ref int drainedResponseCount)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < timeoutMs)
+            {
+                var remaining = (int)Math.Max(
+                    50,
+                    Math.Min(PostGameResultPollIntervalMs, timeoutMs - sw.ElapsedMilliseconds));
+                var resp = pipe.Receive(remaining);
+                if (string.IsNullOrWhiteSpace(resp))
+                    continue;
+
+                if (BotProtocol.IsExplicitGameResultResponse(resp)
+                    || BotProtocol.IsUnknownGameResultResponse(resp))
+                {
+                    response = resp;
+                    return true;
+                }
+
+                drainedResponseCount++;
+                var shortResp = resp.Length > 80 ? resp.Substring(0, 80) : resp;
+                if (BotProtocol.IsDrainOnlyPostGameResponse(resp))
+                    Log($"[GameResult] {phase} 吞掉延迟响应 {shortResp}");
+                else
+                    Log($"[GameResult] {phase} 忽略未识别响应 {shortResp}");
+            }
+
+            return false;
+        }
+
+        private BotProtocol.PostGameResultResolution ResolvePostGameResultWithWindow(PipeServer pipe)
+        {
+            if (BotProtocol.IsExplicitGameResultPayload(_earlyGameResult))
+            {
+                var cachedResolution = BotProtocol.ResolvePostGameResult(
+                    _earlyGameResult,
+                    payloadResultResponse: null,
+                    timedOutAndResynced: false);
+                Log($"[GameResult] 结果来源={cachedResolution.ResultSource}, status={cachedResolution.Status}, timedOut=0, drained=0, response={cachedResolution.ResultResponse}");
+                return cachedResolution;
+            }
+
+            if (pipe == null || !pipe.IsConnected)
+            {
+                var disconnectedResolution = BotProtocol.ResolvePostGameResult(
+                    earlyGameResult: null,
+                    payloadResultResponse: null,
+                    timedOutAndResynced: false);
+                Log("[GameResult] payload 未连接，按未知结果处理。");
+                Log($"[GameResult] 结果来源={disconnectedResolution.ResultSource}, status={disconnectedResolution.Status}, timedOut=0, drained=0, response={disconnectedResolution.ResultResponse}");
+                return disconnectedResolution;
+            }
+
+            string resultResponse = null;
+            var drainedResponseCount = 0;
+            var timedOutAndResynced = false;
+
+            pipe.ExecuteExclusive(() =>
+            {
+                if (!pipe.Send("GET_RESULT"))
+                    return false;
+
+                if (TryReceivePostGameResultResponse(
+                    pipe,
+                    PostGameResultWindowMs,
+                    "结果窗口",
+                    ref resultResponse,
+                    ref drainedResponseCount))
+                    return true;
+
+                timedOutAndResynced = true;
+                Log("[GameResult] 结果窗口超时，开始 drain/resync...");
+                return TryReceivePostGameResultResponse(
+                    pipe,
+                    PostGameResultDrainWindowMs,
+                    "drain/resync",
+                    ref resultResponse,
+                    ref drainedResponseCount);
+            });
+
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: null,
+                payloadResultResponse: resultResponse,
+                timedOutAndResynced: timedOutAndResynced);
+            Log($"[GameResult] 结果来源={resolution.ResultSource}, status={resolution.Status}, timedOut={(timedOutAndResynced ? 1 : 0)}, drained={drainedResponseCount}, response={resolution.ResultResponse}");
+            return resolution;
+        }
+
         private bool TryGetYesNoResponse(PipeServer pipe, string command, int timeoutMs, out string response, string scope)
         {
             response = null;
@@ -6603,15 +6703,11 @@ namespace BotMain
         {
             if (_earlyGameResult == null
                 && TryGetResultResponse(pipe, 1000, out var resultResp, scope + ".Result")
-                && !string.IsNullOrWhiteSpace(resultResp)
-                && resultResp.StartsWith("RESULT:", StringComparison.Ordinal))
+                && BotProtocol.IsExplicitGameResultResponse(resultResp))
             {
                 var resultPayload = resultResp.Substring(7);
-                if (!string.Equals(resultPayload, "NONE", StringComparison.OrdinalIgnoreCase))
-                {
-                    _earlyGameResult = resultPayload;
-                    Log($"[{scope}] 提前获取对局结果: {resultPayload}");
-                }
+                _earlyGameResult = resultPayload;
+                Log($"[{scope}] 提前获取对局结果: {resultPayload}");
             }
 
             if (_earlyGameResult != null)
@@ -6762,6 +6858,7 @@ namespace BotMain
             Dictionary<int, int> playActionFailStreakByEntity,
             string clearChoiceReason)
         {
+            BotProtocol.PostGameResultResolution resultResolution = null;
             if (wasInGame && _postGameSinceUtc == null)
             {
                 _postGameSinceUtc = DateTime.UtcNow;
@@ -6775,14 +6872,9 @@ namespace BotMain
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
 
-                var resultResp = _earlyGameResult != null
-                    ? $"RESULT:{_earlyGameResult}"
-                    : (TryGetResultResponse(pipe, 3000, out var fetchedResultResp, "GameResult")
-                        ? fetchedResultResp
-                        : null);
-
+                resultResolution = ResolvePostGameResultWithWindow(pipe);
                 _earlyGameResult = null;
-                HandleGameResult(resultResp);
+                HandleGameResult(resultResolution.ResultResponse);
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
                 if (CheckRankStopLimit(pipe, force: true))
@@ -6805,6 +6897,11 @@ namespace BotMain
             _currentLearningMatchId = string.Empty;
             _matchEntityProvenanceRegistry.Reset();
             HsBoxCallbackCapture.EndMatchSession();
+            if (resultResolution?.Status == BotProtocol.PostGameResultResolutionStatus.TimedOutAndResynced)
+            {
+                Log($"[AutoQueue] 结果解析刚完成 resync，延后 {PostGameResultResyncAutoQueueDelayMs}ms 再进入首轮探测。");
+                Thread.Sleep(PostGameResultResyncAutoQueueDelayMs);
+            }
             AutoQueue(pipe);
         }
 

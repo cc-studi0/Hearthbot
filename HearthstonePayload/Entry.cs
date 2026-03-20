@@ -43,6 +43,8 @@ namespace HearthstonePayload
         private static string _lastRuntimeInitFailureDetail = string.Empty;
         private static string _currentPhase = "idle";
         private static string _currentCommand = string.Empty;
+        private const int GetResultRefreshAttempts = 4;
+        private const int GetResultRefreshDelayMs = 80;
 
         private void Awake()
         {
@@ -112,6 +114,77 @@ namespace HearthstonePayload
                 _resultReady.Reset();
                 _actionReady.Set();
                 return _resultReady.Wait(timeoutMs) ? _pendingResult : (object)"ERROR:timeout";
+            }
+        }
+
+        private static bool TryCacheLastGameResultFromEndScreenClass(string endScreenClass)
+        {
+            if (string.IsNullOrWhiteSpace(endScreenClass))
+                return false;
+
+            var lower = endScreenClass.ToLowerInvariant();
+            if (lower.Contains("victory")) _lastGameResult = "WIN";
+            else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
+            else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
+            else return false;
+
+            return true;
+        }
+
+        private static bool TryCacheLastGameResultFromEndScreen(GameReader reader)
+        {
+            return reader != null
+                && reader.IsEndGameScreenShown(out var endClass)
+                && TryCacheLastGameResultFromEndScreenClass(endClass);
+        }
+
+        private static bool TryRefreshLastGameResult(GameReader reader, int maxAttempts, int delayMs)
+        {
+            if (reader == null)
+                return false;
+
+            for (var attempt = 0;
+                attempt < maxAttempts && string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase);
+                attempt++)
+            {
+                var state = reader.ReadGameState();
+                if (state != null)
+                {
+                    if (state.Result != GameResult.None)
+                    {
+                        _lastGameResult = state.Result.ToString().ToUpper();
+                        if (state.FriendlyConceded)
+                            _lastGameConceded = true;
+                        break;
+                    }
+
+                    if (state.FriendlyConceded)
+                        _lastGameConceded = true;
+
+                    if (!state.IsGameOver)
+                        break;
+                }
+
+                if (TryCacheLastGameResultFromEndScreen(reader))
+                    break;
+
+                if (delayMs > 0 && attempt + 1 < maxAttempts)
+                    Thread.Sleep(delayMs);
+            }
+
+            return !string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static void WriteCachedGameResult()
+        {
+            var resultPayload = _lastGameConceded
+                ? "RESULT:" + _lastGameResult + ":CONCEDED"
+                : "RESULT:" + _lastGameResult;
+            _pipe.Write(resultPayload);
+            if (!string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase))
+            {
+                _lastGameResult = "NONE";
+                _lastGameConceded = false;
             }
         }
 
@@ -293,13 +366,7 @@ namespace HearthstonePayload
                     var endScreenShown = reader.IsEndGameScreenShown(out var endScreenClass);
                     if (endScreenShown)
                     {
-                        if (!string.IsNullOrWhiteSpace(endScreenClass))
-                        {
-                            var lower = endScreenClass.ToLowerInvariant();
-                            if (lower.Contains("victory")) _lastGameResult = "WIN";
-                            else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
-                            else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
-                        }
+                        TryCacheLastGameResultFromEndScreenClass(endScreenClass);
                         _pipe.Write("NO_GAME");
                     }
                     else
@@ -350,14 +417,7 @@ namespace HearthstonePayload
                         // 兜底：通过结算页类名判断
                         if (_lastGameResult == "NONE" || string.IsNullOrWhiteSpace(_lastGameResult))
                         {
-                            var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
-                            if (endScreenShown && !string.IsNullOrWhiteSpace(endClass))
-                            {
-                                var lower = endClass.ToLowerInvariant();
-                                if (lower.Contains("victory")) _lastGameResult = "WIN";
-                                else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
-                                else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
-                            }
+                            TryCacheLastGameResultFromEndScreen(reader);
                         }
 
                         // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
@@ -397,45 +457,9 @@ namespace HearthstonePayload
             else if (cmd == "GET_RESULT")
             {
                 if (_lastGameResult == "NONE")
-                {
-                    for (var i = 0; i < 20; i++)
-                    {
-                        var state = reader.ReadGameState();
-                        if (state != null && state.Result != GameResult.None)
-                        {
-                            _lastGameResult = state.Result.ToString().ToUpper();
-                            if (state.FriendlyConceded)
-                                _lastGameConceded = true;
-                            break;
-                        }
+                    TryRefreshLastGameResult(reader, GetResultRefreshAttempts, GetResultRefreshDelayMs);
 
-                        // state 存在且确认未 GameOver —— 可能已经是新对局，不再重试
-                        if (state != null && !state.IsGameOver)
-                            break;
-
-                        // 通过 EndGameScreen 类名兜底判断
-                        if (reader.IsEndGameScreenShown(out var endClass)
-                            && !string.IsNullOrWhiteSpace(endClass))
-                        {
-                            var lower = endClass.ToLowerInvariant();
-                            if (lower.Contains("victory")) { _lastGameResult = "WIN"; break; }
-                            else if (lower.Contains("defeat")) { _lastGameResult = "LOSS"; break; }
-                            else if (lower.Contains("tie") || lower.Contains("draw")) { _lastGameResult = "TIE"; break; }
-                        }
-
-                        Thread.Sleep(100);
-                    }
-                }
-                var resultPayload = _lastGameConceded
-                    ? "RESULT:" + _lastGameResult + ":CONCEDED"
-                    : "RESULT:" + _lastGameResult;
-                _pipe.Write(resultPayload);
-                // 仅在成功获取到有效结果后才重置，避免 NONE 时消费掉后续重试的机会
-                if (_lastGameResult != "NONE")
-                {
-                    _lastGameResult = "NONE";
-                    _lastGameConceded = false;
-                }
+                WriteCachedGameResult();
             }
             else if (cmd == "GET_BG_STATE")
             {

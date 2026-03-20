@@ -228,5 +228,58 @@ namespace BotCore.Tests
             Assert.False(BotProtocol.IsGameLoadingOrGameplayResponse("NO_GAME"));
             Assert.False(BotProtocol.IsGameLoadingOrGameplayResponse("UNKNOWN"));
         }
+
+        [Fact]
+        public void ResolvePostGameResult_PrefersEarlyCache()
+        {
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: "LOSS:CONCEDED",
+                payloadResultResponse: "RESULT:WIN",
+                timedOutAndResynced: false);
+
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Resolved, resolution.Status);
+            Assert.Equal("early-cache", resolution.ResultSource);
+            Assert.Equal("RESULT:LOSS:CONCEDED", resolution.ResultResponse);
+            Assert.True(resolution.HasResolvedResult);
+        }
+
+        [Fact]
+        public void ResolvePostGameResult_TreatsResultNoneAsUnknown()
+        {
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: null,
+                payloadResultResponse: "RESULT:NONE",
+                timedOutAndResynced: false);
+
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Unknown, resolution.Status);
+            Assert.Equal("unknown", resolution.ResultSource);
+            Assert.Equal("RESULT:NONE", resolution.ResultResponse);
+            Assert.False(resolution.HasResolvedResult);
+            Assert.True(BotProtocol.IsUnknownGameResultResponse(resolution.ResultResponse));
+        }
+
+        [Fact]
+        public void ResolvePostGameResult_TimedOutAndResyncedPreservesExplicitResult()
+        {
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: null,
+                payloadResultResponse: "RESULT:WIN",
+                timedOutAndResynced: true);
+
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.TimedOutAndResynced, resolution.Status);
+            Assert.Equal("payload-result", resolution.ResultSource);
+            Assert.Equal("RESULT:WIN", resolution.ResultResponse);
+            Assert.True(resolution.HasResolvedResult);
+        }
+
+        [Fact]
+        public void IsDrainOnlyPostGameResponse_DrainsCrossCommandButKeepsResultReplies()
+        {
+            Assert.True(BotProtocol.IsDrainOnlyPostGameResponse("NO_GAME"));
+            Assert.True(BotProtocol.IsDrainOnlyPostGameResponse(BotProtocol.EndgamePending));
+            Assert.True(BotProtocol.IsDrainOnlyPostGameResponse("SCENE:HUB"));
+            Assert.False(BotProtocol.IsDrainOnlyPostGameResponse("RESULT:WIN"));
+            Assert.False(BotProtocol.IsDrainOnlyPostGameResponse("RESULT:NONE"));
+        }
     }
 }

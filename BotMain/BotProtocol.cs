@@ -33,6 +33,22 @@ namespace BotMain
         public const string NoDialog = "NO_DIALOG";
         public const string StartupRatingsDialogType = "StartupRatings";
         public const string StartupRatingsButtonLabel = "\u70b9\u51fb\u5f00\u59cb";
+        internal const string UnknownGameResultResponse = "RESULT:NONE";
+
+        internal enum PostGameResultResolutionStatus
+        {
+            Resolved,
+            Unknown,
+            TimedOutAndResynced
+        }
+
+        internal sealed class PostGameResultResolution
+        {
+            public PostGameResultResolutionStatus Status { get; set; }
+            public string ResultResponse { get; set; } = UnknownGameResultResponse;
+            public string ResultSource { get; set; } = "unknown";
+            public bool HasResolvedResult => BotProtocol.IsExplicitGameResultResponse(ResultResponse);
+        }
 
         private const string ConfirmLabel = "\u786e\u8ba4";
         private const string OkLabel = "\u786e\u5b9a";
@@ -117,6 +133,103 @@ namespace BotMain
         public static bool ShouldAbortPostGameDismiss(string seedProbe)
         {
             return IsGameplayProgressResponse(seedProbe);
+        }
+
+        internal static bool TryParseGameResultPayload(string payload, out string result, out bool conceded)
+        {
+            result = string.Empty;
+            conceded = false;
+            if (string.IsNullOrWhiteSpace(payload))
+                return false;
+
+            var parts = payload.Split(new[] { ':' }, 2);
+            result = parts[0];
+            conceded = parts.Length > 1
+                && string.Equals(parts[1], "CONCEDED", StringComparison.OrdinalIgnoreCase);
+            return !string.IsNullOrWhiteSpace(result);
+        }
+
+        internal static bool TryParseGameResultResponse(string response, out string result, out bool conceded)
+        {
+            result = string.Empty;
+            conceded = false;
+            if (string.IsNullOrWhiteSpace(response)
+                || !response.StartsWith("RESULT:", StringComparison.Ordinal))
+                return false;
+
+            return TryParseGameResultPayload(response.Substring("RESULT:".Length), out result, out conceded);
+        }
+
+        internal static bool IsExplicitGameResultPayload(string payload)
+        {
+            return TryParseGameResultPayload(payload, out var result, out _)
+                && (string.Equals(result, "WIN", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(result, "LOSS", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(result, "TIE", StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal static bool IsExplicitGameResultResponse(string response)
+        {
+            return TryParseGameResultResponse(response, out var result, out _)
+                && (string.Equals(result, "WIN", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(result, "LOSS", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(result, "TIE", StringComparison.OrdinalIgnoreCase));
+        }
+
+        internal static bool IsUnknownGameResultResponse(string response)
+        {
+            return TryParseGameResultResponse(response, out var result, out _)
+                && string.Equals(result, "NONE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsDrainOnlyPostGameResponse(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+                return false;
+
+            if (IsExplicitGameResultResponse(response) || IsUnknownGameResultResponse(response))
+                return false;
+
+            return IsCrossCommandResponse(response);
+        }
+
+        internal static PostGameResultResolution ResolvePostGameResult(
+            string earlyGameResult,
+            string payloadResultResponse,
+            bool timedOutAndResynced)
+        {
+            if (IsExplicitGameResultPayload(earlyGameResult))
+            {
+                return new PostGameResultResolution
+                {
+                    Status = timedOutAndResynced
+                        ? PostGameResultResolutionStatus.TimedOutAndResynced
+                        : PostGameResultResolutionStatus.Resolved,
+                    ResultResponse = "RESULT:" + earlyGameResult,
+                    ResultSource = "early-cache"
+                };
+            }
+
+            if (IsExplicitGameResultResponse(payloadResultResponse))
+            {
+                return new PostGameResultResolution
+                {
+                    Status = timedOutAndResynced
+                        ? PostGameResultResolutionStatus.TimedOutAndResynced
+                        : PostGameResultResolutionStatus.Resolved,
+                    ResultResponse = payloadResultResponse,
+                    ResultSource = "payload-result"
+                };
+            }
+
+            return new PostGameResultResolution
+            {
+                Status = timedOutAndResynced
+                    ? PostGameResultResolutionStatus.TimedOutAndResynced
+                    : PostGameResultResolutionStatus.Unknown,
+                ResultResponse = UnknownGameResultResponse,
+                ResultSource = "unknown"
+            };
         }
 
         public static bool IsSceneResponse(string resp)
