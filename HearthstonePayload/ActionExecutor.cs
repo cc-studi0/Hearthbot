@@ -97,12 +97,29 @@ namespace HearthstonePayload
             public int RecentReleasedUntilTick;
         }
 
+        private sealed class HeroEnchantmentBusyObservationState
+        {
+            public string Signature = string.Empty;
+            public int FirstSeenTick;
+        }
+
+        private sealed class HeroEnchantmentBusySnapshot
+        {
+            public string Signature = string.Empty;
+            public string Detail = string.Empty;
+            public int PlayerEnchantmentCount;
+            public int HeroEnchantmentCount;
+        }
+
         private const int FriendlyDrawFallbackDelayMs = 420;
         private const int FriendlyDrawRecentGuardWindowMs = 2500;
+        private const int HeroEnchantmentBusyStableDelayMs = 180;
         private const int ChoiceDecisionTraceDedupWindowMs = 1200;
         private const int PendingOptionTargetSourceWindowMs = 5000;
         private static readonly object _friendlyDrawGateSync = new object();
         private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
+        private static readonly object _heroEnchantmentBusySync = new object();
+        private static readonly HeroEnchantmentBusyObservationState _heroEnchantmentBusy = new HeroEnchantmentBusyObservationState();
         private static readonly object _choiceDecisionTraceSync = new object();
         private static readonly object _pendingOptionTargetSourceSync = new object();
         private static string _lastChoiceDecisionTrace = string.Empty;
@@ -6515,9 +6532,9 @@ namespace HearthstonePayload
 
             if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
             {
-                if (TryTreatFriendlyHeroAttackBusyAsReady(gs, out var bypassDetail))
+                if (TryTreatFriendlyHeroEnchantmentBusyAsReady(gs, out var bypassDetail, out var heroEnchantmentBusyState))
                 {
-                    AppendActionTrace("WAIT_READY bypass game_busy due to hero_attack_ready " + bypassDetail);
+                    AppendActionTrace("WAIT_READY bypass game_busy due to hero_enchantment_busy " + bypassDetail);
                     return new ReadyWaitDiagnosticState
                     {
                         IsReady = true,
@@ -6526,9 +6543,13 @@ namespace HearthstonePayload
                     };
                 }
 
+                if (heroEnchantmentBusyState != null)
+                    return heroEnchantmentBusyState;
+
                 return CreateBusyReadyState("game_busy");
             }
 
+            ResetFriendlyHeroEnchantmentBusyObservation();
             return new ReadyWaitDiagnosticState
             {
                 IsReady = true,
@@ -6537,12 +6558,39 @@ namespace HearthstonePayload
             };
         }
 
-        private static bool TryTreatFriendlyHeroAttackBusyAsReady(object gameState, out string detail)
+        private static bool TryTreatFriendlyHeroEnchantmentBusyAsReady(
+            object gameState,
+            out string detail,
+            out ReadyWaitDiagnosticState busyState)
         {
             detail = "unavailable";
+            busyState = null;
             if (gameState == null)
             {
+                ResetFriendlyHeroEnchantmentBusyObservation();
                 detail = "game_state_null";
+                return false;
+            }
+
+            if (IsChoiceModeActive(gameState))
+            {
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                detail = "choice_mode_active";
+                return false;
+            }
+
+            if (IsSubOptionUiReady())
+            {
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                detail = "suboption_ui_ready";
+                return false;
+            }
+
+            if (TryInvokeMethod(gameState, "GetResponseMode", Array.Empty<object>(), out var responseModeObj)
+                && IsTargetSelectionResponseMode(responseModeObj))
+            {
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                detail = "target_selection_mode";
                 return false;
             }
 
@@ -6553,85 +6601,282 @@ namespace HearthstonePayload
             }
             catch (Exception ex)
             {
+                ResetFriendlyHeroEnchantmentBusyObservation();
                 detail = "read_state_exception:" + SimplifyException(ex);
                 return false;
             }
 
             if (state == null)
             {
+                ResetFriendlyHeroEnchantmentBusyObservation();
                 detail = "state_null";
                 return false;
             }
 
             if (!state.IsOurTurn)
             {
+                ResetFriendlyHeroEnchantmentBusyObservation();
                 detail = "not_our_turn";
                 return false;
             }
 
-            var hero = state.HeroFriend;
-            if (hero == null)
+            if (!TryBuildFriendlyHeroEnchantmentBusySnapshot(gameState, out var snapshot) || snapshot == null)
             {
-                detail = "hero_null";
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                detail = "snapshot_unavailable";
                 return false;
             }
 
-            var heroAttack = Math.Max(hero.Atk, hero.TempAtk);
-            if (heroAttack <= 0)
+            if (snapshot.PlayerEnchantmentCount <= 0 && snapshot.HeroEnchantmentCount <= 0)
             {
-                detail = "hero_atk_le_0";
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                detail = snapshot.Detail ?? "no_enchantments";
                 return false;
             }
 
-            if (hero.Frozen || hero.Freeze)
-            {
-                detail = "hero_frozen";
-                return false;
-            }
-
-            var maxAttack = GetMaxAttackCountThisTurn(state, hero.EntityId, hero);
-            if (hero.AttackCount >= maxAttack)
-            {
-                detail = "hero_attack_count_limit";
-                return false;
-            }
-
-            if (!HasFriendlyHeroLegalAttackTarget(state, hero))
-            {
-                detail = "hero_no_legal_target";
-                return false;
-            }
-
+            var stable = ObserveFriendlyHeroEnchantmentBusySignature(snapshot.Signature, out var stableMs, out var isNewSignature);
             detail =
-                "entity=" + hero.EntityId
-                + " atk=" + heroAttack
-                + " attackCount=" + hero.AttackCount + "/" + maxAttack
-                + " exhausted=" + hero.Exhausted
-                + " canAttackHeroes=" + hero.CanAttackHeroes
-                + " enemyMinions=" + (state.MinionEnemy?.Count ?? 0);
+                (snapshot.Detail ?? "hero_enchantment_busy")
+                + " stableMs=" + stableMs
+                + " thresholdMs=" + HeroEnchantmentBusyStableDelayMs;
+
+            busyState = CreateBusyReadyState(
+                "hero_enchantment_busy",
+                BuildFriendlyHeroEnchantmentBusyFlags(snapshot));
+
+            if (!stable)
+            {
+                if (isNewSignature)
+                    AppendActionTrace("WAIT_READY hold game_busy due to hero_enchantment_busy " + detail);
+                return false;
+            }
+
             return true;
         }
 
-        private static bool HasFriendlyHeroLegalAttackTarget(GameStateData state, EntityData hero)
+        private static bool TryBuildFriendlyHeroEnchantmentBusySnapshot(object gameState, out HeroEnchantmentBusySnapshot snapshot)
         {
-            if (state == null || hero == null)
+            snapshot = null;
+            if (gameState == null)
                 return false;
 
-            var enemyMinions = state.MinionEnemy ?? new List<EntityData>();
-            var visibleEnemyMinions = enemyMinions
-                .Where(m => m != null && m.Health > 0 && !m.Stealth)
+            try
+            {
+                var friendlyPlayer = Invoke(gameState, "GetFriendlySidePlayer")
+                    ?? Invoke(gameState, "GetFriendlyPlayer")
+                    ?? Invoke(gameState, "GetLocalPlayer");
+                if (friendlyPlayer == null)
+                    return false;
+
+                var hero = Invoke(friendlyPlayer, "GetHero");
+                var heroEntity = Invoke(hero, "GetEntity")
+                    ?? GetFieldOrProp(hero, "Entity")
+                    ?? GetFieldOrProp(hero, "m_entity")
+                    ?? hero;
+
+                ReadEnchantmentSnapshotParts(friendlyPlayer, preferDisplayed: false, out var playerSignatureParts, out var playerPreviewParts);
+                ReadEnchantmentSnapshotParts(heroEntity, preferDisplayed: true, out var heroSignatureParts, out var heroPreviewParts);
+
+                snapshot = new HeroEnchantmentBusySnapshot
+                {
+                    PlayerEnchantmentCount = playerSignatureParts.Count,
+                    HeroEnchantmentCount = heroSignatureParts.Count
+                };
+
+                if (snapshot.PlayerEnchantmentCount <= 0 && snapshot.HeroEnchantmentCount <= 0)
+                {
+                    snapshot.Detail = "playerCount=0 heroCount=0";
+                    return true;
+                }
+
+                var signatureParts = new List<string>();
+                signatureParts.AddRange(playerSignatureParts.Select(part => "player:" + part));
+                signatureParts.AddRange(heroSignatureParts.Select(part => "hero:" + part));
+                signatureParts.Sort(StringComparer.Ordinal);
+
+                snapshot.Signature = string.Join(";", signatureParts);
+                snapshot.Detail =
+                    "playerCount=" + snapshot.PlayerEnchantmentCount
+                    + " heroCount=" + snapshot.HeroEnchantmentCount
+                    + " player=[" + FormatEnchantmentPreview(playerPreviewParts) + "]"
+                    + " hero=[" + FormatEnchantmentPreview(heroPreviewParts) + "]";
+                return true;
+            }
+            catch (Exception ex)
+            {
+                snapshot = new HeroEnchantmentBusySnapshot
+                {
+                    Detail = "snapshot_exception:" + SimplifyException(ex)
+                };
+                return false;
+            }
+        }
+
+        private static void ReadEnchantmentSnapshotParts(
+            object source,
+            bool preferDisplayed,
+            out List<string> signatureParts,
+            out List<string> previewParts)
+        {
+            signatureParts = new List<string>();
+            previewParts = new List<string>();
+
+            if (!TryEnumerateEnchantments(source, preferDisplayed, out var enchantments) || enchantments == null)
+                return;
+
+            ReflectionContext ctx = null;
+            var hasCtx = false;
+            try
+            {
+                ctx = ReflectionContext.Instance;
+                hasCtx = ctx != null && ctx.Init();
+            }
+            catch
+            {
+                hasCtx = false;
+            }
+
+            foreach (var rawEnchantment in enchantments)
+            {
+                var enchantment = Invoke(rawEnchantment, "GetEntity")
+                    ?? GetFieldOrProp(rawEnchantment, "Entity")
+                    ?? GetFieldOrProp(rawEnchantment, "m_entity")
+                    ?? rawEnchantment;
+                if (enchantment == null)
+                    continue;
+
+                var cardId = ResolveCardIdFromObject(enchantment);
+                if (string.IsNullOrWhiteSpace(cardId))
+                {
+                    var enchantCard = GetFieldOrProp(enchantment, "EnchantCard")
+                        ?? GetFieldOrProp(enchantment, "m_enchantCard")
+                        ?? Invoke(enchantment, "GetEnchantCard");
+                    var enchantCardEntity = Invoke(enchantCard, "GetEntity")
+                        ?? GetFieldOrProp(enchantCard, "Entity")
+                        ?? GetFieldOrProp(enchantCard, "m_entity")
+                        ?? enchantCard;
+                    cardId = ResolveCardIdFromObject(enchantCardEntity);
+                }
+
+                if (string.IsNullOrWhiteSpace(cardId))
+                    cardId = "unknown";
+
+                var data1 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_1") : 0;
+                var data2 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_2") : 0;
+                var data3 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_3") : 0;
+
+                var signature = cardId;
+                if (data1 != 0 || data2 != 0 || data3 != 0)
+                    signature += "[" + data1 + "/" + data2 + "/" + data3 + "]";
+
+                signatureParts.Add(signature);
+
+                var entityId = ResolveEntityId(enchantment);
+                previewParts.Add(entityId > 0 ? signature + "#" + entityId : signature);
+            }
+
+            signatureParts.Sort(StringComparer.Ordinal);
+            previewParts.Sort(StringComparer.Ordinal);
+        }
+
+        private static bool TryEnumerateEnchantments(object source, bool preferDisplayed, out IEnumerable enchantments)
+        {
+            enchantments = null;
+            if (source == null)
+                return false;
+
+            if (preferDisplayed
+                && TryInvokeMethod(source, "GetDisplayedEnchantments", new object[] { false }, out var displayedEnchantments, out _)
+                && displayedEnchantments is IEnumerable displayedEnumerable)
+            {
+                enchantments = displayedEnumerable;
+                return true;
+            }
+
+            enchantments = Invoke(source, "GetEnchantments") as IEnumerable
+                ?? Invoke(source, "GetAttachments") as IEnumerable
+                ?? GetFieldOrProp(source, "m_attachments") as IEnumerable;
+            return enchantments != null;
+        }
+
+        private static bool ObserveFriendlyHeroEnchantmentBusySignature(string signature, out int stableMs, out bool isNewSignature)
+        {
+            stableMs = 0;
+            isNewSignature = false;
+            if (string.IsNullOrWhiteSpace(signature))
+            {
+                ResetFriendlyHeroEnchantmentBusyObservation();
+                return false;
+            }
+
+            var nowTick = Environment.TickCount;
+            lock (_heroEnchantmentBusySync)
+            {
+                if (!string.Equals(_heroEnchantmentBusy.Signature, signature, StringComparison.Ordinal))
+                {
+                    _heroEnchantmentBusy.Signature = signature;
+                    _heroEnchantmentBusy.FirstSeenTick = nowTick;
+                    isNewSignature = true;
+                    return false;
+                }
+
+                stableMs = Math.Max(0, unchecked(nowTick - _heroEnchantmentBusy.FirstSeenTick));
+                return stableMs >= HeroEnchantmentBusyStableDelayMs;
+            }
+        }
+
+        private static void ResetFriendlyHeroEnchantmentBusyObservation()
+        {
+            lock (_heroEnchantmentBusySync)
+            {
+                _heroEnchantmentBusy.Signature = string.Empty;
+                _heroEnchantmentBusy.FirstSeenTick = 0;
+            }
+        }
+
+        private static IEnumerable<string> BuildFriendlyHeroEnchantmentBusyFlags(HeroEnchantmentBusySnapshot snapshot)
+        {
+            var flags = new List<string> { "hero_enchantment_busy" };
+            if (snapshot != null)
+            {
+                if (snapshot.PlayerEnchantmentCount > 0)
+                    flags.Add("player_enchantments");
+                if (snapshot.HeroEnchantmentCount > 0)
+                    flags.Add("hero_enchantments");
+            }
+
+            return flags;
+        }
+
+        private static string FormatEnchantmentPreview(IEnumerable<string> parts)
+        {
+            if (parts == null)
+                return "-";
+
+            var materialized = parts
+                .Where(part => !string.IsNullOrWhiteSpace(part))
+                .Take(5)
                 .ToList();
+            if (materialized.Count == 0)
+                return "-";
 
-            if (visibleEnemyMinions.Any(m => m.Taunt))
-                return true;
+            var joined = string.Join(",", materialized.Take(4));
+            return materialized.Count > 4 ? joined + ",..." : joined;
+        }
 
-            if (visibleEnemyMinions.Count > 0)
-                return true;
+        private static int SafeGetTagValue(ReflectionContext ctx, object source, string tagName)
+        {
+            if (ctx == null || source == null || string.IsNullOrWhiteSpace(tagName))
+                return 0;
 
-            return hero.CanAttackHeroes
-                && state.HeroEnemy != null
-                && state.HeroEnemy.Health > 0
-                && !state.HeroEnemy.Immune;
+            try
+            {
+                return ctx.GetTagValue(source, tagName);
+            }
+            catch
+            {
+                return 0;
+            }
         }
 
         private static ReadyWaitDiagnosticState CreateBusyReadyState(
@@ -6639,14 +6884,30 @@ namespace HearthstonePayload
             int drawEntityId = 0,
             int drawCount = 0)
         {
+            return CreateBusyReadyState(primaryReason, null, drawEntityId, drawCount);
+        }
+
+        private static ReadyWaitDiagnosticState CreateBusyReadyState(
+            string primaryReason,
+            IEnumerable<string> flags,
+            int drawEntityId = 0,
+            int drawCount = 0)
+        {
             var normalizedPrimaryReason = string.IsNullOrWhiteSpace(primaryReason)
                 ? ReadyWaitDiagnostics.UnknownBusyReason
                 : primaryReason.Trim();
+            var normalizedFlags = flags?
+                .Where(flag => !string.IsNullOrWhiteSpace(flag))
+                .Distinct(StringComparer.Ordinal)
+                .ToArray();
+            if (normalizedFlags == null || normalizedFlags.Length == 0)
+                normalizedFlags = new[] { normalizedPrimaryReason };
+
             return new ReadyWaitDiagnosticState
             {
                 IsReady = false,
                 PrimaryReason = normalizedPrimaryReason,
-                Flags = new[] { normalizedPrimaryReason },
+                Flags = normalizedFlags,
                 DrawEntityId = drawEntityId > 0 ? drawEntityId : 0,
                 DrawCount = drawCount > 0 ? drawCount : 0
             };
