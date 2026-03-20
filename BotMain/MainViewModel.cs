@@ -165,19 +165,27 @@ namespace BotMain
         public string RuntimeText => IsRunning ? (DateTime.Now - _startTime).ToString(@"hh\:mm\:ss") : "00:00:00";
 
         // 设置
-        private bool _coachMode, _overlayMode, _autoConcede, _concedeWhenLethal, _fpsLock;
+        private bool _coachMode, _overlayMode, _concedeWhenLethal, _fpsLock;
         private int _fpsValue = 30, _modeIndex;
         public bool CoachMode { get => _coachMode; set { _coachMode = value; AutoSave(); } }
         public bool OverlayMode { get => _overlayMode; set { _overlayMode = value; AutoSave(); } }
-        public bool AutoConcede { get => _autoConcede; set { _autoConcede = value; AutoSave(); } }
+        public bool AutoConcede
+        {
+            get => ConcedeWhenLethal;
+            set => ConcedeWhenLethal = value;
+        }
         public bool ConcedeWhenLethal
         {
             get => _concedeWhenLethal;
             set
             {
+                if (_concedeWhenLethal == value)
+                    return;
+
                 _concedeWhenLethal = value;
                 _bot.SetConcedeWhenLethal(value);
                 Notify();
+                Notify(nameof(AutoConcede));
                 AutoSave();
             }
         }
@@ -612,8 +620,8 @@ namespace BotMain
 
                 dict["CoachMode"] = JsonSerializer.SerializeToElement(CoachMode);
                 dict["OverlayMode"] = JsonSerializer.SerializeToElement(OverlayMode);
-                dict["AutoConcede"] = JsonSerializer.SerializeToElement(AutoConcede);
                 dict["ConcedeWhenLethal"] = JsonSerializer.SerializeToElement(ConcedeWhenLethal);
+                dict.Remove("AutoConcede");
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
@@ -659,8 +667,12 @@ namespace BotMain
                     {
                         if (dict.TryGetValue("CoachMode", out var v)) CoachMode = v.GetBoolean();
                         if (dict.TryGetValue("OverlayMode", out v)) OverlayMode = v.GetBoolean();
-                        if (dict.TryGetValue("AutoConcede", out v)) AutoConcede = v.GetBoolean();
-                        if (dict.TryGetValue("ConcedeWhenLethal", out v)) ConcedeWhenLethal = v.GetBoolean();
+                        bool hasAutoConcede = dict.TryGetValue("AutoConcede", out v);
+                        bool autoConcede = hasAutoConcede && v.GetBoolean();
+                        bool hasConcedeWhenLethal = dict.TryGetValue("ConcedeWhenLethal", out v);
+                        bool concedeWhenLethal = hasConcedeWhenLethal && v.GetBoolean();
+                        if (hasAutoConcede || hasConcedeWhenLethal)
+                            ConcedeWhenLethal = autoConcede || concedeWhenLethal;
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v))

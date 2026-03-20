@@ -676,10 +676,20 @@ namespace BotMain
         public void SetMinRank(int v) { _minRank = v; Log($"[Settings] MinRank={v}"); }
         public void SetMaxRank(int v) { _maxRank = v; Log($"[Settings] MaxRank={v}"); }
         public void SetCloseHs(bool v) { _closeHsAfterStop = v; Log($"[Settings] CloseHs={v}"); }
-        public void SetAutoConcede(bool v) { _autoConcede = v; Log($"[Settings] AutoConcede={v}"); }
+        public void SetAutoConcede(bool v)
+        {
+            _autoConcede = v;
+            _concedeWhenLethal = v;
+            Log($"[Settings] AutoConcede={v} (mapped to ConcedeWhenLethal)");
+        }
         public void SetAutoConcedeAlternativeMode(bool v) { _autoConcedeAlternativeMode = v; Log($"[Settings] AutoConcedeAlt={v}"); }
         public void SetAutoConcedeMaxRank(int v) { _autoConcedeMaxRank = v; Log($"[Settings] AutoConcedeMaxRank={v}"); }
-        public void SetConcedeWhenLethal(bool v) { _concedeWhenLethal = v; Log($"[Settings] ConcedeWhenLethal={v}"); }
+        public void SetConcedeWhenLethal(bool v)
+        {
+            _autoConcede = v;
+            _concedeWhenLethal = v;
+            Log($"[Settings] ConcedeWhenLethal={v}");
+        }
         public void SetThinkingRoutineEnabled(bool v) { _thinkingRoutineEnabled = v; Log($"[Settings] ThinkingRoutine={v}"); }
         public void SetHoverRoutineEnabled(bool v) { _hoverRoutineEnabled = v; Log($"[Settings] HoverRoutine={v}"); }
         public void SetLatencySamplingRate(int v) { _latencySamplingRate = v; Log($"[Settings] LatencySamplingRate={v}"); }
