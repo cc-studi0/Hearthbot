@@ -1346,6 +1346,7 @@ namespace HearthstonePayload
             var gsBeforePlay = GetGameState();
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, entityId);
+            var sourceZoneTagBeforePlay = ResolveEntityZoneTag(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
             var guardRecentDrawCard = ShouldUseRecentDrawPlayGuard(entityId);
 
@@ -1442,6 +1443,9 @@ namespace HearthstonePayload
             yield return 0.08f;
 
             bool targetConfirmationPending = false;
+            bool targetConfirmationBusyObserved = false;
+            PlayTargetConfirmationSnapshot lastTargetConfirmationSnapshot = null;
+            var targetConfirmationState = PlayTargetConfirmationState.Pending;
             if (targetEntityId > 0)
             {
                 if (sourceUsesBoardDrop)
@@ -1548,7 +1552,13 @@ namespace HearthstonePayload
                     MouseSimulator.LeftUp();
                     yield return 0.14f;
 
-                    targetConfirmationPending = IsPlayTargetConfirmationPending(entityId);
+                    targetConfirmationState = CapturePlayTargetConfirmationState(
+                        entityId,
+                        sourceZoneTagBeforePlay,
+                        ref targetConfirmationBusyObserved,
+                        out lastTargetConfirmationSnapshot,
+                        finalObservation: false);
+                    targetConfirmationPending = targetConfirmationState == PlayTargetConfirmationState.Pending;
                     if (targetConfirmationPending)
                     {
                         for (int attempt = 0; attempt < 2 && targetConfirmationPending; attempt++)
@@ -1572,14 +1582,21 @@ namespace HearthstonePayload
 
                             for (int retry = 0; retry < 5; retry++)
                             {
-                                if (!IsPlayTargetConfirmationPending(entityId))
+                                targetConfirmationState = CapturePlayTargetConfirmationState(
+                                    entityId,
+                                    sourceZoneTagBeforePlay,
+                                    ref targetConfirmationBusyObserved,
+                                    out lastTargetConfirmationSnapshot,
+                                    finalObservation: false);
+                                if (targetConfirmationState != PlayTargetConfirmationState.Pending)
                                 {
-                                    targetConfirmationPending = false;
                                     break;
                                 }
 
                                 yield return 0.06f;
                             }
+
+                            targetConfirmationPending = targetConfirmationState == PlayTargetConfirmationState.Pending;
                         }
                     }
                 }
@@ -1653,28 +1670,74 @@ namespace HearthstonePayload
 
             if (targetEntityId > 0 && resolvedStillInHand && !stillInHand)
             {
-                if (!targetConfirmationPending)
+                if (!sourceUsesBoardDrop)
                 {
                     for (int retry = 0; retry < 4; retry++)
                     {
-                        if (!IsPlayTargetConfirmationPending(entityId))
+                        targetConfirmationState = CapturePlayTargetConfirmationState(
+                            entityId,
+                            sourceZoneTagBeforePlay,
+                            ref targetConfirmationBusyObserved,
+                            out lastTargetConfirmationSnapshot,
+                            finalObservation: retry == 3);
+                        if (targetConfirmationState != PlayTargetConfirmationState.Pending)
                             break;
 
-                        targetConfirmationPending = true;
                         yield return 0.05f;
                     }
-                }
 
-                if (targetConfirmationPending)
+                    lastTargetConfirmationSnapshot = EnsurePlayTargetConfirmationSourceState(
+                        lastTargetConfirmationSnapshot,
+                        entityId,
+                        sourceZoneTagBeforePlay,
+                        resolvedStillInHand,
+                        stillInHand,
+                        targetConfirmationBusyObserved);
+                    if (targetConfirmationState != PlayTargetConfirmationState.Confirmed)
+                        targetConfirmationState = PlayTargetConfirmation.Evaluate(lastTargetConfirmationSnapshot, finalObservation: true);
+
+                    if (targetConfirmationState == PlayTargetConfirmationState.Failed)
+                    {
+                        AppendActionTrace(
+                            "PLAY(mouse) target not confirmed entityId=" + entityId
+                            + " targetId=" + targetEntityId
+                            + " responseMode=" + DescribePlayTargetConfirmationResponseMode(lastTargetConfirmationSnapshot)
+                            + " heldEntityId=" + DescribePlayTargetConfirmationHeldEntityId(lastTargetConfirmationSnapshot)
+                            + " stillInHand=" + DescribePlayTargetConfirmationStillInHand(lastTargetConfirmationSnapshot)
+                            + " zoneTag=" + DescribePlayTargetConfirmationZoneTag(lastTargetConfirmationSnapshot)
+                            + " busyObserved=" + DescribePlayTargetConfirmationBusyObserved(lastTargetConfirmationSnapshot, targetConfirmationBusyObserved)
+                            + " sourceUsesBoardDrop=" + sourceUsesBoardDrop
+                            + " cardId=" + sourceCardId);
+                        TryResetHeldCard();
+                        _coroutine.SetResult("FAIL:PLAY:target_not_confirmed:" + entityId + ":" + targetEntityId);
+                        yield break;
+                    }
+                }
+                else
                 {
-                    AppendActionTrace(
-                        "PLAY(mouse) target not confirmed entityId=" + entityId
-                        + " targetId=" + targetEntityId
-                        + " usesBoardDrop=" + sourceUsesBoardDrop
-                        + " cardId=" + sourceCardId);
-                    TryResetHeldCard();
-                    _coroutine.SetResult("FAIL:PLAY:target_not_confirmed:" + entityId + ":" + targetEntityId);
-                    yield break;
+                    if (!targetConfirmationPending)
+                    {
+                        for (int retry = 0; retry < 4; retry++)
+                        {
+                            if (!IsPlayTargetConfirmationPending(entityId))
+                                break;
+
+                            targetConfirmationPending = true;
+                            yield return 0.05f;
+                        }
+                    }
+
+                    if (targetConfirmationPending)
+                    {
+                        AppendActionTrace(
+                            "PLAY(mouse) target not confirmed entityId=" + entityId
+                            + " targetId=" + targetEntityId
+                            + " usesBoardDrop=" + sourceUsesBoardDrop
+                            + " cardId=" + sourceCardId);
+                        TryResetHeldCard();
+                        _coroutine.SetResult("FAIL:PLAY:target_not_confirmed:" + entityId + ":" + targetEntityId);
+                        yield break;
+                    }
                 }
             }
 
@@ -1692,6 +1755,151 @@ namespace HearthstonePayload
             return GameObjectFinder.GetEntityScreenPos(targetEntityId, out x, out y);
         }
 
+        private static PlayTargetConfirmationState CapturePlayTargetConfirmationState(
+            int sourceEntityId,
+            int sourceZoneTagBeforePlay,
+            ref bool busyObserved,
+            out PlayTargetConfirmationSnapshot snapshot,
+            bool finalObservation)
+        {
+            snapshot = CapturePlayTargetConfirmationSnapshot(sourceEntityId, sourceZoneTagBeforePlay, busyObserved);
+            if (snapshot != null)
+                busyObserved = snapshot.BusyObserved;
+
+            return PlayTargetConfirmation.Evaluate(snapshot, finalObservation);
+        }
+
+        private static PlayTargetConfirmationSnapshot CapturePlayTargetConfirmationSnapshot(
+            int sourceEntityId,
+            int sourceZoneTagBeforePlay,
+            bool busyObserved)
+        {
+            var snapshot = new PlayTargetConfirmationSnapshot
+            {
+                SourceEntityId = sourceEntityId,
+                ZoneBeforePlay = sourceZoneTagBeforePlay,
+                BusyObserved = busyObserved
+            };
+
+            try
+            {
+                var gs = GetGameState();
+                if (gs != null)
+                {
+                    snapshot.BusyObserved = snapshot.BusyObserved || HasBusyPlayResolutionSignal(gs);
+
+                    if (TryIsEntityInFriendlyHand(gs, sourceEntityId, out var stillInHand))
+                    {
+                        snapshot.SourceInHandResolved = true;
+                        snapshot.StillInHand = stillInHand;
+                    }
+
+                    snapshot.ZoneTag = ResolveEntityZoneTag(gs, sourceEntityId);
+
+                    if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
+                        snapshot.ResponseMode = modeObj.ToString() ?? string.Empty;
+                }
+
+                var inputMgr = GetSingleton(_inputMgrType);
+                if (TryGetHeldCardEntityId(inputMgr, out var heldEntityId))
+                    snapshot.HeldEntityId = heldEntityId;
+            }
+            catch
+            {
+            }
+
+            return snapshot;
+        }
+
+        private static PlayTargetConfirmationSnapshot EnsurePlayTargetConfirmationSourceState(
+            PlayTargetConfirmationSnapshot snapshot,
+            int sourceEntityId,
+            int sourceZoneTagBeforePlay,
+            bool resolvedStillInHand,
+            bool stillInHand,
+            bool busyObserved)
+        {
+            if (snapshot == null)
+            {
+                snapshot = new PlayTargetConfirmationSnapshot
+                {
+                    SourceEntityId = sourceEntityId,
+                    ZoneBeforePlay = sourceZoneTagBeforePlay
+                };
+            }
+
+            if (snapshot.SourceEntityId <= 0)
+                snapshot.SourceEntityId = sourceEntityId;
+            if (snapshot.ZoneBeforePlay <= 0)
+                snapshot.ZoneBeforePlay = sourceZoneTagBeforePlay;
+            if (!snapshot.SourceInHandResolved && resolvedStillInHand)
+            {
+                snapshot.SourceInHandResolved = true;
+                snapshot.StillInHand = stillInHand;
+            }
+
+            if (busyObserved)
+                snapshot.BusyObserved = true;
+
+            return snapshot;
+        }
+
+        private static bool HasBusyPlayResolutionSignal(object gameState)
+        {
+            if (gameState == null)
+                return false;
+
+            if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var blocked) && blocked)
+                return true;
+            if (TryInvokeBoolMethod(gameState, "IsBusy", out var busy) && busy)
+                return true;
+            if (TryInvokeBoolMethod(gameState, "IsBlockingPowerProcessor", out var blockingPowerProcessor) && blockingPowerProcessor)
+                return true;
+
+            var ppType = _asm?.GetType("PowerProcessor");
+            if (ppType == null)
+                return false;
+
+            var pp = GetSingleton(ppType);
+            return pp != null
+                && TryInvokeBoolMethod(pp, "IsRunning", out var running)
+                && running;
+        }
+
+        private static string DescribePlayTargetConfirmationResponseMode(PlayTargetConfirmationSnapshot snapshot)
+        {
+            return snapshot != null && !string.IsNullOrWhiteSpace(snapshot.ResponseMode)
+                ? snapshot.ResponseMode
+                : "unknown";
+        }
+
+        private static string DescribePlayTargetConfirmationHeldEntityId(PlayTargetConfirmationSnapshot snapshot)
+        {
+            return snapshot != null ? snapshot.HeldEntityId.ToString() : "unknown";
+        }
+
+        private static string DescribePlayTargetConfirmationStillInHand(PlayTargetConfirmationSnapshot snapshot)
+        {
+            if (snapshot == null || !snapshot.SourceInHandResolved)
+                return "unknown";
+
+            return snapshot.StillInHand ? "true" : "false";
+        }
+
+        private static string DescribePlayTargetConfirmationZoneTag(PlayTargetConfirmationSnapshot snapshot)
+        {
+            return snapshot != null ? snapshot.ZoneTag.ToString() : "unknown";
+        }
+
+        private static string DescribePlayTargetConfirmationBusyObserved(PlayTargetConfirmationSnapshot snapshot, bool busyObserved)
+        {
+            var observed = busyObserved;
+            if (snapshot != null && snapshot.BusyObserved)
+                observed = true;
+
+            return observed ? "true" : "false";
+        }
+
         private static bool IsPlayTargetConfirmationPending(int sourceEntityId)
         {
             try
@@ -1700,33 +1908,14 @@ namespace HearthstonePayload
                 if (gs == null)
                     return false;
 
-                if (TryInvokeBoolMethod(gs, "IsResponsePacketBlocked", out var blocked) && blocked)
-                    return false;
-                if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
-                    return false;
-                if (TryInvokeBoolMethod(gs, "IsBlockingPowerProcessor", out var bpp) && bpp)
-                    return false;
-
-                var ppType = _asm?.GetType("PowerProcessor");
-                if (ppType != null)
-                {
-                    var pp = GetSingleton(ppType);
-                    if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var running) && running)
-                        return false;
-                }
-
                 var inputMgr = GetSingleton(_inputMgrType);
                 if (TryGetHeldCardEntityId(inputMgr, out var heldEntityId) && heldEntityId == sourceEntityId)
                     return true;
 
                 if (TryInvokeMethod(gs, "GetResponseMode", Array.Empty<object>(), out var modeObj) && modeObj != null)
                 {
-                    var modeName = modeObj.ToString();
-                    if (string.Equals(modeName, "OPTION", StringComparison.OrdinalIgnoreCase)
-                        || IsTargetSelectionResponseMode(modeObj))
-                    {
+                    if (IsTargetSelectionResponseMode(modeObj))
                         return true;
-                    }
                 }
             }
             catch
