@@ -52,6 +52,7 @@ namespace BotMain
         private const int PlanningBoardRecoveryRetries = 8;
         private const int PlanningBoardRecoveryDelayMs = 120;
         private const int ReadyWaitSlowLogThresholdMs = 1000;
+        private const int ActionTimingSlowLogThresholdMs = 1000;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private static readonly string[] ChoiceStateTextMembers =
@@ -2197,6 +2198,7 @@ namespace BotMain
                 Log($"[Timing] Action recommendation took {sw.ElapsedMilliseconds}ms, total since turn start: {swTurn.ElapsedMilliseconds}ms");
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Recommend] {recommendation.Detail}");
+                var recommendationReadyAtTurnMs = swTurn.ElapsedMilliseconds;
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
@@ -2224,166 +2226,269 @@ namespace BotMain
                     for (int ai = 0; ai < actions.Count; ai++)
                     {
                         var action = actions[ai];
-                        if (!_running) break;
-
-                        // 触发插件 OnActionExecute
-                        if (actionIndex < sbActions.Count)
-                            _pluginSystem?.FireOnActionExecute(sbActions[actionIndex]);
-                        actionIndex++;
-
-                        bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                        bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
-                        bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
-                        bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
-                        var nextAction = ai + 1 < actions.Count ? actions[ai + 1] : null;
-                        bool nextIsAttack = nextAction != null
-                            && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                        bool nextIsOption = nextAction != null
-                            && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
-                        const int preReadyRetries = 30;
-                        const int preReadyIntervalMs = 300;
-                        const int postReadyRetries = 30;
-                        const int postReadyIntervalMs = 300;
-                        const int actionDelayMs = 80;
-
-                        // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
-                        if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
+                        var actionTimingSw = Stopwatch.StartNew();
+                        long sinceRecommendMs = 0;
+                        long preReadyMs = 0;
+                        long sendMs = 0;
+                        long postDelayMs = 0;
+                        long choiceProbeMs = 0;
+                        long postReadyMs = 0;
+                        var preReadyStatus = "not_run";
+                        var postReadyStatus = "not_run";
+                        var actionOutcome = "NOT_RUN";
+                        var actionFailedThisAction = false;
+                        var resimulationRequestedThisAction = false;
+                        string resimulationReasonThisAction = null;
+                        if (!_running)
                         {
-                            concededBeforeEndTurn = true;
+                            actionOutcome = "BOT_STOPPED";
+                            LogActionTimingSummary(
+                                action,
+                                actionOutcome,
+                                sinceRecommendMs,
+                                preReadyMs,
+                                sendMs,
+                                postDelayMs,
+                                choiceProbeMs,
+                                postReadyMs,
+                                preReadyStatus,
+                                postReadyStatus,
+                                actionTimingSw.ElapsedMilliseconds,
+                                actionFailedThisAction,
+                                resimulationRequestedThisAction,
+                                resimulationReasonThisAction);
                             break;
                         }
 
-                        const int readyTimeoutMs = 3000;
-                        // OPTION 命令在 Payload 端自带 UI 就绪等待逻辑，
-                        // Choose One 打出后游戏进入子选项选择状态导致 IsGameReady=false，
-                        // 此处跳过前置就绪检查以避免中断抉择链路。
-                        if (!isOption && !WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action))
-                        {
-                            actionFailed = true;
-                            Log($"[Action] wait ready timeout before {action}");
-                            break;
-                        }
-
-                        var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
-                        Log($"[Action] {action} -> {result}");
-
-                        if (IsActionFailure(result))
-                        {
-                            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                                || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
-                                || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
-                                || isTrade
-                                || isAttack)
-                            {
-                                var cancelResult = SendActionCommand(pipe, "CANCEL", 3000) ?? "NO_RESPONSE";
-                                Log($"[Action] CANCEL -> {cancelResult}");
-                            }
-
-                            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                                && TryGetActionSourceEntityId(action, out var failedPlayEntityId))
-                            {
-                                playActionFailStreakByEntity.TryGetValue(failedPlayEntityId, out var failedTimes);
-                                failedTimes++;
-                                playActionFailStreakByEntity[failedPlayEntityId] = failedTimes;
-                                Log($"[Action] PLAY failed entity={failedPlayEntityId}, streak={failedTimes}/{ChoiceProbeAfterPlayFailThreshold}");
-
-                                if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
-                                {
-                                    Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing interactive selection state.");
-                                    playActionFailStreakByEntity[failedPlayEntityId] = 0;
-
-                                    if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
-                                    {
-                                        requestResimulation = true;
-                                        resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
-                                        Log($"[Choice] choice_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
-                                        break;
-                                    }
-                                }
-                            }
-
-                            actionFailed = true;
-                            break;
-                        }
-
-                        if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                            && TryGetActionSourceEntityId(action, out var playedEntityId))
-                        {
-                            playActionFailStreakByEntity.Remove(playedEntityId);
-                        }
-
-                        // 出牌/攻击详细日志
                         try
                         {
-                            var parts = action.Split('|');
-                            if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                            {
-                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                Log($"[Action] 打出 {desc}");
-                            }
-                            else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
-                            {
-                                var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
-                                var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
-                                Log($"[Action] {atk} → {def}");
-                            }
-                            else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                            {
-                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
-                                {
-                                    var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
-                                    Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
-                                }
-                                else
-                                {
-                                    Log($"[Action] 激活地标 {desc}");
-                                }
-                            }
-                            else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                            {
-                                var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                Log($"[Action] 交易 {desc}");
-                            }
-                        }
-                        catch { }
+                            // 触发插件 OnActionExecute
+                            if (actionIndex < sbActions.Count)
+                                _pluginSystem?.FireOnActionExecute(sbActions[actionIndex]);
+                            actionIndex++;
 
-                        // 连续攻击：快速轮询就绪，跳过固定延迟
-                        if (isAttack && nextIsAttack)
-                        {
-                            WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
-                        }
-                        else if (nextIsOption)
-                        {
-                            // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
-                            // Choose One UI 已弹出，游戏不处于"就绪"状态，
-                            // 跳过 discover 探测和 post-ready 等待，直接发送 OPTION。
-                            Thread.Sleep(actionDelayMs);
-                        }
-                        else
-                        {
-                            Thread.Sleep(actionDelayMs);
-                            if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimulationReason))
+                            bool isAttack = action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                            bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
+                            bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
+                            bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                            var nextAction = ai + 1 < actions.Count ? actions[ai + 1] : null;
+                            bool nextIsAttack = nextAction != null
+                                && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                            bool nextIsOption = nextAction != null
+                                && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                            const int preReadyRetries = 30;
+                            const int preReadyIntervalMs = 300;
+                            const int postReadyRetries = 30;
+                            const int postReadyIntervalMs = 300;
+                            const int actionDelayMs = 80;
+
+                            // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
+                            if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
                             {
-                                requestResimulation = true;
-                                resimulationReason = choiceResimulationReason;
+                                actionOutcome = "CONCEDED_BEFORE_END_TURN";
+                                concededBeforeEndTurn = true;
                                 break;
                             }
-                            WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
-                        }
 
-                        if (decision != null
-                            && !nextIsOption
-                            && ShouldResimulateAfterAction(
-                                action,
-                                planningBoard,
-                                decision.ForceResimulation,
-                                decision.ForcedResimulationCards,
-                                out var reason))
+                            const int readyTimeoutMs = 3000;
+                            // OPTION 命令在 Payload 端自带 UI 就绪等待逻辑，
+                            // Choose One 打出后游戏进入子选项选择状态导致 IsGameReady=false，
+                            // 此处跳过前置就绪检查以避免中断抉择链路。
+                            if (isOption)
+                            {
+                                preReadyStatus = "skipped_option";
+                            }
+                            else
+                            {
+                                var preReadySw = Stopwatch.StartNew();
+                                var preReadyOk = WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action);
+                                preReadySw.Stop();
+                                preReadyMs = preReadySw.ElapsedMilliseconds;
+                                preReadyStatus = preReadyOk ? "ready" : "timeout";
+                                if (!preReadyOk)
+                                {
+                                    actionOutcome = "WAIT_READY_TIMEOUT";
+                                    actionFailed = true;
+                                    actionFailedThisAction = true;
+                                    Log($"[Action] wait ready timeout before {action}");
+                                    break;
+                                }
+                            }
+
+                            sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
+                            var sendSw = Stopwatch.StartNew();
+                            var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
+                            sendSw.Stop();
+                            sendMs = sendSw.ElapsedMilliseconds;
+                            actionOutcome = result;
+                            Log($"[Action] {action} -> {result}");
+
+                            if (IsActionFailure(result))
+                            {
+                                if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                                    || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                                    || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                                    || isTrade
+                                    || isAttack)
+                                {
+                                    var cancelResult = SendActionCommand(pipe, "CANCEL", 3000) ?? "NO_RESPONSE";
+                                    Log($"[Action] CANCEL -> {cancelResult}");
+                                }
+
+                                if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                                    && TryGetActionSourceEntityId(action, out var failedPlayEntityId))
+                                {
+                                    playActionFailStreakByEntity.TryGetValue(failedPlayEntityId, out var failedTimes);
+                                    failedTimes++;
+                                    playActionFailStreakByEntity[failedPlayEntityId] = failedTimes;
+                                    Log($"[Action] PLAY failed entity={failedPlayEntityId}, streak={failedTimes}/{ChoiceProbeAfterPlayFailThreshold}");
+
+                                    if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
+                                    {
+                                        Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing interactive selection state.");
+                                        playActionFailStreakByEntity[failedPlayEntityId] = 0;
+
+                                        if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
+                                        {
+                                            requestResimulation = true;
+                                            resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
+                                            resimulationRequestedThisAction = true;
+                                            resimulationReasonThisAction = resimulationReason;
+                                            Log($"[Choice] choice_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                actionFailed = true;
+                                actionFailedThisAction = true;
+                                break;
+                            }
+
+                            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                                && TryGetActionSourceEntityId(action, out var playedEntityId))
+                            {
+                                playActionFailStreakByEntity.Remove(playedEntityId);
+                            }
+
+                            // 出牌/攻击详细日志
+                            try
+                            {
+                                var parts = action.Split('|');
+                                if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                                {
+                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                    Log($"[Action] 打出 {desc}");
+                                }
+                                else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
+                                {
+                                    var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
+                                    var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
+                                    Log($"[Action] {atk} → {def}");
+                                }
+                                else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                                {
+                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                    if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
+                                    {
+                                        var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
+                                        Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
+                                    }
+                                    else
+                                    {
+                                        Log($"[Action] 激活地标 {desc}");
+                                    }
+                                }
+                                else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                                {
+                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                                    Log($"[Action] 交易 {desc}");
+                                }
+                            }
+                            catch { }
+
+                            // 连续攻击：快速轮询就绪，跳过固定延迟
+                            if (isAttack && nextIsAttack)
+                            {
+                                var postReadySw = Stopwatch.StartNew();
+                                var postReadyOk = WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
+                                postReadySw.Stop();
+                                postReadyMs = postReadySw.ElapsedMilliseconds;
+                                postReadyStatus = postReadyOk ? "ready_chain_attack" : "timeout_chain_attack";
+                            }
+                            else if (nextIsOption)
+                            {
+                                // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
+                                // Choose One UI 已弹出，游戏不处于"就绪"状态，
+                                // 跳过 discover 探测和 post-ready 等待，直接发送 OPTION。
+                                var postDelaySw = Stopwatch.StartNew();
+                                Thread.Sleep(actionDelayMs);
+                                postDelaySw.Stop();
+                                postDelayMs = postDelaySw.ElapsedMilliseconds;
+                                postReadyStatus = "skipped_next_option";
+                            }
+                            else
+                            {
+                                var postDelaySw = Stopwatch.StartNew();
+                                Thread.Sleep(actionDelayMs);
+                                postDelaySw.Stop();
+                                postDelayMs = postDelaySw.ElapsedMilliseconds;
+
+                                var choiceProbeSw = Stopwatch.StartNew();
+                                var hasPendingChoice = TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimulationReason);
+                                choiceProbeSw.Stop();
+                                choiceProbeMs = choiceProbeSw.ElapsedMilliseconds;
+                                if (hasPendingChoice)
+                                {
+                                    requestResimulation = true;
+                                    resimulationReason = choiceResimulationReason;
+                                    resimulationRequestedThisAction = true;
+                                    resimulationReasonThisAction = choiceResimulationReason;
+                                    postReadyStatus = "skipped_choice_resim";
+                                    break;
+                                }
+
+                                var postReadySw = Stopwatch.StartNew();
+                                var postReadyOk = WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
+                                postReadySw.Stop();
+                                postReadyMs = postReadySw.ElapsedMilliseconds;
+                                postReadyStatus = postReadyOk ? "ready" : "timeout";
+                            }
+
+                            if (decision != null
+                                && !nextIsOption
+                                && ShouldResimulateAfterAction(
+                                    action,
+                                    planningBoard,
+                                    decision.ForceResimulation,
+                                    decision.ForcedResimulationCards,
+                                    out var reason))
+                            {
+                                requestResimulation = true;
+                                resimulationReason = reason;
+                                resimulationRequestedThisAction = true;
+                                resimulationReasonThisAction = reason;
+                                break;
+                            }
+                        }
+                        finally
                         {
-                            requestResimulation = true;
-                            resimulationReason = reason;
-                            break;
+                            actionTimingSw.Stop();
+                            LogActionTimingSummary(
+                                action,
+                                actionOutcome,
+                                sinceRecommendMs,
+                                preReadyMs,
+                                sendMs,
+                                postDelayMs,
+                                choiceProbeMs,
+                                postReadyMs,
+                                preReadyStatus,
+                                postReadyStatus,
+                                actionTimingSw.ElapsedMilliseconds,
+                                actionFailedThisAction,
+                                resimulationRequestedThisAction,
+                                resimulationReasonThisAction);
                         }
                     }
 
@@ -5788,6 +5893,59 @@ namespace BotMain
             return result.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase)
                 || result.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(result, "NO_RESPONSE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private void LogActionTimingSummary(
+            string action,
+            string result,
+            long sinceRecommendMs,
+            long preReadyMs,
+            long sendMs,
+            long postDelayMs,
+            long choiceProbeMs,
+            long postReadyMs,
+            string preReadyStatus,
+            string postReadyStatus,
+            long totalMs,
+            bool actionFailed,
+            bool requestResimulation,
+            string resimulationReason)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return;
+
+            var resultValue = string.IsNullOrWhiteSpace(result) ? "-" : TrimForLog(result, 180);
+            var actionValue = TrimForLog(action, 80);
+            var actionKind = GetActionKind(action);
+            var preReadyValue = string.IsNullOrWhiteSpace(preReadyStatus) ? "-" : preReadyStatus;
+            var postReadyValue = string.IsNullOrWhiteSpace(postReadyStatus) ? "-" : postReadyStatus;
+            var resimulationValue = requestResimulation
+                ? (string.IsNullOrWhiteSpace(resimulationReason) ? "requested" : TrimForLog(resimulationReason, 80))
+                : "-";
+
+            if (totalMs < ActionTimingSlowLogThresholdMs
+                && !actionFailed
+                && !requestResimulation
+                && !string.Equals(preReadyValue, "timeout", StringComparison.OrdinalIgnoreCase)
+                && !postReadyValue.StartsWith("timeout", StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            Log(
+                $"[ActionTiming] kind={actionKind} action={actionValue} sinceRecommendMs={sinceRecommendMs} preReadyMs={preReadyMs} preReady={preReadyValue} sendMs={sendMs} postDelayMs={postDelayMs} choiceProbeMs={choiceProbeMs} postReadyMs={postReadyMs} postReady={postReadyValue} totalMs={totalMs} failed={(actionFailed ? 1 : 0)} resim={resimulationValue} result={resultValue}");
+        }
+
+        private static string GetActionKind(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return "-";
+
+            var separatorIndex = action.IndexOf('|');
+            if (separatorIndex <= 0)
+                return action;
+
+            return action.Substring(0, separatorIndex);
         }
 
         internal static string SummarizeBattlegroundRecommendationActions(IReadOnlyList<string> actions)

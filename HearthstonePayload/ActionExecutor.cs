@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
@@ -1154,6 +1155,10 @@ namespace HearthstonePayload
                         catch { }
 
                         var maxAttempts = 2;
+                        long lastMouseMs = 0;
+                        long lastConfirmMs = 0;
+                        int lastConfirmPolls = 0;
+                        var lastApplyReason = "not_started";
                         for (int attempt = 0; attempt < maxAttempts; attempt++)
                         {
                             if (attempt > 0)
@@ -1164,27 +1169,114 @@ namespace HearthstonePayload
                                 hasBeforeSnapshot = TryCaptureAttackState(beforeState, attackerId, targetId, out beforeSnapshot);
                             }
 
+                            var mouseSw = Stopwatch.StartNew();
                             var attackResult = _coroutine.RunAndWait(
                                 MouseAttack(
                                     attackerId,
                                     targetId,
                                     sourceIsFriendlyHero,
                                     targetIsEnemyHero));
-                            if (!attackResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase) || !hasBeforeSnapshot)
-                                return attackResult;
+                            mouseSw.Stop();
+                            lastMouseMs = mouseSw.ElapsedMilliseconds;
+                            if (!attackResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                AppendActionTrace(
+                                    "ATTACK mouse_result attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " attempt=" + (attempt + 1)
+                                    + " mouseMs=" + lastMouseMs
+                                    + " result=" + attackResult);
+                                return AppendAttackTimingToResult(
+                                    attackResult,
+                                    attempt + 1,
+                                    lastMouseMs,
+                                    0,
+                                    0,
+                                    "mouse_failed");
+                            }
 
+                            if (!hasBeforeSnapshot)
+                            {
+                                AppendActionTrace(
+                                    "ATTACK confirm_skipped attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " attempt=" + (attempt + 1)
+                                    + " mouseMs=" + lastMouseMs
+                                    + " reason=no_before_snapshot");
+                                return AppendAttackTimingToResult(
+                                    attackResult,
+                                    attempt + 1,
+                                    lastMouseMs,
+                                    0,
+                                    0,
+                                    "confirm_skipped_no_before_snapshot");
+                            }
+
+                            var confirmSw = Stopwatch.StartNew();
+                            var confirmPolls = 0;
+                            var confirmReason = "unchanged";
                             for (int i = 0; i < 10; i++)
                             {
                                 Thread.Sleep(80);
+                                confirmPolls++;
                                 var afterState = reader?.ReadGameState();
                                 if (!TryCaptureAttackState(afterState, attackerId, targetId, out var afterSnapshot))
+                                {
+                                    confirmReason = "after_snapshot_missing";
                                     continue;
-                                if (DidAttackApply(beforeSnapshot, afterSnapshot))
-                                    return attackResult;
+                                }
+
+                                var applyObservation = GetAttackApplyObservation(beforeSnapshot, afterSnapshot);
+                                confirmReason = applyObservation.Reason;
+                                if (applyObservation.Applied)
+                                {
+                                    confirmSw.Stop();
+                                    AppendActionTrace(
+                                        "ATTACK confirm_ok attacker=" + attackerId
+                                        + " target=" + targetId
+                                        + " attempt=" + (attempt + 1)
+                                        + " mouseMs=" + lastMouseMs
+                                        + " confirmMs=" + confirmSw.ElapsedMilliseconds
+                                        + " confirmPolls=" + confirmPolls
+                                        + " apply=" + confirmReason);
+                                    return AppendAttackTimingToResult(
+                                        attackResult,
+                                        attempt + 1,
+                                        lastMouseMs,
+                                        confirmSw.ElapsedMilliseconds,
+                                        confirmPolls,
+                                        confirmReason);
+                                }
                             }
+
+                            confirmSw.Stop();
+                            lastConfirmMs = confirmSw.ElapsedMilliseconds;
+                            lastConfirmPolls = confirmPolls;
+                            lastApplyReason = confirmReason;
+                            AppendActionTrace(
+                                "ATTACK confirm_retry attacker=" + attackerId
+                                + " target=" + targetId
+                                + " attempt=" + (attempt + 1)
+                                + " mouseMs=" + lastMouseMs
+                                + " confirmMs=" + lastConfirmMs
+                                + " confirmPolls=" + lastConfirmPolls
+                                + " apply=" + lastApplyReason);
                         }
 
-                        return "FAIL:ATTACK:not_confirmed:" + attackerId;
+                        AppendActionTrace(
+                            "ATTACK confirm_fail attacker=" + attackerId
+                            + " target=" + targetId
+                            + " attempts=" + maxAttempts
+                            + " lastMouseMs=" + lastMouseMs
+                            + " lastConfirmMs=" + lastConfirmMs
+                            + " lastConfirmPolls=" + lastConfirmPolls
+                            + " apply=" + lastApplyReason);
+                        return "FAIL:ATTACK:not_confirmed:" + attackerId
+                            + ":attempts=" + maxAttempts
+                            + ":lastMouseMs=" + lastMouseMs
+                            + ":lastConfirmMs=" + lastConfirmMs
+                            + ":lastConfirmPolls=" + lastConfirmPolls
+                            + ":apply=" + lastApplyReason;
                     }
                 case "HERO_POWER":
                     return _coroutine.RunAndWait(MouseHeroPower(
@@ -2980,32 +3072,62 @@ namespace HearthstonePayload
             return true;
         }
 
-        private static bool DidAttackApply(AttackStateSnapshot before, AttackStateSnapshot after)
+        private readonly struct AttackApplyObservation
+        {
+            public AttackApplyObservation(bool applied, string reason)
+            {
+                Applied = applied;
+                Reason = string.IsNullOrWhiteSpace(reason) ? "unknown" : reason;
+            }
+
+            public bool Applied { get; }
+            public string Reason { get; }
+        }
+
+        private static AttackApplyObservation GetAttackApplyObservation(AttackStateSnapshot before, AttackStateSnapshot after)
         {
             if (after.AttackerAttackCount > before.AttackerAttackCount)
-                return true;
+                return new AttackApplyObservation(true, "attack_count_changed");
 
             if (!before.AttackerExhausted && after.AttackerExhausted)
-                return true;
+                return new AttackApplyObservation(true, "attacker_exhausted");
 
             if (before.HasWeaponDurability && after.HasWeaponDurability
                 && after.WeaponDurability != before.WeaponDurability)
-                return true;
+                return new AttackApplyObservation(true, "weapon_durability_changed");
 
             if (before.TargetExists && !after.TargetExists)
-                return true;
+                return new AttackApplyObservation(true, "target_removed");
 
             if (before.TargetExists && after.TargetExists)
             {
                 if (after.TargetHealth != before.TargetHealth)
-                    return true;
+                    return new AttackApplyObservation(true, "target_health_changed");
                 if (after.TargetArmor != before.TargetArmor)
-                    return true;
+                    return new AttackApplyObservation(true, "target_armor_changed");
                 if (after.TargetDivineShield != before.TargetDivineShield)
-                    return true;
+                    return new AttackApplyObservation(true, "target_divine_shield_changed");
             }
 
-            return false;
+            return new AttackApplyObservation(false, "unchanged");
+        }
+
+        private static string AppendAttackTimingToResult(
+            string baseResult,
+            int attempt,
+            long mouseMs,
+            long confirmMs,
+            int confirmPolls,
+            string applyReason)
+        {
+            var normalizedResult = string.IsNullOrWhiteSpace(baseResult) ? "NO_RESPONSE" : baseResult;
+            var normalizedReason = string.IsNullOrWhiteSpace(applyReason) ? "unknown" : applyReason;
+            return normalizedResult
+                + ":attempt=" + System.Math.Max(1, attempt)
+                + ":mouseMs=" + System.Math.Max(0L, mouseMs)
+                + ":confirmMs=" + System.Math.Max(0L, confirmMs)
+                + ":confirmPolls=" + System.Math.Max(0, confirmPolls)
+                + ":apply=" + normalizedReason;
         }
 
         private static bool CanEntityAttackNow(GameStateData state, int attackerEntityId, int targetEntityId, out string reason)
