@@ -122,6 +122,18 @@ namespace BotMain
                 && turn != lastExecutedTurn;
         }
 
+        public static bool ShouldScanHandAtTurnStart(HumanizerIntensity intensity, int turn, int rollPercent)
+        {
+            var chancePercent = GetTurnStartScanChancePercent(intensity, turn);
+            return RollWithinChance(chancePercent, rollPercent);
+        }
+
+        public static bool ShouldPreviewAlternateTarget(HumanizerIntensity intensity, int rollPercent)
+        {
+            var chancePercent = GetAlternateTargetPreviewChancePercent(intensity);
+            return RollWithinChance(chancePercent, rollPercent);
+        }
+
         public static int ComputeTurnStartDelayMs(int turn, HumanizerIntensity intensity, Random random)
         {
             int minExtraMs;
@@ -154,6 +166,41 @@ namespace BotMain
             int perTurnMs;
             int maxMs;
             GetTurnStartProfile(intensity, out baseMs, out perTurnMs, out minExtraMs, out maxExtraMs, out maxMs);
+        }
+
+        private static int GetTurnStartScanChancePercent(HumanizerIntensity intensity, int turn)
+        {
+            var normalizedTurn = Math.Max(1, turn);
+            var turnBonusPercent = Math.Min(25, (normalizedTurn - 1) * 5);
+            switch (intensity)
+            {
+                case HumanizerIntensity.Conservative:
+                    return 20 + turnBonusPercent;
+                case HumanizerIntensity.Strong:
+                    return 50 + turnBonusPercent;
+                default:
+                    return 35 + turnBonusPercent;
+            }
+        }
+
+        private static int GetAlternateTargetPreviewChancePercent(HumanizerIntensity intensity)
+        {
+            switch (intensity)
+            {
+                case HumanizerIntensity.Conservative:
+                    return 15;
+                case HumanizerIntensity.Strong:
+                    return 40;
+                default:
+                    return 28;
+            }
+        }
+
+        private static bool RollWithinChance(int chancePercent, int rollPercent)
+        {
+            var normalizedChance = Math.Max(0, Math.Min(100, chancePercent));
+            var normalizedRoll = Math.Max(1, Math.Min(100, rollPercent));
+            return normalizedRoll <= normalizedChance;
         }
 
         private static void GetTurnStartProfile(

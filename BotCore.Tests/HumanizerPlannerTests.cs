@@ -52,6 +52,34 @@ namespace BotCore.Tests
             Assert.False(ConstructedHumanizerPlanner.ShouldRunTurnStartPrelude(enabled: false, turn: 3, lastExecutedTurn: 2));
         }
 
+        [Theory]
+        [InlineData("Conservative", 1, 20, true)]
+        [InlineData("Conservative", 1, 21, false)]
+        [InlineData("Balanced", 4, 50, true)]
+        [InlineData("Balanced", 4, 51, false)]
+        [InlineData("Strong", 8, 75, true)]
+        [InlineData("Strong", 8, 76, false)]
+        public void ShouldScanHandAtTurnStart_UsesIntensityAndTurnChance(string intensityToken, int turn, int rollPercent, bool expected)
+        {
+            var intensity = HumanizerProtocol.ParseIntensityToken(intensityToken);
+
+            Assert.Equal(expected, ConstructedHumanizerPlanner.ShouldScanHandAtTurnStart(intensity, turn, rollPercent));
+        }
+
+        [Theory]
+        [InlineData("Conservative", 15, true)]
+        [InlineData("Conservative", 16, false)]
+        [InlineData("Balanced", 28, true)]
+        [InlineData("Balanced", 29, false)]
+        [InlineData("Strong", 40, true)]
+        [InlineData("Strong", 41, false)]
+        public void ShouldPreviewAlternateTarget_UsesIntensityChance(string intensityToken, int rollPercent, bool expected)
+        {
+            var intensity = HumanizerProtocol.ParseIntensityToken(intensityToken);
+
+            Assert.Equal(expected, ConstructedHumanizerPlanner.ShouldPreviewAlternateTarget(intensity, rollPercent));
+        }
+
         [Fact]
         public void HumanizerProtocol_RoundTripsConfig()
         {

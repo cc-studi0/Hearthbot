@@ -622,46 +622,56 @@ namespace HearthstonePayload
                 NextHumanizeInt32(minExtraMs, maxExtraMs));
 
             var startedUtc = DateTime.UtcNow;
+            var shouldScanHand = ConstructedHumanizerPlanner.ShouldScanHandAtTurnStart(
+                config.Intensity,
+                turn,
+                NextHumanizeInt32(1, 100));
+            var scanMode = "pause_only";
             var orderedHandEntityIds = ParseEntityIdsCsv(handEntityIdsCsv);
             if (orderedHandEntityIds.Count == 0)
                 orderedHandEntityIds = GameObjectFinder.GetHandEntityIds() ?? new List<int>();
 
-            var scanHandEntityIds = PickTurnStartScanHandEntities(orderedHandEntityIds);
-            if (scanHandEntityIds.Count > 0)
+            if (shouldScanHand)
             {
-                foreach (var handEntityId in scanHandEntityIds)
+                var scanHandEntityIds = PickTurnStartScanHandEntities(orderedHandEntityIds);
+                if (scanHandEntityIds.Count > 0)
                 {
-                    if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
-                        break;
+                    foreach (var handEntityId in scanHandEntityIds)
+                    {
+                        if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
+                            break;
 
-                    if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var x, out var y))
-                        continue;
+                        if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var x, out var y))
+                            continue;
 
-                    foreach (var wait in MoveCursorConstructed(x, y, 10, 0.010f, false))
-                        yield return wait;
+                        scanMode = "scan";
+                        foreach (var wait in MoveCursorConstructed(x, y, 10, 0.010f, false))
+                            yield return wait;
 
-                    var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
-                    if (remainingMs <= 0)
-                        break;
+                        var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
+                        if (remainingMs <= 0)
+                            break;
 
-                    yield return Math.Min(remainingMs, NextHumanizeInt32(100, 280)) / 1000f;
+                        yield return Math.Min(remainingMs, NextHumanizeInt32(100, 280)) / 1000f;
+                    }
                 }
-            }
-            else
-            {
-                foreach (var fallbackPoint in BuildTurnStartFallbackPoints())
+                else
                 {
-                    if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
-                        break;
+                    foreach (var fallbackPoint in BuildTurnStartFallbackPoints())
+                    {
+                        if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
+                            break;
 
-                    foreach (var wait in MoveCursorConstructed(fallbackPoint.Item1, fallbackPoint.Item2, 10, 0.010f, false))
-                        yield return wait;
+                        scanMode = "scan";
+                        foreach (var wait in MoveCursorConstructed(fallbackPoint.Item1, fallbackPoint.Item2, 10, 0.010f, false))
+                            yield return wait;
 
-                    var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
-                    if (remainingMs <= 0)
-                        break;
+                        var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
+                        if (remainingMs <= 0)
+                            break;
 
-                    yield return Math.Min(remainingMs, NextHumanizeInt32(120, 240)) / 1000f;
+                        yield return Math.Min(remainingMs, NextHumanizeInt32(120, 240)) / 1000f;
+                    }
                 }
             }
 
@@ -673,7 +683,9 @@ namespace HearthstonePayload
                 "OK:HUMAN_TURN_START:"
                 + HumanizerProtocol.GetIntensityToken(config.Intensity)
                 + ":"
-                + thinkMs);
+                + thinkMs
+                + ":"
+                + scanMode);
         }
 
         private static List<int> ParseEntityIdsCsv(string csv)
@@ -753,6 +765,16 @@ namespace HearthstonePayload
 
         private static IEnumerable<float> MaybePreviewAlternateTarget(int targetEntityId, int targetHeroSide, bool dragging)
         {
+            var config = GetHumanizerConfigSnapshot();
+            if (config == null
+                || !config.Enabled
+                || !ConstructedHumanizerPlanner.ShouldPreviewAlternateTarget(
+                    config.Intensity,
+                    NextHumanizeInt32(1, 100)))
+            {
+                yield break;
+            }
+
             if (!TryResolveAlternateTargetScreenPos(targetEntityId, targetHeroSide, out var previewX, out var previewY))
                 yield break;
 
