@@ -4983,28 +4983,27 @@ namespace BotMain
             if (steps == null)
                 return null;
 
-            if (steps.Count <= 1)
+            if (ShouldUsePrimaryRecommendationOnly(state))
+                return GetReferenceAActionSteps(steps, out scopeDetail);
+
+            return GetPrimaryActionSequenceSteps(steps, out scopeDetail);
+        }
+
+        private static List<HsBoxActionStep> GetReferenceAActionSteps(List<HsBoxActionStep> steps, out string scopeDetail)
+        {
+            scopeDetail = "scope=full";
+            if (steps == null || steps.Count == 0)
                 return steps;
 
             // 构筑模式的 Envelope.Data 会把“打法参考 A/B/C”拍平到同一个数组里。
-            // 这里将“第一个可执行主动作”视为参考 A 的根步骤，只保留它以及紧随其后的
-            // choose/choice/discard 连续步骤；遇到下一个主动作时立即停止。
+            // 在这种 payload 中，A 永远是权威方案：只取第一个非空步骤作为 A 的根步骤，
+            // 并保留它后面紧邻的 choose/choice/discard 连续步骤；之后的主动作一律视为 B/C。
             var primarySteps = new List<HsBoxActionStep>();
-            var skippedPrematureEndTurnCount = 0;
             var primaryRootIndex = -1;
             for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
                 var step = steps[stepIndex];
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
-                    continue;
-
-                if (IsPrematureEndTurnRecommendation(step.ActionName, steps))
-                {
-                    skippedPrematureEndTurnCount++;
-                    continue;
-                }
-
-                if (!IsPrimaryRecommendationRootAction(step.ActionName))
                     continue;
 
                 primaryRootIndex = stepIndex;
@@ -5030,15 +5029,62 @@ namespace BotMain
                 break;
             }
 
-            if (primarySteps.Count == 0)
+            scopeDetail = $"scope=reference_a({primarySteps.Count}/{steps.Count})";
+            return primarySteps;
+        }
+
+        private static List<HsBoxActionStep> GetPrimaryActionSequenceSteps(List<HsBoxActionStep> steps, out string scopeDetail)
+        {
+            scopeDetail = "scope=full";
+            if (steps == null || steps.Count == 0)
                 return steps;
 
-            if (primarySteps.Count >= steps.Count)
-                return steps;
+            var primarySteps = new List<HsBoxActionStep>();
+            var skippedPrematureEndTurnCount = 0;
+            var primaryRootIndex = -1;
+            for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
+            {
+                var step = steps[stepIndex];
+                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                    continue;
 
-            scopeDetail = ShouldUsePrimaryRecommendationOnly(state)
-                ? $"scope=reference_a({primarySteps.Count}/{steps.Count})"
-                : $"scope=primary_action({primarySteps.Count}/{steps.Count})";
+                if (IsPrematureEndTurnRecommendation(step.ActionName, steps))
+                {
+                    skippedPrematureEndTurnCount++;
+                    continue;
+                }
+
+                if (!IsPrimaryRecommendationRootAction(step.ActionName))
+                    continue;
+
+                primaryRootIndex = stepIndex;
+                primarySteps.Add(step);
+                break;
+            }
+
+            if (primaryRootIndex < 0)
+            {
+                if (skippedPrematureEndTurnCount > 0)
+                    scopeDetail = $"scope=full; sanitize=drop_premature_end_turn({skippedPrematureEndTurnCount})";
+                return steps;
+            }
+
+            for (var stepIndex = primaryRootIndex + 1; stepIndex < steps.Count; stepIndex++)
+            {
+                var step = steps[stepIndex];
+                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                    continue;
+
+                if (IsContinuationActionForPrimaryRecommendation(step.ActionName))
+                {
+                    primarySteps.Add(step);
+                    continue;
+                }
+
+                break;
+            }
+
+            scopeDetail = $"scope=primary_action({primarySteps.Count}/{steps.Count})";
             if (skippedPrematureEndTurnCount > 0)
                 scopeDetail += $"; sanitize=drop_premature_end_turn({skippedPrematureEndTurnCount})";
             return primarySteps;

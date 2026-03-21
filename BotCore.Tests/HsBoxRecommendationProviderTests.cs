@@ -272,6 +272,56 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesOnlyReferenceA_WhenStructuredReferenceAIsEndTurn()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 60,
+                UpdatedAtMs = 604,
+                Raw = "structured-reference-a-end-turn-only",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 结束回合 打法参考B 操作2号位随从攻击 奥拉基尔，风暴之主 目标是对方2号位 凯洛斯的蛋",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "end_turn"
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "minion_attack",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "CATA_153",
+                                cardName = "奥拉基尔，风暴之主",
+                                ZONE_POSITION = 2
+                            }),
+                            OppTarget = new HsBoxCardRef
+                            {
+                                CardId = "DINO_410t5",
+                                CardName = "凯洛斯的蛋",
+                                Position = 2
+                            }
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "END_TURN" }, result.Actions);
+            Assert.Contains("scope=reference_a", result.Detail);
+            Assert.DoesNotContain("sanitize=drop_premature_end_turn", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_UsesOnlyPrimaryStructuredRecommendation_WhenBodyTextHasNoReferenceMarkers()
         {
             var state = new HsBoxRecommendationState
@@ -370,6 +420,64 @@ namespace BotCore.Tests
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "END_TURN" }, result.Actions);
             Assert.Contains("body_scope=reference_a", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_DoesNotPromoteLaterStructuredAlternatives_WhenReferenceAIsUnsupported()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 402,
+                UpdatedAtMs = 406,
+                Raw = "structured-reference-a-unsupported",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 神秘动作 打法参考B 打出5号位法术 幸运币",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "unknown_action"
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "GAME_005",
+                                cardName = "幸运币",
+                                ZONE_POSITION = 5
+                            })
+                        }
+                    }
+                }
+            };
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail);
+            Assert.Contains("json=map_failed", result.Detail);
+            Assert.Contains("body=map_failed", result.Detail);
         }
 
         [Fact]
