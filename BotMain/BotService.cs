@@ -145,6 +145,9 @@ namespace BotMain
         private static readonly TimeSpan RankLimitCheckInterval = TimeSpan.FromSeconds(5);
         private DateTime _lastActionCommandUtc = DateTime.UtcNow;
         private string _lastObservedSeedResponse = string.Empty;
+        private long _lastConsumedHsBoxActionUpdatedAtMs;
+        private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
+        private long _hsBoxActionMinimumUpdatedAtMs;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private DateTime _nextRankLimitCheckUtc = DateTime.MinValue;
@@ -1113,6 +1116,43 @@ namespace BotMain
             }
         }
 
+        private void ResetHsBoxActionRecommendationTracking(long minimumUpdatedAtMs = 0)
+        {
+            _lastConsumedHsBoxActionUpdatedAtMs = 0;
+            _lastConsumedHsBoxActionPayloadSignature = string.Empty;
+            _hsBoxActionMinimumUpdatedAtMs = Math.Max(0, minimumUpdatedAtMs);
+        }
+
+        private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation)
+        {
+            if (recommendation == null)
+                return;
+
+            if (recommendation.SourceUpdatedAtMs <= 0
+                && string.IsNullOrWhiteSpace(recommendation.SourcePayloadSignature))
+            {
+                return;
+            }
+
+            _lastConsumedHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+            _lastConsumedHsBoxActionPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+        }
+
+        private void RefreshHsBoxActionMinimumUpdatedAtNow()
+        {
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (nowMs > _hsBoxActionMinimumUpdatedAtMs)
+                _hsBoxActionMinimumUpdatedAtMs = nowMs;
+        }
+
+        private long GetHsBoxActionMinimumUpdatedAtMs(DateTime currentTurnStartedUtc)
+        {
+            var turnStartedMs = currentTurnStartedUtc == DateTime.MinValue
+                ? 0
+                : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds();
+            return Math.Max(turnStartedMs, _hsBoxActionMinimumUpdatedAtMs);
+        }
+
         private PendingAcquisitionContext ResolvePendingOrigin(int sourceEntityId, string sourceCardId)
         {
             var provenance = _matchEntityProvenanceRegistry.ResolveProvenance(sourceEntityId, sourceCardId);
@@ -2070,9 +2110,11 @@ namespace BotMain
 
                 var swTurn = Stopwatch.StartNew();
 
-                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState)
-                    || waitingForChoiceState)
+                var handledPendingChoiceBeforePlanning = TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoiceState);
+                if (handledPendingChoiceBeforePlanning || waitingForChoiceState)
                 {
+                    if (handledPendingChoiceBeforePlanning)
+                        RefreshHsBoxActionMinimumUpdatedAtNow();
                     Thread.Sleep(120);
                     continue;
                 }
@@ -2167,14 +2209,14 @@ namespace BotMain
                     planningBoard,
                     _selectedProfile,
                     deckCards,
-                    currentTurnStartedUtc == DateTime.MinValue
-                        ? 0
-                        : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds(),
+                    GetHsBoxActionMinimumUpdatedAtMs(currentTurnStartedUtc),
                     _currentDeckContext?.DeckName,
                     _currentDeckContext?.DeckSignature,
                     deckCards,
                     friendlyEntities,
-                    BuildMatchContext(planningBoard));
+                    BuildMatchContext(planningBoard),
+                    _lastConsumedHsBoxActionUpdatedAtMs,
+                    _lastConsumedHsBoxActionPayloadSignature);
 
                 recommendationStage = "recommend_actions";
                 var sw = Stopwatch.StartNew();
@@ -2315,6 +2357,7 @@ namespace BotMain
                                 }
                             }
 
+                            var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
                             var sendSw = Stopwatch.StartNew();
                             var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
@@ -2346,25 +2389,30 @@ namespace BotMain
                                     if (failedTimes >= ChoiceProbeAfterPlayFailThreshold)
                                     {
                                         Log($"[Choice] PLAY failed {ChoiceProbeAfterPlayFailThreshold} times for entity={failedPlayEntityId}, probing interactive selection state.");
-                                        playActionFailStreakByEntity[failedPlayEntityId] = 0;
+                                            playActionFailStreakByEntity[failedPlayEntityId] = 0;
 
-                                        if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
-                                        {
-                                            requestResimulation = true;
-                                            resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
-                                            resimulationRequestedThisAction = true;
-                                            resimulationReasonThisAction = resimulationReason;
-                                            Log($"[Choice] choice_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
+                                            if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
+                                            {
+                                                RefreshHsBoxActionMinimumUpdatedAtNow();
+                                                ClearChoiceStateWatch("choice_after_play_fail");
+                                                requestResimulation = true;
+                                                resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
+                                                resimulationRequestedThisAction = true;
+                                                resimulationReasonThisAction = resimulationReason;
+                                                Log($"[Choice] choice_detected source=PLAY:{failedPlayEntityId} detail=after_play_fail");
                                             break;
                                         }
                                     }
                                 }
 
+                                if (choiceWatchArmed)
+                                    ClearChoiceStateWatch("action_failed");
                                 actionFailed = true;
                                 actionFailedThisAction = true;
                                 break;
                             }
 
+                            RememberConsumedHsBoxActionRecommendation(recommendation);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
@@ -2426,6 +2474,8 @@ namespace BotMain
                                 postDelaySw.Stop();
                                 postDelayMs = postDelaySw.ElapsedMilliseconds;
                                 postReadyStatus = "skipped_next_option";
+                                if (choiceWatchArmed)
+                                    ClearChoiceStateWatch("action_followed_by_option");
                             }
                             else
                             {
@@ -2440,6 +2490,8 @@ namespace BotMain
                                 choiceProbeMs = choiceProbeSw.ElapsedMilliseconds;
                                 if (hasPendingChoice)
                                 {
+                                    RefreshHsBoxActionMinimumUpdatedAtNow();
+                                    ClearChoiceStateWatch("choice_after_action");
                                     requestResimulation = true;
                                     resimulationReason = choiceResimulationReason;
                                     resimulationRequestedThisAction = true;
@@ -2453,6 +2505,8 @@ namespace BotMain
                                 postReadySw.Stop();
                                 postReadyMs = postReadySw.ElapsedMilliseconds;
                                 postReadyStatus = postReadyOk ? "ready" : "timeout";
+                                if (choiceWatchArmed)
+                                    ClearChoiceStateWatch("action_settled_no_choice");
                             }
 
                             if (decision != null
@@ -4419,6 +4473,7 @@ namespace BotMain
                 ClearChoiceStateWatch("turn_changed");
                 ResetDiscoverLogState();
                 ResetChoiceLogState();
+                ResetHsBoxActionRecommendationTracking(new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds());
                 _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                 _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
                 resimulationCount = 0;
@@ -7297,6 +7352,7 @@ namespace BotMain
             }
 
             ClearChoiceStateWatch(clearChoiceReason);
+            ResetHsBoxActionRecommendationTracking();
             if (wasInGame)
             {
                 wasInGame = false;

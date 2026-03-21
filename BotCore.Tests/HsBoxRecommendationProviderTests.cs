@@ -590,6 +590,137 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_PrefersCardIdMatchOverSnapshotSlotFallback_WhenHandSlotsChanged()
+        {
+            var state = CreateState(
+                413,
+                raw: "coin-prefers-cardid-over-snapshot-slot",
+                actionName: "play_special",
+                cardId: "GAME_005",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 3
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 75,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+            Assert.DoesNotContain("slot_fallback", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_RejectsConsumedStructuredActionAndWaitsForFreshReplacement()
+        {
+            var staleState = CreateState(
+                500,
+                raw: "stale-count-28",
+                actionName: "play_minion",
+                cardId: "TLC_100",
+                cardName: "导航员伊莉斯",
+                zonePosition: 4,
+                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+            var freshState = CreateState(
+                800,
+                raw: "fresh-count-32",
+                actionName: "play_minion",
+                cardId: "TIME_045",
+                cardName: "永恒雏龙",
+                zonePosition: 6,
+                bodyText: "推荐打法 打出6号位随从 永恒雏龙");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(staleState, freshState), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                minimumUpdatedAtMs: 650,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TIME_045",
+                        Zone = "HAND",
+                        ZonePosition = 6
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 106,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                },
+                lastConsumedUpdatedAtMs: staleState.UpdatedAtMs,
+                lastConsumedPayloadSignature: staleState.PayloadSignature));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|104|0|0" }, result.Actions);
+            Assert.Equal(800, result.SourceUpdatedAtMs);
+            Assert.Equal(freshState.PayloadSignature, result.SourcePayloadSignature);
+        }
+
+        [Fact]
+        public void RecommendActions_ReportsFallbackWhenOnlyOrderedHandSlotCanBeUsed()
+        {
+            var state = CreateState(
+                414,
+                raw: "coin-ordered-slot-fallback",
+                actionName: "play_special",
+                cardId: "GAME_005",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(19, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(20, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(21, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(22, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(23, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|23|0|0" }, result.Actions);
+            Assert.Contains("fallbacks=", result.Detail);
+            Assert.Contains("ordered_slot_fallback", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_RemovesPrematureEndTurn_WhenStructuredSequenceStartsWithIt()
         {
             var board = new Board

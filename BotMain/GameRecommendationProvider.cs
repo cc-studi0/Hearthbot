@@ -133,7 +133,9 @@ namespace BotMain
             string deckSignature = null,
             IReadOnlyList<ApiCard.Cards> remainingDeckCards = null,
             IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
-            MatchContextSnapshot matchContext = null)
+            MatchContextSnapshot matchContext = null,
+            long lastConsumedUpdatedAtMs = 0,
+            string lastConsumedPayloadSignature = null)
         {
             Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             PlanningBoard = planningBoard;
@@ -145,6 +147,8 @@ namespace BotMain
             RemainingDeckCards = remainingDeckCards ?? deckCards ?? Array.Empty<ApiCard.Cards>();
             FriendlyEntities = friendlyEntities ?? Array.Empty<EntityContextSnapshot>();
             MatchContext = matchContext ?? new MatchContextSnapshot();
+            LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
+            LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
         }
 
         public string Seed { get; }
@@ -157,6 +161,8 @@ namespace BotMain
         public IReadOnlyList<ApiCard.Cards> RemainingDeckCards { get; }
         public IReadOnlyList<EntityContextSnapshot> FriendlyEntities { get; }
         public MatchContextSnapshot MatchContext { get; }
+        public long LastConsumedUpdatedAtMs { get; }
+        public string LastConsumedPayloadSignature { get; }
     }
 
     internal sealed class ActionRecommendationResult

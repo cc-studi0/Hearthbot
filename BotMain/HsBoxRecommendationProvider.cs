@@ -69,15 +69,19 @@ namespace BotMain
         {
             var lastStructuredDetail = "json=not_checked";
             var lastBodyDetail = "body=not_checked";
+            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
+            var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
+            var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
             var state = WaitForState(
-                current => TryEvaluateActionState(
-                    current,
-                    request,
-                    out _,
-                    out _,
-                    out lastStructuredDetail,
-                    out lastBodyDetail)
-                    || ConstructedChoiceBridge.LooksLikeChoiceRecommendation(current),
+                current => IsActionPayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
+                    && (TryEvaluateActionState(
+                        current,
+                        request,
+                        out _,
+                        out _,
+                        out lastStructuredDetail,
+                        out lastBodyDetail)
+                        || ConstructedChoiceBridge.LooksLikeChoiceRecommendation(current)),
                 timeoutMs: _actionWaitTimeoutMs,
                 pollIntervalMs: _actionPollIntervalMs,
                 out var waitDetail,
@@ -87,6 +91,7 @@ namespace BotMain
             string structuredDetail = null;
             bool structuredHadPrematureEndTurn = false;
             var hasStructured = state != null
+                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
                 && TryGetStructuredActions(state, request, out structuredActions, out structuredDetail, out structuredHadPrematureEndTurn);
             if (hasStructured)
                 lastStructuredDetail = structuredDetail;
@@ -94,6 +99,7 @@ namespace BotMain
             List<string> bodyActions = null;
             string bodyDetail = null;
             var hasBody = state != null
+                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
                 && TryGetBodyActions(state, request, out bodyActions, out bodyDetail);
             if (hasBody)
                 lastBodyDetail = bodyDetail;
@@ -137,6 +143,7 @@ namespace BotMain
             }
 
             if (state != null
+                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
                 && ConstructedChoiceBridge.LooksLikeChoiceRecommendation(state))
             {
                 return new ActionRecommendationResult(
@@ -275,6 +282,32 @@ namespace BotMain
         private static bool IsFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs)
         {
             if (state == null || minimumUpdatedAtMs <= 0)
+                return true;
+
+            return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
+        }
+
+        private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
+        {
+            if (state == null || state.UpdatedAtMs <= 0)
+                return false;
+
+            if (lastConsumedUpdatedAtMs > 0)
+            {
+                if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
+                    return true;
+
+                if (state.UpdatedAtMs == lastConsumedUpdatedAtMs
+                    && !string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)
+                    && !string.Equals(state.PayloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+
+                return false;
+            }
+
+            if (minimumUpdatedAtMs <= 0)
                 return true;
 
             return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
@@ -3397,6 +3430,7 @@ namespace BotMain
             }
 
             var skipped = new List<string>();
+            var fallbackNotes = new List<string>();
             var lastChoiceCapableSourceEntityId = 0;
             var deferredChoiceBinding = new ConstructedDeferredChoiceBinding();
             for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
@@ -3419,6 +3453,9 @@ namespace BotMain
 
                 if (!string.IsNullOrWhiteSpace(command))
                 {
+                    if (IsFallbackMappingReason(reason))
+                        fallbackNotes.Add($"{step.ActionName}:{reason}");
+
                     var stepTargetEntityId = ResolveTargetEntityId(board, step);
                     var hasEmbeddedSubOption = step.SubOption != null
                         && !string.IsNullOrWhiteSpace(step.SubOption.CardId);
@@ -3503,6 +3540,8 @@ namespace BotMain
             }
 
             detail = $"count={actions.Count}, skipped={skipped.Count}, {scopeDetail}, updatedAt={state.UpdatedAtMs}, page={state.Href}, commands={SummarizeCommands(actions)}";
+            if (fallbackNotes.Count > 0)
+                detail += $", fallbacks={string.Join(",", fallbackNotes)}";
             return true;
         }
 
@@ -4624,7 +4663,7 @@ namespace BotMain
             out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard());
+            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
             if (source <= 0)
             {
                 reason = "play_source_not_found";
@@ -4649,7 +4688,7 @@ namespace BotMain
             }
 
             command = $"PLAY|{source}|{target}|{position}";
-            reason = "ok";
+            reason = NormalizeSuccessfulMappingReason(sourceResolutionDetail);
             return true;
         }
 
@@ -4661,7 +4700,7 @@ namespace BotMain
             out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard());
+            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
             if (source <= 0)
             {
                 reason = "trade_source_not_found";
@@ -4669,8 +4708,24 @@ namespace BotMain
             }
 
             command = $"TRADE|{source}";
-            reason = "ok";
+            reason = NormalizeSuccessfulMappingReason(sourceResolutionDetail);
             return true;
+        }
+
+        private static string NormalizeSuccessfulMappingReason(string resolutionDetail)
+        {
+            if (string.IsNullOrWhiteSpace(resolutionDetail))
+                return "ok";
+
+            return IsFallbackMappingReason(resolutionDetail)
+                ? "ok:" + resolutionDetail
+                : "ok";
+        }
+
+        private static bool IsFallbackMappingReason(string reason)
+        {
+            return !string.IsNullOrWhiteSpace(reason)
+                && reason.IndexOf("fallback", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static bool TryMapHeroAttack(HsBoxActionStep step, Board board, out string command, out string reason)
@@ -5137,11 +5192,32 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             HsBoxCardRef card)
         {
-            var source = ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "HAND", card, allowAnyCardIdMatch: false);
-            if (source > 0)
-                return source;
+            return ResolveFriendlyHandEntityId(board, friendlyEntities, card, out _);
+        }
 
-            return ResolveOrderedEntityId(board?.Hand, card);
+        private static int ResolveFriendlyHandEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card,
+            out string resolutionDetail)
+        {
+            resolutionDetail = string.Empty;
+            var source = ResolveFriendlyEntityIdFromSnapshots(
+                friendlyEntities,
+                "HAND",
+                card,
+                allowPureSlotFallback: true,
+                out var snapshotDetail);
+            if (source > 0)
+            {
+                resolutionDetail = snapshotDetail;
+                return source;
+            }
+
+            source = ResolveOrderedEntityId(board?.Hand, card, out var orderedDetail);
+            if (source > 0)
+                resolutionDetail = orderedDetail;
+            return source;
         }
 
         private static int ResolveFriendlyBoardEntityId(
@@ -5153,7 +5229,7 @@ namespace BotMain
             if (source > 0)
                 return source;
 
-            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowAnyCardIdMatch: true);
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowPureSlotFallback: true);
         }
 
         private static int ResolveFlexibleFriendlyEntityId(
@@ -5200,7 +5276,7 @@ namespace BotMain
                 return board.Ability.Id;
             }
 
-            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowAnyCardIdMatch: true);
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowPureSlotFallback: true);
         }
 
         private static int ResolveBoardEntityId(IReadOnlyList<Card> cards, HsBoxCardRef card)
@@ -5210,6 +5286,12 @@ namespace BotMain
 
         private static int ResolveOrderedEntityId(IReadOnlyList<Card> cards, HsBoxCardRef card)
         {
+            return ResolveOrderedEntityId(cards, card, out _);
+        }
+
+        private static int ResolveOrderedEntityId(IReadOnlyList<Card> cards, HsBoxCardRef card, out string resolutionDetail)
+        {
+            resolutionDetail = string.Empty;
             if (cards == null || card == null || cards.Count == 0)
                 return 0;
 
@@ -5218,12 +5300,18 @@ namespace BotMain
             {
                 var candidate = cards[zonePosition - 1];
                 if (MatchesCardId(candidate, card.CardId))
+                {
+                    resolutionDetail = "ordered_exact_slot_card";
                     return candidate?.Id ?? 0;
+                }
             }
 
             var byCard = cards.FirstOrDefault(candidate => MatchesCardId(candidate, card.CardId));
             if (byCard != null)
+            {
+                resolutionDetail = "ordered_card_match";
                 return byCard.Id;
+            }
 
             // seed_compat 可能将卡牌替换为其他 cardId，位置不变。
             // cardId 匹配全部失败时，按纯位置兜底。
@@ -5231,7 +5319,10 @@ namespace BotMain
             {
                 var positional = cards[zonePosition - 1];
                 if (positional != null)
+                {
+                    resolutionDetail = "ordered_slot_fallback";
                     return positional.Id;
+                }
             }
 
             return 0;
@@ -5241,8 +5332,19 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             string zone,
             HsBoxCardRef card,
-            bool allowAnyCardIdMatch)
+            bool allowPureSlotFallback)
         {
+            return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, zone, card, allowPureSlotFallback, out _);
+        }
+
+        private static int ResolveFriendlyEntityIdFromSnapshots(
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            string zone,
+            HsBoxCardRef card,
+            bool allowPureSlotFallback,
+            out string resolutionDetail)
+        {
+            resolutionDetail = string.Empty;
             if (friendlyEntities == null || friendlyEntities.Count == 0 || card == null)
                 return 0;
 
@@ -5251,7 +5353,9 @@ namespace BotMain
                 friendlyEntities,
                 zone,
                 zonePosition,
-                allowAnyCardIdMatch ? card.CardId : card.CardId);
+                card.CardId,
+                allowPureSlotFallback,
+                out resolutionDetail);
         }
 
         private static int ResolveFriendlyEntityIdByZonePosition(
@@ -5260,6 +5364,18 @@ namespace BotMain
             int oneBasedIndex,
             string cardId)
         {
+            return ResolveFriendlyEntityIdByZonePosition(friendlyEntities, zone, oneBasedIndex, cardId, allowPureSlotFallback: true, out _);
+        }
+
+        private static int ResolveFriendlyEntityIdByZonePosition(
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            string zone,
+            int oneBasedIndex,
+            string cardId,
+            bool allowPureSlotFallback,
+            out string resolutionDetail)
+        {
+            resolutionDetail = string.Empty;
             if (friendlyEntities == null || friendlyEntities.Count == 0)
                 return 0;
 
@@ -5271,24 +5387,44 @@ namespace BotMain
             if (candidates.Count == 0)
                 return 0;
 
+            EntityContextSnapshot positional;
+
             if (oneBasedIndex > 0)
             {
-                var positional = candidates.FirstOrDefault(entity =>
+                positional = candidates.FirstOrDefault(entity =>
                     entity.ZonePosition == oneBasedIndex
                     && MatchesCardId(entity.CardId, cardId));
                 if (positional != null)
+                {
+                    resolutionDetail = zone.Equals("HAND", StringComparison.OrdinalIgnoreCase)
+                        ? "hand_snapshot_exact_slot_card"
+                        : "play_snapshot_exact_slot_card";
                     return positional.EntityId;
-
-                positional = candidates.FirstOrDefault(entity => entity.ZonePosition == oneBasedIndex);
-                if (positional != null)
-                    return positional.EntityId;
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(cardId))
             {
                 var byCard = candidates.FirstOrDefault(entity => MatchesCardId(entity.CardId, cardId));
                 if (byCard != null)
+                {
+                    resolutionDetail = zone.Equals("HAND", StringComparison.OrdinalIgnoreCase)
+                        ? "hand_snapshot_card_match"
+                        : "play_snapshot_card_match";
                     return byCard.EntityId;
+                }
+            }
+
+            if (allowPureSlotFallback && oneBasedIndex > 0)
+            {
+                positional = candidates.FirstOrDefault(entity => entity.ZonePosition == oneBasedIndex);
+                if (positional != null)
+                {
+                    resolutionDetail = zone.Equals("HAND", StringComparison.OrdinalIgnoreCase)
+                        ? "hand_snapshot_slot_fallback"
+                        : "play_snapshot_slot_fallback";
+                    return positional.EntityId;
+                }
             }
 
             return 0;
