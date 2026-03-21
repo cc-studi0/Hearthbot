@@ -4996,41 +4996,19 @@ namespace BotMain
                 return steps;
 
             // 构筑模式的 Envelope.Data 会把“打法参考 A/B/C”拍平到同一个数组里。
-            // 在这种 payload 中，A 永远是权威方案：只取第一个非空步骤作为 A 的根步骤，
-            // 并保留它后面紧邻的 choose/choice/discard 连续步骤；之后的主动作一律视为 B/C。
-            var primarySteps = new List<HsBoxActionStep>();
-            var primaryRootIndex = -1;
+            // 在这种 payload 中，每个顶层 actionName 都是一套独立推荐。
+            // 因此只取第一个非空步骤作为参考 A，后面的所有步骤一律视为 B/C 并忽略。
             for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
                 var step = steps[stepIndex];
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
                     continue;
 
-                primaryRootIndex = stepIndex;
-                primarySteps.Add(step);
-                break;
+                scopeDetail = $"scope=reference_a(1/{steps.Count})";
+                return new List<HsBoxActionStep> { step };
             }
 
-            if (primaryRootIndex < 0)
-                return steps;
-
-            for (var stepIndex = primaryRootIndex + 1; stepIndex < steps.Count; stepIndex++)
-            {
-                var step = steps[stepIndex];
-                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
-                    continue;
-
-                if (IsContinuationActionForPrimaryRecommendation(step.ActionName))
-                {
-                    primarySteps.Add(step);
-                    continue;
-                }
-
-                break;
-            }
-
-            scopeDetail = $"scope=reference_a({primarySteps.Count}/{steps.Count})";
-            return primarySteps;
+            return steps;
         }
 
         private static List<HsBoxActionStep> GetPrimaryActionSequenceSteps(List<HsBoxActionStep> steps, out string scopeDetail)

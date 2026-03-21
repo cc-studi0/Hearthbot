@@ -192,7 +192,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_KeepsFirstStructuredRecommendationContinuations_AndFiltersLaterAlternatives()
+        public void RecommendActions_UsesOnlyFirstStructuredActionStep_AndFiltersLaterAlternatives()
         {
             var state = new HsBoxRecommendationState
             {
@@ -267,7 +267,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|101|0|0", "OPTION|101|0|0|AT_037b" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
             Assert.Contains("scope=reference_a", result.Detail);
         }
 
