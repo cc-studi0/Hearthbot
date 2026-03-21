@@ -1116,11 +1116,11 @@ namespace BotMain
             }
         }
 
-        private void ResetHsBoxActionRecommendationTracking(long minimumUpdatedAtMs = 0)
+        private void ResetHsBoxActionRecommendationTracking()
         {
             _lastConsumedHsBoxActionUpdatedAtMs = 0;
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
-            _hsBoxActionMinimumUpdatedAtMs = Math.Max(0, minimumUpdatedAtMs);
+            _hsBoxActionMinimumUpdatedAtMs = 0;
         }
 
         private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation)
@@ -1145,13 +1145,7 @@ namespace BotMain
                 _hsBoxActionMinimumUpdatedAtMs = nowMs;
         }
 
-        private long GetHsBoxActionMinimumUpdatedAtMs(DateTime currentTurnStartedUtc)
-        {
-            var turnStartedMs = currentTurnStartedUtc == DateTime.MinValue
-                ? 0
-                : new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds();
-            return Math.Max(turnStartedMs, _hsBoxActionMinimumUpdatedAtMs);
-        }
+        private long GetHsBoxActionMinimumUpdatedAtMs() => Math.Max(0, _hsBoxActionMinimumUpdatedAtMs);
 
         private PendingAcquisitionContext ResolvePendingOrigin(int sourceEntityId, string sourceCardId)
         {
@@ -2209,7 +2203,7 @@ namespace BotMain
                     planningBoard,
                     _selectedProfile,
                     deckCards,
-                    GetHsBoxActionMinimumUpdatedAtMs(currentTurnStartedUtc),
+                    GetHsBoxActionMinimumUpdatedAtMs(),
                     _currentDeckContext?.DeckName,
                     _currentDeckContext?.DeckSignature,
                     deckCards,
@@ -4473,7 +4467,7 @@ namespace BotMain
                 ClearChoiceStateWatch("turn_changed");
                 ResetDiscoverLogState();
                 ResetChoiceLogState();
-                ResetHsBoxActionRecommendationTracking(new DateTimeOffset(currentTurnStartedUtc).ToUnixTimeMilliseconds());
+                ResetHsBoxActionRecommendationTracking();
                 _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                 _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
                 resimulationCount = 0;

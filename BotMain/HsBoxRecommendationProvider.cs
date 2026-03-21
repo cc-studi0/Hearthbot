@@ -165,10 +165,37 @@ namespace BotMain
                     sourcePayloadSignature: state.PayloadSignature);
             }
 
+            var diagState = state ?? lastObservedState;
+            var diagParts = new List<string>();
+            if (diagState != null)
+            {
+                var freshResult = IsActionPayloadFreshEnough(diagState, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature);
+                diagParts.Add($"fresh={freshResult}");
+                diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
+                diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
+                diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
+                diagParts.Add($"hasLastSig={!string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)}");
+                diagParts.Add($"sigMatch={string.Equals(diagState.PayloadSignature, lastConsumedPayloadSignature ?? string.Empty, StringComparison.Ordinal)}");
+                diagParts.Add($"choiceLike={ConstructedChoiceBridge.LooksLikeChoiceRecommendation(diagState)}");
+
+                if (freshResult && request != null)
+                {
+                    var structOk = TryGetStructuredActions(diagState, request, out _, out var structDiag, out _);
+                    diagParts.Add($"structMap={structOk}({structDiag})");
+                    var bodyOk = TryGetBodyActions(diagState, request, out _, out var bodyDiag);
+                    diagParts.Add($"bodyMap={bodyOk}({bodyDiag})");
+                }
+            }
+            else
+            {
+                diagParts.Add("diagState=null");
+            }
+            var diag = string.Join("; ", diagParts);
+
             return new ActionRecommendationResult(
                 null,
                 Array.Empty<string>(),
-                $"hsbox_actions wait_retry ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail}; lastState={DescribeActionState(lastObservedState)})",
+                $"hsbox_actions wait_retry ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail}; lastState={DescribeActionState(lastObservedState)}) [diag: {diag}]",
                 shouldRetryWithoutAction: true);
         }
 

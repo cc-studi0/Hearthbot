@@ -684,6 +684,84 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_RejectsPreviouslyConsumedPayload_WhenNoReplacementArrives()
+        {
+            var state = CreateState(
+                500,
+                raw: "consumed-count-28",
+                actionName: "play_minion",
+                cardId: "TLC_100",
+                cardName: "导航员伊莉斯",
+                zonePosition: 4,
+                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TLC_100",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                },
+                lastConsumedUpdatedAtMs: state.UpdatedAtMs,
+                lastConsumedPayloadSignature: state.PayloadSignature));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail);
+            Assert.Contains("stateUpdatedAt=500", result.Detail);
+            Assert.Contains("lastConsumedAt=500", result.Detail);
+            Assert.Contains("sigMatch=True", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_WaitRetryIncludesFreshnessDiagnostic_WhenBlockedByMinimumUpdatedAt()
+        {
+            var state = CreateState(
+                500,
+                raw: "stale-minimum-updated-at",
+                actionName: "play_minion",
+                cardId: "TLC_100",
+                cardName: "导航员伊莉斯",
+                zonePosition: 4,
+                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                minimumUpdatedAtMs: 4001,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TLC_100",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                }));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail);
+            Assert.Contains("[diag:", result.Detail);
+            Assert.Contains("stateUpdatedAt=500", result.Detail);
+            Assert.Contains("minUpdatedAt=4001", result.Detail);
+            Assert.Contains("lastConsumedAt=0", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_ReportsFallbackWhenOnlyOrderedHandSlotCanBeUsed()
         {
             var state = CreateState(
