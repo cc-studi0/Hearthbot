@@ -483,6 +483,13 @@ namespace HearthstonePayload
             {
                 _pipe.Write(ActionExecutor.Execute(reader, cmd.Substring(7)));
             }
+            else if (cmd.StartsWith("SET_HUMANIZER_CONFIG:", StringComparison.Ordinal))
+            {
+                var payload = cmd.Length > "SET_HUMANIZER_CONFIG:".Length
+                    ? cmd.Substring("SET_HUMANIZER_CONFIG:".Length)
+                    : string.Empty;
+                _pipe.Write(ActionExecutor.SetHumanizerConfig(payload));
+            }
             else if (cmd == "GET_DECKS")
             {
                 var decks = DeckReader.ReadDecks();

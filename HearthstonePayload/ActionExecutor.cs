@@ -122,15 +122,71 @@ namespace HearthstonePayload
         private static readonly HeroEnchantmentBusyObservationState _heroEnchantmentBusy = new HeroEnchantmentBusyObservationState();
         private static readonly object _choiceDecisionTraceSync = new object();
         private static readonly object _pendingOptionTargetSourceSync = new object();
+        private static readonly object _humanizerConfigSync = new object();
+        private static readonly object _humanizeRandomSync = new object();
         private static string _lastChoiceDecisionTrace = string.Empty;
         private static int _lastChoiceDecisionTraceTick;
         private static int _pendingOptionTargetSourceEntityId;
         private static int _pendingOptionTargetSourceUntilTick;
+        private static HumanizerConfig _humanizerConfig = new HumanizerConfig();
+        private static readonly Random _humanizeRandom = new Random();
 
         public static void Init(CoroutineExecutor executor)
         {
             _coroutine = executor;
             ChoiceController.Init(executor);
+        }
+
+        public static string SetHumanizerConfig(string payload)
+        {
+            if (!HumanizerProtocol.TryParse(payload, out var config))
+                return "FAIL:HUMANIZER_CONFIG:parse";
+
+            lock (_humanizerConfigSync)
+            {
+                _humanizerConfig = config ?? new HumanizerConfig();
+            }
+
+            return "OK:HUMANIZER_CONFIG:" + HumanizerProtocol.GetIntensityToken(_humanizerConfig.Intensity);
+        }
+
+        private static HumanizerConfig GetHumanizerConfigSnapshot()
+        {
+            lock (_humanizerConfigSync)
+            {
+                return new HumanizerConfig
+                {
+                    Enabled = _humanizerConfig.Enabled,
+                    Intensity = _humanizerConfig.Intensity
+                };
+            }
+        }
+
+        private static bool IsConstructedHumanizerEnabled()
+        {
+            return GetHumanizerConfigSnapshot().Enabled;
+        }
+
+        private static int NextHumanizeInt32(int minInclusive, int maxInclusive)
+        {
+            if (maxInclusive <= minInclusive)
+                return minInclusive;
+
+            lock (_humanizeRandomSync)
+            {
+                return _humanizeRandom.Next(minInclusive, maxInclusive + 1);
+            }
+        }
+
+        private static double NextHumanizeDouble(double minInclusive, double maxInclusive)
+        {
+            if (maxInclusive <= minInclusive)
+                return minInclusive;
+
+            lock (_humanizeRandomSync)
+            {
+                return minInclusive + (_humanizeRandom.NextDouble() * (maxInclusive - minInclusive));
+            }
         }
 
         private static string ExecuteOption(int sourceId, int targetId, int position, string subOptionCardId)
@@ -406,7 +462,7 @@ namespace HearthstonePayload
                 return false;
 
             // 通过协程在主线程执行点击，确保 PressFrame/ReleaseFrame 与 Unity 帧同步。
-            var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
+            var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty, targetId, targetHeroSide));
             if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                 return false;
 
@@ -444,7 +500,7 @@ namespace HearthstonePayload
                 if (!TryResolvePlayTargetScreenPos(targetId, targetHeroSide, out var tx, out var ty))
                     return "FAIL:OPTION_TARGET:pos_not_found:" + targetId;
 
-                var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty));
+                var clickResult = _coroutine.RunAndWait(MouseClickTargetCoroutine(tx, ty, targetId, targetHeroSide));
                 if (clickResult == null || !clickResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     return clickResult ?? "FAIL:OPTION_TARGET:click_failed:" + targetId;
 
@@ -512,11 +568,30 @@ namespace HearthstonePayload
                 AppendActionTrace("option_target_source clear source=" + clearedSourceId + " reason=" + (reason ?? "unknown"));
         }
 
-        private static IEnumerator<float> MouseClickTargetCoroutine(int x, int y)
+        private struct HumanizedTargetCandidate
+        {
+            public int EntityId;
+            public int HeroSide;
+        }
+
+        private struct HumanizedCursorStep
+        {
+            public int X;
+            public int Y;
+            public float DelaySeconds;
+        }
+
+        private static IEnumerator<float> MouseClickTargetCoroutine(int x, int y, int targetEntityId, int targetHeroSide)
         {
             InputHook.Simulating = true;
 
-            foreach (var w in SmoothMove(x, y, 10, 0.012f)) yield return w;
+            if (IsConstructedHumanizerEnabled())
+            {
+                foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, false))
+                    yield return wait;
+            }
+
+            foreach (var w in MoveCursorConstructed(x, y, 10, 0.012f, false)) yield return w;
 
             MouseSimulator.MoveTo(x, y);
             yield return 0.06f;
@@ -526,6 +601,255 @@ namespace HearthstonePayload
             yield return 0.15f;
 
             _coroutine.SetResult("OK:TARGET_CLICK:" + x + "," + y);
+        }
+
+        private static IEnumerator<float> HumanizedTurnStart(int turn, string handEntityIdsCsv)
+        {
+            InputHook.Simulating = true;
+            var config = GetHumanizerConfigSnapshot();
+            if (config == null || !config.Enabled)
+            {
+                _coroutine.SetResult("OK:HUMAN_TURN_START:disabled");
+                yield break;
+            }
+
+            int minExtraMs;
+            int maxExtraMs;
+            ConstructedHumanizerPlanner.GetTurnStartRandomRange(config.Intensity, out minExtraMs, out maxExtraMs);
+            var thinkMs = ConstructedHumanizerPlanner.ComputeTurnStartDelayMs(
+                turn,
+                config.Intensity,
+                NextHumanizeInt32(minExtraMs, maxExtraMs));
+
+            var startedUtc = DateTime.UtcNow;
+            var orderedHandEntityIds = ParseEntityIdsCsv(handEntityIdsCsv);
+            if (orderedHandEntityIds.Count == 0)
+                orderedHandEntityIds = GameObjectFinder.GetHandEntityIds() ?? new List<int>();
+
+            var scanHandEntityIds = PickTurnStartScanHandEntities(orderedHandEntityIds);
+            if (scanHandEntityIds.Count > 0)
+            {
+                foreach (var handEntityId in scanHandEntityIds)
+                {
+                    if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
+                        break;
+
+                    if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var x, out var y))
+                        continue;
+
+                    foreach (var wait in MoveCursorConstructed(x, y, 10, 0.010f, false))
+                        yield return wait;
+
+                    var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
+                    if (remainingMs <= 0)
+                        break;
+
+                    yield return Math.Min(remainingMs, NextHumanizeInt32(100, 280)) / 1000f;
+                }
+            }
+            else
+            {
+                foreach (var fallbackPoint in BuildTurnStartFallbackPoints())
+                {
+                    if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 180)
+                        break;
+
+                    foreach (var wait in MoveCursorConstructed(fallbackPoint.Item1, fallbackPoint.Item2, 10, 0.010f, false))
+                        yield return wait;
+
+                    var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
+                    if (remainingMs <= 0)
+                        break;
+
+                    yield return Math.Min(remainingMs, NextHumanizeInt32(120, 240)) / 1000f;
+                }
+            }
+
+            var tailMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
+            if (tailMs > 0)
+                yield return tailMs / 1000f;
+
+            _coroutine.SetResult(
+                "OK:HUMAN_TURN_START:"
+                + HumanizerProtocol.GetIntensityToken(config.Intensity)
+                + ":"
+                + thinkMs);
+        }
+
+        private static List<int> ParseEntityIdsCsv(string csv)
+        {
+            var result = new List<int>();
+            if (string.IsNullOrWhiteSpace(csv))
+                return result;
+
+            foreach (var part in csv.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (int.TryParse(part, out var entityId) && entityId > 0)
+                    result.Add(entityId);
+            }
+
+            return result;
+        }
+
+        private static List<int> PickTurnStartScanHandEntities(List<int> orderedHandEntityIds)
+        {
+            var unique = new List<int>();
+            foreach (var entityId in orderedHandEntityIds ?? new List<int>())
+            {
+                if (entityId > 0 && !unique.Contains(entityId))
+                    unique.Add(entityId);
+            }
+
+            if (unique.Count <= 3)
+                return unique;
+
+            var picks = new List<int>();
+            var cursor = NextHumanizeInt32(0, unique.Count - 1);
+            var direction = NextHumanizeInt32(0, 1) == 0 ? -1 : 1;
+            while (picks.Count < 3 && unique.Count > 0)
+            {
+                if (cursor < 0)
+                {
+                    cursor = 0;
+                    direction = 1;
+                }
+                else if (cursor >= unique.Count)
+                {
+                    cursor = unique.Count - 1;
+                    direction = -1;
+                }
+
+                var entityId = unique[cursor];
+                if (!picks.Contains(entityId))
+                    picks.Add(entityId);
+
+                cursor += direction;
+            }
+
+            return picks;
+        }
+
+        private static List<Tuple<int, int>> BuildTurnStartFallbackPoints()
+        {
+            var result = new List<Tuple<int, int>>();
+            if (GameObjectFinder.GetHeroScreenPos(true, out var heroX, out var heroY))
+                result.Add(Tuple.Create(heroX, heroY));
+            if (GameObjectFinder.GetHeroPowerScreenPos(out var powerX, out var powerY))
+                result.Add(Tuple.Create(powerX, powerY));
+
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var screenHeight = MouseSimulator.GetScreenHeight();
+            if (screenWidth > 0 && screenHeight > 0)
+                result.Add(Tuple.Create((int)(screenWidth * 0.50f), (int)(screenHeight * 0.57f)));
+
+            return result;
+        }
+
+        private static int GetRemainingTurnStartThinkMs(DateTime startedUtc, int thinkMs)
+        {
+            var elapsedMs = (int)(DateTime.UtcNow - startedUtc).TotalMilliseconds;
+            return Math.Max(0, thinkMs - elapsedMs);
+        }
+
+        private static IEnumerable<float> MaybePreviewAlternateTarget(int targetEntityId, int targetHeroSide, bool dragging)
+        {
+            if (!TryResolveAlternateTargetScreenPos(targetEntityId, targetHeroSide, out var previewX, out var previewY))
+                yield break;
+
+            foreach (var wait in MoveCursorConstructed(previewX, previewY, 10, 0.010f, dragging))
+                yield return wait;
+
+            yield return GetHumanizePauseSeconds(100, 220);
+        }
+
+        private static bool TryResolveAlternateTargetScreenPos(
+            int actualTargetEntityId,
+            int actualTargetHeroSide,
+            out int previewX,
+            out int previewY)
+        {
+            previewX = 0;
+            previewY = 0;
+            if (!IsConstructedHumanizerEnabled())
+                return false;
+
+            var state = SafeReadGameState();
+            if (state == null)
+                return false;
+
+            var candidates = BuildAlternateTargetCandidates(state, actualTargetEntityId, actualTargetHeroSide);
+            if (candidates.Count == 0)
+                return false;
+
+            var startIndex = NextHumanizeInt32(0, candidates.Count - 1);
+            for (int offset = 0; offset < candidates.Count; offset++)
+            {
+                var candidate = candidates[(startIndex + offset) % candidates.Count];
+                if (TryResolvePlayTargetScreenPos(candidate.EntityId, candidate.HeroSide, out previewX, out previewY))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static List<HumanizedTargetCandidate> BuildAlternateTargetCandidates(
+            GameStateData state,
+            int actualTargetEntityId,
+            int actualTargetHeroSide)
+        {
+            var candidates = new List<HumanizedTargetCandidate>();
+            if (state == null)
+                return candidates;
+
+            var resolvedHeroSide = actualTargetHeroSide;
+            if (resolvedHeroSide < 0)
+            {
+                if (state.HeroFriend != null && state.HeroFriend.EntityId == actualTargetEntityId)
+                    resolvedHeroSide = 0;
+                else if (state.HeroEnemy != null && state.HeroEnemy.EntityId == actualTargetEntityId)
+                    resolvedHeroSide = 1;
+            }
+
+            if (resolvedHeroSide == 1 || IsEnemyMinionEntity(state, actualTargetEntityId))
+            {
+                if (state.HeroEnemy != null && state.HeroEnemy.EntityId != actualTargetEntityId)
+                    candidates.Add(new HumanizedTargetCandidate { EntityId = state.HeroEnemy.EntityId, HeroSide = 1 });
+
+                foreach (var entity in state.MinionEnemy ?? new List<EntityData>())
+                {
+                    if (entity != null && entity.EntityId > 0 && entity.EntityId != actualTargetEntityId)
+                        candidates.Add(new HumanizedTargetCandidate { EntityId = entity.EntityId, HeroSide = -1 });
+                }
+
+                return candidates;
+            }
+
+            if (resolvedHeroSide == 0
+                || (state.MinionFriend != null && state.MinionFriend.Any(entity => entity != null && entity.EntityId == actualTargetEntityId)))
+            {
+                if (state.HeroFriend != null && state.HeroFriend.EntityId != actualTargetEntityId)
+                    candidates.Add(new HumanizedTargetCandidate { EntityId = state.HeroFriend.EntityId, HeroSide = 0 });
+
+                foreach (var entity in state.MinionFriend ?? new List<EntityData>())
+                {
+                    if (entity != null && entity.EntityId > 0 && entity.EntityId != actualTargetEntityId)
+                        candidates.Add(new HumanizedTargetCandidate { EntityId = entity.EntityId, HeroSide = -1 });
+                }
+            }
+
+            return candidates;
+        }
+
+        private static GameStateData SafeReadGameState()
+        {
+            try
+            {
+                return new GameReader().ReadGameState();
+            }
+            catch
+            {
+                return null;
+            }
         }
 
         /// <summary>
@@ -876,6 +1200,12 @@ namespace HearthstonePayload
                 case "CONCEDE":
                     Concede();
                     return "OK:CONCEDE";
+                case "HUMAN_TURN_START":
+                    {
+                        int turn = parts.Length > 1 ? int.Parse(parts[1]) : 0;
+                        var handEntityIdsCsv = parts.Length > 2 ? parts[2] : string.Empty;
+                        return _coroutine.RunAndWait(HumanizedTurnStart(turn, handEntityIdsCsv), 15000);
+                    }
 
                 // ── 战旗模式动作 ──
                 case "BG_BUY":
@@ -982,6 +1312,103 @@ namespace HearthstonePayload
             }
         }
 
+        private static IEnumerable<float> MoveCursorConstructed(int tx, int ty, int steps, float stepDelay, bool dragging)
+        {
+            if (IsConstructedHumanizerEnabled()
+                && TryBuildCubicBezierMove(tx, ty, dragging, out var humanizedSteps))
+            {
+                foreach (var step in humanizedSteps)
+                {
+                    MouseSimulator.MoveTo(step.X, step.Y);
+                    yield return step.DelaySeconds;
+                }
+
+                yield break;
+            }
+
+            foreach (var wait in SmoothMove(tx, ty, steps, stepDelay))
+                yield return wait;
+        }
+
+        private static bool TryBuildCubicBezierMove(int tx, int ty, bool dragging, out List<HumanizedCursorStep> steps)
+        {
+            steps = null;
+
+            try
+            {
+                int sx = MouseSimulator.CurX;
+                int sy = MouseSimulator.CurY;
+                double dx = tx - sx;
+                double dy = ty - sy;
+                double distance = Math.Sqrt((dx * dx) + (dy * dy));
+                var builtSteps = new List<HumanizedCursorStep>();
+                if (distance < 2d)
+                {
+                    builtSteps.Add(new HumanizedCursorStep
+                    {
+                        X = tx,
+                        Y = ty,
+                        DelaySeconds = dragging ? 0.010f : 0.008f
+                    });
+                    steps = builtSteps;
+                    return true;
+                }
+
+                double normalX = -dy / distance;
+                double normalY = dx / distance;
+                double offsetMagnitude = Math.Max(14d, distance * (NextHumanizeInt32(8, 18) / 100d));
+                if (NextHumanizeInt32(0, 1) == 0)
+                    offsetMagnitude = -offsetMagnitude;
+
+                double c1Scale = NextHumanizeDouble(0.45d, 0.95d);
+                double c2Scale = NextHumanizeDouble(0.25d, 0.80d);
+                double c1x = sx + (dx * 0.28d) + (normalX * offsetMagnitude * c1Scale);
+                double c1y = sy + (dy * 0.28d) + (normalY * offsetMagnitude * c1Scale);
+                double c2x = sx + (dx * 0.72d) - (normalX * offsetMagnitude * c2Scale);
+                double c2y = sy + (dy * 0.72d) - (normalY * offsetMagnitude * c2Scale);
+
+                int stepCount = dragging ? NextHumanizeInt32(14, 24) : NextHumanizeInt32(8, 14);
+                float stepDelay = dragging
+                    ? (float)NextHumanizeDouble(0.008d, 0.014d)
+                    : (float)NextHumanizeDouble(0.007d, 0.012d);
+
+                for (int i = 1; i <= stepCount; i++)
+                {
+                    double t = (double)i / stepCount;
+                    double omt = 1d - t;
+                    double px =
+                        (omt * omt * omt * sx)
+                        + (3d * omt * omt * t * c1x)
+                        + (3d * omt * t * t * c2x)
+                        + (t * t * t * tx);
+                    double py =
+                        (omt * omt * omt * sy)
+                        + (3d * omt * omt * t * c1y)
+                        + (3d * omt * t * t * c2y)
+                        + (t * t * t * ty);
+
+                    builtSteps.Add(new HumanizedCursorStep
+                    {
+                        X = (int)Math.Round(px),
+                        Y = (int)Math.Round(py),
+                        DelaySeconds = stepDelay
+                    });
+                }
+
+                steps = builtSteps;
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static float GetHumanizePauseSeconds(int minMs, int maxMs)
+        {
+            return NextHumanizeInt32(minMs, maxMs) / 1000f;
+        }
+
         /// <summary>
         /// 鼠标点击结束回合按钮
         /// </summary>
@@ -1039,7 +1466,7 @@ namespace HearthstonePayload
             // 无目标地标：单击一次，不做额外点击
             if (targetEntityId <= 0)
             {
-                foreach (var w in SmoothMove(sx, sy, 10, 0.01f)) yield return w;
+                foreach (var w in MoveCursorConstructed(sx, sy, 10, 0.01f, false)) yield return w;
                 MouseSimulator.LeftDown();
                 yield return 0.06f;
                 MouseSimulator.LeftUp();
@@ -1070,10 +1497,11 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            foreach (var w in SmoothMove(sx, sy, 10, 0.01f)) yield return w;
+            foreach (var w in MoveCursorConstructed(sx, sy, 10, 0.01f, false)) yield return w;
             MouseSimulator.LeftDown();
             yield return 0.08f;
-            foreach (var w in SmoothMove(tx, ty, 16, 0.012f)) yield return w;
+            foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, true)) yield return wait;
+            foreach (var w in MoveCursorConstructed(tx, ty, 16, 0.012f, true)) yield return w;
             MouseSimulator.LeftUp();
             yield return 0.28f;
 
@@ -1206,7 +1634,7 @@ namespace HearthstonePayload
                 // API 抓取成功，需要同步设置鼠标按下状态
                 // 游戏每帧检查 Input.GetMouseButton(0) 来判断玩家是否还在持有卡牌
                 // 如果不设置 LeftDown，游戏会认为玩家立即松手导致卡牌弹回
-                MouseSimulator.MoveTo(sourceX, sourceY);
+                foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
                 MouseSimulator.LeftDown();
                 yield return 0.08f;
             }
@@ -1231,7 +1659,7 @@ namespace HearthstonePayload
                         yield break;
                     }
 
-                    foreach (var w in SmoothMove(dx, dy, 15)) yield return w;
+                    foreach (var w in MoveCursorConstructed(dx, dy, 15, 0.012f, true)) yield return w;
                     MouseSimulator.LeftUp();
                     yield return 0.18f;
 
@@ -1257,7 +1685,8 @@ namespace HearthstonePayload
                         yield break;
                     }
 
-                    MouseSimulator.MoveTo(tx, ty);
+                    foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, false)) yield return wait;
+                    foreach (var wait in MoveCursorConstructed(tx, ty, 10, 0.010f, false)) yield return wait;
                     yield return 0.05f;
                     MouseSimulator.LeftDown();
                     yield return 0.04f;
@@ -1291,7 +1720,8 @@ namespace HearthstonePayload
                     }
 
                     // 保持按住，直接拖到目标位置后松手
-                    foreach (var w in SmoothMove(tx, ty, 15)) yield return w;
+                    foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, true)) yield return wait;
+                    foreach (var w in MoveCursorConstructed(tx, ty, 15, 0.012f, true)) yield return w;
                     MouseSimulator.LeftUp();
                 }
             }
@@ -1304,7 +1734,7 @@ namespace HearthstonePayload
                     _coroutine.SetResult("FAIL:PLAY:drop_pos");
                     yield break;
                 }
-                foreach (var w in SmoothMove(dx, dy, 15)) yield return w;
+                foreach (var w in MoveCursorConstructed(dx, dy, 15, 0.012f, true)) yield return w;
                 MouseSimulator.LeftUp();
             }
 
@@ -1454,7 +1884,7 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            MouseSimulator.MoveTo(sourceX, sourceY);
+            foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
             yield return 0.03f;
             MouseSimulator.LeftDown();
             yield return 0.08f;
@@ -1476,7 +1906,7 @@ namespace HearthstonePayload
                         yield break;
                     }
 
-                    foreach (var w in SmoothMove(dropX, dropY, 18)) yield return w;
+                    foreach (var w in MoveCursorConstructed(dropX, dropY, 18, 0.012f, true)) yield return w;
                     MouseSimulator.LeftUp();
                     yield return 0.18f;
 
@@ -1518,7 +1948,8 @@ namespace HearthstonePayload
                             yield break;
                         }
 
-                        MouseSimulator.MoveTo(targetX, targetY);
+                        foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, false)) yield return wait;
+                        foreach (var wait in MoveCursorConstructed(targetX, targetY, 10, 0.010f, false)) yield return wait;
                         yield return 0.05f;
                         MouseSimulator.LeftDown();
                         yield return 0.04f;
@@ -1565,7 +1996,8 @@ namespace HearthstonePayload
                         yield break;
                     }
 
-                    foreach (var w in SmoothMove(targetX, targetY, 18)) yield return w;
+                    foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, true)) yield return wait;
+                    foreach (var w in MoveCursorConstructed(targetX, targetY, 18, 0.012f, true)) yield return w;
                     MouseSimulator.LeftUp();
                     yield return 0.14f;
 
@@ -1591,7 +2023,7 @@ namespace HearthstonePayload
                                 }
                             }
 
-                            MouseSimulator.MoveTo(targetX, targetY);
+                            foreach (var wait in MoveCursorConstructed(targetX, targetY, 10, 0.010f, false)) yield return wait;
                             yield return 0.04f;
                             MouseSimulator.LeftDown();
                             yield return 0.04f;
@@ -1641,7 +2073,7 @@ namespace HearthstonePayload
                     yield break;
                 }
 
-                foreach (var w in SmoothMove(releaseX, releaseY, 16)) yield return w;
+                foreach (var w in MoveCursorConstructed(releaseX, releaseY, 16, 0.012f, true)) yield return w;
                 MouseSimulator.LeftUp();
             }
 
@@ -2401,7 +2833,7 @@ namespace HearthstonePayload
             }
 
             // 第一次点击：选中攻击者
-            MouseSimulator.MoveTo(sx, sy);
+            foreach (var wait in MoveCursorConstructed(sx, sy, 10, 0.010f, false)) yield return wait;
             yield return 0.05f;
             MouseSimulator.LeftDown();
             yield return 0.05f;
@@ -2468,7 +2900,8 @@ namespace HearthstonePayload
                 tx = txLatest;
                 ty = tyLatest;
             }
-            foreach (var w in SmoothMove(tx, ty, 12)) yield return w;
+            foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetIsEnemyHero ? 1 : -1, false)) yield return wait;
+            foreach (var w in MoveCursorConstructed(tx, ty, 12, 0.012f, false)) yield return w;
             MouseSimulator.LeftDown();
             yield return 0.05f;
             MouseSimulator.LeftUp();
@@ -2752,7 +3185,7 @@ namespace HearthstonePayload
             }
 
             // 瞬移并点击英雄技能
-            MouseSimulator.MoveTo(hx, hy);
+            foreach (var wait in MoveCursorConstructed(hx, hy, 10, 0.010f, false)) yield return wait;
             yield return 0.05f;
             MouseSimulator.LeftDown();
             yield return 0.05f;
@@ -2762,16 +3195,24 @@ namespace HearthstonePayload
             // 如果有目标
             if (targetEntityId > 0)
             {
-                bool gotTarget = GameObjectFinder.GetEntityScreenPos(targetEntityId, out var tx, out var ty);
-                if (!gotTarget)
-                    gotTarget = GameObjectFinder.GetHeroScreenPos(false, out tx, out ty);
+                var targetHeroSide = -1;
+                var currentState = SafeReadGameState();
+                if (currentState != null)
+                {
+                    if (currentState.HeroFriend != null && currentState.HeroFriend.EntityId == targetEntityId)
+                        targetHeroSide = 0;
+                    else if (currentState.HeroEnemy != null && currentState.HeroEnemy.EntityId == targetEntityId)
+                        targetHeroSide = 1;
+                }
+
+                bool gotTarget = TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out var tx, out var ty);
                 if (!gotTarget)
                 {
                     _coroutine.SetResult("FAIL:HP:target_pos:" + targetEntityId);
                     yield break;
                 }
-                // 瞬移到目标并点击
-                MouseSimulator.MoveTo(tx, ty);
+                foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, false)) yield return wait;
+                foreach (var wait in MoveCursorConstructed(tx, ty, 10, 0.010f, false)) yield return wait;
                 yield return 0.05f;
                 MouseSimulator.LeftDown();
                 yield return 0.05f;

@@ -222,6 +222,10 @@ namespace BotMain
         private volatile bool _followHsBoxRecommendations;
         private volatile bool _learnFromHsBoxRecommendations;
         private volatile bool _useLearnedLocalStrategy;
+        private bool _humanizeActionsEnabled;
+        private HumanizerIntensity _humanizeIntensity = HumanizerIntensity.Balanced;
+        private int _lastHumanizedTurnNumber = -1;
+        private string _lastSyncedHumanizerConfigPayload = string.Empty;
         private volatile bool _saveHsBoxCallbacks;
         private volatile bool _suppressAiLogs;
         private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
@@ -485,6 +489,20 @@ namespace BotMain
         {
             _useLearnedLocalStrategy = value;
             Log($"[Settings] UseLearnedLocalStrategy={value}");
+        }
+
+        public void SetHumanizeActionsEnabled(bool value)
+        {
+            _humanizeActionsEnabled = value;
+            Log($"[Settings] HumanizeActionsEnabled={value}");
+            QueueHumanizerConfigSync();
+        }
+
+        public void SetHumanizeIntensity(HumanizerIntensity value)
+        {
+            _humanizeIntensity = value;
+            Log($"[Settings] HumanizeIntensity={HumanizerProtocol.GetIntensityToken(value)}");
+            QueueHumanizerConfigSync();
         }
 
         public void SetHsBoxExecutablePath(string path)
@@ -1539,6 +1557,7 @@ namespace BotMain
                     Log("Payload connected.");
                     _decksLoaded = false;
                     _nextDeckFetchUtc = DateTime.UtcNow;
+                    _lastSyncedHumanizerConfigPayload = string.Empty;
                 }
 
                 _prepared = true;
@@ -1696,6 +1715,8 @@ namespace BotMain
 
                 if (_followHsBoxRecommendations || _saveHsBoxCallbacks)
                     _hsBoxRecommendationProvider.Prime();
+
+                TrySyncHumanizerConfig(pipe, force: false);
 
                 var seedSw = Stopwatch.StartNew();
                 var gotSeedResp = TrySendAndReceiveExpected(
@@ -2140,6 +2161,9 @@ namespace BotMain
                 }
 
                 actions = NormalizeRecommendedActions(actions);
+
+                if (actions != null && actions.Count > 0)
+                    TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities);
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
 
@@ -4211,6 +4235,7 @@ namespace BotMain
             _postGameSinceUtc = null;
             _postGameLobbyConfirmCount = 0;
             _currentLearningMatchId = Guid.NewGuid().ToString("N");
+            _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             _currentDeckContext = ResolveDeckContext(null);
             HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
@@ -5899,6 +5924,106 @@ namespace BotMain
             return MulliganProtocol.IsTransientFailure(result);
         }
 
+        private bool IsConstructedHumanizerMode()
+        {
+            return _modeIndex == 0 || _modeIndex == 1;
+        }
+
+        private HumanizerConfig BuildHumanizerConfig()
+        {
+            return new HumanizerConfig
+            {
+                Enabled = _humanizeActionsEnabled,
+                Intensity = _humanizeIntensity
+            };
+        }
+
+        private void QueueHumanizerConfigSync()
+        {
+            PipeServer pipe;
+            lock (_sync)
+            {
+                pipe = _pipe;
+            }
+
+            if (pipe == null || !pipe.IsConnected)
+                return;
+
+            ThreadPool.QueueUserWorkItem(_ => TrySyncHumanizerConfig(pipe, force: true));
+        }
+
+        private bool TrySyncHumanizerConfig(PipeServer pipe, bool force)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var payload = HumanizerProtocol.Serialize(BuildHumanizerConfig());
+            if (!force && string.Equals(_lastSyncedHumanizerConfigPayload, payload, StringComparison.Ordinal))
+                return true;
+
+            if (!TrySendStatusCommand(pipe, "SET_HUMANIZER_CONFIG:" + payload, 2500, out var response, "HumanizerSync"))
+                return false;
+
+            if (string.IsNullOrWhiteSpace(response)
+                || response.StartsWith("FAIL:", StringComparison.OrdinalIgnoreCase)
+                || response.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+            {
+                Log($"[Humanize] config sync failed -> {response ?? "NO_RESPONSE"}");
+                return false;
+            }
+
+            _lastSyncedHumanizerConfigPayload = payload;
+            return true;
+        }
+
+        private void TryRunHumanizedTurnPrelude(
+            PipeServer pipe,
+            Board planningBoard,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities)
+        {
+            if (!IsConstructedHumanizerMode()
+                || planningBoard == null
+                || !ConstructedHumanizerPlanner.ShouldRunTurnStartPrelude(
+                    _humanizeActionsEnabled,
+                    planningBoard.TurnCount,
+                    _lastHumanizedTurnNumber))
+            {
+                return;
+            }
+
+            _lastHumanizedTurnNumber = planningBoard.TurnCount;
+
+            if (pipe == null || !pipe.IsConnected)
+            {
+                Log($"[Humanize] turn_start skipped: pipe_disconnected turn={planningBoard.TurnCount}");
+                return;
+            }
+
+            if (!TrySyncHumanizerConfig(pipe, force: false))
+            {
+                Log($"[Humanize] turn_start skipped: config_unsynced turn={planningBoard.TurnCount}");
+                return;
+            }
+
+            var handEntityIds = (friendlyEntities ?? Array.Empty<EntityContextSnapshot>())
+                .Where(entity =>
+                    entity != null
+                    && entity.EntityId > 0
+                    && string.Equals(entity.Zone, "HAND", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(entity => entity.ZonePosition)
+                .ThenBy(entity => entity.EntityId)
+                .Select(entity => entity.EntityId)
+                .ToList();
+
+            var command = "HUMAN_TURN_START|"
+                + planningBoard.TurnCount
+                + "|"
+                + string.Join(",", handEntityIds);
+            var result = SendActionCommand(pipe, command, 15000) ?? "NO_RESPONSE";
+            Log(
+                $"[Humanize] turn_start turn={planningBoard.TurnCount} intensity={HumanizerProtocol.GetIntensityToken(_humanizeIntensity)} hand={handEntityIds.Count} -> {result}");
+        }
+
         private string SendActionCommand(PipeServer pipe, string action, int timeoutMs)
         {
             if (pipe == null || !pipe.IsConnected || string.IsNullOrWhiteSpace(action))
@@ -6989,6 +7114,7 @@ namespace BotMain
             playActionFailStreakByEntity.Clear();
             _currentDeckContext = null;
             _currentLearningMatchId = string.Empty;
+            _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             HsBoxCallbackCapture.EndMatchSession();
             if (resultResolution?.Status == BotProtocol.PostGameResultResolutionStatus.TimedOutAndResynced)

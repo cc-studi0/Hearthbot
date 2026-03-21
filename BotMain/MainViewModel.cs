@@ -37,6 +37,8 @@ namespace BotMain
         private bool _followHsBoxOperation;
         private bool _learnFromHsBox;
         private bool _useLearnedLocalStrategy;
+        private bool _humanizeActionsEnabled;
+        private int _humanizeIntensityIndex = 1;
         private bool _saveHsBoxCallbacks;
         private bool _stopAfterReachRankEnabled;
         private int _stopAfterReachRankStarLevel = RankHelper.LegendStarLevel;
@@ -343,6 +345,47 @@ namespace BotMain
                 AutoSave();
             }
         }
+        public bool HumanizeActionsEnabled
+        {
+            get => _humanizeActionsEnabled;
+            set
+            {
+                if (_humanizeActionsEnabled == value)
+                    return;
+
+                _humanizeActionsEnabled = value;
+                _bot.SetHumanizeActionsEnabled(value);
+                Notify();
+                Notify(nameof(HumanizeIntensitySelectionEnabled));
+                AutoSave();
+            }
+        }
+        public ObservableCollection<HumanizerIntensityOption> HumanizeIntensityOptions { get; } = new ObservableCollection<HumanizerIntensityOption>
+        {
+            new HumanizerIntensityOption(HumanizerIntensity.Conservative, HumanizerProtocol.GetIntensityDisplayName(HumanizerIntensity.Conservative)),
+            new HumanizerIntensityOption(HumanizerIntensity.Balanced, HumanizerProtocol.GetIntensityDisplayName(HumanizerIntensity.Balanced)),
+            new HumanizerIntensityOption(HumanizerIntensity.Strong, HumanizerProtocol.GetIntensityDisplayName(HumanizerIntensity.Strong))
+        };
+        public int HumanizeIntensityIndex
+        {
+            get => _humanizeIntensityIndex;
+            set
+            {
+                var normalized = value;
+                if (normalized < 0 || normalized >= HumanizeIntensityOptions.Count)
+                    normalized = 1;
+
+                if (_humanizeIntensityIndex == normalized)
+                    return;
+
+                _humanizeIntensityIndex = normalized;
+                _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
+                Notify();
+                AutoSave();
+            }
+        }
+        public bool HumanizeIntensitySelectionEnabled => HumanizeActionsEnabled;
+        public HumanizerIntensity SelectedHumanizeIntensity => HumanizeIntensityOptions[HumanizeIntensityIndex].Value;
         public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation && !IsBattlegroundsMode;
         public bool DeckSelectionVisible => !IsBattlegroundsMode;
 
@@ -632,6 +675,8 @@ namespace BotMain
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
                 dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
                 dict["UseLearnedLocalStrategy"] = JsonSerializer.SerializeToElement(UseLearnedLocalStrategy);
+                dict["HumanizeActionsEnabled"] = JsonSerializer.SerializeToElement(HumanizeActionsEnabled);
+                dict["HumanizeIntensity"] = JsonSerializer.SerializeToElement(HumanizerProtocol.GetIntensityToken(SelectedHumanizeIntensity));
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
                 dict["StopAfterReachRankEnabled"] = JsonSerializer.SerializeToElement(StopAfterReachRankEnabled);
                 dict["StopAfterReachRankStarLevel"] = JsonSerializer.SerializeToElement(StopAfterReachRankStarLevel);
@@ -690,6 +735,12 @@ namespace BotMain
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
                         if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
                         if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) UseLearnedLocalStrategy = v.GetBoolean();
+                        if (dict.TryGetValue("HumanizeActionsEnabled", out v)) HumanizeActionsEnabled = v.GetBoolean();
+                        if (dict.TryGetValue("HumanizeIntensity", out v))
+                        {
+                            var loadedIntensity = HumanizerProtocol.ParseIntensityToken(ReadOptionalString(v));
+                            HumanizeIntensityIndex = GetHumanizeIntensityIndex(loadedIntensity);
+                        }
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
                         if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) StopAfterReachRankEnabled = v.GetBoolean();
                         if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) StopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
@@ -711,6 +762,8 @@ namespace BotMain
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
             _bot.SetLearnFromHsBoxRecommendations(LearnFromHsBox);
             _bot.SetUseLearnedLocalStrategy(UseLearnedLocalStrategy);
+            _bot.SetHumanizeActionsEnabled(HumanizeActionsEnabled);
+            _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
             ApplyRankStopSettings();
         }
@@ -742,9 +795,32 @@ namespace BotMain
             return fallback;
         }
 
+        private int GetHumanizeIntensityIndex(HumanizerIntensity intensity)
+        {
+            for (var i = 0; i < HumanizeIntensityOptions.Count; i++)
+            {
+                if (HumanizeIntensityOptions[i].Value == intensity)
+                    return i;
+            }
+
+            return 1;
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
         private void Notify([CallerMemberName] string p = null)
             => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(p));
+    }
+
+    public sealed class HumanizerIntensityOption
+    {
+        public HumanizerIntensityOption(HumanizerIntensity value, string label)
+        {
+            Value = value;
+            Label = label ?? string.Empty;
+        }
+
+        public HumanizerIntensity Value { get; }
+        public string Label { get; }
     }
 
     public class RelayCommand : ICommand

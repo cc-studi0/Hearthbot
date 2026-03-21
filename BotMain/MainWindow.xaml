@@ -106,6 +106,17 @@
                               ToolTip="保留本地 shadow 决策，把 HSBox 教师推荐蒸馏到本地 SQLite 策略库"/>
                     <CheckBox Content="Use Learned Local" FontSize="11" IsChecked="{Binding UseLearnedLocalStrategy}" Margin="0,0,0,2"
                               ToolTip="本地 profile / mulligan / discover 先叠加学习到的策略补丁，再回退到原逻辑"/>
+                    <CheckBox Content="拟人化操作" FontSize="11" IsChecked="{Binding HumanizeActionsEnabled}" Margin="0,0,0,2"
+                              ToolTip="仅影响构筑对局内执行动作；不改推荐结果，只改鼠标轨迹、回合起手思考和目标预瞄"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                        <TextBlock Text="强度:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <ComboBox Width="95" Height="20"
+                                  ItemsSource="{Binding HumanizeIntensityOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HumanizeIntensityIndex}"
+                                  IsEnabled="{Binding HumanizeIntensitySelectionEnabled}"
+                                  FontSize="11"/>
+                    </StackPanel>
                     <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}" Margin="0,0,0,2"
                               ToolTip="保存 HSBox 回调到 Logs/HsBoxCallbacks"/>
                     <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,2"/>
