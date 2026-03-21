@@ -7,6 +7,7 @@ namespace BotMain
 {
     internal static class SeedCompatibility
     {
+        private const int LegacyDeckCardListPartIndex = 31;
         private const int CardTypeTag = 202;
         private const int CardTypeHero = 3;
         private const int CardTypeMinion = 4;
@@ -28,14 +29,85 @@ namespace BotMain
 
         private static readonly int[] SingleEntityParts = { 12, 13, 14, 15, 16, 17 };
         private static readonly int[] EntityListParts = { 18, 19, 20 };
-        private static readonly int[] MinionCardIdListParts = { 22, 23, 24, 25, 31 };
+        private static readonly int[] MinionCardIdListParts = { 22, 23, 24, 25 };
         private static readonly int[] SpellCardIdListParts = { 21 };
         private static readonly int[] SingleSpellCardIdParts = { 44, 48 };
 
         internal static string GetCompatibleSeed(string seed, out string detail)
         {
             detail = string.Empty;
-            return seed ?? string.Empty;
+            var rawSeed = seed ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(rawSeed))
+                return rawSeed;
+
+            var parts = rawSeed.Split('~');
+            if (parts.Length <= LegacyDeckCardListPartIndex)
+                return rawSeed;
+
+            var changes = new List<string>();
+            if (!TryNormalizeLegacyDeckCardList(parts, changes))
+                return rawSeed;
+
+            detail = BuildDetail(changes);
+            return string.Join("~", parts);
+        }
+
+        private static bool TryNormalizeLegacyDeckCardList(string[] parts, List<string> changes)
+        {
+            if (parts == null
+                || parts.Length <= LegacyDeckCardListPartIndex
+                || changes == null)
+            {
+                return false;
+            }
+
+            var raw = parts[LegacyDeckCardListPartIndex];
+            if (!LooksLikeLegacyDeckCardList(raw, out var itemCount, out var preview))
+                return false;
+
+            parts[LegacyDeckCardListPartIndex] = string.Empty;
+            changes.Add(
+                string.IsNullOrWhiteSpace(preview)
+                    ? $"legacy_deck_list_removed@p{LegacyDeckCardListPartIndex}(count={itemCount})"
+                    : $"legacy_deck_list_removed@p{LegacyDeckCardListPartIndex}(count={itemCount},preview={preview})");
+            return true;
+        }
+
+        private static bool LooksLikeLegacyDeckCardList(string raw, out int itemCount, out string preview)
+        {
+            itemCount = 0;
+            preview = string.Empty;
+            if (string.IsNullOrWhiteSpace(raw))
+                return false;
+
+            var items = raw
+                .Split('|')
+                .Select(item => item?.Trim() ?? string.Empty)
+                .Where(item => !string.IsNullOrWhiteSpace(item))
+                .ToArray();
+            if (items.Length == 0 || items.Any(item => !LooksLikeLegacyDeckCardToken(item)))
+                return false;
+
+            itemCount = items.Length;
+            preview = string.Join(",", items.Take(4));
+            return true;
+        }
+
+        private static bool LooksLikeLegacyDeckCardToken(string raw)
+        {
+            var token = raw?.Trim() ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(token)
+                || token == "0"
+                || string.Equals(token, "True", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(token, "False", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (token.IndexOfAny(new[] { '*', '~', '&', '=' }) >= 0)
+                return false;
+
+            return token.Contains("_");
         }
 
         private static string SanitizeEntityList(string raw, int partIndex, List<string> replacements)
@@ -218,7 +290,7 @@ namespace BotMain
                 .Take(5)
                 .ToArray();
             var suffix = replacements.Count > preview.Length ? ",..." : string.Empty;
-            return $"seed_compat replacements={replacements.Count} [{string.Join("; ", preview)}{suffix}]";
+            return $"seed_compat changes={replacements.Count} [{string.Join("; ", preview)}{suffix}]";
         }
     }
 }

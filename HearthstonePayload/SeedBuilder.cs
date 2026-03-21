@@ -48,7 +48,9 @@ namespace HearthstonePayload
             parts[28] = d.LockedMana.ToString();
             parts[29] = d.HeroPowerCountThisTurn.ToString();
             parts[30] = B(d.LockAndLoad);
-            parts[31] = d.FriendDeck.Count > 0 ? string.Join("|", d.FriendDeck) : ""; // Deck: 我方牌库剩余卡牌 CardId 列表
+            // Planning seed 只承载 Board.FromSeed 可解析的棋盘信息。
+            // 牌库剩余卡牌明细统一通过 GET_DECK_STATE 单独获取，不再写入 seed。
+            parts[31] = string.Empty;
             parts[32] = d.BaseMinionDiedThisTurnEnemy.ToString();
             parts[33] = d.BaseMinionDiedThisTurnFriend.ToString();
             parts[34] = d.LockAndLoad ? "1" : "0";

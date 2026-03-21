@@ -7,6 +7,7 @@ using Xunit;
 
 namespace BotCore.Tests
 {
+    [Collection("CardTemplateSerial")]
     public class EnemyBoardLethalFinderTests
     {
         [Fact]

@@ -359,6 +359,8 @@ namespace HearthstonePayload
 
             if (cmd == "GET_SEED")
             {
+                // GET_SEED 只返回供 Board.FromSeed / planning 使用的棋盘 seed。
+                // 牌库剩余卡牌明细统一通过 GET_DECK_STATE 获取。
                 var state = reader.ReadGameState();
                 if (state == null)
                 {
@@ -605,7 +607,8 @@ namespace HearthstonePayload
             }
             else if (cmd == "GET_DECK_STATE")
             {
-                // 返回我方牌库中剩余每张牌的 CardId，用 | 分隔
+                // 返回我方牌库中剩余每张牌的 CardId，用 | 分隔。
+                // planning seed 不再承载这部分牌库明细。
                 var state = reader.ReadGameState();
                 if (state == null || state.FriendDeck == null || state.FriendDeck.Count == 0)
                     _pipe.Write("DECK_STATE:");

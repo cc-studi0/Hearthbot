@@ -60,6 +60,8 @@ delegate void LogCallback(string message);
 
 Board 状态通过 `~` 分隔符序列化为字符串，共 66+ 个字段。
 
+> 项目约定：`GET_SEED` 仅返回供 `Board.FromSeed()` / planning / 学习特征构建使用的 seed，不再承载我方牌库剩余卡牌明细；剩余牌库明细统一通过 `GET_DECK_STATE` 获取。
+
 ### Board.FromSeed() 字段索引
 
 | 索引 | 字段 | 类型 | 说明 |

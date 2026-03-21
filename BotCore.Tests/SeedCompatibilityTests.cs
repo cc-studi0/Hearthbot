@@ -1,8 +1,12 @@
 using BotMain;
+using HearthstonePayload;
+using SmartBot.Database;
+using SmartBot.Plugins.API;
 using Xunit;
 
 namespace BotCore.Tests
 {
+    [Collection("CardTemplateSerial")]
     public class SeedCompatibilityTests
     {
         [Fact]
@@ -32,14 +36,15 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void GetCompatibleSeed_PassesThroughUnknownDeckCardIdsUnchanged()
+        public void GetCompatibleSeed_RemovesLegacyDeckCardListFromPart31()
         {
             var seed = BuildSeedWithRawPart(31, "CATA_131|CATA_999");
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Equal(seed, compatible);
-            Assert.Equal(string.Empty, detail);
+            Assert.NotEqual(seed, compatible);
+            Assert.Equal(string.Empty, compatible.Split('~')[31]);
+            Assert.Contains("legacy_deck_list_removed@p31", detail);
         }
 
         [Fact]
@@ -53,6 +58,34 @@ namespace BotCore.Tests
 
             Assert.Equal(seed, compatible);
             Assert.Equal(string.Empty, detail);
+        }
+
+        [Fact]
+        public void GetCompatibleSeed_RemovesVisibleDeckCardIdsFromLegacySeedAndBoardParses()
+        {
+            var state = new GameStateData
+            {
+                FriendlyPlayerId = 1,
+                TurnCount = 1,
+                MaxMana = 1,
+                ManaAvailable = 1,
+                HeroFriend = CreateEntityData("HERO_06", 101),
+                HeroEnemy = CreateEntityData("HERO_08", 201),
+                AbilityFriend = CreateEntityData("HERO_06bp", 102),
+                AbilityEnemy = CreateEntityData("HERO_08bp", 202)
+            };
+
+            Assert.True(SeedBuilder.TryBuild(state, out var seed, out _));
+            var parts = seed.Split('~');
+            parts[31] = "SW_439t|SW_439t|SW_439t|SW_439t";
+            var legacySeed = string.Join("~", parts);
+
+            var compatible = SeedCompatibility.GetCompatibleSeed(legacySeed, out var detail);
+
+            Assert.Equal(string.Empty, compatible.Split('~')[31]);
+            Assert.Contains("preview=SW_439t,SW_439t,SW_439t,SW_439t", detail);
+            CardTemplate.INIT();
+            Assert.NotNull(Board.FromSeed(compatible));
         }
 
         private static string BuildSeedWithEntityListPart(int partIndex, string entity)
@@ -135,21 +168,16 @@ namespace BotCore.Tests
             return string.Join("*", parts);
         }
 
-        private static int CountOccurrences(string text, string value)
+        private static EntityData CreateEntityData(string cardId, int entityId)
         {
-            var count = 0;
-            var index = 0;
-            while (index >= 0)
+            return new EntityData
             {
-                index = text.IndexOf(value, index, System.StringComparison.Ordinal);
-                if (index < 0)
-                    break;
-
-                count++;
-                index += value.Length;
-            }
-
-            return count;
+                CardId = cardId,
+                EntityId = entityId,
+                Health = 30,
+                Atk = 0,
+                Cost = 2
+            };
         }
     }
 }
