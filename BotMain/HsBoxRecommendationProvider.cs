@@ -4986,24 +4986,40 @@ namespace BotMain
             if (steps.Count <= 1)
                 return steps;
 
+            // 构筑模式的 Envelope.Data 会把“打法参考 A/B/C”拍平到同一个数组里。
+            // 这里将“第一个可执行主动作”视为参考 A 的根步骤，只保留它以及紧随其后的
+            // choose/choice/discard 连续步骤；遇到下一个主动作时立即停止。
             var primarySteps = new List<HsBoxActionStep>();
             var skippedPrematureEndTurnCount = 0;
-            foreach (var step in steps)
+            var primaryRootIndex = -1;
+            for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
             {
+                var step = steps[stepIndex];
                 if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
                     continue;
 
-                if (primarySteps.Count == 0)
+                if (IsPrematureEndTurnRecommendation(step.ActionName, steps))
                 {
-                    if (IsPrematureEndTurnRecommendation(step.ActionName, steps))
-                    {
-                        skippedPrematureEndTurnCount++;
-                        continue;
-                    }
-
-                    primarySteps.Add(step);
+                    skippedPrematureEndTurnCount++;
                     continue;
                 }
+
+                if (!IsPrimaryRecommendationRootAction(step.ActionName))
+                    continue;
+
+                primaryRootIndex = stepIndex;
+                primarySteps.Add(step);
+                break;
+            }
+
+            if (primaryRootIndex < 0)
+                return steps;
+
+            for (var stepIndex = primaryRootIndex + 1; stepIndex < steps.Count; stepIndex++)
+            {
+                var step = steps[stepIndex];
+                if (step == null || string.IsNullOrWhiteSpace(step.ActionName))
+                    continue;
 
                 if (IsContinuationActionForPrimaryRecommendation(step.ActionName))
                 {
@@ -5032,6 +5048,11 @@ namespace BotMain
         {
             var normalizedBodyText = NormalizeBodyText(state?.BodyText ?? string.Empty);
             return CountRecommendationReferences(normalizedBodyText) >= 2;
+        }
+
+        private static bool IsPrimaryRecommendationRootAction(string actionName)
+        {
+            return !IsContinuationActionForPrimaryRecommendation(actionName);
         }
 
         private static bool IsContinuationActionForPrimaryRecommendation(string actionName)

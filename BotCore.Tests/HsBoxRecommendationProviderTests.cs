@@ -120,6 +120,158 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_UsesOnlyFirstStructuredRecommendationGroup_WhenPayloadContainsAlternativePlayActions()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 58,
+                UpdatedAtMs = 602,
+                Raw = "structured-reference-a-location-only",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出5号位地标 恐惧小道 打法参考B 打出4号位随从 高山之王穆拉丁 放置于2号位",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_location",
+                            Position = 2,
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "TLC_100t2",
+                                cardName = "恐惧小道",
+                                ZONE_POSITION = 5
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_minion",
+                            Position = 2,
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "TIME_209",
+                                cardName = "高山之王穆拉丁",
+                                ZONE_POSITION = 4
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 105,
+                        CardId = "TLC_100t2",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TIME_209",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|105|0|2" }, result.Actions);
+            Assert.Contains("scope=reference_a", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendActions_KeepsFirstStructuredRecommendationContinuations_AndFiltersLaterAlternatives()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 59,
+                UpdatedAtMs = 603,
+                Raw = "structured-reference-a-play-and-choose-only",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打法参考A 打出1号位法术 活体根须 选择卡牌 并蒂树苗 打法参考B 打出4号位随从 高山之王穆拉丁 放置于2号位",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037",
+                                cardName = "活体根须",
+                                position = 1
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "choose",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "AT_037b",
+                                cardName = "并蒂树苗"
+                            })
+                        },
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_minion",
+                            Position = 2,
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "TIME_209",
+                                cardName = "高山之王穆拉丁",
+                                position = 4
+                            })
+                        }
+                    }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 101,
+                        CardId = "AT_037",
+                        Zone = "HAND",
+                        ZonePosition = 1
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TIME_209",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|101|0|0", "OPTION|101|0|0|AT_037b" }, result.Actions);
+            Assert.Contains("scope=reference_a", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_UsesOnlyPrimaryStructuredRecommendation_WhenBodyTextHasNoReferenceMarkers()
         {
             var state = new HsBoxRecommendationState
