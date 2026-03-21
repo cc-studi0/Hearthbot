@@ -635,6 +635,7 @@ namespace HearthstonePayload
             if (shouldScanHand)
             {
                 var scanHandEntityIds = PickTurnStartScanHandEntities(orderedHandEntityIds);
+                var performedHandGlide = false;
                 if (scanHandEntityIds.Count > 0)
                 {
                     foreach (var handEntityId in scanHandEntityIds)
@@ -645,18 +646,22 @@ namespace HearthstonePayload
                         if (!GameObjectFinder.GetEntityScreenPos(handEntityId, out var x, out var y))
                             continue;
 
-                        scanMode = "scan";
+                        performedHandGlide = true;
+                        scanMode = "glide";
                         foreach (var wait in MoveCursorConstructed(x, y, 10, 0.010f, false))
                             yield return wait;
+                    }
 
-                        var remainingMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
-                        if (remainingMs <= 0)
-                            break;
-
-                        yield return Math.Min(remainingMs, NextHumanizeInt32(100, 280)) / 1000f;
+                    if (performedHandGlide
+                        && GetRemainingTurnStartThinkMs(startedUtc, thinkMs) > 180
+                        && TryGetTurnStartIdlePoint(out var idleX, out var idleY))
+                    {
+                        foreach (var wait in MoveCursorConstructed(idleX, idleY, 10, 0.010f, false))
+                            yield return wait;
                     }
                 }
-                else
+
+                if (!performedHandGlide)
                 {
                     foreach (var fallbackPoint in BuildTurnStartFallbackPoints())
                     {
@@ -740,6 +745,29 @@ namespace HearthstonePayload
             }
 
             return picks;
+        }
+
+        private static bool TryGetTurnStartIdlePoint(out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var screenHeight = MouseSimulator.GetScreenHeight();
+            if (screenWidth > 0 && screenHeight > 0)
+            {
+                x = (int)(screenWidth * 0.50f);
+                y = (int)(screenHeight * 0.57f);
+                return true;
+            }
+
+            if (GameObjectFinder.GetHeroPowerScreenPos(out x, out y))
+                return true;
+
+            if (GameObjectFinder.GetHeroScreenPos(true, out x, out y))
+                return true;
+
+            return false;
         }
 
         private static List<Tuple<int, int>> BuildTurnStartFallbackPoints()
