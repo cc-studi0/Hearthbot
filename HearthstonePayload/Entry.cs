@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using BepInEx;
 using BepInEx.Logging;
+using BotMain;
 using HarmonyLib;
 
 namespace HearthstonePayload
@@ -34,6 +35,7 @@ namespace HearthstonePayload
 
         private static string _lastGameResult = "NONE";
         private static bool _lastGameConceded;
+        private static PostGameResultConfidence _lastGameResultConfidence = PostGameResultConfidence.Unknown;
         private static Func<object> _pendingAction;
         private static object _pendingResult;
 
@@ -43,8 +45,8 @@ namespace HearthstonePayload
         private static string _lastRuntimeInitFailureDetail = string.Empty;
         private static string _currentPhase = "idle";
         private static string _currentCommand = string.Empty;
-        private const int GetResultRefreshAttempts = 4;
-        private const int GetResultRefreshDelayMs = 80;
+        private const int GetResultRefreshAttempts = 10;
+        private const int GetResultRefreshDelayMs = 120;
 
         private void Awake()
         {
@@ -119,16 +121,11 @@ namespace HearthstonePayload
 
         private static bool TryCacheLastGameResultFromEndScreenClass(string endScreenClass)
         {
-            if (string.IsNullOrWhiteSpace(endScreenClass))
+            var payload = PostGameResultHelper.InferPayloadFromText(endScreenClass, _lastGameConceded);
+            if (string.IsNullOrWhiteSpace(payload))
                 return false;
 
-            var lower = endScreenClass.ToLowerInvariant();
-            if (lower.Contains("victory")) _lastGameResult = "WIN";
-            else if (lower.Contains("defeat")) _lastGameResult = "LOSS";
-            else if (lower.Contains("tie") || lower.Contains("draw")) _lastGameResult = "TIE";
-            else return false;
-
-            return true;
+            return TryCacheLastGameResultPayload(payload, PostGameResultConfidence.Inferred);
         }
 
         private static bool TryCacheLastGameResultFromEndScreen(GameReader reader)
@@ -138,7 +135,7 @@ namespace HearthstonePayload
                 && TryCacheLastGameResultFromEndScreenClass(endClass);
         }
 
-        private static bool TryRefreshLastGameResult(GameReader reader, int maxAttempts, int delayMs)
+        private static bool TryRefreshLastGameResult(GameReader reader, SceneNavigator nav, int maxAttempts, int delayMs)
         {
             if (reader == null)
                 return false;
@@ -148,25 +145,44 @@ namespace HearthstonePayload
                 attempt++)
             {
                 var state = reader.ReadGameState();
+                var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
+                if (endScreenShown)
+                    TryCacheLastGameResultFromEndScreenClass(endClass);
+
+                var scene = nav != null ? nav.GetScene() : string.Empty;
                 if (state != null)
                 {
-                    if (state.Result != GameResult.None)
-                    {
-                        _lastGameResult = state.Result.ToString().ToUpper();
-                        if (state.FriendlyConceded)
-                            _lastGameConceded = true;
-                        break;
-                    }
-
                     if (state.FriendlyConceded)
                         _lastGameConceded = true;
 
-                    if (!state.IsGameOver)
-                        break;
+                    if (state.Result != GameResult.None)
+                    {
+                        TryCacheLastGameResult(
+                            state.Result.ToString().ToUpperInvariant(),
+                            state.FriendlyConceded,
+                            PostGameResultConfidence.Explicit);
+                    }
                 }
 
-                if (TryCacheLastGameResultFromEndScreen(reader))
+                if (_lastGameConceded
+                    && ((state != null && state.IsGameOver)
+                        || endScreenShown
+                        || (!string.IsNullOrWhiteSpace(scene)
+                            && !string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))))
+                {
+                    TryCacheLastGameResult("LOSS", true, PostGameResultConfidence.ConcedeFallback);
+                }
+
+                if (!string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase))
                     break;
+
+                if (state != null
+                    && !state.IsGameOver
+                    && !endScreenShown
+                    && string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
 
                 if (delayMs > 0 && attempt + 1 < maxAttempts)
                     Thread.Sleep(delayMs);
@@ -177,15 +193,44 @@ namespace HearthstonePayload
 
         private static void WriteCachedGameResult()
         {
-            var resultPayload = _lastGameConceded
-                ? "RESULT:" + _lastGameResult + ":CONCEDED"
-                : "RESULT:" + _lastGameResult;
-            _pipe.Write(resultPayload);
+            var resultPayload = PostGameResultHelper.ComposePayload(_lastGameResult, _lastGameConceded)
+                ?? PostGameResultHelper.NoneResult;
+            _pipe.Write("RESULT:" + resultPayload);
             if (!string.Equals(_lastGameResult, "NONE", StringComparison.OrdinalIgnoreCase))
             {
                 _lastGameResult = "NONE";
                 _lastGameConceded = false;
+                _lastGameResultConfidence = PostGameResultConfidence.Unknown;
             }
+        }
+
+        private static bool TryCacheLastGameResult(string result, bool conceded, PostGameResultConfidence confidence)
+        {
+            return TryCacheLastGameResultPayload(PostGameResultHelper.ComposePayload(result, conceded), confidence);
+        }
+
+        private static bool TryCacheLastGameResultPayload(string payload, PostGameResultConfidence confidence)
+        {
+            if (!PostGameResultHelper.IsResolvedPayload(payload))
+                return false;
+
+            var currentPayload = PostGameResultHelper.ComposePayload(_lastGameResult, _lastGameConceded);
+            var mergedPayload = PostGameResultHelper.MergePayload(
+                currentPayload,
+                _lastGameResultConfidence,
+                payload,
+                confidence,
+                out var mergedConfidence);
+            if (!PostGameResultHelper.TryParsePayload(mergedPayload, out var mergedResult, out var mergedConceded))
+                return false;
+
+            var changed = !string.Equals(_lastGameResult, mergedResult, StringComparison.OrdinalIgnoreCase)
+                || _lastGameConceded != mergedConceded
+                || _lastGameResultConfidence != mergedConfidence;
+            _lastGameResult = mergedResult;
+            _lastGameConceded = mergedConceded;
+            _lastGameResultConfidence = mergedConfidence;
+            return changed;
         }
 
         private static void MainLoop()
@@ -393,7 +438,10 @@ namespace HearthstonePayload
                         // 优先使用 GameState 的结果
                         if (state.Result != GameResult.None)
                         {
-                            _lastGameResult = state.Result.ToString().ToUpper();
+                            TryCacheLastGameResult(
+                                state.Result.ToString().ToUpperInvariant(),
+                                state.FriendlyConceded,
+                                PostGameResultConfidence.Explicit);
                         }
                         else if (_lastGameResult == "NONE")
                         {
@@ -405,9 +453,10 @@ namespace HearthstonePayload
                                 var retryState = reader.ReadGameState();
                                 if (retryState != null && retryState.Result != GameResult.None)
                                 {
-                                    _lastGameResult = retryState.Result.ToString().ToUpper();
-                                    if (retryState.FriendlyConceded)
-                                        _lastGameConceded = true;
+                                    TryCacheLastGameResult(
+                                        retryState.Result.ToString().ToUpperInvariant(),
+                                        retryState.FriendlyConceded,
+                                        PostGameResultConfidence.Explicit);
                                 }
                             }
                         }
@@ -424,13 +473,21 @@ namespace HearthstonePayload
 
                         // 游戏结果已确定，但仍需等待结算界面稳定或离开 GAMEPLAY 后再上报 NO_GAME。
                         var endScreenShown2 = reader.IsEndGameScreenShown(out _);
+                        var scene = nav.GetScene();
+                        if (_lastGameConceded
+                            && (state.IsGameOver
+                                || endScreenShown2
+                                || !string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            TryCacheLastGameResult("LOSS", true, PostGameResultConfidence.ConcedeFallback);
+                        }
+
                         if (endScreenShown2)
                         {
                             _pipe.Write("NO_GAME");
                         }
                         else
                         {
-                            var scene = nav.GetScene();
                             if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                                 _pipe.Write(EndgamePending);
                             else
@@ -459,7 +516,7 @@ namespace HearthstonePayload
             else if (cmd == "GET_RESULT")
             {
                 if (_lastGameResult == "NONE")
-                    TryRefreshLastGameResult(reader, GetResultRefreshAttempts, GetResultRefreshDelayMs);
+                    TryRefreshLastGameResult(reader, nav, GetResultRefreshAttempts, GetResultRefreshDelayMs);
 
                 WriteCachedGameResult();
             }

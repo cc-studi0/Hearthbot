@@ -244,18 +244,17 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void ResolvePostGameResult_TreatsResultNoneAsUnknown()
+        public void ResolvePostGameResult_KeepsEarlyConcedeLossWhenPayloadReturnsUnknown()
         {
             var resolution = BotProtocol.ResolvePostGameResult(
-                earlyGameResult: null,
+                earlyGameResult: "LOSS:CONCEDED",
                 payloadResultResponse: "RESULT:NONE",
                 timedOutAndResynced: false);
 
-            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Unknown, resolution.Status);
-            Assert.Equal("unknown", resolution.ResultSource);
-            Assert.Equal("RESULT:NONE", resolution.ResultResponse);
-            Assert.False(resolution.HasResolvedResult);
-            Assert.True(BotProtocol.IsUnknownGameResultResponse(resolution.ResultResponse));
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Resolved, resolution.Status);
+            Assert.Equal("early-cache", resolution.ResultSource);
+            Assert.Equal("RESULT:LOSS:CONCEDED", resolution.ResultResponse);
+            Assert.True(resolution.HasResolvedResult);
         }
 
         [Fact]
@@ -270,6 +269,56 @@ namespace BotCore.Tests
             Assert.Equal("payload-result", resolution.ResultSource);
             Assert.Equal("RESULT:WIN", resolution.ResultResponse);
             Assert.True(resolution.HasResolvedResult);
+        }
+
+        [Fact]
+        public void ResolvePostGameResult_UsesConcedeFallbackWhenPayloadStaysUnknown()
+        {
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: null,
+                payloadResultResponse: "RESULT:NONE",
+                timedOutAndResynced: false,
+                concedeFallbackPayload: "LOSS:CONCEDED");
+
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Resolved, resolution.Status);
+            Assert.Equal("concede-fallback", resolution.ResultSource);
+            Assert.Equal("RESULT:LOSS:CONCEDED", resolution.ResultResponse);
+            Assert.True(resolution.HasResolvedResult);
+        }
+
+        [Fact]
+        public void ResolvePostGameResult_TreatsResultNoneAsUnknownWithoutFallback()
+        {
+            var resolution = BotProtocol.ResolvePostGameResult(
+                earlyGameResult: null,
+                payloadResultResponse: "RESULT:NONE",
+                timedOutAndResynced: false);
+
+            Assert.Equal(BotProtocol.PostGameResultResolutionStatus.Unknown, resolution.Status);
+            Assert.Equal("unknown", resolution.ResultSource);
+            Assert.Equal("RESULT:NONE", resolution.ResultResponse);
+            Assert.False(resolution.HasResolvedResult);
+            Assert.True(BotProtocol.IsUnknownGameResultResponse(resolution.ResultResponse));
+        }
+
+        [Fact]
+        public void PostGameResultHelper_InferPayloadFromDefeatScreen_ReturnsLoss()
+        {
+            Assert.Equal("LOSS", PostGameResultHelper.InferPayloadFromText("DefeatScreen", concededHint: false));
+        }
+
+        [Fact]
+        public void PostGameResultHelper_MergePayload_PrefersResolvedConcedeLossOverUnknown()
+        {
+            var merged = PostGameResultHelper.MergePayload(
+                currentPayload: null,
+                currentConfidence: PostGameResultConfidence.Unknown,
+                candidatePayload: "LOSS:CONCEDED",
+                candidateConfidence: PostGameResultConfidence.ConcedeFallback,
+                out var mergedConfidence);
+
+            Assert.Equal("LOSS:CONCEDED", merged);
+            Assert.Equal(PostGameResultConfidence.ConcedeFallback, mergedConfidence);
         }
 
         [Fact]

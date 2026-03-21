@@ -196,7 +196,8 @@ namespace BotMain
         internal static PostGameResultResolution ResolvePostGameResult(
             string earlyGameResult,
             string payloadResultResponse,
-            bool timedOutAndResynced)
+            bool timedOutAndResynced,
+            string concedeFallbackPayload = null)
         {
             if (IsExplicitGameResultPayload(earlyGameResult))
             {
@@ -219,6 +220,18 @@ namespace BotMain
                         : PostGameResultResolutionStatus.Resolved,
                     ResultResponse = payloadResultResponse,
                     ResultSource = "payload-result"
+                };
+            }
+
+            if (PostGameResultHelper.IsResolvedPayload(concedeFallbackPayload))
+            {
+                return new PostGameResultResolution
+                {
+                    Status = timedOutAndResynced
+                        ? PostGameResultResolutionStatus.TimedOutAndResynced
+                        : PostGameResultResolutionStatus.Resolved,
+                    ResultResponse = "RESULT:" + concedeFallbackPayload,
+                    ResultSource = "concede-fallback"
                 };
             }
 
