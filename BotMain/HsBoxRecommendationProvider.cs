@@ -199,8 +199,14 @@ namespace BotMain
             var diagParts = new List<string>();
             if (diagState != null)
             {
-                var freshResult = IsActionPayloadFreshEnough(diagState, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature);
+                var freshResult = TryEvaluateActionPayloadFreshness(
+                    diagState,
+                    minimumUpdatedAtMs,
+                    lastConsumedUpdatedAtMs,
+                    lastConsumedPayloadSignature,
+                    out var freshnessReason);
                 diagParts.Add($"fresh={freshResult}");
+                diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
                 diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
                 diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
@@ -362,34 +368,65 @@ namespace BotMain
 
         private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
         {
-            if (state == null || state.UpdatedAtMs <= 0)
-                return false;
+            return TryEvaluateActionPayloadFreshness(
+                state,
+                minimumUpdatedAtMs,
+                lastConsumedUpdatedAtMs,
+                lastConsumedPayloadSignature,
+                out _);
+        }
 
-            if (minimumUpdatedAtMs > 0
-                && (state.UpdatedAtMs <= 0 || state.UpdatedAtMs + FreshnessSlackMs < minimumUpdatedAtMs))
+        private static bool TryEvaluateActionPayloadFreshness(
+            HsBoxRecommendationState state,
+            long minimumUpdatedAtMs,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature,
+            out string reason)
+        {
+            if (state == null)
             {
+                reason = "state_null";
+                return false;
+            }
+
+            if (state.UpdatedAtMs <= 0)
+            {
+                reason = "updated_at_missing";
                 return false;
             }
 
             if (lastConsumedUpdatedAtMs > 0)
             {
                 if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
+                {
+                    reason = "updated_after_last_consumed";
                     return true;
+                }
 
                 if (state.UpdatedAtMs == lastConsumedUpdatedAtMs
                     && !string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)
                     && !string.Equals(state.PayloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
                 {
+                    reason = "same_updated_at_new_signature";
                     return true;
                 }
 
+                reason = "consumed_same_or_older_payload";
                 return false;
             }
 
-            if (minimumUpdatedAtMs <= 0)
+            if (minimumUpdatedAtMs > 0
+                && state.UpdatedAtMs + FreshnessSlackMs < minimumUpdatedAtMs)
+            {
+                // 普通动作以“是否已消费”作为主判据；动画期间的旧时间戳不应拦截尚未消费的最新一步。
+                reason = "minimum_updated_at_ignored_for_unconsumed_action";
                 return true;
+            }
 
-            return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
+            reason = minimumUpdatedAtMs > 0
+                ? "within_minimum_updated_at_slack"
+                : "no_consumed_payload";
+            return true;
         }
 
         private static bool IsChoicePayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
