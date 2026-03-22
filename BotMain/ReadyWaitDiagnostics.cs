@@ -17,6 +17,22 @@ namespace BotMain
     {
         internal const string ReadyReason = "ready";
         internal const string UnknownBusyReason = "unknown";
+        private static readonly HashSet<string> DrawBlockingReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "friendly_draw",
+            "pending_draw_task",
+            "turn_start_draw_count"
+        };
+        private static readonly HashSet<string> ActionPostReadyBypassReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "response_packet_blocked",
+            "input_denied",
+            "blocking_power_processor",
+            "power_processor_running",
+            "hand_layout_updating",
+            "hand_layout_dirty",
+            "game_busy"
+        };
 
         internal static string FormatReadyResponse()
         {
@@ -154,6 +170,16 @@ namespace BotMain
 
             state = parsedState;
             return true;
+        }
+
+        internal static bool IsDrawBlockingReason(string reason)
+        {
+            return DrawBlockingReasons.Contains(NormalizeBusyReason(reason));
+        }
+
+        internal static bool ShouldBypassActionPostReadyBusyReason(string reason)
+        {
+            return ActionPostReadyBypassReasons.Contains(NormalizeBusyReason(reason));
         }
 
         private static IReadOnlyList<string> NormalizeFlags(IEnumerable<string> flags, string fallback)

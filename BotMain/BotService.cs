@@ -2695,6 +2695,22 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
                     uniqueReasons.Add(reason);
 
+                if (ShouldBypassReadyWait(waitScope, reason))
+                {
+                    LogReadyWaitSummary(
+                        waitScope,
+                        action,
+                        sw.ElapsedMilliseconds,
+                        polls,
+                        busyPolls,
+                        firstBusyReason,
+                        lastBusyReason,
+                        uniqueReasons,
+                        timedOut: false,
+                        resultOverride: "ready_bypass_non_draw");
+                    return true;
+                }
+
                 if (i < maxRetries - 1 && intervalMs > 0)
                     Thread.Sleep(intervalMs);
             }
@@ -2729,6 +2745,17 @@ namespace BotMain
             return ReadyWaitDiagnostics.TryParseResponse(response, out diagnosticState);
         }
 
+        private static bool ShouldBypassReadyWait(string waitScope, string reason)
+        {
+            if (!string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (ReadyWaitDiagnostics.IsDrawBlockingReason(reason))
+                return false;
+
+            return ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason);
+        }
+
         private void LogReadyWaitSummary(
             string waitScope,
             string action,
@@ -2738,7 +2765,8 @@ namespace BotMain
             string firstBusyReason,
             string lastBusyReason,
             IReadOnlyList<string> uniqueReasons,
-            bool timedOut)
+            bool timedOut,
+            string resultOverride = null)
         {
             if (!timedOut && elapsedMs < ReadyWaitSlowLogThresholdMs)
                 return;
@@ -2750,7 +2778,9 @@ namespace BotMain
             var reasonsValue = uniqueReasons == null || uniqueReasons.Count == 0
                 ? "-"
                 : string.Join(",", uniqueReasons.Where(reason => !string.IsNullOrWhiteSpace(reason)));
-            var resultValue = timedOut ? "timeout" : "ready";
+            var resultValue = string.IsNullOrWhiteSpace(resultOverride)
+                ? (timedOut ? "timeout" : "ready")
+                : resultOverride;
             Log($"[ReadyWait] scope={scopeValue} action={actionValue} elapsedMs={elapsedMs} polls={polls} busyPolls={busyPolls} firstBusyReason={firstReasonValue} lastBusyReason={lastReasonValue} reasons={reasonsValue} result={resultValue}");
         }
 

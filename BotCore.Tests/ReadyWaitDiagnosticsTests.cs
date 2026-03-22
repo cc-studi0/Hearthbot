@@ -60,5 +60,27 @@ namespace BotCore.Tests
             Assert.Equal("unknown", busyState.PrimaryReason);
             Assert.Equal(new[] { "unknown" }, busyState.Flags.ToArray());
         }
+
+        [Theory]
+        [InlineData("friendly_draw", true)]
+        [InlineData("pending_draw_task", true)]
+        [InlineData("turn_start_draw_count", true)]
+        [InlineData("blocking_power_processor", false)]
+        [InlineData("response_packet_blocked", false)]
+        public void IsDrawBlockingReason_MatchesExpectedReasons(string reason, bool expected)
+        {
+            Assert.Equal(expected, ReadyWaitDiagnostics.IsDrawBlockingReason(reason));
+        }
+
+        [Theory]
+        [InlineData("blocking_power_processor", true)]
+        [InlineData("response_packet_blocked", true)]
+        [InlineData("hand_layout_updating", true)]
+        [InlineData("friendly_draw", false)]
+        [InlineData("unknown", false)]
+        public void ShouldBypassActionPostReadyBusyReason_MatchesExpectedReasons(string reason, bool expected)
+        {
+            Assert.Equal(expected, ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason));
+        }
     }
 }

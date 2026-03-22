@@ -1151,6 +1151,8 @@ namespace HearthstonePayload
                         int targetId = int.Parse(parts[2]);
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
+                        const int attackConfirmPollCount = 2;
+                        const int attackConfirmSleepMs = 40;
                         GameStateData beforeState = null;
                         AttackStateSnapshot beforeSnapshot = default;
                         var hasBeforeSnapshot = false;
@@ -1182,7 +1184,7 @@ namespace HearthstonePayload
                         }
                         catch { }
 
-                        var maxAttempts = 2;
+                        const int maxAttempts = 1;
                         long lastMouseMs = 0;
                         long lastConfirmMs = 0;
                         int lastConfirmPolls = 0;
@@ -1243,9 +1245,9 @@ namespace HearthstonePayload
                             var confirmSw = Stopwatch.StartNew();
                             var confirmPolls = 0;
                             var confirmReason = "unchanged";
-                            for (int i = 0; i < 10; i++)
+                            for (int i = 0; i < attackConfirmPollCount; i++)
                             {
-                                Thread.Sleep(80);
+                                Thread.Sleep(attackConfirmSleepMs);
                                 confirmPolls++;
                                 var afterState = reader?.ReadGameState();
                                 if (!TryCaptureAttackState(afterState, attackerId, targetId, out var afterSnapshot))
@@ -1289,6 +1291,25 @@ namespace HearthstonePayload
                                 + " confirmMs=" + lastConfirmMs
                                 + " confirmPolls=" + lastConfirmPolls
                                 + " apply=" + lastApplyReason);
+                        }
+
+                        if (lastMouseMs > 0)
+                        {
+                            AppendActionTrace(
+                                "ATTACK confirm_soft_timeout attacker=" + attackerId
+                                + " target=" + targetId
+                                + " attempt=1"
+                                + " mouseMs=" + lastMouseMs
+                                + " confirmMs=" + lastConfirmMs
+                                + " confirmPolls=" + lastConfirmPolls
+                                + " apply=" + lastApplyReason);
+                            return AppendAttackTimingToResult(
+                                "OK:ATTACK:" + attackerId + ":click_drag_click",
+                                1,
+                                lastMouseMs,
+                                lastConfirmMs,
+                                lastConfirmPolls,
+                                "confirm_short_timeout");
                         }
 
                         AppendActionTrace(
