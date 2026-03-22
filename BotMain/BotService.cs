@@ -147,6 +147,7 @@ namespace BotMain
         private string _lastObservedSeedResponse = string.Empty;
         private long _lastConsumedHsBoxActionUpdatedAtMs;
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
+        private string _lastConsumedHsBoxActionCommand = string.Empty;
         private long _hsBoxActionMinimumUpdatedAtMs;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
@@ -1120,10 +1121,11 @@ namespace BotMain
         {
             _lastConsumedHsBoxActionUpdatedAtMs = 0;
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
+            _lastConsumedHsBoxActionCommand = string.Empty;
             _hsBoxActionMinimumUpdatedAtMs = 0;
         }
 
-        private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation)
+        private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation, string executedAction)
         {
             if (recommendation == null)
                 return;
@@ -1136,6 +1138,9 @@ namespace BotMain
 
             _lastConsumedHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
             _lastConsumedHsBoxActionPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+            _lastConsumedHsBoxActionCommand = string.IsNullOrWhiteSpace(executedAction)
+                ? ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(recommendation.Actions)
+                : executedAction.Trim();
         }
 
         private void RefreshHsBoxActionMinimumUpdatedAtNow()
@@ -2210,7 +2215,8 @@ namespace BotMain
                     friendlyEntities,
                     BuildMatchContext(planningBoard),
                     _lastConsumedHsBoxActionUpdatedAtMs,
-                    _lastConsumedHsBoxActionPayloadSignature);
+                    _lastConsumedHsBoxActionPayloadSignature,
+                    _lastConsumedHsBoxActionCommand);
 
                 recommendationStage = "recommend_actions";
                 var sw = Stopwatch.StartNew();
@@ -2238,6 +2244,8 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
+                    if (recommendation.RequireFreshSourcePayload)
+                        RefreshHsBoxActionMinimumUpdatedAtNow();
                     Thread.Sleep(120);
                     continue;
                 }
@@ -2406,7 +2414,7 @@ namespace BotMain
                                 break;
                             }
 
-                            RememberConsumedHsBoxActionRecommendation(recommendation);
+                            RememberConsumedHsBoxActionRecommendation(recommendation, action);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {

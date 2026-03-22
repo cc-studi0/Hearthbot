@@ -723,6 +723,84 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_AllowsSamePayloadReuse_WhenFirstActionChangesAfterShortRetry()
+        {
+            var state = CreateState(
+                500,
+                raw: "consumed-same-payload-next-step",
+                actionName: "play_minion",
+                cardId: "TLC_100",
+                cardName: "导航员伊莉斯",
+                zonePosition: 4,
+                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TLC_100",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                },
+                lastConsumedUpdatedAtMs: state.UpdatedAtMs,
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "PLAY|77|0|0"));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|104|0|0" }, result.Actions);
+            Assert.Contains("reuse=same_payload_after_retry", result.Detail);
+            Assert.Equal(state.UpdatedAtMs, result.SourceUpdatedAtMs);
+            Assert.Equal(state.PayloadSignature, result.SourcePayloadSignature);
+        }
+
+        [Fact]
+        public void RecommendActions_StopsWaitingSamePayload_WhenFirstActionStillMatchesConsumedAction()
+        {
+            var state = CreateState(
+                500,
+                raw: "consumed-same-payload-same-action",
+                actionName: "play_minion",
+                cardId: "TLC_100",
+                cardName: "导航员伊莉斯",
+                zonePosition: 4,
+                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "TLC_100",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                },
+                lastConsumedUpdatedAtMs: state.UpdatedAtMs,
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "PLAY|104|0|0"));
+
+            Assert.True(result.ShouldRetryWithoutAction, result.Detail);
+            Assert.True(result.RequireFreshSourcePayload, result.Detail);
+            Assert.Empty(result.Actions);
+            Assert.Contains("releasedDueToRepeatedFirstAction=True", result.Detail);
+            Assert.Contains("sameFirstAction=True", result.Detail);
+        }
+
+        [Fact]
         public void RecommendActions_WaitRetryIncludesFreshnessDiagnostic_WhenBlockedByMinimumUpdatedAt()
         {
             var state = CreateState(

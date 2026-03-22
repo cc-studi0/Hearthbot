@@ -135,7 +135,8 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
             MatchContextSnapshot matchContext = null,
             long lastConsumedUpdatedAtMs = 0,
-            string lastConsumedPayloadSignature = null)
+            string lastConsumedPayloadSignature = null,
+            string lastConsumedActionCommand = null)
         {
             Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             PlanningBoard = planningBoard;
@@ -149,6 +150,7 @@ namespace BotMain
             MatchContext = matchContext ?? new MatchContextSnapshot();
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
+            LastConsumedActionCommand = lastConsumedActionCommand ?? string.Empty;
         }
 
         public string Seed { get; }
@@ -163,6 +165,7 @@ namespace BotMain
         public MatchContextSnapshot MatchContext { get; }
         public long LastConsumedUpdatedAtMs { get; }
         public string LastConsumedPayloadSignature { get; }
+        public string LastConsumedActionCommand { get; }
     }
 
     internal sealed class ActionRecommendationResult
@@ -173,7 +176,8 @@ namespace BotMain
             string detail,
             bool shouldRetryWithoutAction = false,
             long sourceUpdatedAtMs = 0,
-            string sourcePayloadSignature = null)
+            string sourcePayloadSignature = null,
+            bool requireFreshSourcePayload = false)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
@@ -181,6 +185,7 @@ namespace BotMain
             ShouldRetryWithoutAction = shouldRetryWithoutAction;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
             SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
+            RequireFreshSourcePayload = requireFreshSourcePayload;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
@@ -189,6 +194,7 @@ namespace BotMain
         public bool ShouldRetryWithoutAction { get; }
         public long SourceUpdatedAtMs { get; }
         public string SourcePayloadSignature { get; }
+        public bool RequireFreshSourcePayload { get; }
     }
 
     internal sealed class BattlegroundActionRecommendationResult
@@ -315,6 +321,60 @@ namespace BotMain
             lastConsumedPayloadSignature = string.Empty;
             lastConsumedCommandSummary = string.Empty;
             repeatedRecommendationCount = 0;
+        }
+    }
+
+    internal static class ConstructedRecommendationConsumptionTracker
+    {
+        internal const int ReleaseThreshold = 2;
+
+        public static string SummarizeFirstAction(IReadOnlyList<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return string.Empty;
+
+            return actions.FirstOrDefault(action => !string.IsNullOrWhiteSpace(action)) ?? string.Empty;
+        }
+
+        public static bool IsSamePayload(
+            HsBoxRecommendationState state,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature)
+        {
+            if (state == null || state.UpdatedAtMs <= 0 || lastConsumedUpdatedAtMs <= 0)
+                return false;
+
+            if (state.UpdatedAtMs != lastConsumedUpdatedAtMs)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(lastConsumedPayloadSignature))
+                return true;
+
+            return string.Equals(
+                state.PayloadSignature ?? string.Empty,
+                lastConsumedPayloadSignature,
+                StringComparison.Ordinal);
+        }
+
+        public static bool IsSameFirstAction(IReadOnlyList<string> actions, string lastConsumedActionCommand)
+        {
+            return IsSameFirstAction(SummarizeFirstAction(actions), lastConsumedActionCommand);
+        }
+
+        public static bool IsSameFirstAction(string firstAction, string lastConsumedActionCommand)
+        {
+            if (string.IsNullOrWhiteSpace(firstAction) || string.IsNullOrWhiteSpace(lastConsumedActionCommand))
+                return false;
+
+            return string.Equals(firstAction.Trim(), lastConsumedActionCommand.Trim(), StringComparison.Ordinal);
+        }
+
+        public static string BuildRepeatKey(HsBoxRecommendationState state, string firstAction)
+        {
+            if (state == null)
+                return string.Empty;
+
+            return $"{state.UpdatedAtMs}|{state.PayloadSignature ?? string.Empty}|{firstAction ?? string.Empty}";
         }
     }
 

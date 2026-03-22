@@ -31,6 +31,20 @@ namespace BotMain
     {
         private const int FreshnessSlackMs = 3000;
 
+        private sealed class EvaluatedActionState
+        {
+            public IReadOnlyList<string> FinalActions { get; set; } = Array.Empty<string>();
+            public string FinalDetail { get; set; } = string.Empty;
+            public string StructuredDetail { get; set; } = "json=not_checked";
+            public string BodyDetail { get; set; } = "body=not_checked";
+            public bool ChoiceLike { get; set; }
+            public bool ShouldRetryWithoutAction { get; set; }
+
+            public bool HasFinalActions => FinalActions != null && FinalActions.Count > 0;
+            public bool HasUsableResult => HasFinalActions || ShouldRetryWithoutAction;
+            public string FirstAction => ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(FinalActions);
+        }
+
         private readonly IHsBoxRecommendationBridge _bridge;
         private readonly IHsBoxBattlegroundsBridge _bgBridge;
         private readonly int _actionWaitTimeoutMs;
@@ -72,100 +86,116 @@ namespace BotMain
             var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
-            var state = WaitForState(
-                current => IsActionPayloadFreshEnough(current, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                    && (TryEvaluateActionState(
-                        current,
-                        request,
-                        out _,
-                        out _,
-                        out lastStructuredDetail,
-                        out lastBodyDetail)
-                        || ConstructedChoiceBridge.LooksLikeChoiceRecommendation(current)),
-                timeoutMs: _actionWaitTimeoutMs,
-                pollIntervalMs: _actionPollIntervalMs,
-                out var waitDetail,
-                out var lastObservedState);
+            var lastConsumedActionCommand = request?.LastConsumedActionCommand ?? string.Empty;
+            var selectedState = (HsBoxRecommendationState)null;
+            var selectedEvaluation = (EvaluatedActionState)null;
+            var lastObservedState = (HsBoxRecommendationState)null;
+            var waitDetail = "timeout";
+            var samePayloadDifferentActionRepeatKey = string.Empty;
+            var samePayloadRepeatedActionKey = string.Empty;
+            var samePayloadDifferentActionRepeatCount = 0;
+            var samePayloadRepeatedActionCount = 0;
+            var releasedDueToSamePayloadReuse = false;
+            var releasedDueToRepeatedFirstAction = false;
 
-            List<string> structuredActions = null;
-            string structuredDetail = null;
-            bool structuredHadPrematureEndTurn = false;
-            var hasStructured = state != null
-                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                && TryGetStructuredActions(state, request, out structuredActions, out structuredDetail, out structuredHadPrematureEndTurn);
-            if (hasStructured)
-                lastStructuredDetail = structuredDetail;
-
-            List<string> bodyActions = null;
-            string bodyDetail = null;
-            var hasBody = state != null
-                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                && TryGetBodyActions(state, request, out bodyActions, out bodyDetail);
-            if (hasBody)
-                lastBodyDetail = bodyDetail;
-
-            if (hasStructured && hasBody)
+            var waitSw = Stopwatch.StartNew();
+            while (waitSw.ElapsedMilliseconds < _actionWaitTimeoutMs)
             {
-                structuredActions = MergeStructuredActionsWithBodyHints(structuredActions, bodyActions, out var mergeDetail);
-                if (!string.IsNullOrWhiteSpace(mergeDetail))
+                if (_bridge.TryReadState(out var currentState, out var stateDetail))
                 {
-                    structuredDetail = $"{structuredDetail}; {mergeDetail}";
-                    lastStructuredDetail = structuredDetail;
+                    if (currentState != null)
+                        lastObservedState = currentState;
+                    waitDetail = stateDetail;
+
+                    if (currentState != null)
+                    {
+                        var evaluation = EvaluateActionState(currentState, request);
+                        lastStructuredDetail = evaluation.StructuredDetail;
+                        lastBodyDetail = evaluation.BodyDetail;
+
+                        var fresh = IsActionPayloadFreshEnough(
+                            currentState,
+                            minimumUpdatedAtMs,
+                            lastConsumedUpdatedAtMs,
+                            lastConsumedPayloadSignature);
+                        if (fresh && evaluation.HasUsableResult)
+                        {
+                            selectedState = currentState;
+                            selectedEvaluation = evaluation;
+                            break;
+                        }
+
+                        if (evaluation.HasFinalActions
+                            && !string.IsNullOrWhiteSpace(lastConsumedActionCommand)
+                            && ConstructedRecommendationConsumptionTracker.IsSamePayload(
+                                currentState,
+                                lastConsumedUpdatedAtMs,
+                                lastConsumedPayloadSignature))
+                        {
+                            var firstAction = evaluation.FirstAction;
+                            if (!string.IsNullOrWhiteSpace(firstAction))
+                            {
+                                var repeatKey = ConstructedRecommendationConsumptionTracker.BuildRepeatKey(currentState, firstAction);
+                                if (ConstructedRecommendationConsumptionTracker.IsSameFirstAction(firstAction, lastConsumedActionCommand))
+                                {
+                                    var repeatCount = AdvanceRepeatCount(
+                                        ref samePayloadRepeatedActionKey,
+                                        ref samePayloadRepeatedActionCount,
+                                        repeatKey);
+                                    if (repeatCount >= ConstructedRecommendationConsumptionTracker.ReleaseThreshold)
+                                    {
+                                        releasedDueToRepeatedFirstAction = true;
+                                        waitDetail = $"same_first_action_stalled:{repeatCount}";
+                                        break;
+                                    }
+                                }
+                                else
+                                {
+                                    if (minimumUpdatedAtMs <= 0)
+                                    {
+                                        var repeatCount = AdvanceRepeatCount(
+                                            ref samePayloadDifferentActionRepeatKey,
+                                            ref samePayloadDifferentActionRepeatCount,
+                                            repeatKey);
+                                        if (repeatCount >= ConstructedRecommendationConsumptionTracker.ReleaseThreshold)
+                                        {
+                                            releasedDueToSamePayloadReuse = true;
+                                            selectedState = currentState;
+                                            selectedEvaluation = evaluation;
+                                            waitDetail = $"same_payload_reuse:{repeatCount}";
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
+                else if (!string.IsNullOrWhiteSpace(stateDetail))
+                {
+                    waitDetail = stateDetail;
+                }
+
+                if (waitSw.ElapsedMilliseconds + _actionPollIntervalMs < _actionWaitTimeoutMs)
+                    Thread.Sleep(_actionPollIntervalMs);
             }
 
-            if (hasStructured
-                && structuredHadPrematureEndTurn
-                && hasBody
-                && StartsWithActionableCommand(bodyActions))
+            if (selectedState != null && selectedEvaluation != null && selectedEvaluation.HasUsableResult)
             {
+                var detail = selectedEvaluation.FinalDetail;
+                if (releasedDueToSamePayloadReuse)
+                    detail = $"reuse=same_payload_after_retry({ConstructedRecommendationConsumptionTracker.ReleaseThreshold}); {detail}";
+
                 return new ActionRecommendationResult(
                     null,
-                    bodyActions,
-                    $"hsbox_actions prefer=body_over_json_premature_end_turn; {lastBodyDetail}; {lastStructuredDetail}",
-                    sourceUpdatedAtMs: state.UpdatedAtMs,
-                    sourcePayloadSignature: state.PayloadSignature);
+                    selectedEvaluation.FinalActions,
+                    $"hsbox_actions {detail}",
+                    shouldRetryWithoutAction: selectedEvaluation.ShouldRetryWithoutAction,
+                    sourceUpdatedAtMs: selectedState.UpdatedAtMs,
+                    sourcePayloadSignature: selectedState.PayloadSignature);
             }
 
-            // 优先尝试结构化动作 —— titan_power / forge 等动作可以
-            // 成功映射为 OPTION 命令，即使它们也通过了
-            // LooksLikeChoiceRecommendation 检查。如果将它们延迟为"选择"，它们
-            // 永远不会被执行，因为在玩家点击场上的泰坦随从之前
-            // 不会出现选择 UI。
-            if (hasStructured)
-            {
-                return new ActionRecommendationResult(
-                    null,
-                    structuredActions,
-                    $"hsbox_actions {lastStructuredDetail}; {lastBodyDetail}",
-                    sourceUpdatedAtMs: state.UpdatedAtMs,
-                    sourcePayloadSignature: state.PayloadSignature);
-            }
-
-            if (state != null
-                && IsActionPayloadFreshEnough(state, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature)
-                && ConstructedChoiceBridge.LooksLikeChoiceRecommendation(state))
-            {
-                return new ActionRecommendationResult(
-                    null,
-                    Array.Empty<string>(),
-                    $"hsbox_actions choice_deferred ({state.Detail})",
-                    shouldRetryWithoutAction: true,
-                    sourceUpdatedAtMs: state.UpdatedAtMs,
-                    sourcePayloadSignature: state.PayloadSignature);
-            }
-
-            if (hasBody)
-            {
-                return new ActionRecommendationResult(
-                    null,
-                    bodyActions,
-                    $"hsbox_actions {lastBodyDetail}; {lastStructuredDetail}",
-                    sourceUpdatedAtMs: state.UpdatedAtMs,
-                    sourcePayloadSignature: state.PayloadSignature);
-            }
-
-            var diagState = state ?? lastObservedState;
+            var diagState = selectedState ?? lastObservedState;
             var diagParts = new List<string>();
             if (diagState != null)
             {
@@ -174,16 +204,29 @@ namespace BotMain
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
                 diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
                 diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
+                diagParts.Add($"lastConsumedAction={TrimActionForDiag(lastConsumedActionCommand)}");
                 diagParts.Add($"hasLastSig={!string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)}");
                 diagParts.Add($"sigMatch={string.Equals(diagState.PayloadSignature, lastConsumedPayloadSignature ?? string.Empty, StringComparison.Ordinal)}");
                 diagParts.Add($"choiceLike={ConstructedChoiceBridge.LooksLikeChoiceRecommendation(diagState)}");
+                diagParts.Add($"releasedDueToSamePayload={releasedDueToSamePayloadReuse}");
+                diagParts.Add($"releasedDueToRepeatedFirstAction={releasedDueToRepeatedFirstAction}");
+                if (samePayloadDifferentActionRepeatCount > 0)
+                    diagParts.Add($"samePayloadRepeat={samePayloadDifferentActionRepeatCount}");
+                if (samePayloadRepeatedActionCount > 0)
+                    diagParts.Add($"sameFirstActionRepeat={samePayloadRepeatedActionCount}");
 
-                if (freshResult && request != null)
+                if (request != null)
                 {
                     var structOk = TryGetStructuredActions(diagState, request, out _, out var structDiag, out _);
                     diagParts.Add($"structMap={structOk}({structDiag})");
                     var bodyOk = TryGetBodyActions(diagState, request, out _, out var bodyDiag);
                     diagParts.Add($"bodyMap={bodyOk}({bodyDiag})");
+                    var evaluatedState = EvaluateActionState(diagState, request);
+                    if (evaluatedState.HasFinalActions)
+                    {
+                        diagParts.Add($"firstAction={TrimActionForDiag(evaluatedState.FirstAction)}");
+                        diagParts.Add($"sameFirstAction={ConstructedRecommendationConsumptionTracker.IsSameFirstAction(evaluatedState.FirstAction, lastConsumedActionCommand)}");
+                    }
                 }
             }
             else
@@ -196,7 +239,10 @@ namespace BotMain
                 null,
                 Array.Empty<string>(),
                 $"hsbox_actions wait_retry ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail}; lastState={DescribeActionState(lastObservedState)}) [diag: {diag}]",
-                shouldRetryWithoutAction: true);
+                shouldRetryWithoutAction: true,
+                sourceUpdatedAtMs: diagState?.UpdatedAtMs ?? 0,
+                sourcePayloadSignature: diagState?.PayloadSignature,
+                requireFreshSourcePayload: releasedDueToRepeatedFirstAction);
         }
 
         public MulliganRecommendationResult RecommendMulligan(MulliganRecommendationRequest request)
@@ -319,6 +365,12 @@ namespace BotMain
             if (state == null || state.UpdatedAtMs <= 0)
                 return false;
 
+            if (minimumUpdatedAtMs > 0
+                && (state.UpdatedAtMs <= 0 || state.UpdatedAtMs + FreshnessSlackMs < minimumUpdatedAtMs))
+            {
+                return false;
+            }
+
             if (lastConsumedUpdatedAtMs > 0)
             {
                 if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
@@ -368,17 +420,80 @@ namespace BotMain
             return state.UpdatedAtMs > 0 && state.UpdatedAtMs + ChoiceFreshnessSlackMs >= minimumUpdatedAtMs;
         }
 
-        private static bool TryEvaluateActionState(
+        private static EvaluatedActionState EvaluateActionState(
             HsBoxRecommendationState state,
-            ActionRecommendationRequest request,
-            out List<string> structuredActions,
-            out List<string> bodyActions,
-            out string structuredDetail,
-            out string bodyDetail)
+            ActionRecommendationRequest request)
         {
-            var hasStructured = TryGetStructuredActions(state, request, out structuredActions, out structuredDetail, out _);
-            var hasBody = TryGetBodyActions(state, request, out bodyActions, out bodyDetail);
-            return hasStructured || hasBody;
+            var evaluated = new EvaluatedActionState();
+            var hasStructured = TryGetStructuredActions(state, request, out var structuredActions, out var structuredDetail, out var structuredHadPrematureEndTurn);
+            var hasBody = TryGetBodyActions(state, request, out var bodyActions, out var bodyDetail);
+            evaluated.StructuredDetail = structuredDetail;
+            evaluated.BodyDetail = bodyDetail;
+            evaluated.ChoiceLike = ConstructedChoiceBridge.LooksLikeChoiceRecommendation(state);
+
+            if (hasStructured && hasBody)
+            {
+                structuredActions = MergeStructuredActionsWithBodyHints(structuredActions, bodyActions, out var mergeDetail);
+                if (!string.IsNullOrWhiteSpace(mergeDetail))
+                    evaluated.StructuredDetail = $"{evaluated.StructuredDetail}; {mergeDetail}";
+            }
+
+            if (hasStructured
+                && structuredHadPrematureEndTurn
+                && hasBody
+                && StartsWithActionableCommand(bodyActions))
+            {
+                evaluated.FinalActions = bodyActions;
+                evaluated.FinalDetail = $"prefer=body_over_json_premature_end_turn; {evaluated.BodyDetail}; {evaluated.StructuredDetail}";
+                return evaluated;
+            }
+
+            if (hasStructured)
+            {
+                evaluated.FinalActions = structuredActions;
+                evaluated.FinalDetail = $"{evaluated.StructuredDetail}; {evaluated.BodyDetail}";
+                return evaluated;
+            }
+
+            if (evaluated.ChoiceLike)
+            {
+                evaluated.FinalActions = Array.Empty<string>();
+                evaluated.FinalDetail = $"choice_deferred ({state?.Detail ?? "state_invalid"})";
+                evaluated.ShouldRetryWithoutAction = true;
+                return evaluated;
+            }
+
+            if (hasBody)
+            {
+                evaluated.FinalActions = bodyActions;
+                evaluated.FinalDetail = $"{evaluated.BodyDetail}; {evaluated.StructuredDetail}";
+            }
+
+            return evaluated;
+        }
+
+        private static int AdvanceRepeatCount(ref string lastKey, ref int repeatCount, string nextKey)
+        {
+            var normalizedKey = nextKey ?? string.Empty;
+            if (!string.Equals(lastKey, normalizedKey, StringComparison.Ordinal))
+            {
+                lastKey = normalizedKey;
+                repeatCount = 0;
+            }
+
+            repeatCount++;
+            return repeatCount;
+        }
+
+        private static string TrimActionForDiag(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return "-";
+
+            var normalized = action.Replace('\r', ' ').Replace('\n', ' ').Trim();
+            return normalized.Length <= 80
+                ? normalized
+                : normalized.Substring(0, 80);
         }
 
         private static bool TryGetStructuredActions(
