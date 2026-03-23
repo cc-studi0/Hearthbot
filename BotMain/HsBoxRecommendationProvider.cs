@@ -323,8 +323,14 @@ namespace BotMain
             var diagParts = new List<string>();
             if (diagState != null)
             {
-                var freshResult = IsChoicePayloadFreshEnough(diagState, minimumUpdatedAtMs, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature);
+                var freshResult = TryEvaluateChoicePayloadFreshness(
+                    diagState,
+                    minimumUpdatedAtMs,
+                    lastConsumedUpdatedAtMs,
+                    lastConsumedPayloadSignature,
+                    out var freshnessReason);
                 diagParts.Add($"fresh={freshResult}");
+                diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
                 diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
                 diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
@@ -431,30 +437,68 @@ namespace BotMain
 
         private static bool IsChoicePayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
         {
-            if (state == null || state.UpdatedAtMs <= 0)
+            return TryEvaluateChoicePayloadFreshness(
+                state,
+                minimumUpdatedAtMs,
+                lastConsumedUpdatedAtMs,
+                lastConsumedPayloadSignature,
+                out _);
+        }
+
+        private static bool TryEvaluateChoicePayloadFreshness(
+            HsBoxRecommendationState state,
+            long minimumUpdatedAtMs,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature,
+            out string reason)
+        {
+            if (state == null)
+            {
+                reason = "state_null";
                 return false;
+            }
+
+            if (state.UpdatedAtMs <= 0)
+            {
+                reason = "updated_at_missing";
+                return false;
+            }
 
             if (lastConsumedUpdatedAtMs > 0)
             {
                 if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
+                {
+                    reason = "updated_after_last_consumed";
                     return true;
+                }
 
                 if (state.UpdatedAtMs == lastConsumedUpdatedAtMs
                     && !string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)
                     && !string.Equals(state.PayloadSignature, lastConsumedPayloadSignature, StringComparison.Ordinal))
+                {
+                    reason = "same_updated_at_new_signature";
                     return true;
+                }
 
+                reason = "consumed_same_or_older_payload";
                 return false;
             }
 
-            // 对选择使用较宽松的时间容差：HsBox 通常在打出卡牌时更新状态
-            // （由于游戏动画，比机器人处理发现选择早约3-5秒），
-            // 所以 3000ms 太紧了。
+            // 发现/选择推荐通常会在打牌瞬间就由盒子更新，而真正的 Choice UI
+            // 可能要等较长动画后才出现。未消费时以“当前可映射的最新 payload”
+            // 为准，不因为绝对时间戳偏早而拒绝它。
             const int ChoiceFreshnessSlackMs = 8000;
-            if (minimumUpdatedAtMs <= 0)
+            if (minimumUpdatedAtMs > 0
+                && state.UpdatedAtMs + ChoiceFreshnessSlackMs < minimumUpdatedAtMs)
+            {
+                reason = "minimum_updated_at_ignored_for_unconsumed_choice";
                 return true;
+            }
 
-            return state.UpdatedAtMs > 0 && state.UpdatedAtMs + ChoiceFreshnessSlackMs >= minimumUpdatedAtMs;
+            reason = minimumUpdatedAtMs > 0
+                ? "within_minimum_updated_at_slack"
+                : "no_consumed_payload";
+            return true;
         }
 
         private static EvaluatedActionState EvaluateActionState(

@@ -1929,6 +1929,99 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendChoice_AllowsUnconsumedPayload_WhenOlderThanMinimumUpdatedAt()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 13,
+                UpdatedAtMs = 500,
+                Raw = "choice-old-unconsumed",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 选择我方2号位卡牌 卡牌A",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var options = new List<ChoiceRecommendationOption>
+            {
+                new ChoiceRecommendationOption(501, "CARD_001"),
+                new ChoiceRecommendationOption(502, "CARD_002"),
+                new ChoiceRecommendationOption(503, "CARD_003")
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(state),
+                new FakeBattlegroundsBridge(new BattlegroundActionRecommendationResult(Array.Empty<string>(), "fake_bg_actions")),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+            var result = provider.RecommendChoice(new ChoiceRecommendationRequest(
+                "snap-old-unconsumed",
+                5,
+                "DISCOVER",
+                "SRC",
+                100,
+                1,
+                1,
+                options,
+                Array.Empty<int>(),
+                "seed",
+                minimumUpdatedAtMs: 9001));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { 502 }, result.SelectedEntityIds);
+            Assert.Contains("text_choice", result.Detail);
+        }
+
+        [Fact]
+        public void RecommendChoice_RejectsConsumedPayload_WhenPayloadWasAlreadyConsumed()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 14,
+                UpdatedAtMs = 500,
+                Raw = "choice-consumed",
+                Href = "https://example.test/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 选择我方2号位卡牌 卡牌A",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var options = new List<ChoiceRecommendationOption>
+            {
+                new ChoiceRecommendationOption(601, "CARD_001"),
+                new ChoiceRecommendationOption(602, "CARD_002"),
+                new ChoiceRecommendationOption(603, "CARD_003")
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(state),
+                new FakeBattlegroundsBridge(new BattlegroundActionRecommendationResult(Array.Empty<string>(), "fake_bg_actions")),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+            var result = provider.RecommendChoice(new ChoiceRecommendationRequest(
+                "snap-consumed",
+                6,
+                "DISCOVER",
+                "SRC",
+                100,
+                1,
+                1,
+                options,
+                Array.Empty<int>(),
+                "seed",
+                minimumUpdatedAtMs: 9001,
+                lastConsumedUpdatedAtMs: state.UpdatedAtMs,
+                lastConsumedPayloadSignature: state.PayloadSignature));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.SelectedEntityIds);
+            Assert.Contains("wait_retry", result.Detail);
+            Assert.Contains("freshReason=consumed_same_or_older_payload", result.Detail);
+        }
+
+        [Fact]
         public void CallbackCapture_WritesSingleFileForSameUpdatedAtAndSignature()
         {
             using var tempDir = new TempDirectory();
@@ -2601,6 +2694,50 @@ namespace BotCore.Tests
             Assert.Equal(0, lastConsumedUpdatedAtMs);
             Assert.Equal(string.Empty, lastConsumedPayloadSignature);
             Assert.Equal(string.Empty, lastConsumedCommandSummary);
+        }
+
+        [Fact]
+        public void ChoiceRecommendationConsumptionTracker_DoesNotRemember_WhenApplyFailed()
+        {
+            long lastConsumedUpdatedAtMs = 300;
+            string lastConsumedPayloadSignature = "SIG_OLD";
+            var recommendation = new ChoiceRecommendationResult(
+                new[] { 402 },
+                "choice recommendation",
+                sourceUpdatedAtMs: 500,
+                sourcePayloadSignature: "SIG_NEW");
+
+            var remembered = ChoiceRecommendationConsumptionTracker.TryRememberConsumed(
+                recommendation,
+                wasApplied: false,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature);
+
+            Assert.False(remembered);
+            Assert.Equal(300, lastConsumedUpdatedAtMs);
+            Assert.Equal("SIG_OLD", lastConsumedPayloadSignature);
+        }
+
+        [Fact]
+        public void ChoiceRecommendationConsumptionTracker_Remembers_WhenApplySucceeded()
+        {
+            long lastConsumedUpdatedAtMs = 300;
+            string lastConsumedPayloadSignature = "SIG_OLD";
+            var recommendation = new DiscoverRecommendationResult(
+                1,
+                "discover recommendation",
+                sourceUpdatedAtMs: 500,
+                sourcePayloadSignature: "SIG_NEW");
+
+            var remembered = ChoiceRecommendationConsumptionTracker.TryRememberConsumed(
+                recommendation,
+                wasApplied: true,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature);
+
+            Assert.True(remembered);
+            Assert.Equal(500, lastConsumedUpdatedAtMs);
+            Assert.Equal("SIG_NEW", lastConsumedPayloadSignature);
         }
 
         private static HsBoxRecommendationState CreateState(

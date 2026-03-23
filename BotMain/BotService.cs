@@ -1728,6 +1728,7 @@ namespace BotMain
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int resimulationCount = 0;
             int actionFailStreak = 0;
+            int staleFreshSourceRetryCount = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             int seedNotReadyStreak = 0;
@@ -2104,6 +2105,7 @@ namespace BotMain
                         ref currentTurnStartedUtc,
                         ref resimulationCount,
                         ref actionFailStreak,
+                        ref staleFreshSourceRetryCount,
                         playActionFailStreakByEntity);
                 }
 
@@ -2138,6 +2140,7 @@ namespace BotMain
                         ref currentTurnStartedUtc,
                         ref resimulationCount,
                         ref actionFailStreak,
+                        ref staleFreshSourceRetryCount,
                         playActionFailStreakByEntity);
                 }
 
@@ -2245,11 +2248,21 @@ namespace BotMain
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     if (recommendation.RequireFreshSourcePayload)
+                    {
                         RefreshHsBoxActionMinimumUpdatedAtNow();
+                        staleFreshSourceRetryCount++;
+                        if (staleFreshSourceRetryCount >= 3)
+                        {
+                            Log("[Action] stale hsbox recommendation after repeated fresh-source retries, clearing consumed state.");
+                            ResetHsBoxActionRecommendationTracking();
+                            staleFreshSourceRetryCount = 0;
+                        }
+                    }
                     Thread.Sleep(120);
                     continue;
                 }
 
+                staleFreshSourceRetryCount = 0;
                 actions = NormalizeRecommendedActions(actions);
 
                 if (actions != null && actions.Count > 0)
@@ -2583,7 +2596,8 @@ namespace BotMain
                         {
                             if (_followHsBoxRecommendations)
                             {
-                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox; suppressing forced END_TURN.");
+                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox; clearing consumed state.");
+                                ResetHsBoxActionRecommendationTracking();
                             }
                             else
                             {
@@ -4486,6 +4500,7 @@ namespace BotMain
             ref DateTime currentTurnStartedUtc,
             ref int resimulationCount,
             ref int actionFailStreak,
+            ref int staleFreshSourceRetryCount,
             Dictionary<int, int> playActionFailStreakByEntity)
         {
             if (planningBoard == null)
@@ -4510,6 +4525,7 @@ namespace BotMain
                 _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
                 resimulationCount = 0;
                 actionFailStreak = 0;
+                staleFreshSourceRetryCount = 0;
                 playActionFailStreakByEntity?.Clear();
                 _pluginSystem?.FireOnTurnBegin();
             }
@@ -4987,13 +5003,6 @@ namespace BotMain
                         pendingOrigin));
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
-                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
-                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
-                {
-                    _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
-                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
-                }
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
@@ -5015,6 +5024,11 @@ namespace BotMain
                     return false;
                 }
 
+                ChoiceRecommendationConsumptionTracker.TryRememberConsumed(
+                    recommendation,
+                    wasApplied: true,
+                    ref _lastConsumedHsBoxChoiceUpdatedAtMs,
+                    ref _lastConsumedHsBoxChoicePayloadSignature);
                 Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
                 RememberPendingAcquisition(currentState.Mode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, currentState.Options
                     .Where(option => option != null && selectedEntityIds.Contains(option.EntityId))
@@ -5140,13 +5154,6 @@ namespace BotMain
                     pickedIndex = 0;
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
-                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
-                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
-                {
-                    _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
-                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
-                }
 
                 var pickedCardId = choiceCardIds[pickedIndex];
                 var pickedEntityId = choiceEntityIds[pickedIndex];
@@ -5160,6 +5167,11 @@ namespace BotMain
                     continue;
                 }
 
+                ChoiceRecommendationConsumptionTracker.TryRememberConsumed(
+                    recommendation,
+                    wasApplied: true,
+                    ref _lastConsumedHsBoxChoiceUpdatedAtMs,
+                    ref _lastConsumedHsBoxChoicePayloadSignature);
                 string pickedCardName = pickedCardId;
                 try
                 {
@@ -5289,14 +5301,6 @@ namespace BotMain
                 if (pickedIndex < 0 || pickedIndex >= currentState.ChoiceEntityIds.Count)
                     pickedIndex = 0;
 
-                if ((recommendation?.SourceUpdatedAtMs ?? 0) > 0
-                    && ((recommendation?.SourceUpdatedAtMs ?? 0) > _lastConsumedHsBoxChoiceUpdatedAtMs
-                        || !string.Equals(recommendation?.SourcePayloadSignature, _lastConsumedHsBoxChoicePayloadSignature, StringComparison.Ordinal)))
-                {
-                    _lastConsumedHsBoxChoiceUpdatedAtMs = recommendation.SourceUpdatedAtMs;
-                    _lastConsumedHsBoxChoicePayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
-                }
-
                 var pickedCardId = currentState.ChoiceCardIds[pickedIndex];
                 var pickedEntityId = currentState.ChoiceEntityIds[pickedIndex];
                 var pickResponse = pipe.SendAndReceive(
@@ -5307,6 +5311,11 @@ namespace BotMain
                 if (!pickResponse.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     return false;
 
+                ChoiceRecommendationConsumptionTracker.TryRememberConsumed(
+                    recommendation,
+                    wasApplied: true,
+                    ref _lastConsumedHsBoxChoiceUpdatedAtMs,
+                    ref _lastConsumedHsBoxChoicePayloadSignature);
                 RememberPendingAcquisition("DISCOVER", currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, new[] { pickedCardId });
 
                 if (string.Equals(pickResponse, "OK:CLOSED", StringComparison.OrdinalIgnoreCase))

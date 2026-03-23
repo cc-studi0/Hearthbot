@@ -378,6 +378,65 @@ namespace BotMain
         }
     }
 
+    internal static class ChoiceRecommendationConsumptionTracker
+    {
+        public static bool HasSourcePayload(long sourceUpdatedAtMs, string sourcePayloadSignature)
+        {
+            return sourceUpdatedAtMs > 0 || !string.IsNullOrWhiteSpace(sourcePayloadSignature);
+        }
+
+        public static bool TryRememberConsumed(
+            ChoiceRecommendationResult recommendation,
+            bool wasApplied,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature)
+        {
+            return TryRememberConsumed(
+                recommendation?.SourceUpdatedAtMs ?? 0,
+                recommendation?.SourcePayloadSignature,
+                wasApplied,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature);
+        }
+
+        public static bool TryRememberConsumed(
+            DiscoverRecommendationResult recommendation,
+            bool wasApplied,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature)
+        {
+            return TryRememberConsumed(
+                recommendation?.SourceUpdatedAtMs ?? 0,
+                recommendation?.SourcePayloadSignature,
+                wasApplied,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature);
+        }
+
+        public static bool TryRememberConsumed(
+            long sourceUpdatedAtMs,
+            string sourcePayloadSignature,
+            bool wasApplied,
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature)
+        {
+            if (!wasApplied || !HasSourcePayload(sourceUpdatedAtMs, sourcePayloadSignature))
+                return false;
+
+            lastConsumedUpdatedAtMs = sourceUpdatedAtMs;
+            lastConsumedPayloadSignature = sourcePayloadSignature ?? string.Empty;
+            return true;
+        }
+
+        public static void Reset(
+            ref long lastConsumedUpdatedAtMs,
+            ref string lastConsumedPayloadSignature)
+        {
+            lastConsumedUpdatedAtMs = 0;
+            lastConsumedPayloadSignature = string.Empty;
+        }
+    }
+
     internal sealed class MulliganRecommendationRequest
     {
         public MulliganRecommendationRequest(
