@@ -171,6 +171,9 @@ namespace BotMain
         private string _earlyGameResult;
         private PostGameResultConfidence _earlyGameResultConfidence;
         private bool _postGameLeftGameplayConfirmed;
+        private readonly AlternateConcedeState _alternateConcedeState = new AlternateConcedeState();
+        private DateTime _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
+        private bool _currentMatchResultHandled;
 
         public event Action<string> OnLog;
         public event Action<Board> OnBoardUpdated;
@@ -577,6 +580,8 @@ namespace BotMain
             _finishAfterGame = false;
             _nextRankLimitCheckUtc = DateTime.MinValue;
             ClearPendingConcedeLoss();
+            ResetAlternateConcedeState();
+            _currentMatchResultHandled = false;
             _cts = new CancellationTokenSource();
             StatusChanged("Starting");
 
@@ -589,6 +594,8 @@ namespace BotMain
             _running = false;
             _finishAfterGame = false;
             ClearPendingConcedeLoss();
+            ResetAlternateConcedeState();
+            _currentMatchResultHandled = false;
             try { _cts?.Cancel(); } catch { }
         }
 
@@ -712,7 +719,15 @@ namespace BotMain
             _concedeWhenLethal = v;
             Log($"[Settings] AutoConcede={v} (mapped to ConcedeWhenLethal)");
         }
-        public void SetAutoConcedeAlternativeMode(bool v) { _autoConcedeAlternativeMode = v; Log($"[Settings] AutoConcedeAlt={v}"); }
+        public void SetAutoConcedeAlternativeMode(bool v)
+        {
+            _autoConcedeAlternativeMode = v;
+            if (!v)
+                ResetAlternateConcedeState("Settings.AutoConcedeAlt");
+            else
+                _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
+            Log($"[Settings] AutoConcedeAlt={v}");
+        }
         public void SetAutoConcedeMaxRank(int v) { _autoConcedeMaxRank = v; Log($"[Settings] AutoConcedeMaxRank={v}"); }
         public void SetConcedeWhenLethal(bool v)
         {
@@ -1340,6 +1355,16 @@ namespace BotMain
             _pendingConcedeLoss = false;
         }
 
+        private void ResetAlternateConcedeState(string scope = null)
+        {
+            var hadPendingState = _alternateConcedeState.NextMatchShouldConcedeAfterMulligan
+                || _alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed;
+            _alternateConcedeState.Reset();
+            _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
+            if (hadPendingState && !string.IsNullOrWhiteSpace(scope))
+                Log($"[{scope}] 已清空一胜一输待投降状态。");
+        }
+
         private void ClearEarlyGameResultCache()
         {
             _earlyGameResult = null;
@@ -1383,70 +1408,110 @@ namespace BotMain
 
         private void HandleGameResult(string resultResp)
         {
-            resultResp = string.IsNullOrWhiteSpace(resultResp)
-                ? BotProtocol.UnknownGameResultResponse
-                : resultResp;
-            Log($"[GameResult] 收到结果响应: {resultResp}");
-
-            if (!BotProtocol.TryParseGameResultResponse(resultResp, out var result, out var concedeFromGame))
+            if (_currentMatchResultHandled)
             {
-                Log("[GameResult] 结果响应格式无效，按未知结果处理。");
-                result = "NONE";
-                concedeFromGame = false;
+                Log($"[GameResult] 当前对局结果已处理，忽略重复响应: {resultResp}");
+                return;
             }
-            var learnedOutcome = LearnedMatchOutcome.Unknown;
 
-            Log($"[GameResult] 解析结果: {result}{(concedeFromGame ? " (投降)" : "")}");
+            _currentMatchResultHandled = true;
+            var decision = MatchResultDecisionBuilder.Resolve(resultResp, _pendingConcedeLoss);
+            Log($"[GameResult] 收到结果响应: {decision.RawResponse}");
+            if (!decision.ResponseWasValid)
+                Log("[GameResult] 结果响应格式无效，按 RESULT:NONE 处理。");
 
-            if (result == "WIN")
+            Log($"[GameResult] 解析结果: {decision.Result}{(decision.Conceded ? " (投降)" : string.Empty)}");
+
+            if (decision.WinDelta > 0)
             {
                 _stats?.RecordWin();
                 Log($"[GameResult] 记录胜利 - 当前战绩: {_stats?.Wins}胜 {_stats?.Losses}负");
-                ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnVictory();
                 Log("[Game] Victory");
                 PublishStatsChanged();
-                learnedOutcome = LearnedMatchOutcome.Win;
             }
-            else if (result == "LOSS")
+            else if (decision.LossDelta > 0)
             {
                 _stats?.RecordLoss();
                 Log($"[GameResult] 记录失败 - 当前战绩: {_stats?.Wins}胜 {_stats?.Losses}负");
-                if (_pendingConcedeLoss || concedeFromGame)
+                if (decision.ConcedeDelta > 0)
                 {
                     _stats?.RecordConcede();
                     Log("[GameResult] 记录投降");
                 }
-                ClearPendingConcedeLoss();
                 _pluginSystem?.FireOnDefeat();
                 Log("[Game] Defeat");
                 PublishStatsChanged();
-                learnedOutcome = LearnedMatchOutcome.Loss;
             }
-            else if (result == "TIE")
+            else if (decision.Result == "TIE")
             {
                 Log("[GameResult] 平局，不计入胜负");
-                ClearPendingConcedeLoss();
-                learnedOutcome = LearnedMatchOutcome.Tie;
             }
-            else if (string.Equals(result, "NONE", StringComparison.OrdinalIgnoreCase))
+            else if (string.Equals(decision.Result, "NONE", StringComparison.OrdinalIgnoreCase))
             {
                 Log("[GameResult] 结果未知，本局不计入胜负/投降。");
-                ClearPendingConcedeLoss();
             }
             else
             {
-                Log($"[GameResult] 未知结果类型: {result}");
-                ClearPendingConcedeLoss();
+                Log($"[GameResult] 未知结果类型: {decision.Result}");
             }
 
+            Log($"[GameResult] 入账完成: raw={decision.RawResponse}, result={decision.Result}, conceded={(decision.Conceded ? 1 : 0)}, delta=W+{decision.WinDelta}/L+{decision.LossDelta}/C+{decision.ConcedeDelta}, 当前战绩={_stats?.Wins ?? 0}胜 {_stats?.Losses ?? 0}负 {_stats?.Concedes ?? 0}投");
+
+            var hadNextAutoConcede = _alternateConcedeState.NextMatchShouldConcedeAfterMulligan;
+            var hadCurrentAutoConcede = _alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed;
+            _alternateConcedeState.ApplyPostGameResult(decision.Result, _autoConcedeAlternativeMode);
+            _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
+            if (_autoConcedeAlternativeMode)
+            {
+                if (_alternateConcedeState.NextMatchShouldConcedeAfterMulligan && !hadNextAutoConcede)
+                {
+                    Log("[AutoConcedeAlt] 本局获胜，已设置下一局留牌后投降。");
+                }
+                else if ((hadNextAutoConcede || hadCurrentAutoConcede)
+                    && !_alternateConcedeState.NextMatchShouldConcedeAfterMulligan
+                    && !_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                {
+                    Log("[AutoConcedeAlt] 本局未获胜，已清空一胜一输待投降状态。");
+                }
+            }
+
+            ClearPendingConcedeLoss();
             if (!string.IsNullOrWhiteSpace(_currentLearningMatchId))
             {
-                _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, learnedOutcome);
+                _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
                 _currentLearningMatchId = string.Empty;
             }
 
             _matchEntityProvenanceRegistry.Reset();
+        }
+
+        private bool TryExecuteScheduledAlternateConcede(PipeServer pipe, string scope, out string response, bool force = false)
+        {
+            response = "NOT_ARMED";
+            if (!_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                return false;
+
+            if (!force && DateTime.UtcNow < _nextAlternateConcedeAttemptUtc)
+            {
+                response = "RETRY_WAIT";
+                return false;
+            }
+
+            response = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
+            Log($"[AutoConcedeAlt] {scope} -> {response}");
+            if (response.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+            {
+                _alternateConcedeState.MarkCurrentMatchConcedeCompleted();
+                _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
+                MarkPendingConcedeLoss();
+                _pluginSystem?.FireOnConcede();
+                return true;
+            }
+
+            _nextAlternateConcedeAttemptUtc = DateTime.UtcNow.AddSeconds(1);
+            Log($"[AutoConcedeAlt] {scope} 投降失败，保留当前局待投降标记，稍后重试。");
+            return false;
         }
 
         private void CheckRunLimits()
@@ -2003,6 +2068,12 @@ namespace BotMain
                         mulliganHandled = false;
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         playActionFailStreakByEntity.Clear();
+                        if (_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                        {
+                            TryExecuteScheduledAlternateConcede(pipe, "NotOurTurn", out _);
+                            Thread.Sleep(300);
+                            continue;
+                        }
                         notOurTurnStreak++;
                         var attemptedDismiss = false;
                         if (notOurTurnStreak >= 25
@@ -2088,6 +2159,13 @@ namespace BotMain
 
                 EnsureGameplaySessionStarted(ref wasInGame);
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
+
+                if (_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                {
+                    TryExecuteScheduledAlternateConcede(pipe, "Gameplay", out _);
+                    Thread.Sleep(120);
+                    continue;
+                }
 
                 var seed = resp.Substring(5);
                 Board planningBoard = null;
@@ -4485,12 +4563,17 @@ namespace BotMain
             _postGameSinceUtc = null;
             _postGameLobbyConfirmCount = 0;
             _postGameLeftGameplayConfirmed = false;
+            _currentMatchResultHandled = false;
+            _alternateConcedeState.BeginMatch(_autoConcedeAlternativeMode);
+            _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
             _currentLearningMatchId = Guid.NewGuid().ToString("N");
             _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             _currentDeckContext = ResolveDeckContext(null);
             HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
             _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
+            if (_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                Log("[AutoConcedeAlt] 本局已接管为留牌后投降。");
             _pluginSystem?.FireOnGameBegin();
         }
 
@@ -7573,6 +7656,12 @@ namespace BotMain
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
                 result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
+                if (applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase)
+                    && _alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
+                {
+                    TryExecuteScheduledAlternateConcede(pipe, "Mulligan", out var concedeResp, force: true);
+                    result += $"; autoConcede={concedeResp}";
+                }
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)

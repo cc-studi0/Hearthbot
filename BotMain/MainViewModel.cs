@@ -167,7 +167,7 @@ namespace BotMain
         public string RuntimeText => IsRunning ? (DateTime.Now - _startTime).ToString(@"hh\:mm\:ss") : "00:00:00";
 
         // 设置
-        private bool _coachMode, _overlayMode, _concedeWhenLethal, _fpsLock;
+        private bool _coachMode, _overlayMode, _concedeWhenLethal, _autoConcedeAlternativeMode, _fpsLock;
         private int _fpsValue = 30, _modeIndex;
         public bool CoachMode { get => _coachMode; set { _coachMode = value; AutoSave(); } }
         public bool OverlayMode { get => _overlayMode; set { _overlayMode = value; AutoSave(); } }
@@ -188,6 +188,20 @@ namespace BotMain
                 _bot.SetConcedeWhenLethal(value);
                 Notify();
                 Notify(nameof(AutoConcede));
+                AutoSave();
+            }
+        }
+        public bool AutoConcedeAlternativeMode
+        {
+            get => _autoConcedeAlternativeMode;
+            set
+            {
+                if (_autoConcedeAlternativeMode == value)
+                    return;
+
+                _autoConcedeAlternativeMode = value;
+                _bot.SetAutoConcedeAlternativeMode(value);
+                Notify();
                 AutoSave();
             }
         }
@@ -664,6 +678,7 @@ namespace BotMain
                 dict["CoachMode"] = JsonSerializer.SerializeToElement(CoachMode);
                 dict["OverlayMode"] = JsonSerializer.SerializeToElement(OverlayMode);
                 dict["ConcedeWhenLethal"] = JsonSerializer.SerializeToElement(ConcedeWhenLethal);
+                dict["AutoConcedeAlternativeMode"] = JsonSerializer.SerializeToElement(AutoConcedeAlternativeMode);
                 dict.Remove("AutoConcede");
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
@@ -718,6 +733,8 @@ namespace BotMain
                         bool concedeWhenLethal = hasConcedeWhenLethal && v.GetBoolean();
                         if (hasAutoConcede || hasConcedeWhenLethal)
                             ConcedeWhenLethal = autoConcede || concedeWhenLethal;
+                        if (dict.TryGetValue("AutoConcedeAlternativeMode", out v))
+                            AutoConcedeAlternativeMode = v.GetBoolean();
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v))
