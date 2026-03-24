@@ -507,6 +507,12 @@ namespace BotMain
         {
             if (_bot.State == BotState.Idle)
             {
+                if (!_bot.IsPrepared)
+                {
+                    _bot.Prepare();
+                    return;
+                }
+
                 if (SelectedProfileIndex < 0 || SelectedProfileIndex >= ProfileNames.Count)
                     SelectedProfileIndex = 0;
 
