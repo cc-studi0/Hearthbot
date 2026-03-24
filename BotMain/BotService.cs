@@ -1739,7 +1739,7 @@ namespace BotMain
                     var lobbyReady = false;
                     for (var waitIdx = 0; waitIdx < 30 && _running; waitIdx++)
                     {
-                        Thread.Sleep(1000);
+                        if (SleepOrCancelled(1000)) break;
                         if (!TryGetSceneValue(_pipe, 2000, out var scene, "BG.AutoQueue"))
                             continue;
 
@@ -1780,9 +1780,9 @@ namespace BotMain
                     {
                         if (!TryDismissBlockingDialog(_pipe, 2000, out _, "BG.AutoQueue.Dialog"))
                             break;
-                        Thread.Sleep(500);
+                        if (SleepOrCancelled(500)) break;
                     }
-                    Thread.Sleep(2000);
+                    if (SleepOrCancelled(2000)) break;
                 }
 
                 return;
