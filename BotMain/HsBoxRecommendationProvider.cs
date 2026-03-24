@@ -2951,6 +2951,9 @@ namespace BotMain
         {
             lock (Sync)
                 _enabled = enabled;
+
+            if (enabled)
+                PurgeOldCaptures();
         }
 
         internal static void BeginMatchSession(DateTime? matchStartedAtUtc = null)
@@ -3172,6 +3175,39 @@ namespace BotMain
         private static DateTime GetUtcNow()
         {
             return (_utcNowProvider ?? DefaultUtcNowProvider).Invoke().ToUniversalTime();
+        }
+
+        private static void PurgeOldCaptures(int retentionDays = 3)
+        {
+            try
+            {
+                string rootDirectory;
+                lock (Sync)
+                    rootDirectory = _rootDirectory;
+
+                if (!Directory.Exists(rootDirectory))
+                    return;
+
+                var cutoff = GetUtcNow().ToLocalTime().Date.AddDays(-retentionDays);
+
+                foreach (var sessionDir in Directory.EnumerateDirectories(rootDirectory))
+                {
+                    var dirName = Path.GetFileName(sessionDir);
+                    // sessionId 格式: yyyyMMdd_HHmmss_matchNN，取前 8 位作为日期
+                    if (dirName.Length >= 8
+                        && DateTime.TryParseExact(dirName.Substring(0, 8), "yyyyMMdd",
+                            System.Globalization.CultureInfo.InvariantCulture,
+                            System.Globalization.DateTimeStyles.None, out var sessionDate)
+                        && sessionDate < cutoff)
+                    {
+                        try { Directory.Delete(sessionDir, true); } catch { }
+                    }
+                }
+            }
+            catch
+            {
+                // 清理失败不影响正常功能
+            }
         }
 
         private static string BuildDedupeKey(string sessionId, long updatedAtMs, string payloadSignature)
@@ -5405,7 +5441,14 @@ namespace BotMain
             if (step.OppTarget != null)
                 return ResolveBoardEntityId(board.MinionEnemy, step.OppTarget);
             if (step.Target != null)
-                return ResolveBoardEntityId(board.MinionFriend, step.Target);
+            {
+                var boardId = ResolveBoardEntityId(board.MinionFriend, step.Target);
+                if (boardId > 0)
+                    return boardId;
+
+                // 场上未找到 → 可能是手牌目标（战吼选手牌等新机制）
+                return ResolveOrderedEntityId(board?.Hand, step.Target);
+            }
 
             return 0;
         }
