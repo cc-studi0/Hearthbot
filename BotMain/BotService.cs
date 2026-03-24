@@ -7490,6 +7490,12 @@ namespace BotMain
                 CheckRunLimits();
                 if (CheckRankStopLimit(pipe, force: true))
                     return;
+                if (_finishAfterGame)
+                {
+                    Log("Game finished, stopping as requested.");
+                    _running = false;
+                    return;
+                }
             }
 
             currentTurnStartedUtc = DateTime.MinValue;
