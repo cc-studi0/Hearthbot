@@ -1725,6 +1725,12 @@ namespace BotMain
                     Log($"[BG.AutoQueue] ── 开始第 {bgMatchCount} 局战旗 ──");
                     BattlegroundsLoop();
                     if (!_running) break;
+                    if (_finishAfterGame)
+                    {
+                        Log("[BG] Game finished, stopping as requested.");
+                        _running = false;
+                        break;
+                    }
 
                     Log($"[BG.AutoQueue] 第 {bgMatchCount} 局结束，准备重新排队...");
 
