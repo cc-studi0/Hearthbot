@@ -2344,7 +2344,7 @@ namespace BotMain
                 actions = NormalizeRecommendedActions(actions);
 
                 if (actions != null && actions.Count > 0)
-                    TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities);
+                    TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities, actions.Count);
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
 
@@ -2415,7 +2415,10 @@ namespace BotMain
                             const int preReadyIntervalMs = 300;
                             const int postReadyRetries = 30;
                             const int postReadyIntervalMs = 300;
-                            const int actionDelayMs = 80;
+                            var actionDelayMs = _humanizeActionsEnabled
+                                ? ConstructedHumanizerPlanner.ComputeInterActionDelayMs(
+                                    ai, actions.Count, _humanizeIntensity, null)
+                                : 80;
 
                             // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
                             if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
@@ -2637,13 +2640,6 @@ namespace BotMain
                                 resimulationRequestedThisAction,
                                 resimulationReasonThisAction);
                         }
-                    }
-
-                    if (_finishAfterGame)
-                    {
-                        Log("Current game finished, stopping automatically.");
-                        _running = false;
-                        break;
                     }
 
                     if (requestResimulation)
@@ -6362,7 +6358,8 @@ namespace BotMain
         private void TryRunHumanizedTurnPrelude(
             PipeServer pipe,
             Board planningBoard,
-            IReadOnlyList<EntityContextSnapshot> friendlyEntities)
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            int actionCount = 0)
         {
             if (!IsConstructedHumanizerMode()
                 || planningBoard == null
@@ -6401,10 +6398,12 @@ namespace BotMain
             var command = "HUMAN_TURN_START|"
                 + planningBoard.TurnCount
                 + "|"
-                + string.Join(",", handEntityIds);
+                + string.Join(",", handEntityIds)
+                + "|"
+                + Math.Max(0, actionCount);
             var result = SendActionCommand(pipe, command, 15000) ?? "NO_RESPONSE";
             Log(
-                $"[Humanize] turn_start turn={planningBoard.TurnCount} intensity={HumanizerProtocol.GetIntensityToken(_humanizeIntensity)} hand={handEntityIds.Count} -> {result}");
+                $"[Humanize] turn_start turn={planningBoard.TurnCount} intensity={HumanizerProtocol.GetIntensityToken(_humanizeIntensity)} hand={handEntityIds.Count} actions={actionCount} -> {result}");
         }
 
         private string SendActionCommand(PipeServer pipe, string action, int timeoutMs)
