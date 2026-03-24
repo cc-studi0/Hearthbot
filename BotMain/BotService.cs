@@ -3097,7 +3097,7 @@ namespace BotMain
                 Log("[BG] 未在游戏中，导航到战旗界面");
                 navResp = pipe.SendAndReceive("NAV_TO:BACON", 5000);
                 Log($"[BG] 导航 -> {navResp}");
-                Thread.Sleep(3000);
+                if (SleepOrCancelled(3000)) return;
 
                 playResp = pipe.SendAndReceive("CLICK_PLAY", 3000);
                 Log($"[BG] 点击开始 -> {playResp}");
@@ -3126,7 +3126,7 @@ namespace BotMain
                         Log($"[BG] 点击开始 -> {playResp}");
                         matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
                     }
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) return;
                 }
             }
             else
@@ -3154,7 +3154,7 @@ namespace BotMain
 
             while (_running && pipe != null && pipe.IsConnected)
             {
-                while (_suspended && _running) Thread.Sleep(500);
+                while (_suspended && _running) SleepOrCancelled(500);
                 if (!_running) break;
 
                 var gotBgResp = TryGetBgStateResponse(pipe, 2000, out var bgResp, "BG.StatePoll");
@@ -3163,7 +3163,7 @@ namespace BotMain
                 {
                     if (!TryGetSceneValue(pipe, 1000, out var scene, "BG.NoStateScene"))
                     {
-                        Thread.Sleep(1000);
+                        if (SleepOrCancelled(1000)) return;
                         continue;
                     }
 
@@ -3190,7 +3190,7 @@ namespace BotMain
                             }
                         }
 
-                        Thread.Sleep(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 300);
+                        SleepOrCancelled(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 300);
                         continue;
                     }
 
@@ -3200,14 +3200,14 @@ namespace BotMain
                         break;
                     }
 
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) return;
                     continue;
                 }
 
                 if (!BotProtocol.TryParseBgState(bgResp, out var stateData))
                 {
                     Log($"[BG] 状态解析失败: {(bgResp?.Length > 60 ? bgResp.Substring(0, 60) : bgResp)}");
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) return;
                     continue;
                 }
 
@@ -3284,7 +3284,7 @@ namespace BotMain
                             if (!WaitForGameReady(pipe, 10, 120, 1200))
                             {
                                 Log("[BG] 英雄选择界面尚未就绪，稍后重试");
-                                Thread.Sleep(200);
+                                SleepOrCancelled(200);
                                 continue;
                             }
 
@@ -3302,7 +3302,7 @@ namespace BotMain
                                     Log($"[BG] 英雄选择推荐与上次已消费相同，等待刷新: {nextAction} ({repeatedConsumedBattlegroundRecommendationCount}/{ConsumedBattlegroundRecommendationRepeatThreshold})");
                                 }
 
-                                Thread.Sleep(180);
+                                SleepOrCancelled(180);
                                 continue;
                             }
 
@@ -3327,20 +3327,20 @@ namespace BotMain
                             }
 
                             heroPickBridgeWaitUntilUtc = DateTime.MinValue;
-                            Thread.Sleep(350);
+                            SleepOrCancelled(350);
                             continue;
                         }
                     }
 
                     if (heroPickBridgeWaitUntilUtc > DateTime.UtcNow)
                     {
-                        Thread.Sleep(250);
+                        SleepOrCancelled(250);
                         continue;
                     }
 
                     if (heroPickForcePickAtUtc > DateTime.UtcNow)
                     {
-                        Thread.Sleep(250);
+                        SleepOrCancelled(250);
                         continue;
                     }
 
@@ -3350,18 +3350,18 @@ namespace BotMain
                         if (!WaitForGameReady(pipe, 10, 120, 1200))
                         {
                             Log("[BG] 英雄选择界面尚未就绪，兜底选择稍后重试");
-                            Thread.Sleep(200);
+                            SleepOrCancelled(200);
                             continue;
                         }
 
                         var fallbackResp = SendActionCommand(pipe, fallbackHeroAction, 3000);
                         Log($"[BG] 英雄选择兜底 {fallbackHeroAction} -> {fallbackResp}");
                         heroPickForcePickAtUtc = DateTime.UtcNow.AddSeconds(3);
-                        Thread.Sleep(1000);
+                        if (SleepOrCancelled(1000)) return;
                         continue;
                     }
 
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) return;
                     continue;
                 }
 
@@ -3412,7 +3412,7 @@ namespace BotMain
                         {
                             if (gameOverFalsePositiveCount == 1)
                                 Log($"[BG] GAME_OVER=1 但 RESULT={bgResult}/PLACE={bgPlace}，可能是战斗阶段暂态，等待确认... ({gameOverFalsePositiveCount}/5)");
-                            Thread.Sleep(500);
+                            if (SleepOrCancelled(500)) return;
                             continue;
                         }
                         // 连续 5 次仍然是 GAME_OVER=1，执行正常结束流程
@@ -3433,7 +3433,7 @@ namespace BotMain
                         // 也等待一段时间让游戏自动过渡
                         for (var waitCount = 0; waitCount < 15 && _running; waitCount++)
                         {
-                            Thread.Sleep(1000);
+                            if (SleepOrCancelled(1000)) return;
                             if (TryGetSceneValue(pipe, 1500, out var waitScene, "BG.PostEndgameWait")
                                 && BotProtocol.IsStableLobbyScene(waitScene))
                             {
@@ -3452,7 +3452,7 @@ namespace BotMain
 
                 if (!stateData.Contains("PHASE=RECRUIT"))
                 {
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) return;
                     continue;
                 }
 
@@ -3482,7 +3482,7 @@ namespace BotMain
                         if (!WaitForGameReady(pipe, 10, 120, 1200))
                         {
                             Log("[BG] 招募界面尚未就绪，稍后重试");
-                            Thread.Sleep(200);
+                            SleepOrCancelled(200);
                             continue;
                         }
 
@@ -3502,7 +3502,7 @@ namespace BotMain
                                 Log($"[BG] 推荐与上次已消费相同，等待刷新: {nextAction} ({repeatedConsumedBattlegroundRecommendationCount}/{ConsumedBattlegroundRecommendationRepeatThreshold})");
                             }
 
-                            Thread.Sleep(180);
+                            SleepOrCancelled(180);
                             continue;
                         }
 
@@ -3537,7 +3537,7 @@ namespace BotMain
                                     staleActionCount = 0;
                                     staleActionFirstUtc = DateTime.MinValue;
                                     staleActionEntityKey = string.Empty;
-                                    Thread.Sleep(500);
+                                    if (SleepOrCancelled(500)) return;
                                     continue;
                                 }
                             }
@@ -3561,7 +3561,7 @@ namespace BotMain
                             if (pendingBattlegroundActionIndex + 1 < actions.Count)
                             {
                                 pendingBattlegroundActionIndex++;
-                                Thread.Sleep(180);
+                                SleepOrCancelled(180);
                                 continue;
                             }
 
@@ -3577,7 +3577,7 @@ namespace BotMain
                         }
                         else
                         {
-                            Thread.Sleep(220);
+                            SleepOrCancelled(220);
                             continue;
                         }
                         if (nextAction.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
@@ -3586,19 +3586,19 @@ namespace BotMain
                         {
                             if (TryHandlePendingChoiceBeforePlanning(pipe, choiceSeed, out var waitingForBgChoiceState))
                             {
-                                Thread.Sleep(150);
+                                SleepOrCancelled(150);
                             }
                             else if (waitingForBgChoiceState)
                             {
                                 Log($"[BG] 动作后检测到待处理选择: {nextAction}");
-                                Thread.Sleep(150);
+                                SleepOrCancelled(150);
                             }
                         }
-                        Thread.Sleep(220);
+                        SleepOrCancelled(220);
                     }
                 }
 
-                Thread.Sleep(500);
+                if (SleepOrCancelled(500)) return;
             }
 
             Log("[BG] 战旗模式结束");
