@@ -157,7 +157,9 @@ namespace BotMain
             UiModeTest => "Test",
             _ => "Unknown"
         };
-        public string MainButtonText => _bot.State == BotState.Idle ? "Start" : "Stop";
+        public string MainButtonText => _bot.State == BotState.Idle
+            ? (_bot.IsPrepared ? "Start" : "Inject")
+            : "Stop";
 
         // 统计
         public int Wins { get; set; }
