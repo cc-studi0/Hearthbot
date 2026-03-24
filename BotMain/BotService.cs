@@ -185,6 +185,7 @@ namespace BotMain
         public event Action<List<string>> OnDecksLoaded;
 
         public BotState State { get; private set; } = BotState.Idle;
+        public bool IsPrepared => _prepared;
         public long AvgCalcTime { get; private set; }
         public StatsBridge Stats => _stats;
         public List<string> ProfileNames { get; private set; } = new();
