@@ -1813,7 +1813,7 @@ namespace BotMain
             while (_running && pipe != null && pipe.IsConnected)
             {
                 while (_suspended && _running)
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) break;
                 if (!_running) break;
 
                 if (!wasInGame && CheckRankStopLimit(pipe))
@@ -1920,7 +1920,7 @@ namespace BotMain
                             continue;
                         }
                     }
-                    Thread.Sleep(300);
+                    if (SleepOrCancelled(300)) break;
                     continue;
                 }
 
@@ -1934,7 +1934,7 @@ namespace BotMain
                     || resp == "PONG" || resp == "READY" || resp == "BUSY")
                 {
                     Log($"[MainLoop] GET_SEED 收到错位响应，丢弃  {resp.Substring(0, Math.Min(resp.Length, 40))}");
-                    Thread.Sleep(300);
+                    if (SleepOrCancelled(300)) break;
                     continue;
                 }
 
@@ -2006,7 +2006,7 @@ namespace BotMain
                         }
                         else
                         {
-                            Thread.Sleep(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 250);
+                            if (SleepOrCancelled(pendingResolution == EndgamePendingResolution.GameplayContinues ? 150 : 250)) break;
                         }
                     }
                     else if (resp == "NO_GAME")
@@ -2067,7 +2067,7 @@ namespace BotMain
 
                         if (mulliganStreak % 10 == 1)
                             Log("[MainLoop] mulligan phase detected; waiting...");
-                        Thread.Sleep(1000);
+                        if (SleepOrCancelled(1000)) break;
                     }
                     else if (resp == "NOT_OUR_TURN")
                     {
@@ -2078,7 +2078,7 @@ namespace BotMain
                         if (_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
                         {
                             TryExecuteScheduledAlternateConcede(pipe, "NotOurTurn", out _);
-                            Thread.Sleep(300);
+                            if (SleepOrCancelled(300)) break;
                             continue;
                         }
                         notOurTurnStreak++;
@@ -2091,7 +2091,7 @@ namespace BotMain
                             {
                                 Log("[MainLoop] NOT_OUR_TURN 场景探测超时/串包，等待重试。");
                                 nextPostGameDismissUtc = DateTime.UtcNow.AddSeconds(2);
-                                Thread.Sleep(300);
+                                if (SleepOrCancelled(300)) break;
                                 continue;
                             }
                             if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
@@ -2141,7 +2141,7 @@ namespace BotMain
                         }
                         if (!attemptedDismiss && notOurTurnStreak % 15 == 0)
                             Log("[MainLoop] waiting for our turn...");
-                        Thread.Sleep(300);
+                        if (SleepOrCancelled(300)) continue;
                     }
                     else
                     {
@@ -2152,7 +2152,7 @@ namespace BotMain
                         nextMulliganAttemptUtc = DateTime.MinValue;
                         mulliganPhaseStartedUtc = DateTime.MinValue;
                         Log($"[MainLoop] GET_SEED -> {resp}");
-                        Thread.Sleep(1000);
+                        if (SleepOrCancelled(1000)) break;
                     }
                     continue;
                 }
@@ -2317,7 +2317,7 @@ namespace BotMain
                 {
                     Log($"[ErrorContext] stage={recommendationStage}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}, learn={_learnFromHsBoxRecommendations}, boardHand={planningBoard?.Hand?.Count ?? 0}, friendlyEntities={friendlyEntities?.Count ?? 0}, deckCards={deckCards?.Count ?? 0}");
                     Log("[ErrorContext] recommendation exception: " + ex);
-                    Thread.Sleep(300);
+                    if (SleepOrCancelled(300)) continue;
                     continue;
                 }
                 var decision = recommendation?.DecisionPlan;
@@ -2573,7 +2573,7 @@ namespace BotMain
                                 // Choose One UI 已弹出，游戏不处于"就绪"状态，
                                 // 跳过 discover 探测和 post-ready 等待，直接发送 OPTION。
                                 var postDelaySw = Stopwatch.StartNew();
-                                Thread.Sleep(actionDelayMs);
+                                SleepOrCancelled(actionDelayMs);
                                 postDelaySw.Stop();
                                 postDelayMs = postDelaySw.ElapsedMilliseconds;
                                 postReadyStatus = "skipped_next_option";
@@ -2583,7 +2583,7 @@ namespace BotMain
                             else
                             {
                                 var postDelaySw = Stopwatch.StartNew();
-                                Thread.Sleep(actionDelayMs);
+                                SleepOrCancelled(actionDelayMs);
                                 postDelaySw.Stop();
                                 postDelayMs = postDelaySw.ElapsedMilliseconds;
 
@@ -2655,7 +2655,7 @@ namespace BotMain
                         if (resimulationCount <= 5)
                         {
                             Log($"[AI] resimulation requested ({resimulationCount}/5): {resimulationReason}");
-                            Thread.Sleep(800);
+                            if (SleepOrCancelled(800)) break;
                             WaitForGameReady(pipe, 30);
                             continue;
                         }
@@ -2686,11 +2686,11 @@ namespace BotMain
                                 try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
                             }
                             actionFailStreak = 0;
-                            Thread.Sleep(2000);
+                            if (SleepOrCancelled(2000)) break;
                         }
                         else
                         {
-                            Thread.Sleep(1000);
+                            if (SleepOrCancelled(1000)) break;
                         }
                         continue;
                     }
@@ -2737,7 +2737,7 @@ namespace BotMain
                     continue;
                 }
 
-                Thread.Sleep(800);
+                if (SleepOrCancelled(800)) break;
             }
 
             if (pipe == null || !pipe.IsConnected)
@@ -7455,7 +7455,7 @@ namespace BotMain
 
                 if (requireVisibleEndgameScreen)
                 {
-                    Thread.Sleep(150);
+                    SleepOrCancelled(150);
                     continue;
                 }
 
@@ -7471,7 +7471,7 @@ namespace BotMain
                     return EndgamePendingResolution.GameplayContinues;
                 }
 
-                Thread.Sleep(150);
+                SleepOrCancelled(150);
             }
 
             return EndgamePendingResolution.Waiting;
@@ -7543,7 +7543,7 @@ namespace BotMain
             if (resultResolution?.Status == BotProtocol.PostGameResultResolutionStatus.TimedOutAndResynced)
             {
                 Log($"[AutoQueue] 结果解析刚完成 resync，延后 {PostGameResultResyncAutoQueueDelayMs}ms 再进入首轮探测。");
-                Thread.Sleep(PostGameResultResyncAutoQueueDelayMs);
+                SleepOrCancelled(PostGameResultResyncAutoQueueDelayMs);
             }
             AutoQueue(pipe);
         }
