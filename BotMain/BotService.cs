@@ -6780,14 +6780,14 @@ namespace BotMain
             {
                 if (!WaitForStableLobbyForNavigation(pipe, "BG.LobbyReady"))
                 {
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
                 if (!TryGetSceneValue(pipe, 1500, out var currentScene, "BG.InitialScene"))
                 {
                     Log("[BG] 获取当前场景超时，等待后重试...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6799,7 +6799,7 @@ namespace BotMain
                     if (string.IsNullOrWhiteSpace(navRespSafe)
                         || navRespSafe.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
                     {
-                        Thread.Sleep(2000);
+                        if (SleepOrCancelled(2000)) break;
                         continue;
                     }
                 }
@@ -6816,7 +6816,7 @@ namespace BotMain
                     if (string.IsNullOrWhiteSpace(navResp)
                         || navResp.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
                     {
-                        Thread.Sleep(2000);
+                        if (SleepOrCancelled(2000)) break;
                         continue;
                     }
                 }
@@ -6828,7 +6828,7 @@ namespace BotMain
                 #endif
                 if (!WaitForStableScene(pipe, "BACON", "BG.BaconReady"))
                 {
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6862,12 +6862,12 @@ namespace BotMain
                         && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"[{scope}] 关闭大厅阻塞弹窗 {dialogType}({dialogButton}) -> {dismissResp}");
-                        Thread.Sleep(800);
+                        if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
                     Log($"[{scope}] 大厅存在阻塞弹窗 {dialogType}({dialogButton})，等待界面稳定...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6879,7 +6879,7 @@ namespace BotMain
                 {
                     stableLobbyConfirmCount = 0;
                     Log($"[{scope}] 场景={scene}，等待大厅加载完成...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6907,7 +6907,7 @@ namespace BotMain
                     Log($"[{scope}] 大厅状态探测中... scene={sceneText}, probe={probeText}, finding={findingText}");
                 }
 
-                Thread.Sleep(1000);
+                if (SleepOrCancelled(1000)) break;
             }
 
             Log($"[{scope}] 等待大厅加载超时({timeoutSeconds}s)，继续等待下一轮...");
@@ -6936,12 +6936,12 @@ namespace BotMain
                         && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
-                        Thread.Sleep(800);
+                        if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
                     Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6953,7 +6953,7 @@ namespace BotMain
                 {
                     stableLobbyConfirmCount = 0;
                     Log($"[{scope}] Scene is still blocked for navigation: {scene}");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -6981,7 +6981,7 @@ namespace BotMain
                     Log($"[{scope}] Lobby state probe pending... scene={sceneText}, probe={probeText}, finding={findingText}");
                 }
 
-                Thread.Sleep(1000);
+                if (SleepOrCancelled(1000)) break;
             }
 
             Log($"[{scope}] Timed out waiting for a stable lobby ({timeoutSeconds}s); will retry.");
@@ -7009,12 +7009,12 @@ namespace BotMain
                         && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"[{scope}] 关闭阻塞弹窗 {dialogType}({dialogButton}) -> {dismissResp}");
-                        Thread.Sleep(800);
+                        if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
                     Log($"[{scope}] 界面存在阻塞弹窗 {dialogType}({dialogButton})，等待界面稳定...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7022,7 +7022,7 @@ namespace BotMain
                 {
                     confirmCount = 0;
                     Log($"[{scope}] 获取场景超时，等待进入 {expectedScene}...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7030,7 +7030,7 @@ namespace BotMain
                 {
                     confirmCount = 0;
                     Log($"[{scope}] 场景={scene}，等待进入 {expectedScene}...");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7051,7 +7051,7 @@ namespace BotMain
                     Log($"[{scope}] 等待进入 {expectedScene}，当前场景={scene}");
                 }
 
-                Thread.Sleep(1000);
+                if (SleepOrCancelled(1000)) break;
             }
 
             Log($"[{scope}] 等待场景 {expectedScene} 稳定超时({timeoutSeconds}s)，继续等待下一轮...");
@@ -7080,12 +7080,12 @@ namespace BotMain
                         && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
-                        Thread.Sleep(800);
+                        if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
                     Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7093,7 +7093,7 @@ namespace BotMain
                 {
                     confirmCount = 0;
                     Log($"[{scope}] Scene probe timed out while waiting for {expectedScene}.");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7101,7 +7101,7 @@ namespace BotMain
                 {
                     confirmCount = 0;
                     Log($"[{scope}] Scene is still blocked while waiting for {expectedScene}: {scene}");
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
                     continue;
                 }
 
@@ -7122,7 +7122,7 @@ namespace BotMain
                     Log($"[{scope}] Waiting to enter {expectedScene}; current scene={scene}");
                 }
 
-                Thread.Sleep(1000);
+                if (SleepOrCancelled(1000)) break;
             }
 
             Log($"[{scope}] Timed out waiting for stable scene {expectedScene} ({timeoutSeconds}s); will retry.");
@@ -7151,12 +7151,12 @@ namespace BotMain
                         && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
-                        Thread.Sleep(600);
+                        if (SleepOrCancelled(600)) break;
                         continue;
                     }
 
                     Log($"[{scope}] Blocking dialog still present before play click: {dialogType}({dialogButton})");
-                    Thread.Sleep(800);
+                    if (SleepOrCancelled(800)) break;
                     continue;
                 }
 
@@ -7175,7 +7175,7 @@ namespace BotMain
                 {
                     readyConfirmCount = 0;
                     Log($"[{scope}] IS_BACON_READY probe timed out, waiting for UI to load.");
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) break;
                     continue;
                 }
 
@@ -7183,7 +7183,7 @@ namespace BotMain
                 {
                     readyConfirmCount = 0;
                     Log($"[{scope}] Battlegrounds UI not ready: {baconReadyResp}");
-                    Thread.Sleep(800);
+                    if (SleepOrCancelled(800)) break;
                     continue;
                 }
 
@@ -7192,7 +7192,7 @@ namespace BotMain
                 if (readyConfirmCount < requiredConfirmations)
                 {
                     Log($"[{scope}] Battlegrounds UI ready confirmation {readyConfirmCount}/{requiredConfirmations}.");
-                    Thread.Sleep(500);
+                    if (SleepOrCancelled(500)) break;
                     continue;
                 }
 
@@ -7213,11 +7213,11 @@ namespace BotMain
                 {
                     readyConfirmCount = 0;
                     Log($"[{scope}] Play button became unavailable after ready check, re-waiting.");
-                    Thread.Sleep(700);
+                    if (SleepOrCancelled(700)) break;
                     continue;
                 }
 
-                Thread.Sleep(800);
+                if (SleepOrCancelled(800)) break;
             }
 
             Log($"[{scope}] Timed out waiting for battleground play button readiness ({timeoutSeconds}s).");
@@ -7282,7 +7282,7 @@ namespace BotMain
                         var extraInfo = extraClickResp == null ? string.Empty : $", extra={extraClickResp}";
                         Log($"[{scope}] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene_probe=timeout");
                     }
-                    Thread.Sleep(250);
+                    if (SleepOrCancelled(250)) break;
                     continue;
                 }
 
@@ -7309,7 +7309,7 @@ namespace BotMain
                     return true;
                 }
 
-                Thread.Sleep(250);
+                if (SleepOrCancelled(250)) break;
             }
 
             if (string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
@@ -7823,7 +7823,7 @@ namespace BotMain
             if (!TryGetSceneValue(pipe, 5000, out var scene, "AutoQueue"))
             {
                 Log("[AutoQueue] GET_SCENE 超时/串包，等待重试...");
-                Thread.Sleep(1000);
+                SleepOrCancelled(1000);
                 return;
             }
 
@@ -7836,7 +7836,7 @@ namespace BotMain
                     || !TryGetEndgameState(pipe, 2500, out var endgameShown, out var endgameClass, "AutoQueue"))
                 {
                     Log("[AutoQueue] 结算探测超时/串包，等待下一轮确认。");
-                    Thread.Sleep(500);
+                    SleepOrCancelled(500);
                     return;
                 }
 
@@ -7855,7 +7855,7 @@ namespace BotMain
                     {
                         Log($"[AutoQueue] scene=GAMEPLAY，seed={ShortenSeedProbe(seedProbe)}，endgame=0，暂不点击，等待下一轮确认。");
                     }
-                    Thread.Sleep(500);
+                    SleepOrCancelled(500);
                     return;
                 }
 
@@ -7866,7 +7866,7 @@ namespace BotMain
 
                 if (!RunPostGameDismissLoop(pipe, "AutoQueue", out scene))
                 {
-                    Thread.Sleep(800);
+                    SleepOrCancelled(800);
                     return;
                 }
             }
@@ -7876,7 +7876,7 @@ namespace BotMain
                 if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, "AutoQueueDialog"))
                 {
                     Log("[AutoQueue] GET_BLOCKING_DIALOG 超时/串包，等待重试...");
-                    Thread.Sleep(1000);
+                    SleepOrCancelled(1000);
                     return;
                 }
 
@@ -7885,7 +7885,7 @@ namespace BotMain
                     if (!BotProtocol.IsSafeBlockingDialogButtonLabel(lobbyDialogButton))
                     {
                         Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton})，按钮不在安全白名单内，等待后续超时/重试处理。");
-                        Thread.Sleep(2000);
+                        SleepOrCancelled(2000);
                         return;
                     }
 
@@ -7903,7 +7903,7 @@ namespace BotMain
                         }
                     }
 
-                    Thread.Sleep(1000);
+                    SleepOrCancelled(1000);
                     return;
                 }
             }
@@ -7914,7 +7914,7 @@ namespace BotMain
             if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))
             {
                 Log("[AutoQueue] IS_FINDING 超时（payload 无响应），等待重试...");
-                Thread.Sleep(2000);
+                SleepOrCancelled(2000);
                 return;
             }
 
@@ -7941,7 +7941,7 @@ namespace BotMain
 
                 if ((int)elapsed % 10 < 3)
                     Log($"[AutoQueue] 匹配中... 已等待 {elapsed:F0}s");
-                Thread.Sleep(2000);
+                SleepOrCancelled(2000);
                 return;
             }
 
@@ -7957,7 +7957,7 @@ namespace BotMain
                 var stableLobbyConfirmCount = 0;
                 while (_running && DateTime.UtcNow < loadDeadline)
                 {
-                    Thread.Sleep(1000);
+                    if (SleepOrCancelled(1000)) break;
 
                     var gotProbe = TryGetSeedProbe(pipe, 1500, out var probe, "AutoQueueLoad");
                     if (gotProbe && BotProtocol.IsGameLoadingOrGameplayResponse(probe))
@@ -7982,7 +7982,7 @@ namespace BotMain
                         {
                             Log($"[AutoQueue] 匹配失败弹窗 {dialogType}({dialogButton}) -> {dismissResp}，重置匹配状态并准备重新排队。");
                             ResetMatchmakingTracking();
-                            Thread.Sleep(1000);
+                            SleepOrCancelled(1000);
                             return;
                         }
 
@@ -8008,7 +8008,7 @@ namespace BotMain
                             {
                                 Log($"[AutoQueue] 匹配在进游戏前失败，已确认回到大厅：scene={loadScene}, probe={probe}, finding={postFinding}");
                                 ResetMatchmakingTracking();
-                                Thread.Sleep(1000);
+                                SleepOrCancelled(1000);
                                 return;
                             }
                         }
@@ -8059,7 +8059,7 @@ namespace BotMain
                     if (!isKnownLobby || seedIndicatesGame)
                     {
                         Log($"[AutoQueue] 匹配加载保护期({sincEnd:F0}s/{MatchLoadGracePeriodSeconds}s)：scene={graceSceneParsed ?? "null"}，seed={ShortenSeedProbe(graceSeed)}，等待加载完成...");
-                        Thread.Sleep(3000);
+                        SleepOrCancelled(3000);
                         return;
                     }
 
@@ -8080,14 +8080,14 @@ namespace BotMain
                 {
                     var elapsed = (DateTime.UtcNow - _postGameSinceUtc.Value).TotalMilliseconds;
                     Log($"[AutoQueue] 结算保护期 {elapsed:0}ms/{PostGameNavigationMinDelay.TotalMilliseconds:0}ms，延后导航...");
-                    Thread.Sleep(1000);
+                    SleepOrCancelled(1000);
                     return;
                 }
 
                 if (!TryGetEndgameState(pipe, 2500, out var postGameEndgameShown, out var postGameEndgameClass, "AutoQueue"))
                 {
                     Log("[AutoQueue] 结算保护期中的 ENDGAME 状态读取失败，等待重试。");
-                    Thread.Sleep(1000);
+                    SleepOrCancelled(1000);
                     return;
                 }
 
@@ -8099,7 +8099,7 @@ namespace BotMain
                 if (_postGameLobbyConfirmCount < PostGameLobbyConfirmationsRequired)
                 {
                     Log($"[AutoQueue] 等待大厅稳定确认 {_postGameLobbyConfirmCount}/{PostGameLobbyConfirmationsRequired}：scene={scene}, endgame={(postGameEndgameShown ? "1" : "0")}({postGameEndgameClass})");
-                    Thread.Sleep(1000);
+                    SleepOrCancelled(1000);
                     return;
                 }
             }
@@ -8109,7 +8109,7 @@ namespace BotMain
             if (BotProtocol.IsNavigationBlockedScene(scene))
             {
                 Log($"[AutoQueue] 场景={scene}，不适合导航，等待场景变化...");
-                Thread.Sleep(3000);
+                SleepOrCancelled(3000);
                 return;
             }
 
@@ -8117,7 +8117,7 @@ namespace BotMain
             {
                 var navResp = pipe.SendAndReceive("NAV_TO:TOURNAMENT", 5000);
                 Log($"[AutoQueue] 导航到传统对战 {navResp}");
-                Thread.Sleep(5000);
+                SleepOrCancelled(5000);
                 return;
             }
 
@@ -8131,7 +8131,7 @@ namespace BotMain
                 _findingGameSince = DateTime.UtcNow;
                 _postGameSinceUtc = null;
                 _postGameLobbyConfirmCount = 0;
-                Thread.Sleep(5000);
+                SleepOrCancelled(5000);
                 return;
             }
 
@@ -8139,28 +8139,28 @@ namespace BotMain
             int vft = _modeIndex == 0 ? 2 : 1;
             var fmtResp = pipe.SendAndReceive("SET_FORMAT:" + vft, 5000);
             Log($"[AutoQueue] 设置模式: vft={vft} -> {fmtResp}");
-            Thread.Sleep(1000);
+            SleepOrCancelled(1000);
 
             var deckName = StripClassSuffix(_selectedDeck);
             var idResp = pipe.SendAndReceive("GET_DECK_ID:" + deckName, 5000);
             if (idResp == null || !long.TryParse(idResp, out long deckId))
             {
                 Log($"[AutoQueue] 卡组查找失败: {deckName} -> {idResp}");
-                Thread.Sleep(5000);
+                SleepOrCancelled(5000);
                 return;
             }
 
             // 5. 尝试在 UI 中选择卡组
             var selResp = pipe.SendAndReceive("SELECT_DECK:" + deckId, 5000);
             Log($"[AutoQueue] 选择卡组: {deckName}(id={deckId}) -> {selResp}");
-            Thread.Sleep(1000);
+            SleepOrCancelled(1000);
 
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
             if (string.IsNullOrWhiteSpace(playResp)
                 || !playResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
             {
                 Log("[AutoQueue] 点击开始未成功，保持在卡组页等待下一轮重试。");
-                Thread.Sleep(2000);
+                SleepOrCancelled(2000);
                 return;
             }
             Log($"[AutoQueue] 点击开始 {playResp}");
@@ -8169,7 +8169,7 @@ namespace BotMain
             _findingGameSince = DateTime.UtcNow;
             _postGameSinceUtc = null;
             _postGameLobbyConfirmCount = 0;
-            Thread.Sleep(5000);
+            SleepOrCancelled(5000);
         }
 
         private static bool TryParseEndgameState(string resp, out string endgameClass)
