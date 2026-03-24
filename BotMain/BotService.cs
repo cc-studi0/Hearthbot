@@ -97,6 +97,7 @@ namespace BotMain
         private volatile bool _running;
         private volatile bool _finishAfterGame;
         private volatile bool _suspended;
+        private volatile bool _restartPending;
 
         // 延迟监控
         private int _latencyAvg;
@@ -594,6 +595,7 @@ namespace BotMain
         {
             _running = false;
             _finishAfterGame = false;
+            _restartPending = false;
             ClearPendingConcedeLoss();
             ResetAlternateConcedeState();
             _currentMatchResultHandled = false;
@@ -1788,6 +1790,7 @@ namespace BotMain
                 return;
             }
 
+            MainLoopReconnect:
             var pipe = _pipe;
             int notOurTurnStreak = 0;
             int mulliganStreak = 0;
@@ -2744,7 +2747,38 @@ namespace BotMain
             {
                 _prepared = false;
                 _decksLoaded = false;
-                Log("Payload disconnected.");
+
+                if (_restartPending && _running)
+                {
+                    _restartPending = false;
+                    Log("[Restart] 正在等待炉石重启后重新连接...");
+                    StatusChanged("Reconnecting");
+
+                    // 炉石启动需要较长时间，循环重试连接
+                    const int maxReconnectAttempts = 6;
+                    for (var attempt = 1; attempt <= maxReconnectAttempts && _running; attempt++)
+                    {
+                        Log($"[Restart] 重连尝试 {attempt}/{maxReconnectAttempts}...");
+                        if (EnsurePreparedAndConnected())
+                        {
+                            Log("[Restart] 重连成功，恢复主循环。");
+                            StatusChanged("Running");
+                            goto MainLoopReconnect;
+                        }
+
+                        if (attempt < maxReconnectAttempts && _running)
+                        {
+                            Log($"[Restart] 连接未就绪，等待后重试...");
+                            SleepOrCancelled(5000);
+                        }
+                    }
+
+                    Log("[Restart] 多次重连失败，停止运行。");
+                }
+                else
+                {
+                    Log("Payload disconnected.");
+                }
             }
         }
 
@@ -8187,6 +8221,7 @@ namespace BotMain
         }
         private void RestartHearthstone()
         {
+            _restartPending = true;
             ResetMatchmakingTracking();
             var hearthstoneProcesses = System.Diagnostics.Process.GetProcessesByName("Hearthstone");
             var launchPath = ResolveHearthstoneLaunchPath(hearthstoneProcesses);
