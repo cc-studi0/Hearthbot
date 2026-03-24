@@ -2748,6 +2748,21 @@ namespace BotMain
             }
         }
 
+        /// <summary>
+        /// 可取消的 Sleep。返回 true 表示已被取消（Stop 被调用），false 表示正常超时。
+        /// </summary>
+        private bool SleepOrCancelled(int ms)
+        {
+            try
+            {
+                return _cts?.Token.WaitHandle.WaitOne(ms) ?? false;
+            }
+            catch (ObjectDisposedException)
+            {
+                return true;
+            }
+        }
+
         private bool WaitForGameReady(PipeServer pipe, int maxRetries = 15, string waitScope = null, string action = null)
         {
             return WaitForGameReady(pipe, maxRetries, 300, 3000, waitScope, action);
@@ -2781,6 +2796,7 @@ namespace BotMain
 
             for (int i = 0; i < maxRetries; i++)
             {
+                if (_cts?.IsCancellationRequested == true) return false;
                 polls++;
                 var resp = pipe.SendAndReceive("WAIT_READY", Math.Max(100, commandTimeoutMs));
                 if (resp == "READY")
@@ -2815,7 +2831,9 @@ namespace BotMain
                 }
 
                 if (i < maxRetries - 1 && intervalMs > 0)
-                    Thread.Sleep(intervalMs);
+                {
+                    if (SleepOrCancelled(intervalMs)) return false;
+                }
             }
 
             LogReadyWaitSummary(waitScope, action, sw.ElapsedMilliseconds, polls, busyPolls, firstBusyReason, lastBusyReason, uniqueReasons, timedOut: true);
