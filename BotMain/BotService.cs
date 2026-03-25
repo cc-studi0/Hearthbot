@@ -2745,40 +2745,10 @@ namespace BotMain
 
             if (pipe == null || !pipe.IsConnected)
             {
-                _prepared = false;
-                _decksLoaded = false;
-
-                if (_restartPending && _running)
-                {
-                    _restartPending = false;
-                    Log("[Restart] 正在等待炉石重启后重新连接...");
-                    StatusChanged("Reconnecting");
-
-                    // 炉石启动需要较长时间，循环重试连接
-                    const int maxReconnectAttempts = 6;
-                    for (var attempt = 1; attempt <= maxReconnectAttempts && _running; attempt++)
-                    {
-                        Log($"[Restart] 重连尝试 {attempt}/{maxReconnectAttempts}...");
-                        if (EnsurePreparedAndConnected())
-                        {
-                            Log("[Restart] 重连成功，恢复主循环。");
-                            StatusChanged("Running");
-                            goto MainLoopReconnect;
-                        }
-
-                        if (attempt < maxReconnectAttempts && _running)
-                        {
-                            Log($"[Restart] 连接未就绪，等待后重试...");
-                            SleepOrCancelled(5000);
-                        }
-                    }
-
-                    Log("[Restart] 多次重连失败，停止运行。");
-                }
-                else
-                {
-                    Log("Payload disconnected.");
-                }
+                var reason = _restartPending ? "匹配超时重启" : "游戏闪退";
+                _restartPending = false;
+                if (_running && TryReconnectLoop(reason))
+                    goto MainLoopReconnect;
             }
         }
 
