@@ -44,6 +44,7 @@ obj_codex/
 *.temp
 Scripts/decompiled_sb/
 Scripts/effects_data.json
+Data/HsBoxTeacher/*.db
 Data/HsBoxTeacher/*.db-wal
 Data/HsBoxTeacher/*.db-shm
 Data/HsBoxTeacher/*.db-journal
