@@ -8219,6 +8219,7 @@ namespace BotMain
                 return "SEED";
             return probe.Length > 40 ? probe.Substring(0, 40) : probe;
         }
+
         /// <summary>
         /// 统一重连循环：检测炉石进程是否存活，若已消失则尝试启动新进程，
         /// 然后无限重试连接直到成功或 _running 变为 false。
@@ -8230,6 +8231,8 @@ namespace BotMain
 
             // 清理旧 pipe，与 RestartHearthstone 行为对齐
             lock (_sync) { try { _pipe?.Dispose(); } catch { } _pipe = null; }
+            _prepared = false;
+            _decksLoaded = false;
 
             var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
             if (!hearthstoneAlive)
