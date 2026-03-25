@@ -241,6 +241,7 @@ namespace BotMain
         private volatile bool _saveHsBoxCallbacks;
         private volatile bool _suppressAiLogs;
         private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
+        private readonly TeacherDatasetRecorder _teacherDatasetRecorder;
         private readonly MatchEntityProvenanceRegistry _matchEntityProvenanceRegistry = new MatchEntityProvenanceRegistry();
         private readonly Dictionary<string, DeckDefinition> _deckDefinitionsByDisplayName = new(StringComparer.OrdinalIgnoreCase);
         private LearnedDeckContext _currentDeckContext;
@@ -344,6 +345,11 @@ namespace BotMain
         }
 
         public BotService()
+            : this(new TeacherDatasetRecorder())
+        {
+        }
+
+        internal BotService(TeacherDatasetRecorder teacherDatasetRecorder)
         {
             _localRecommendationProvider = new LocalGameRecommendationProvider(
                 RecommendLocalActions,
@@ -353,6 +359,8 @@ namespace BotMain
             _hsBoxRecommendationProvider.SetBgLog(msg => Log(msg));
             _learnedStrategyCoordinator = new LearnedStrategyCoordinator();
             _learnedStrategyCoordinator.OnLog = msg => Log(msg);
+            _teacherDatasetRecorder = teacherDatasetRecorder ?? new TeacherDatasetRecorder();
+            _teacherDatasetRecorder.OnLog = msg => Log(msg);
         }
 
         public void RefreshProfiles()
@@ -900,6 +908,11 @@ namespace BotMain
                 return;
 
             var localAction = GetFirstLearnableAction(localRecommendation?.Actions);
+            _teacherDatasetRecorder.RecordActionDecision(
+                _currentLearningMatchId,
+                request,
+                teacherRecommendation,
+                localRecommendation);
             _learnedStrategyCoordinator.EnqueueActionSample(new ActionLearningSample
             {
                 MatchId = _currentLearningMatchId,
@@ -929,6 +942,11 @@ namespace BotMain
                 return;
             }
 
+            _teacherDatasetRecorder.RecordMulliganDecision(
+                _currentLearningMatchId,
+                request,
+                teacherRecommendation,
+                localRecommendation);
             _learnedStrategyCoordinator.EnqueueMulliganSample(new MulliganLearningSample
             {
                 MatchId = _currentLearningMatchId,
@@ -967,6 +985,11 @@ namespace BotMain
             if (teacherSelected.Count == 0)
                 return;
 
+            _teacherDatasetRecorder.RecordChoiceDecision(
+                _currentLearningMatchId,
+                request,
+                teacherRecommendation,
+                localRecommendation);
             _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
             {
                 MatchId = _currentLearningMatchId,
@@ -1013,6 +1036,11 @@ namespace BotMain
             if (localIndex >= 0 && localIndex < request.ChoiceEntityIds.Count)
                 localSelectedIds.Add(request.ChoiceEntityIds[localIndex]);
 
+            _teacherDatasetRecorder.RecordDiscoverDecision(
+                _currentLearningMatchId,
+                request,
+                teacherRecommendation,
+                localRecommendation);
             _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
             {
                 MatchId = _currentLearningMatchId,
@@ -1482,6 +1510,7 @@ namespace BotMain
             ClearPendingConcedeLoss();
             if (!string.IsNullOrWhiteSpace(_currentLearningMatchId))
             {
+                _teacherDatasetRecorder.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
                 _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
                 _currentLearningMatchId = string.Empty;
             }

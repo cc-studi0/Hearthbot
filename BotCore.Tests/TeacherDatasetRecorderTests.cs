@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using BotMain;
 using BotMain.Learning;
@@ -164,6 +165,39 @@ namespace BotCore.Tests
             Assert.Equal(teacherPick.CandidateId, decision.TeacherMappedCandidateId);
         }
 
+        [Fact]
+        public void BotService_TryEnqueueActionLearning_CallsTeacherDatasetRecorder()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+            var constructor = typeof(BotService).GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(TeacherDatasetRecorder) },
+                modifiers: null);
+            Assert.NotNull(constructor);
+
+            var botService = (BotService)constructor.Invoke(new object[] { recorder });
+            SetPrivateField(botService, "_currentLearningMatchId", "match-botservice-1");
+
+            var method = typeof(BotService).GetMethod("TryEnqueueActionLearning", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var request = BuildActionRequest("seed-botservice-1");
+            var teacherRecommendation = new ActionRecommendationResult(
+                decisionPlan: null,
+                actions: new[] { "ATTACK|101|900" },
+                detail: "teacher");
+            var localRecommendation = new ActionRecommendationResult(
+                decisionPlan: null,
+                actions: new[] { "END_TURN" },
+                detail: "local");
+
+            method.Invoke(botService, new object[] { request, teacherRecommendation, localRecommendation });
+
+            Assert.Single(store.ActionDecisions);
+        }
+
         private static ActionRecommendationRequest BuildActionRequest(string seed)
         {
             var board = new Board
@@ -299,6 +333,13 @@ namespace BotCore.Tests
             template.NameCN = id.ToString();
             template.Name = id.ToString();
             return template;
+        }
+
+        private static void SetPrivateField(object instance, string fieldName, object value)
+        {
+            var field = instance.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(instance, value);
         }
 
         private sealed class FakeTeacherDatasetStore : ITeacherDatasetStore
