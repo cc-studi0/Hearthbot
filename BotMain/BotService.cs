@@ -1728,6 +1728,16 @@ namespace BotMain
                     Log($"[BG.AutoQueue] ── 开始第 {bgMatchCount} 局战旗 ──");
                     BattlegroundsLoop();
                     if (!_running) break;
+
+                    // 检测对局中游戏闪退
+                    if (_pipe == null || !_pipe.IsConnected)
+                    {
+                        _restartPending = false;
+                        if (!TryReconnectLoop("[BG] 游戏闪退"))
+                            break;
+                        continue;
+                    }
+
                     if (_finishAfterGame)
                     {
                         Log("[BG] Game finished, stopping as requested.");
