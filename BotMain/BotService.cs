@@ -1752,8 +1752,12 @@ namespace BotMain
                     for (var waitIdx = 0; waitIdx < 30 && _running; waitIdx++)
                     {
                         if (SleepOrCancelled(1000)) break;
+                        if (_pipe == null || !_pipe.IsConnected) break;
                         if (!TryGetSceneValue(_pipe, 2000, out var scene, "BG.AutoQueue"))
+                        {
+                            if (_pipe == null || !_pipe.IsConnected) break;
                             continue;
+                        }
 
                         if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                         {
@@ -1776,6 +1780,14 @@ namespace BotMain
                     if (!_running) break;
                     if (!lobbyReady)
                     {
+                        // 优先检查 pipe 是否因闪退断开（在 stuck check 之前）
+                        if (_pipe == null || !_pipe.IsConnected)
+                        {
+                            _restartPending = false;
+                            if (!TryReconnectLoop("[BG] 游戏闪退（等待大厅期间）"))
+                                break;
+                            continue;
+                        }
                         // 检查是否仍在 GAMEPLAY — 如果是，说明之前的结束检测是误判，重新进入战旗循环
                         if (TryGetSceneValue(_pipe, 2000, out var stuckScene, "BG.AutoQueue.StuckCheck")
                             && string.Equals(stuckScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
