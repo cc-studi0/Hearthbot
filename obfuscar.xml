@@ -12,8 +12,15 @@
   <Var name="OptimizeMethods" value="true" />
 
   <Module file="BotMain.dll">
+    <!-- WPF XAML code-behind: x:Class 引用的类型必须保留 -->
+    <SkipType name="BotMain.App" />
+    <SkipType name="BotMain.MainWindow" />
     <!-- WPF ViewModel: XAML 绑定依赖属性名 -->
     <SkipType name="BotMain.MainViewModel" skipProperties="true" />
+    <!-- XAML 数据绑定引用的模型类型 (DisplayMemberPath / SelectedValuePath) -->
+    <SkipType name="BotMain.HumanizerIntensityOption" skipProperties="true" />
+    <SkipType name="BotMain.RankTargetOption" skipProperties="true" />
+    <SkipType name="BotMain.RelayCommand" />
     <!-- Profile 脚本通过 SmartBot 命名空间交互 -->
     <SkipNamespace name="SmartBot.*" />
     <!-- 运行时反射加载需要保留的类型 -->
