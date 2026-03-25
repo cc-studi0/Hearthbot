@@ -38,6 +38,7 @@ Desktop.ini
 .DS_Store
 
 # ========== Additional local artifacts ==========
+.worktrees/
 obj_codex/
 *.tmp
 *.temp
