@@ -28,7 +28,6 @@ namespace BotMain.Learning
         public string BoardSnapshotJson { get; set; } = string.Empty;
         public string ContextSnapshotJson { get; set; } = string.Empty;
         public TeacherActionMappingStatus MappingStatus { get; set; }
-        public TeacherDecisionKind DecisionKind { get; set; } = TeacherDecisionKind.Action;
         public long CreatedAtMs { get; set; }
         public string TeacherMappedCandidateId { get; set; } = string.Empty;
 

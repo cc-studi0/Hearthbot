@@ -18,6 +18,12 @@ namespace BotCore.Tests
 
             Assert.False(string.IsNullOrWhiteSpace(record.BuildSampleKey()));
             Assert.Equal(record.BuildSampleKey(), record.BuildSampleKey());
+            var initialKey = record.BuildSampleKey();
+
+            record.Seed = "seed-2";
+            var updatedKey = record.BuildSampleKey();
+
+            Assert.NotEqual(initialKey, updatedKey);
         }
 
         [Fact]
@@ -30,6 +36,8 @@ namespace BotCore.Tests
             };
 
             Assert.True(candidate.IsTeacherPick);
+            var defaultCandidate = new TeacherActionCandidateRecord();
+            Assert.False(defaultCandidate.IsTeacherPick);
         }
     }
 }
