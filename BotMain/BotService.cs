@@ -8215,6 +8215,7 @@ namespace BotMain
         /// <summary>
         /// 统一重连循环：检测炉石进程是否存活，若已消失则尝试启动新进程，
         /// 然后无限重试连接直到成功或 _running 变为 false。
+        /// 内部会重置 _pipe、_prepared、_decksLoaded，调用方无需在调用前重置这些字段。
         /// </summary>
         /// <returns>true 表示重连成功；false 表示 _running 变为 false（用户 Stop）。</returns>
         private bool TryReconnectLoop(string reason)
