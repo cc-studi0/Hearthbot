@@ -70,6 +70,9 @@ namespace BotMain.Learning
                         i.ToString());
                 }
 
+                var teacherPickCandidate = buildResult.Candidates.FirstOrDefault(candidate => candidate?.IsTeacherPick == true);
+                decision.TeacherMappedCandidateId = teacherPickCandidate?.CandidateId ?? string.Empty;
+
                 if (_store.TryStoreActionDecision(
                     decision,
                     buildResult.Candidates,

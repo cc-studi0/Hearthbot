@@ -140,6 +140,30 @@ namespace BotCore.Tests
             Assert.NotEqual(store.ActionDecisions[0].DecisionId, store.ActionDecisions[1].DecisionId);
         }
 
+        [Fact]
+        public void TeacherDatasetRecorder_SynchronizesTeacherMappedCandidateId_WithTeacherPickCandidate()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+
+            recorder.RecordActionDecision(
+                "match-mapped-candidate",
+                BuildActionRequest("seed-mapped-candidate"),
+                new ActionRecommendationResult(
+                    null,
+                    new[] { "ATTACK|101|900" },
+                    "teacher-mapped",
+                    sourcePayloadSignature: "payload-mapped-candidate"),
+                new ActionRecommendationResult(null, new[] { "END_TURN" }, "local-mapped"));
+
+            var decision = Assert.Single(store.ActionDecisions);
+            var candidates = Assert.Single(store.ActionCandidatesByDecisionCall);
+            var teacherPick = Assert.Single(candidates, candidate => candidate.IsTeacherPick);
+
+            Assert.False(string.IsNullOrWhiteSpace(decision.TeacherMappedCandidateId));
+            Assert.Equal(teacherPick.CandidateId, decision.TeacherMappedCandidateId);
+        }
+
         private static ActionRecommendationRequest BuildActionRequest(string seed)
         {
             var board = new Board
@@ -281,6 +305,8 @@ namespace BotCore.Tests
         {
             public List<TeacherActionDecisionRecord> ActionDecisions { get; } = new List<TeacherActionDecisionRecord>();
 
+            public List<List<TeacherActionCandidateRecord>> ActionCandidatesByDecisionCall { get; } = new List<List<TeacherActionCandidateRecord>>();
+
             public List<TeacherChoiceDecisionRecord> ChoiceDecisions { get; } = new List<TeacherChoiceDecisionRecord>();
 
             public List<TeacherMulliganDecisionRecord> MulliganDecisions { get; } = new List<TeacherMulliganDecisionRecord>();
@@ -306,6 +332,7 @@ namespace BotCore.Tests
                 }
 
                 ActionDecisions.Add(decision);
+                ActionCandidatesByDecisionCall.Add((candidates ?? Array.Empty<TeacherActionCandidateRecord>()).ToList());
                 detail = "ok";
                 return true;
             }
