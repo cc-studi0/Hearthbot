@@ -36,76 +36,93 @@ namespace BotMain.Learning
 
                 using var connection = OpenConnection();
                 using var transaction = connection.BeginTransaction();
-                if (!UpsertMatch(connection, transaction, decision.MatchId, decision.CreatedAtMs, allowOutcomeRefresh: false))
+                try
                 {
-                    transaction.Rollback();
-                    detail = "match_upsert_failed";
-                    return false;
-                }
-
-                var createdAtMs = decision.CreatedAtMs > 0
-                    ? decision.CreatedAtMs
-                    : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                using (var insertDecision = connection.CreateCommand())
-                {
-                    insertDecision.Transaction = transaction;
-                    insertDecision.CommandText =
-                        @"INSERT OR IGNORE INTO action_decisions
-                            (decision_id, match_id, payload_signature, seed, teacher_action_command, board_snapshot_json, context_snapshot_json, mapping_status, outcome, created_at_ms, teacher_mapped_candidate_id)
-                          VALUES
-                            ($decisionId, $matchId, $payloadSignature, $seed, $teacherActionCommand, $boardSnapshotJson, $contextSnapshotJson, $mappingStatus, $outcome, $createdAtMs, $teacherMappedCandidateId);";
-                    insertDecision.Parameters.AddWithValue("$decisionId", decision.DecisionId);
-                    insertDecision.Parameters.AddWithValue("$matchId", decision.MatchId ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$payloadSignature", decision.PayloadSignature ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$seed", decision.Seed ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$teacherActionCommand", decision.TeacherActionCommand ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$boardSnapshotJson", decision.BoardSnapshotJson ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$contextSnapshotJson", decision.ContextSnapshotJson ?? string.Empty);
-                    insertDecision.Parameters.AddWithValue("$mappingStatus", (int)decision.MappingStatus);
-                    insertDecision.Parameters.AddWithValue("$outcome", (int)LearnedMatchOutcome.Unknown);
-                    insertDecision.Parameters.AddWithValue("$createdAtMs", createdAtMs);
-                    insertDecision.Parameters.AddWithValue("$teacherMappedCandidateId", decision.TeacherMappedCandidateId ?? string.Empty);
-                    var inserted = insertDecision.ExecuteNonQuery() > 0;
-                    if (!inserted)
+                    if (!UpsertMatch(connection, transaction, decision.MatchId, decision.CreatedAtMs, allowOutcomeRefresh: false))
                     {
                         transaction.Rollback();
-                        detail = "duplicate_decision";
+                        detail = "match_upsert_failed";
                         return false;
                     }
-                }
 
-                var candidateList = candidates ?? Array.Empty<TeacherActionCandidateRecord>();
-                for (var index = 0; index < candidateList.Count; index++)
+                    var createdAtMs = decision.CreatedAtMs > 0
+                        ? decision.CreatedAtMs
+                        : DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                    using (var insertDecision = connection.CreateCommand())
+                    {
+                        insertDecision.Transaction = transaction;
+                        insertDecision.CommandText =
+                            @"INSERT OR IGNORE INTO action_decisions
+                                (decision_id, match_id, payload_signature, seed, teacher_action_command, board_snapshot_json, context_snapshot_json, mapping_status, outcome, created_at_ms, teacher_mapped_candidate_id)
+                              VALUES
+                                ($decisionId, $matchId, $payloadSignature, $seed, $teacherActionCommand, $boardSnapshotJson, $contextSnapshotJson, $mappingStatus, $outcome, $createdAtMs, $teacherMappedCandidateId);";
+                        insertDecision.Parameters.AddWithValue("$decisionId", decision.DecisionId);
+                        insertDecision.Parameters.AddWithValue("$matchId", decision.MatchId ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$payloadSignature", decision.PayloadSignature ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$seed", decision.Seed ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$teacherActionCommand", decision.TeacherActionCommand ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$boardSnapshotJson", decision.BoardSnapshotJson ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$contextSnapshotJson", decision.ContextSnapshotJson ?? string.Empty);
+                        insertDecision.Parameters.AddWithValue("$mappingStatus", (int)decision.MappingStatus);
+                        insertDecision.Parameters.AddWithValue("$outcome", (int)LearnedMatchOutcome.Unknown);
+                        insertDecision.Parameters.AddWithValue("$createdAtMs", createdAtMs);
+                        insertDecision.Parameters.AddWithValue("$teacherMappedCandidateId", decision.TeacherMappedCandidateId ?? string.Empty);
+                        var inserted = insertDecision.ExecuteNonQuery() > 0;
+                        if (!inserted)
+                        {
+                            transaction.Rollback();
+                            detail = "duplicate_decision";
+                            return false;
+                        }
+                    }
+
+                    var candidateList = candidates ?? Array.Empty<TeacherActionCandidateRecord>();
+                    for (var index = 0; index < candidateList.Count; index++)
+                    {
+                        var candidate = candidateList[index] ?? new TeacherActionCandidateRecord();
+                        var candidateId = string.IsNullOrWhiteSpace(candidate.CandidateId)
+                            ? LearnedStrategyFeatureExtractor.HashComposite(
+                                decision.DecisionId,
+                                candidate.ActionCommand ?? string.Empty,
+                                index.ToString())
+                            : candidate.CandidateId;
+                        using var insertCandidate = connection.CreateCommand();
+                        insertCandidate.Transaction = transaction;
+                        insertCandidate.CommandText =
+                            @"INSERT INTO action_candidates
+                                (candidate_id, decision_id, action_command, action_type, source_card_id, target_card_id, candidate_snapshot_json, candidate_features_json, is_teacher_pick)
+                              VALUES
+                                ($candidateId, $decisionId, $actionCommand, $actionType, $sourceCardId, $targetCardId, $candidateSnapshotJson, $candidateFeaturesJson, $isTeacherPick);";
+                        insertCandidate.Parameters.AddWithValue("$candidateId", candidateId);
+                        insertCandidate.Parameters.AddWithValue("$decisionId", decision.DecisionId);
+                        insertCandidate.Parameters.AddWithValue("$actionCommand", candidate.ActionCommand ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$actionType", candidate.ActionType ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$sourceCardId", candidate.SourceCardId ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$targetCardId", candidate.TargetCardId ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$candidateSnapshotJson", candidate.CandidateSnapshotJson ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$candidateFeaturesJson", candidate.CandidateFeaturesJson ?? string.Empty);
+                        insertCandidate.Parameters.AddWithValue("$isTeacherPick", candidate.IsTeacherPick ? 1 : 0);
+                        insertCandidate.ExecuteNonQuery();
+                    }
+
+                    transaction.Commit();
+                    detail = $"stored_action_decision candidates={candidateList.Count}";
+                    return true;
+                }
+                catch (SqliteException ex) when (
+                    ex.SqliteExtendedErrorCode == 1555
+                    || ex.SqliteExtendedErrorCode == 2067
+                    || ex.SqliteErrorCode == 19)
                 {
-                    var candidate = candidateList[index] ?? new TeacherActionCandidateRecord();
-                    var candidateId = string.IsNullOrWhiteSpace(candidate.CandidateId)
-                        ? LearnedStrategyFeatureExtractor.HashComposite(
-                            decision.DecisionId,
-                            candidate.ActionCommand ?? string.Empty,
-                            index.ToString())
-                        : candidate.CandidateId;
-                    using var insertCandidate = connection.CreateCommand();
-                    insertCandidate.Transaction = transaction;
-                    insertCandidate.CommandText =
-                        @"INSERT OR REPLACE INTO action_candidates
-                            (candidate_id, decision_id, action_command, action_type, source_card_id, target_card_id, candidate_snapshot_json, candidate_features_json, is_teacher_pick)
-                          VALUES
-                            ($candidateId, $decisionId, $actionCommand, $actionType, $sourceCardId, $targetCardId, $candidateSnapshotJson, $candidateFeaturesJson, $isTeacherPick);";
-                    insertCandidate.Parameters.AddWithValue("$candidateId", candidateId);
-                    insertCandidate.Parameters.AddWithValue("$decisionId", decision.DecisionId);
-                    insertCandidate.Parameters.AddWithValue("$actionCommand", candidate.ActionCommand ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$actionType", candidate.ActionType ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$sourceCardId", candidate.SourceCardId ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$targetCardId", candidate.TargetCardId ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$candidateSnapshotJson", candidate.CandidateSnapshotJson ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$candidateFeaturesJson", candidate.CandidateFeaturesJson ?? string.Empty);
-                    insertCandidate.Parameters.AddWithValue("$isTeacherPick", candidate.IsTeacherPick ? 1 : 0);
-                    insertCandidate.ExecuteNonQuery();
+                    transaction.Rollback();
+                    detail = "duplicate_candidate";
+                    return false;
                 }
-
-                transaction.Commit();
-                detail = $"stored_action_decision candidates={candidateList.Count}";
-                return true;
+                catch
+                {
+                    transaction.Rollback();
+                    throw;
+                }
             }
         }
 
