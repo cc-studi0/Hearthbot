@@ -35,6 +35,40 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TeacherActionMapper_MapsTargetedBattlecryPlayTeacherCommand_WhenEffectDbCandidatesAvailable()
+        {
+            var board = new Board
+            {
+                TurnCount = 3,
+                ManaAvailable = 1,
+                MaxMana = 1,
+                HeroFriend = TestCards.CreateHero(800, true),
+                HeroEnemy = TestCards.CreateHero(900, false),
+                MinionFriend = new List<Card>
+                {
+                    TestCards.CreateMinion(101, Card.Cards.CORE_CS2_231, atk: 1, health: 1, canAttack: false, isFriend: true)
+                },
+                MinionEnemy = new List<Card>
+                {
+                    TestCards.CreateMinion(201, Card.Cards.CORE_CS2_231, atk: 1, health: 1, canAttack: false, isFriend: false)
+                },
+                Hand = new List<Card>
+                {
+                    TestCards.CreateMinion(501, Card.Cards.CORE_CS2_189, atk: 1, health: 1, canAttack: false, isFriend: true)
+                }
+            };
+
+            var result = TeacherActionMapper.BuildActionDecision(
+                seed: "seed",
+                board: board,
+                deckSignature: "deck-1",
+                teacherActionCommand: "PLAY|501|900|0");
+
+            Assert.Equal(TeacherActionMappingStatus.Mapped, result.Decision.MappingStatus);
+            Assert.Contains(result.Candidates, candidate => candidate.ActionCommand == "PLAY|501|900|0" && candidate.IsTeacherPick);
+        }
+
+        [Fact]
         public void TeacherActionMapper_ReportsNoMatchWhenTeacherCommandIsNotGenerated()
         {
             var board = new Board
@@ -51,6 +85,26 @@ namespace BotCore.Tests
                 teacherActionCommand: "PLAY|999|0|0");
 
             Assert.Equal(TeacherActionMappingStatus.NoMatch, result.Decision.MappingStatus);
+            Assert.DoesNotContain(result.Candidates, candidate => candidate.IsTeacherPick);
+        }
+
+        [Fact]
+        public void TeacherActionMapper_ReportsNoTeacherAction_WhenTeacherCommandIsEmpty()
+        {
+            var board = new Board
+            {
+                TurnCount = 1,
+                ManaAvailable = 0,
+                MaxMana = 0
+            };
+
+            var result = TeacherActionMapper.BuildActionDecision(
+                seed: "seed",
+                board: board,
+                deckSignature: "deck-1",
+                teacherActionCommand: " ");
+
+            Assert.Equal(TeacherActionMappingStatus.NoTeacherAction, result.Decision.MappingStatus);
             Assert.DoesNotContain(result.Candidates, candidate => candidate.IsTeacherPick);
         }
 

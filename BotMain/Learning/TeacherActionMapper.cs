@@ -104,6 +104,7 @@ namespace BotMain.Learning
 
             var simBoard = SimBoard.FromBoard(board);
             var generator = new ActionGenerator();
+            generator.SetEffectDB(CardEffectDB.BuildDefault());
             return generator.Generate(simBoard) ?? new List<GameAction>();
         }
 
