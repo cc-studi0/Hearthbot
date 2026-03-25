@@ -9,8 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.8" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.Management" Version="8.0.0" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2">
       <PrivateAssets>all</PrivateAssets>
@@ -22,7 +24,10 @@
     <ProjectReference Include="..\BotCore\BotCore.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\BotMain\ActionStringParser.cs" Link="ActionStringParser.cs" />
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
+    <Compile Include="..\BotMain\BotService.cs" Link="BotService.cs" />
+    <Compile Include="..\BotMain\BotApiHandler.cs" Link="BotApiHandler.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
@@ -32,7 +37,12 @@
     <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
     <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
+    <Compile Include="..\BotMain\PipeServer.cs" Link="PipeServer.cs" />
+    <Compile Include="..\BotMain\PluginSystem.cs" Link="PluginSystem.cs" />
+    <Compile Include="..\BotMain\ProfileLoader.cs" Link="ProfileLoader.cs" />
+    <Compile Include="..\BotMain\RankHelper.cs" Link="RankHelper.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
+    <Compile Include="..\BotMain\ResourceSync.cs" Link="ResourceSync.cs" />
     <Compile Include="..\HearthstonePayload\BattlegroundsMagneticDropMath.cs" Link="HearthstonePayload\BattlegroundsMagneticDropMath.cs" />
     <Compile Include="..\HearthstonePayload\GameStateData.cs" Link="HearthstonePayload\GameStateData.cs" />
     <Compile Include="..\HearthstonePayload\PlayTargetConfirmation.cs" Link="HearthstonePayload\PlayTargetConfirmation.cs" />
