@@ -8219,6 +8219,53 @@ namespace BotMain
                 return "SEED";
             return probe.Length > 40 ? probe.Substring(0, 40) : probe;
         }
+        /// <summary>
+        /// 统一重连循环：检测炉石进程是否存活，若已消失则尝试启动新进程，
+        /// 然后无限重试连接直到成功或 _running 变为 false。
+        /// </summary>
+        /// <returns>true 表示重连成功；false 表示 _running 变为 false（用户 Stop）。</returns>
+        private bool TryReconnectLoop(string reason)
+        {
+            if (!_running) return false;
+
+            // 清理旧 pipe，与 RestartHearthstone 行为对齐
+            lock (_sync) { try { _pipe?.Dispose(); } catch { } _pipe = null; }
+
+            var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
+            if (!hearthstoneAlive)
+            {
+                Log($"[Restart] {reason}: 炉石进程已消失，尝试重新启动...");
+                var launchPath = ResolveHearthstoneLaunchPath();
+                if (TryLaunchHearthstone(launchPath))
+                    Log($"[Restart] {reason}: 已启动炉石，等待连接...");
+                else
+                    Log($"[Restart] {reason}: 无法自动启动炉石（路径未知），等待手动启动后重连...");
+            }
+            else
+            {
+                Log($"[Restart] {reason}: 炉石进程仍在，等待重新连接...");
+            }
+
+            StatusChanged("Reconnecting");
+            var attempt = 0;
+            while (_running)
+            {
+                attempt++;
+                Log($"[Restart] 重连尝试 {attempt}...");
+                if (EnsurePreparedAndConnected())
+                {
+                    Log($"[Restart] 重连成功（第 {attempt} 次）。");
+                    StatusChanged("Running");
+                    return true;
+                }
+                if (_running)
+                {
+                    Log("[Restart] 连接未就绪，15 秒后重试...");
+                    SleepOrCancelled(15000);
+                }
+            }
+            return false;
+        }
         private void RestartHearthstone()
         {
             _restartPending = true;
