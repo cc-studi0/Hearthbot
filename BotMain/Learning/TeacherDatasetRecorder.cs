@@ -35,6 +35,11 @@ namespace BotMain.Learning
                 var decision = buildResult.Decision ?? new TeacherActionDecisionRecord();
                 decision.MatchId = matchId?.Trim() ?? string.Empty;
                 decision.PayloadSignature = teacherRecommendation?.SourcePayloadSignature ?? string.Empty;
+                decision.DecisionId = LearnedStrategyFeatureExtractor.HashComposite(
+                    decision.MatchId,
+                    decision.PayloadSignature,
+                    request?.Seed ?? string.Empty,
+                    decision.TeacherActionCommand ?? string.Empty);
                 decision.ContextSnapshotJson = Serialize(new
                 {
                     deck_name = request?.DeckName ?? string.Empty,
@@ -48,6 +53,21 @@ namespace BotMain.Learning
                 if (decision.CreatedAtMs <= 0)
                 {
                     decision.CreatedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                }
+
+                for (var i = 0; i < buildResult.Candidates.Count; i++)
+                {
+                    var candidate = buildResult.Candidates[i];
+                    if (candidate == null)
+                    {
+                        continue;
+                    }
+
+                    candidate.DecisionId = decision.DecisionId;
+                    candidate.CandidateId = LearnedStrategyFeatureExtractor.HashComposite(
+                        decision.DecisionId,
+                        candidate.ActionCommand ?? string.Empty,
+                        i.ToString());
                 }
 
                 if (_store.TryStoreActionDecision(
@@ -113,6 +133,11 @@ namespace BotMain.Learning
                         seed = request?.Seed ?? string.Empty,
                         choice_id = request?.ChoiceId ?? 0,
                         snapshot_id = request?.SnapshotId ?? string.Empty,
+                        minimum_updated_at_ms = request?.MinimumUpdatedAtMs ?? 0,
+                        last_consumed_updated_at_ms = request?.LastConsumedUpdatedAtMs ?? 0,
+                        last_consumed_payload_signature = request?.LastConsumedPayloadSignature ?? string.Empty,
+                        deck_name = request?.DeckName ?? string.Empty,
+                        friendly_entities = BuildFriendlyEntitySummary(request?.FriendlyEntities),
                         teacher_detail = teacherRecommendation?.Detail ?? string.Empty,
                         local_detail = localRecommendation?.Detail ?? string.Empty,
                         teacher_updated_at_ms = teacherRecommendation?.SourceUpdatedAtMs ?? 0,
@@ -187,6 +212,11 @@ namespace BotMain.Learning
                     ContextSnapshotJson = Serialize(new
                     {
                         seed = request?.Seed ?? string.Empty,
+                        minimum_updated_at_ms = request?.MinimumUpdatedAtMs ?? 0,
+                        last_consumed_updated_at_ms = request?.LastConsumedUpdatedAtMs ?? 0,
+                        last_consumed_payload_signature = request?.LastConsumedPayloadSignature ?? string.Empty,
+                        deck_name = request?.DeckName ?? string.Empty,
+                        friendly_entities = BuildFriendlyEntitySummary(request?.FriendlyEntities),
                         teacher_pick_index = teacherRecommendation?.PickedIndex ?? -1,
                         local_pick_index = localRecommendation?.PickedIndex ?? -1,
                         teacher_detail = teacherRecommendation?.Detail ?? string.Empty,
@@ -250,6 +280,9 @@ namespace BotMain.Learning
                     {
                         deck_name = request?.DeckName ?? string.Empty,
                         minimum_updated_at_ms = request?.MinimumUpdatedAtMs ?? 0,
+                        full_deck_cards = (request?.FullDeckCards ?? Array.Empty<SmartBot.Plugins.API.Card.Cards>())
+                            .Select(card => card.ToString())
+                            .ToArray(),
                         teacher_detail = teacherRecommendation?.Detail ?? string.Empty,
                         local_detail = localRecommendation?.Detail ?? string.Empty
                     }),
@@ -351,6 +384,24 @@ namespace BotMain.Learning
         private static string Serialize<T>(T value)
         {
             return JsonSerializer.Serialize(value);
+        }
+
+        private static IReadOnlyList<object> BuildFriendlyEntitySummary(IReadOnlyList<EntityContextSnapshot> entities)
+        {
+            if (entities == null || entities.Count == 0)
+            {
+                return Array.Empty<object>();
+            }
+
+            return entities.Select(entity => (object)new
+            {
+                entity_id = entity?.EntityId ?? 0,
+                card_id = entity?.CardId ?? string.Empty,
+                zone = entity?.Zone ?? string.Empty,
+                zone_position = entity?.ZonePosition ?? 0,
+                is_generated = entity?.IsGenerated ?? false,
+                creator_entity_id = entity?.CreatorEntityId ?? 0
+            }).ToArray();
         }
     }
 }

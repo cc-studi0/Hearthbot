@@ -58,6 +58,88 @@ namespace BotCore.Tests
             Assert.Null(ex);
         }
 
+        [Fact]
+        public void TeacherDatasetRecorder_StoresChoiceDecisionThroughStore()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+
+            recorder.RecordChoiceDecision(
+                "match-choice-1",
+                BuildChoiceRequest("seed-choice-1"),
+                new ChoiceRecommendationResult(new[] { 301 }, "teacher-choice", sourceUpdatedAtMs: 11, sourcePayloadSignature: "payload-choice-1"),
+                new ChoiceRecommendationResult(new[] { 302 }, "local-choice", sourceUpdatedAtMs: 12, sourcePayloadSignature: "payload-local-choice-1"));
+
+            Assert.Single(store.ChoiceDecisions);
+        }
+
+        [Fact]
+        public void TeacherDatasetRecorder_StoresDiscoverDecisionThroughStore()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+
+            recorder.RecordDiscoverDecision(
+                "match-discover-1",
+                BuildDiscoverRequest("seed-discover-1"),
+                new DiscoverRecommendationResult(1, "teacher-discover", sourceUpdatedAtMs: 21, sourcePayloadSignature: "payload-discover-1"),
+                new DiscoverRecommendationResult(0, "local-discover", sourceUpdatedAtMs: 22, sourcePayloadSignature: "payload-local-discover-1"));
+
+            Assert.Single(store.ChoiceDecisions);
+        }
+
+        [Fact]
+        public void TeacherDatasetRecorder_StoresMulliganDecisionThroughStore()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+
+            recorder.RecordMulliganDecision(
+                "match-mulligan-1",
+                BuildMulliganRequest(),
+                new MulliganRecommendationResult(new[] { 401 }, "teacher-mulligan"),
+                new MulliganRecommendationResult(Array.Empty<int>(), "local-mulligan"));
+
+            Assert.Single(store.MulliganDecisions);
+        }
+
+        [Fact]
+        public void TeacherDatasetRecorder_DoesNotThrow_WhenStoreThrowsInActionRecord()
+        {
+            var store = new FakeTeacherDatasetStore { ThrowOnStoreAction = true };
+            var recorder = new TeacherDatasetRecorder(store);
+
+            var ex = Record.Exception(() => recorder.RecordActionDecision(
+                "match-throw",
+                BuildActionRequest("seed-throw"),
+                new ActionRecommendationResult(null, new[] { "ATTACK|101|900" }, "teacher-throw"),
+                new ActionRecommendationResult(null, new[] { "END_TURN" }, "local-throw")));
+
+            Assert.Null(ex);
+        }
+
+        [Fact]
+        public void TeacherDatasetRecorder_RecomputesActionDecisionId_WithMatchAndPayload()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+            var request = BuildActionRequest("seed-same");
+
+            recorder.RecordActionDecision(
+                "match-a",
+                request,
+                new ActionRecommendationResult(null, new[] { "ATTACK|101|900" }, "teacher-a", sourcePayloadSignature: "payload-a"),
+                new ActionRecommendationResult(null, new[] { "END_TURN" }, "local-a"));
+            recorder.RecordActionDecision(
+                "match-b",
+                request,
+                new ActionRecommendationResult(null, new[] { "ATTACK|101|900" }, "teacher-b", sourcePayloadSignature: "payload-b"),
+                new ActionRecommendationResult(null, new[] { "END_TURN" }, "local-b"));
+
+            Assert.Equal(2, store.ActionDecisions.Count);
+            Assert.NotEqual(store.ActionDecisions[0].DecisionId, store.ActionDecisions[1].DecisionId);
+        }
+
         private static ActionRecommendationRequest BuildActionRequest(string seed)
         {
             var board = new Board
@@ -73,6 +155,89 @@ namespace BotCore.Tests
             };
 
             return new ActionRecommendationRequest(seed, board, null, null);
+        }
+
+        private static ChoiceRecommendationRequest BuildChoiceRequest(string seed)
+        {
+            return new ChoiceRecommendationRequest(
+                snapshotId: "snapshot-1",
+                choiceId: 77,
+                mode: "DISCOVER",
+                originCardId: "ORIGIN_001",
+                sourceEntityId: 2001,
+                countMin: 1,
+                countMax: 1,
+                options: new[]
+                {
+                    new ChoiceRecommendationOption(301, "CARD_A"),
+                    new ChoiceRecommendationOption(302, "CARD_B")
+                },
+                selectedEntityIds: Array.Empty<int>(),
+                seed: seed,
+                minimumUpdatedAtMs: 1001,
+                lastConsumedUpdatedAtMs: 1000,
+                lastConsumedPayloadSignature: "consumed-choice-signature",
+                deckName: "Deck Choice",
+                deckSignature: "deck-choice-signature",
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 5001,
+                        CardId = "CARD_FRIEND_A",
+                        Zone = "HAND",
+                        ZonePosition = 1,
+                        IsGenerated = true,
+                        CreatorEntityId = 4001
+                    }
+                },
+                pendingOrigin: null);
+        }
+
+        private static DiscoverRecommendationRequest BuildDiscoverRequest(string seed)
+        {
+            return new DiscoverRecommendationRequest(
+                originCardId: "ORIGIN_DISCOVER_001",
+                choiceCardIds: new[] { "DISCOVER_A", "DISCOVER_B", "DISCOVER_C" },
+                choiceEntityIds: new[] { 701, 702, 703 },
+                seed: seed,
+                isRewindChoice: false,
+                maintainIndex: 0,
+                minimumUpdatedAtMs: 2001,
+                lastConsumedUpdatedAtMs: 2000,
+                lastConsumedPayloadSignature: "consumed-discover-signature",
+                deckName: "Deck Discover",
+                deckSignature: "deck-discover-signature",
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 6001,
+                        CardId = "CARD_FRIEND_D",
+                        Zone = "PLAY",
+                        ZonePosition = 2,
+                        IsGenerated = false,
+                        CreatorEntityId = 0
+                    }
+                },
+                pendingOrigin: null);
+        }
+
+        private static MulliganRecommendationRequest BuildMulliganRequest()
+        {
+            return new MulliganRecommendationRequest(
+                ownClass: 2,
+                enemyClass: 3,
+                choices: new[]
+                {
+                    new RecommendationChoiceState("CARD_M1", 401),
+                    new RecommendationChoiceState("CARD_M2", 402)
+                },
+                minimumUpdatedAtMs: 3001,
+                deckName: "Deck Mulligan",
+                deckSignature: "deck-mulligan-signature",
+                fullDeckCards: new[] { Card.Cards.CORE_CS2_231, Card.Cards.CORE_CS2_029 },
+                hasCoin: true);
         }
 
         private static Card BuildHero(int entityId, bool isFriend)
@@ -116,6 +281,10 @@ namespace BotCore.Tests
         {
             public List<TeacherActionDecisionRecord> ActionDecisions { get; } = new List<TeacherActionDecisionRecord>();
 
+            public List<TeacherChoiceDecisionRecord> ChoiceDecisions { get; } = new List<TeacherChoiceDecisionRecord>();
+
+            public List<TeacherMulliganDecisionRecord> MulliganDecisions { get; } = new List<TeacherMulliganDecisionRecord>();
+
             public string LastOutcomeMatchId { get; private set; } = string.Empty;
 
             public LearnedMatchOutcome LastOutcome { get; private set; } = LearnedMatchOutcome.Unknown;
@@ -124,11 +293,18 @@ namespace BotCore.Tests
 
             public string OutcomeDetail { get; set; } = "ok";
 
+            public bool ThrowOnStoreAction { get; set; }
+
             public bool TryStoreActionDecision(
                 TeacherActionDecisionRecord decision,
                 IReadOnlyList<TeacherActionCandidateRecord> candidates,
                 out string detail)
             {
+                if (ThrowOnStoreAction)
+                {
+                    throw new InvalidOperationException("store_action_failed");
+                }
+
                 ActionDecisions.Add(decision);
                 detail = "ok";
                 return true;
@@ -136,12 +312,14 @@ namespace BotCore.Tests
 
             public bool TryStoreChoiceDecision(TeacherChoiceDecisionRecord decision, out string detail)
             {
+                ChoiceDecisions.Add(decision);
                 detail = "ok";
                 return true;
             }
 
             public bool TryStoreMulliganDecision(TeacherMulliganDecisionRecord decision, out string detail)
             {
+                MulliganDecisions.Add(decision);
                 detail = "ok";
                 return true;
             }
