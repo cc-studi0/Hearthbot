@@ -123,6 +123,18 @@ namespace SmartBot.Mulligan
             public DateTime LastSeenUtc = DateTime.MinValue;
         }
 
+        [Flags]
+        private enum ScopeTargets
+        {
+            None = 0,
+            Deck = 1 << 0,
+            Archetype = 1 << 1,
+            Family = 1 << 2,
+            Global = 1 << 3,
+            LocalAll = Deck | Archetype | Family | Global,
+            SharedBroad = Family | Global
+        }
+
         private const int MemoryHitSampleWeight = 2;
         private static readonly object CaptureSync = new object();
         private static readonly Dictionary<string, string> LastCaptureKeyByMulligan = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -142,6 +154,11 @@ namespace SmartBot.Mulligan
             get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "learning"); }
         }
 
+        private static string SharedLearningDir
+        {
+            get { return Path.Combine(LearningDir, "shared"); }
+        }
+
         public static string SamplesPath
         {
             get { return Path.Combine(LearningDir, "mulligan_samples.jsonl"); }
@@ -155,6 +172,21 @@ namespace SmartBot.Mulligan
         private static string ResultsPath
         {
             get { return Path.Combine(LearningDir, "game_results.jsonl"); }
+        }
+
+        private static string SharedSamplesPath
+        {
+            get { return Path.Combine(SharedLearningDir, "mulligan_samples.jsonl"); }
+        }
+
+        private static string SharedMemoryHitsPath
+        {
+            get { return Path.Combine(SharedLearningDir, "mulligan_memory_hits.jsonl"); }
+        }
+
+        private static string SharedResultsPath
+        {
+            get { return Path.Combine(SharedLearningDir, "game_results.jsonl"); }
         }
 
         private static string GlobalMemoryPath
@@ -175,6 +207,31 @@ namespace SmartBot.Mulligan
         private static string DeckMemoryPath
         {
             get { return Path.Combine(LearningDir, "mulligan_memory_deck.json"); }
+        }
+
+        private static string PublishedLearningDir
+        {
+            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MulliganProfiles", "PublishedLearning"); }
+        }
+
+        private static string PublishedGlobalMemoryPath
+        {
+            get { return Path.Combine(PublishedLearningDir, "mulligan_memory_global.json"); }
+        }
+
+        private static string PublishedFamilyMemoryPath
+        {
+            get { return Path.Combine(PublishedLearningDir, "mulligan_memory_family.json"); }
+        }
+
+        private static string PublishedArchetypeMemoryPath
+        {
+            get { return Path.Combine(PublishedLearningDir, "mulligan_memory_archetype.json"); }
+        }
+
+        private static string PublishedDeckMemoryPath
+        {
+            get { return Path.Combine(PublishedLearningDir, "mulligan_memory_deck.json"); }
         }
 
         public static void CaptureTeacherSample(
@@ -272,65 +329,46 @@ namespace SmartBot.Mulligan
 
         public static DecisionMulliganMemoryBuildSummary Rebuild()
         {
-            List<DecisionMulliganSampleRecord> samples = ReadJsonLines<DecisionMulliganSampleRecord>(SamplesPath);
-            List<DecisionMulliganMemoryHitRecord> memoryHits = ReadJsonLines<DecisionMulliganMemoryHitRecord>(MemoryHitsPath);
-            List<DecisionLearningGameResultRecord> results = ReadJsonLines<DecisionLearningGameResultRecord>(ResultsPath);
-            Dictionary<string, string> resultByGame = BuildResultLookup(results);
+            List<DecisionMulliganSampleRecord> localSamples = ReadJsonLines<DecisionMulliganSampleRecord>(SamplesPath);
+            List<DecisionMulliganMemoryHitRecord> localMemoryHits = ReadJsonLines<DecisionMulliganMemoryHitRecord>(MemoryHitsPath);
+            List<DecisionLearningGameResultRecord> localResults = ReadJsonLines<DecisionLearningGameResultRecord>(ResultsPath);
+
+            List<DecisionMulliganSampleRecord> sharedSamples = ReadJsonLines<DecisionMulliganSampleRecord>(SharedSamplesPath);
+            List<DecisionMulliganMemoryHitRecord> sharedMemoryHits = ReadJsonLines<DecisionMulliganMemoryHitRecord>(SharedMemoryHitsPath);
+            List<DecisionLearningGameResultRecord> sharedResults = ReadJsonLines<DecisionLearningGameResultRecord>(SharedResultsPath);
+
+            List<DecisionLearningGameResultRecord> allResults = new List<DecisionLearningGameResultRecord>(localResults);
+            allResults.AddRange(sharedResults);
+            Dictionary<string, string> resultByGame = BuildResultLookup(allResults);
 
             Dictionary<string, Bucket> globalBuckets = new Dictionary<string, Bucket>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, Bucket> familyBuckets = new Dictionary<string, Bucket>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, Bucket> archetypeBuckets = new Dictionary<string, Bucket>(StringComparer.OrdinalIgnoreCase);
             Dictionary<string, Bucket> deckBuckets = new Dictionary<string, Bucket>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (DecisionMulliganSampleRecord sample in samples)
-            {
-                if (sample == null || sample.choice_ids == null || sample.choice_ids.Count == 0)
-                    continue;
+            foreach (DecisionMulliganSampleRecord sample in localSamples)
+                AccumulateSampleRecord(sample, resultByGame, globalBuckets, familyBuckets, archetypeBuckets, deckBuckets, ScopeTargets.LocalAll);
 
-                DecisionDeckArchetypeContext context = DecisionDeckArchetypeResolver.Resolve(
-                    !string.IsNullOrWhiteSpace(sample.mulligan) ? sample.mulligan : sample.profile,
-                    (DecisionLearningStateRecord)null,
-                    sample.deck_name,
-                    sample.deck_fingerprint);
-                string featureKey = BuildFeatureKey(sample);
-                string result = ResolveResult(sample, resultByGame);
+            foreach (DecisionMulliganSampleRecord sample in sharedSamples)
+                AccumulateSampleRecord(sample, resultByGame, globalBuckets, familyBuckets, archetypeBuckets, deckBuckets, ScopeTargets.SharedBroad);
 
-                foreach (string cardId in sample.choice_ids)
-                {
-                    if (string.IsNullOrWhiteSpace(cardId))
-                        continue;
+            foreach (DecisionMulliganMemoryHitRecord hit in localMemoryHits)
+                AccumulateHitRecord(hit, resultByGame, globalBuckets, familyBuckets, archetypeBuckets, deckBuckets, ScopeTargets.LocalAll);
 
-                    bool keep = ContainsId(sample.keep_ids, cardId);
-                    string family = ResolveCardFamily(cardId);
-                    string capturedAtUtc = sample.captured_at_utc;
+            foreach (DecisionMulliganMemoryHitRecord hit in sharedMemoryHits)
+                AccumulateHitRecord(hit, resultByGame, globalBuckets, familyBuckets, archetypeBuckets, deckBuckets, ScopeTargets.SharedBroad);
 
-                    Accumulate(globalBuckets, "global", "global", context, featureKey, keep ? "Keep" : "Replace", cardId, family, result, capturedAtUtc);
-                    Accumulate(familyBuckets, "family", context.ArchetypeKey, context, featureKey, keep ? "Keep" : "Replace", string.Empty, family, result, capturedAtUtc);
-                    Accumulate(archetypeBuckets, "archetype", context.ArchetypeKey, context, featureKey, keep ? "Keep" : "Replace", cardId, family, result, capturedAtUtc);
-                    Accumulate(deckBuckets, "deck", context.DeckKey, context, featureKey, keep ? "Keep" : "Replace", cardId, family, result, capturedAtUtc);
-                }
-            }
+            int localSampleCount = localSamples.Count;
+            int localHitCount = localMemoryHits.Count;
+            int localResultCount = localResults.Count;
+            int mergedSampleCount = localSamples.Count + sharedSamples.Count;
+            int mergedHitCount = localMemoryHits.Count + sharedMemoryHits.Count;
+            int mergedResultCount = localResults.Count + sharedResults.Count;
 
-            foreach (DecisionMulliganMemoryHitRecord hit in memoryHits)
-            {
-                if (hit == null || string.IsNullOrWhiteSpace(hit.action_card_id))
-                    continue;
-
-                DecisionDeckArchetypeContext context = BuildContext(hit.profile, hit.mulligan, hit.deck_name, hit.deck_fingerprint);
-                string result = ResolveResult(hit, resultByGame);
-                for (int i = 0; i < MemoryHitSampleWeight; i++)
-                {
-                    AccumulateByHit(deckBuckets, "deck", context.DeckKey, context, hit, result);
-                    AccumulateByHit(archetypeBuckets, "archetype", context.ArchetypeKey, context, hit, result);
-                    AccumulateByHit(globalBuckets, "global", "global", context, hit, result);
-                    AccumulateByHit(familyBuckets, "family", context.ArchetypeKey, context, hit, result);
-                }
-            }
-
-            DecisionMulliganMemoryFile globalFile = BuildMemoryFile("global", samples.Count, memoryHits.Count, results.Count, globalBuckets);
-            DecisionMulliganMemoryFile familyFile = BuildMemoryFile("family", samples.Count, memoryHits.Count, results.Count, familyBuckets);
-            DecisionMulliganMemoryFile archetypeFile = BuildMemoryFile("archetype", samples.Count, memoryHits.Count, results.Count, archetypeBuckets);
-            DecisionMulliganMemoryFile deckFile = BuildMemoryFile("deck", samples.Count, memoryHits.Count, results.Count, deckBuckets);
+            DecisionMulliganMemoryFile globalFile = BuildMemoryFile("global", mergedSampleCount, mergedHitCount, mergedResultCount, globalBuckets);
+            DecisionMulliganMemoryFile familyFile = BuildMemoryFile("family", mergedSampleCount, mergedHitCount, mergedResultCount, familyBuckets);
+            DecisionMulliganMemoryFile archetypeFile = BuildMemoryFile("archetype", localSampleCount, localHitCount, localResultCount, archetypeBuckets);
+            DecisionMulliganMemoryFile deckFile = BuildMemoryFile("deck", localSampleCount, localHitCount, localResultCount, deckBuckets);
 
             WriteMemoryFile(GlobalMemoryPath, globalFile);
             WriteMemoryFile(FamilyMemoryPath, familyFile);
@@ -339,14 +377,82 @@ namespace SmartBot.Mulligan
 
             DecisionMulliganMemoryBuildSummary summary = new DecisionMulliganMemoryBuildSummary();
             summary.generated_at_utc = DateTime.UtcNow.ToString("o");
-            summary.source_samples = samples.Count;
-            summary.source_memory_hits = memoryHits.Count;
-            summary.source_results = results.Count;
+            summary.source_samples = mergedSampleCount;
+            summary.source_memory_hits = mergedHitCount;
+            summary.source_results = mergedResultCount;
             summary.global_entries = globalFile.entry_count;
             summary.family_entries = familyFile.entry_count;
             summary.archetype_entries = archetypeFile.entry_count;
             summary.deck_entries = deckFile.entry_count;
             return summary;
+        }
+
+        private static void AccumulateSampleRecord(
+            DecisionMulliganSampleRecord sample,
+            Dictionary<string, string> resultByGame,
+            Dictionary<string, Bucket> globalBuckets,
+            Dictionary<string, Bucket> familyBuckets,
+            Dictionary<string, Bucket> archetypeBuckets,
+            Dictionary<string, Bucket> deckBuckets,
+            ScopeTargets targets)
+        {
+            if (sample == null || sample.choice_ids == null || sample.choice_ids.Count == 0)
+                return;
+
+            DecisionDeckArchetypeContext context = DecisionDeckArchetypeResolver.Resolve(
+                !string.IsNullOrWhiteSpace(sample.mulligan) ? sample.mulligan : sample.profile,
+                (DecisionLearningStateRecord)null,
+                sample.deck_name,
+                sample.deck_fingerprint);
+            string featureKey = BuildFeatureKey(sample);
+            string result = ResolveResult(sample, resultByGame);
+
+            foreach (string cardId in sample.choice_ids)
+            {
+                if (string.IsNullOrWhiteSpace(cardId))
+                    continue;
+
+                bool keep = ContainsId(sample.keep_ids, cardId);
+                string family = ResolveCardFamily(cardId);
+                string capturedAtUtc = sample.captured_at_utc;
+                string actionType = keep ? "Keep" : "Replace";
+
+                if ((targets & ScopeTargets.Global) != 0)
+                    Accumulate(globalBuckets, "global", "global", context, featureKey, actionType, cardId, family, result, capturedAtUtc);
+                if ((targets & ScopeTargets.Family) != 0)
+                    Accumulate(familyBuckets, "family", context.ArchetypeKey, context, featureKey, actionType, string.Empty, family, result, capturedAtUtc);
+                if ((targets & ScopeTargets.Archetype) != 0)
+                    Accumulate(archetypeBuckets, "archetype", context.ArchetypeKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc);
+                if ((targets & ScopeTargets.Deck) != 0)
+                    Accumulate(deckBuckets, "deck", context.DeckKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc);
+            }
+        }
+
+        private static void AccumulateHitRecord(
+            DecisionMulliganMemoryHitRecord hit,
+            Dictionary<string, string> resultByGame,
+            Dictionary<string, Bucket> globalBuckets,
+            Dictionary<string, Bucket> familyBuckets,
+            Dictionary<string, Bucket> archetypeBuckets,
+            Dictionary<string, Bucket> deckBuckets,
+            ScopeTargets targets)
+        {
+            if (hit == null || string.IsNullOrWhiteSpace(hit.action_card_id))
+                return;
+
+            DecisionDeckArchetypeContext context = BuildContext(hit.profile, hit.mulligan, hit.deck_name, hit.deck_fingerprint);
+            string result = ResolveResult(hit, resultByGame);
+            for (int i = 0; i < MemoryHitSampleWeight; i++)
+            {
+                if ((targets & ScopeTargets.Deck) != 0)
+                    AccumulateByHit(deckBuckets, "deck", context.DeckKey, context, hit, result);
+                if ((targets & ScopeTargets.Archetype) != 0)
+                    AccumulateByHit(archetypeBuckets, "archetype", context.ArchetypeKey, context, hit, result);
+                if ((targets & ScopeTargets.Global) != 0)
+                    AccumulateByHit(globalBuckets, "global", "global", context, hit, result);
+                if ((targets & ScopeTargets.Family) != 0)
+                    AccumulateByHit(familyBuckets, "family", context.ArchetypeKey, context, hit, result);
+            }
         }
 
         public static bool ApplyLiveMemoryHints(
@@ -997,10 +1103,18 @@ namespace SmartBot.Mulligan
             List<Card.Cards> replaceIds = teacher.ReplaceIds != null
                 ? teacher.ReplaceIds.Distinct().ToList()
                 : new List<Card.Cards>();
+            List<int> replaceSlots = teacher.ReplaceSlots != null
+                ? teacher.ReplaceSlots.Distinct().ToList()
+                : new List<int>();
+            bool useSlotHints = replaceSlots.Count > 0;
 
-            foreach (Card.Cards cardId in choices.Distinct())
+            for (int i = 0; i < choices.Count; i++)
             {
-                if (replaceIds.Contains(cardId))
+                Card.Cards cardId = choices[i];
+                bool replace = useSlotHints
+                    ? replaceSlots.Contains(i + 1)
+                    : replaceIds.Contains(cardId);
+                if (replace)
                     continue;
                 if (!keeps.Contains(cardId))
                     keeps.Add(cardId);
@@ -1248,10 +1362,18 @@ namespace SmartBot.Mulligan
                 if (_lastLoadUtc.AddSeconds(2) > DateTime.UtcNow)
                     return;
 
-                _global = ReadMemoryFile(GlobalMemoryPath);
-                _family = ReadMemoryFile(FamilyMemoryPath);
-                _archetype = ReadMemoryFile(ArchetypeMemoryPath);
-                _deck = ReadMemoryFile(DeckMemoryPath);
+                _global = MergeMemoryFiles(
+                    ReadMemoryFile(GlobalMemoryPath),
+                    ReadMemoryFile(PublishedGlobalMemoryPath));
+                _family = MergeMemoryFiles(
+                    ReadMemoryFile(FamilyMemoryPath),
+                    ReadMemoryFile(PublishedFamilyMemoryPath));
+                _archetype = MergeMemoryFiles(
+                    ReadMemoryFile(ArchetypeMemoryPath),
+                    ReadMemoryFile(PublishedArchetypeMemoryPath));
+                _deck = MergeMemoryFiles(
+                    ReadMemoryFile(DeckMemoryPath),
+                    ReadMemoryFile(PublishedDeckMemoryPath));
                 _lastLoadUtc = DateTime.UtcNow;
             }
         }
@@ -1274,6 +1396,72 @@ namespace SmartBot.Mulligan
             catch
             {
                 return new DecisionMulliganMemoryFile { entries = new List<DecisionMulliganMemoryEntry>() };
+            }
+        }
+
+        private static DecisionMulliganMemoryFile MergeMemoryFiles(
+            DecisionMulliganMemoryFile primary,
+            DecisionMulliganMemoryFile fallback)
+        {
+            primary = primary ?? new DecisionMulliganMemoryFile();
+            fallback = fallback ?? new DecisionMulliganMemoryFile();
+
+            DecisionMulliganMemoryFile merged = new DecisionMulliganMemoryFile();
+            merged.scope = !string.IsNullOrWhiteSpace(primary.scope) ? primary.scope : fallback.scope;
+            merged.generated_at_utc = !string.IsNullOrWhiteSpace(primary.generated_at_utc) ? primary.generated_at_utc : fallback.generated_at_utc;
+            merged.source_sample_count = Math.Max(0, primary.source_sample_count) + Math.Max(0, fallback.source_sample_count);
+            merged.source_memory_hit_count = Math.Max(0, primary.source_memory_hit_count) + Math.Max(0, fallback.source_memory_hit_count);
+            merged.source_result_count = Math.Max(0, primary.source_result_count) + Math.Max(0, fallback.source_result_count);
+            merged.entries = new List<DecisionMulliganMemoryEntry>();
+
+            Dictionary<string, DecisionMulliganMemoryEntry> byKey =
+                new Dictionary<string, DecisionMulliganMemoryEntry>(StringComparer.OrdinalIgnoreCase);
+
+            AddMergedEntries(byKey, fallback.entries);
+            AddMergedEntries(byKey, primary.entries);
+
+            foreach (KeyValuePair<string, DecisionMulliganMemoryEntry> kv in byKey)
+                merged.entries.Add(kv.Value);
+
+            merged.entries.Sort(delegate(DecisionMulliganMemoryEntry x, DecisionMulliganMemoryEntry y)
+            {
+                int leftSamples = x != null ? x.sample_count : 0;
+                int rightSamples = y != null ? y.sample_count : 0;
+                if (leftSamples != rightSamples)
+                    return rightSamples.CompareTo(leftSamples);
+
+                double leftConfidence = x != null ? x.confidence : 0.0d;
+                double rightConfidence = y != null ? y.confidence : 0.0d;
+                return rightConfidence.CompareTo(leftConfidence);
+            });
+
+            merged.entry_count = merged.entries.Count;
+            return merged;
+        }
+
+        private static void AddMergedEntries(
+            Dictionary<string, DecisionMulliganMemoryEntry> map,
+            List<DecisionMulliganMemoryEntry> entries)
+        {
+            if (map == null || entries == null || entries.Count == 0)
+                return;
+
+            foreach (DecisionMulliganMemoryEntry entry in entries)
+            {
+                if (entry == null)
+                    continue;
+
+                string key = !string.IsNullOrWhiteSpace(entry.memory_key)
+                    ? entry.memory_key
+                    : string.Join("|",
+                        entry.scope ?? string.Empty,
+                        entry.scope_key ?? string.Empty,
+                        entry.feature_key ?? string.Empty,
+                        entry.action_type ?? string.Empty,
+                        entry.card_id ?? string.Empty,
+                        entry.card_family ?? string.Empty);
+
+                map[key] = entry;
             }
         }
 
@@ -1568,6 +1756,7 @@ namespace SmartBot.Mulligan
         public string SBDiscoverProfile = string.Empty;
         public string SBMode = string.Empty;
         public readonly List<Card.Cards> ReplaceIds = new List<Card.Cards>();
+        public readonly List<int> ReplaceSlots = new List<int>();
 
         public bool IsFresh(int maxAgeSeconds)
         {
@@ -1732,6 +1921,12 @@ namespace SmartBot.Mulligan
                     Card.Cards cardId;
                     if (TryParseCardId(value, out cardId))
                         state.ReplaceIds.Add(cardId);
+                }
+                else if (string.Equals(key, "replace_slot", StringComparison.OrdinalIgnoreCase))
+                {
+                    int slot;
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out slot) && slot > 0)
+                        state.ReplaceSlots.Add(slot);
                 }
             }
 

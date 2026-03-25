@@ -18,6 +18,7 @@ namespace SmartBot.Mulligan
         public string SBDiscoverProfile = string.Empty;
         public string SBMode = string.Empty;
         public readonly List<Card.Cards> ReplaceIds = new List<Card.Cards>();
+        public readonly List<int> ReplaceSlots = new List<int>();
 
         public bool IsFresh(int maxAgeSeconds)
         {
@@ -169,6 +170,12 @@ namespace SmartBot.Mulligan
                     Card.Cards cardId;
                     if (TryParseCardId(value, out cardId))
                         state.ReplaceIds.Add(cardId);
+                }
+                else if (string.Equals(key, "replace_slot", StringComparison.OrdinalIgnoreCase))
+                {
+                    int slot;
+                    if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out slot) && slot > 0)
+                        state.ReplaceSlots.Add(slot);
                 }
             }
 

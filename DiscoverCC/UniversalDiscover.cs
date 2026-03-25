@@ -7,9 +7,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
 using System.Text.RegularExpressions;
+using Newtonsoft.Json;
 
 // by Evil_Eyes
 
@@ -18,7 +17,7 @@ namespace UniversalDiscover
     public class UniversalDiscover : DiscoverPickHandler
     {
         // List of card for origin correction on opponent board
-        private static List<Card.Cards> enemyCards = new List<Card.Cards>
+        private static readonly List<Card.Cards> enemyCards = new List<Card.Cards>
         {
             Card.Cards.REV_000, // Suspicious Alchemist
             Card.Cards.REV_002, // Suspicious Usher
@@ -28,7 +27,7 @@ namespace UniversalDiscover
         };
 
         // List of cards for origin correction on friendly board
-        private static List<Card.Cards> friendCards = new List<Card.Cards>
+        private static readonly List<Card.Cards> friendCards = new List<Card.Cards>
         {
             Card.Cards.GDB_874, // Astrobiologist
             Card.Cards.TTN_429, // Aman'Thul
@@ -49,8 +48,8 @@ namespace UniversalDiscover
             Card.Cards.TRL_057, Card.Cards.UNG_201, Card.Cards.GVG_039, Card.Cards.CORE_EX1_575
         };
 
-        // Rapter Herald, Rewind Battlecry: Discover a Beast with a Dark Gift. 
-        private static readonly Dictionary<Card.Cards, int> raptorHeraldCards = new Dictionary<Card.Cards, int>
+        // Raptor Herald, Rewind Battlecry: Discover a Beast with a Dark Gift. 
+        private static readonly Dictionary<Card.Cards, double> raptorHeraldCards = new Dictionary<Card.Cards, double>
         {
             { Card.Cards.EDR_100t13, 100 }, // Harpy's Talons
             { Card.Cards.EDR_100t9,   90 }, // Persisting Horror
@@ -61,11 +60,11 @@ namespace UniversalDiscover
             { Card.Cards.EDR_100t7,   40 }, // Rude Awakening
             { Card.Cards.EDR_100t2,   30 }, // Short Claws
             { Card.Cards.EDR_100t6,   20 }, // Sleepwalker
-            { Card.Cards.EDR_100t8,   10 } // Sweet Dreams
+            { Card.Cards.EDR_100t8,   10 }  // Sweet Dreams
         };
 
         // Dark Rider: Battlecry: If you're holding a Dragon, Discover a Dragon with a Dark Gift.
-        private static readonly Dictionary<Card.Cards, int> darkRider = new Dictionary<Card.Cards, int>
+        private static readonly Dictionary<Card.Cards, double> darkRider = new Dictionary<Card.Cards, double>
         {
             { Card.Cards.EDR_100t,   60 }, // Waking Terror
             { Card.Cards.EDR_100t1,  80 }, // Well Rested
@@ -79,118 +78,87 @@ namespace UniversalDiscover
             { Card.Cards.EDR_100t13, 100 } // Harpy's Talons
         };
 
-        // Global variables declaration
-        private static readonly Random random = new Random();
+        // Initialize the log and list to store cards to keep
+        private string log, description;
 
         // Version control variables
         private static bool versionChecked, discard;
-
-        // Log variable
-        private StringBuilder logBuilder = new StringBuilder();
 
         // Directory paths
         private readonly string smartBotDirectory = Directory.GetCurrentDirectory();
         private readonly string discoverCCDirectory = Directory.GetCurrentDirectory() + @"\DiscoverCC\";
 
-        // Ini file handler and description for log
-        private IniManager iniTierList;
-
-        // Version information for card definition library
-        private string description;
+        // Random instance for any random decisions
+        private static Random random = new Random();
 
         // Card Handle Pick Decision from SB
-        public Card.Cards HandlePickDecision(Card.Cards originCard, List<Card.Cards> choices, Board board) // originCard; ID of card played by SB: choices; names of cards for selection: board; 3 states , Even, Losing, Winning
+        public Card.Cards HandlePickDecision(Card.Cards originCard, List<Card.Cards> choices, Board board)
         {
-            // Starting index
-            int startIndex = 0;
-
-            // Retrieve latest version of card definition library from cloud
             if (!versionChecked)
             {
                 FileVersionCheck();
+                CleanupIniFiles();
                 versionChecked = true;
             }
 
-            // Bot logs heading
-            logBuilder.Clear();
-            logBuilder.Append("=====Discover V9.3, Card definition V").Append(CurrentVersion()).Append("===EE");
-            string Divider = new string('=', 40);
+            // Initialize log for this decision
+            log = string.Format("===== Universal Discover V10.0, Card definition V{0} ===EE", CurrentVersion());
 
-            // Final random choice if no cards found
-            Card.Cards bestChoice = choices[random.Next(0, choices.Count)];
+            // Remove duplicate choices, keeping the first occurrence (LINQ)
+            choices = choices.Distinct().ToList();
 
-            // Get current deck mode
+            // Default to random choice if any unexpected issue occurs
+            Card.Cards lastChance = choices[random.Next(0, choices.Count)];
+
+            // Local variables for decision making
             string mode = CurrentMode();
-
-            // Get current hero class
             string hero = board.FriendClass.ToString();
-
-            // Origin card check and correction
-            (originCard, startIndex) = OriginCardCorrection(originCard, choices, board, mode);
-
-            // Origin card name from database template
-            string Origin_Card = CardTemplate.LoadFromId(originCard).Name;
-
-            // Create empty card list
-            List<CardValue> choicesCardValue = new List<CardValue>();
-
-            // Main loop starts here
+            string Divider = new string('=', 40);
+            var choicesCardValue = new List<CardValue>();
             double points = 0;
             double TotalPoints = 0;
+            Card.Cards bestChoice = lastChance;
+
             try
             {
-                for (int choiceIndex = startIndex; choiceIndex < 3; choiceIndex++)
-                {
-                    string discoverFile = string.Empty;
-                    // Input file selection
-                    switch (choiceIndex)
-                    {
-                        case 1:
-                            // discoverCCDirectory + mode + originCard.ini
-                            discoverFile = Path.Combine(discoverCCDirectory, mode, originCard + ".ini");
-                            if (!File.Exists(discoverFile))
-                                continue;
-                            description = $"From: {discoverCCDirectory}{mode}\\{Origin_Card}";
-                            break;
-                        case 2:
-                            // discoverCCDirectory + mode + discover.ini
-                            discoverFile = Path.Combine(discoverCCDirectory, mode, "discover.ini");
-                            description = $"Origin: {Origin_Card}\nFrom: {discoverCCDirectory}{mode}\\discover.ini";
-                            break;
-                    }
-                    // Load ini file if exists
-                    if (File.Exists(discoverFile))
-                        iniTierList = new IniManager(discoverFile);
+                // Load DiscoverChoices.json for the current mode to access specific scoring for origin card and choices
+                var choicesJson = ReadJsonFile(Path.Combine(discoverCCDirectory, mode, "DiscoverChoices.json"));
 
-                    // Clear previous card values
+                // Origin card check and correction
+                originCard = OriginCardCorrection(choicesJson, originCard, board);
+
+                // Origin card name from database template
+                string Origin_Card = CardTemplate.LoadFromId(originCard).Name;
+
+                // Cache card templates for this decision to avoid repeated lookups
+                var choiceTemplates = choices.ToDictionary(c => c, c => CardTemplate.LoadFromId(c));
+
+                // First pass: Evaluate specific conditions for each choice based on the origin card and the current board state, which may override general scoring from DiscoverChoices.json
+                for (int choiceIndex = 0; choiceIndex < 3; choiceIndex++)
+                {
+                    // Reset accumulator per pass
+                    TotalPoints = 0;
                     choicesCardValue.Clear();
-                    points = 0; // ensure points reset per choice
                     discard = false;
 
-                    // Search for best points
+                    // Evaluate each choice for the current pass
                     foreach (var choice in choices)
                     {
-                        var cardTemplate = CardTemplate.LoadFromId(choice); // Using SB database to get details of card
-                        points = 0; // ensure points reset per choice
+                        var cardTemplate = choiceTemplates[choice];
+                        points = 0;
+
                         switch (choiceIndex)
                         {
                             case 0:
-                                // *** Check for any special conditions ***
                                 switch (originCard)
                                 {
                                     case Card.Cards.WON_103: // Chamber of Viscidus
-                                        if (!discard)
-                                        {
-                                            discoverFile = Path.Combine(discoverCCDirectory, mode, originCard + ".ini");
-                                            if (File.Exists(discoverFile))
-                                                iniTierList = new IniManager(discoverFile);
-                                            discard = true;
-                                        }
-                                        // Searching file "origin.ini" for best points
-                                        double.TryParse(iniTierList.GetString(choice.ToString(), "points", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out double p);
-                                        points = 200 - p; // Invert points for Chamber of Viscidus, as we want to discard cards with higher points
+                                        discard = true;
+                                        // If the offered card is in the opponent's board or graveyard, it's likely the opponent selected it to be discarded, so assign higher points. Otherwise, assign lower points for discarding a card that may not be relevant to the opponent.
+                                        points = 200 - (GetDiscoverScore(choicesJson, originCard.ToString(), choice.ToString()) ?? 0);
                                         description = "From: Chamber of Viscidus";
                                         break;
+
                                     case Card.Cards.MIS_102: // Return Policy
                                         // Colifero DH gate to avoid Blob when Tusk/Felhunter offered
                                         var signature = new[] { Card.Cards.VAC_926, Card.Cards.TLC_468, Card.Cards.EDR_891, Card.Cards.TOY_703 }; // Cliff Dive, Blob of Tar, Ravenous Felhunter, Colifero
@@ -201,7 +169,7 @@ namespace UniversalDiscover
 
                                         bool tuskOffered = choices.Contains(Card.Cards.BAR_330) || choices.Contains(Card.Cards.CORE_BAR_330); // Tuskarr Fisherman
                                         bool felOffered = choices.Contains(Card.Cards.EDR_891); // Ravenous Felhunter
-                                                                                                // Evaluate choice cards
+                                        // Evaluate choice cards
                                         if (tuskOffered || felOffered)
                                         {
                                             if (choice == Card.Cards.TLC_468) // Blob of Tar
@@ -216,122 +184,166 @@ namespace UniversalDiscover
                                             description = "From: Return Policy";
                                         }
                                         break;
-                                    case Card.Cards.CORE_EDR_004: // Raptor Herald, evaluate choice cards based on predefined points
-                                        points = raptorHeraldCards.TryGetValue(choice, out var val) ? val : points;
-                                        description = "From: Raptor Herald";
+
+                                    case Card.Cards.CORE_EDR_004: // Raptor Herald
+                                        // Evaluate based on the specific card offered and its assigned points in the raptorHeraldCards dictionary
+                                        if (raptorHeraldCards.TryGetValue(choice, out points))
+                                            description = "From: Raptor Herald";
                                         break;
-                                    case Card.Cards.EDR_456: // Dark Rider, evaluate choice cards based on predefined points
-                                        points = darkRider.TryGetValue(choice, out var val2) ? val2 : points;
-                                        description = "From: Dark Rider";
+
+                                    case Card.Cards.EDR_456: // Dark Rider
+                                        if (darkRider.TryGetValue(choice, out points))
+                                            description = "From: Dark Rider";
                                         break;
+
                                     case Card.Cards.DEEP_027: // Gloomstone Guardian
-                                        double discardScore = 2 * Math.Max(board.MinionFriend.Count - 2, 0) + 3 * Math.Max(board.ManaAvailable, 0); // Heuristic: Discarding cards is more valuable when you have more minions and mana available, with a threshold to avoid overvaluing discard when you have very few minions.
-                                        double manaLossScore = 2 * Math.Max(board.MinionFriend.Count, 0) + 3 * Math.Max(board.ManaAvailable, 0); // Heuristic: Losing mana is more impactful when you have more minions and mana available, but less so than discard, with a threshold to avoid overvaluing mana loss when you have very few minions.
-                                        // Evaluate choice cards
-                                        if (choice == Card.Cards.DEEP_027a) // Splintered Form, Discard 2 cards.
+                                        double discardScore =
+                                            2 * Math.Max(board.MinionFriend.Count - 2, 0) +
+                                            3 * Math.Max(board.ManaAvailable, 0);
+                                        double manaLossScore =
+                                            2 * Math.Max(board.MinionFriend.Count, 0) +
+                                            3 * Math.Max(board.ManaAvailable, 0);
+
+                                        if (choice == Card.Cards.DEEP_027a)
                                         {
-                                            if (discardScore >= manaLossScore)
-                                                points = 100; // Strong reward for discard
-                                            else
-                                                points = 50;  // Lesser reward for mana loss
+                                            points = discardScore >= manaLossScore ? 100 : 50;
                                         }
-                                        else if (choice == Card.Cards.DEEP_027b) // Mana Disintegration, Destroy one of your Mana Crystals.
+                                        else if (choice == Card.Cards.DEEP_027b)
                                         {
-                                            points = 75; // Fixed reward for mana loss option
+                                            points = 75;
                                         }
                                         description = "From: Gloomstone Guardian";
                                         break;
 
                                     case Card.Cards.CS3_028: // Thrive in the Shadows
-                                        if (choice == Card.Cards.TOY_714 && board.MinionEnemy.Count(x => x.CanAttack) > 2) // Increase points to Fly Off the Shelves if enemy count on board exceeds 3
-                                            points += 100; // Increase points to Fly Off the Shelves if conditions is true
+                                        if (choice == Card.Cards.TOY_714 &&
+                                            board.MinionEnemy.Count(x => x.CanAttack) > 2)
+                                            points += 100;
                                         description = "From: Thrive in the Shadows";
                                         break;
+
                                     case Card.Cards.GIFT_06: // Thrall's Gift
                                         points = ThrallsGift(choice, board);
                                         break;
-                                    case Card.Cards.TOY_801: // Chia Drake, Whizbang's Workshop: TOY_801 Miniaturize, TOY_801t Mini
-                                    case Card.Cards.TOY_801t: // Cultivate TOY_801a, Draw a spell. Seedling Growth TOY_801b, Gain Spell Damage +1.
+
+                                    case Card.Cards.TOY_801:
+                                    case Card.Cards.TOY_801t:
                                         points = random.Next(0, 101);
                                         description = "From: Chia Drake";
                                         break;
-                                    case Card.Cards.TSC_069: // Amalgam of the Deep, Voyage to the Sunken City and Gigantotem
-                                        if (choices.Contains(Card.Cards.REV_838)) // Gigantotem
-                                        {
+
+                                    case Card.Cards.TSC_069: // Amalgam of the Deep and Gigantotem
+                                        if (choices.Contains(Card.Cards.REV_838))
                                             points = Gigantotem(choice, board);
-                                        }
                                         break;
-                                    case Card.Cards.TTN_940: // Freya, Keeper of Nature, Titans
+
+                                    case Card.Cards.TTN_940: // Freya, Keeper of Nature
                                         description = "From: Freya, Keeper of Nature: " + cardTemplate.Name;
                                         points = Freya(choice, board);
                                         break;
-                                    case Card.Cards.BAR_079: // Kazakus, Golem Shaper, Forged in the Barrens
+
+                                    case Card.Cards.BAR_079: // Kazakus, Golem Shaper
                                         points = KazakusGolemShaper(cardTemplate.Name, board);
-                                        description = "From: Kazakus, Golem Shaper, minion count: " + board.MinionFriend.Count + " mana available: " + board.ManaAvailable;
+                                        description = "From: Kazakus, Golem Shaper, minion count: " +
+                                                      board.MinionFriend.Count + " mana available: " +
+                                                      board.ManaAvailable;
                                         break;
-                                    case Card.Cards.DMF_075: // Guess the Weight, Madness at the Darkmoon Faire
-                                        if (choice == Card.Cards.DMF_075a2) // Less!
-                                            points = Convert.ToDouble(GuessTheWeight(board).Split(new char[] { '/' })[0].Trim());
-                                        else if (choice == Card.Cards.DMF_075a) // More!
-                                            points = Convert.ToDouble(GuessTheWeight(board).Split(new char[] { '/' })[1].Trim());
-                                        else
-                                            description = "From: Guess the Weight: " + cardTemplate.Name + "  Cost: " + cardTemplate.Cost.ToString(); // Display name and cost of weight card
-                                        break;
-                                    case Card.Cards.AV_295: // Capture Coldtooth Mine, Fractured in Alterac Valley
-                                        if (choice == Card.Cards.AV_295b) // More Supplies
+
+                                    case Card.Cards.DMF_075: // Guess the Weight
+                                        string weight = GuessTheWeight(board);
+                                        string[] parts = weight.Split('/');
+                                        if (choice == Card.Cards.DMF_075a2 && parts.Length >= 1)
                                         {
-                                            points = CaptureColdtoothMine(board);
-                                            description = points == 100 ? "Capture Coldtooth Mine, selecting highest cost card" : "Capture Coldtooth Mine, selecting lowest cost card";
+                                            points = Convert.ToDouble(parts[0].Trim(), CultureInfo.InvariantCulture);
+                                        }
+                                        else if (choice == Card.Cards.DMF_075a && parts.Length >= 2)
+                                        {
+                                            points = Convert.ToDouble(parts[1].Trim(), CultureInfo.InvariantCulture);
                                         }
                                         else
-                                            points = 10; // More resources
+                                        {
+                                            description = "From: Guess the Weight: " + cardTemplate.Name +
+                                                          "  Cost: " + cardTemplate.Cost;
+                                        }
                                         break;
-                                    case Card.Cards.AV_258:  // Bru'kan of the Elements, Fractured in Alterac Valley
+
+                                    case Card.Cards.AV_295: // Capture Coldtooth Mine
+                                        if (choice == Card.Cards.AV_295b)
+                                        {
+                                            points = CaptureColdtoothMine(board);
+                                            description = points == 100
+                                                ? "Capture Coldtooth Mine, selecting highest cost card"
+                                                : "Capture Coldtooth Mine, selecting lowest cost card";
+                                        }
+                                        else
+                                        {
+                                            points = 10;
+                                        }
+                                        break;
+
+                                    case Card.Cards.AV_258: // Bru'kan of the Elements
                                         points = BrukanOfTheElements(choice, board);
-                                        description = "Bru'kan of the Elements";
+                                        description = "From: Bru'kan of the Elements";
                                         break;
-                                    case Card.Cards.REV_022: // Murloc Holmes, Murder at Castle Nathria
+
+                                    case Card.Cards.REV_022: // Murloc Holmes
                                         points = MurlocHolmes(choice, board);
                                         break;
-                                    case Card.Cards.RLK_654: // Beetlemancy, March of the Lich King
+
+                                    case Card.Cards.RLK_654: // Beetlemancy
                                         points = Beetlemancy(choice, board);
-                                        description = "Beetlemancy";
+                                        description = "From: Beetlemancy";
                                         break;
-                                    case Card.Cards.RLK_533: // Scourge Supplies, March of the Lich King
-                                        points = 200 - Convert.ToDouble(cardTemplate.Cost); // Discard lowest cost card
-                                        description = "Scourge Supplies, discard lowest cost card.";
+
+                                    case Card.Cards.RLK_533: // Scourge Supplies
+                                        discard = true;
+                                        points = 200 - cardTemplate.Cost;
+                                        description = "From: Scourge Supplies, discard lowest cost card.";
                                         break;
-                                    case Card.Cards.ETC_373: // Drum Circle, Festival of Legends
+
+                                    case Card.Cards.ETC_373: // Drum Circle
                                         points = DrumCircle(choice, board);
-                                        description = "Drum Circle";
+                                        description = "From: Drum Circle";
                                         break;
-                                    case Card.Cards.ETC_375: // Peaceful Piper, Festival of Legends
+
+                                    case Card.Cards.ETC_375: // Peaceful Piper
                                         points = PeacefulPiper(choice, board);
-                                        description = "Peaceful Piper";
+                                        description = "From: Peaceful Piper";
                                         break;
-                                    case Card.Cards.ETC_316: // Fight Over Me Festival of Legends
+
+                                    case Card.Cards.ETC_316: // Fight Over Me
                                         points = FightOverMe(choice, board);
-                                        description = "Fight Over Me";
+                                        description = "From: Fight Over Me";
+                                        break;
+
+                                    default:
+                                        if (board.Hand.Count == 0) // Hand empty: favor cards near current mana
+                                        {
+                                            points = CalculateScore(cardTemplate.Cost, board.ManaAvailable);
+                                            description = "Hand empty, selecting best card with cost: " + cardTemplate.Name;
+                                        }
                                         break;
                                 }
                                 break;
+
                             case 1:
-                                // Searching for best point from external file
-                                if (iniTierList != null)
-                                    double.TryParse(iniTierList.GetString(choice.ToString(), "points", "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out points);
+                                // Second pass for general scoring based on DiscoverChoices.json, after specific conditions are evaluated
+                                points = GetDiscoverScore(choicesJson, originCard.ToString(), choice.ToString()) ?? 0;
+                                description = $"Origin: {Origin_Card}\nPath: {mode}\\DiscoverChoices.json";
                                 break;
+
                             case 2:
-                                // Searching file "discover.ini" for best points
-                                if (iniTierList != null)
-                                    double.TryParse(iniTierList.GetString(choice.ToString(), hero, "0"), NumberStyles.Any, CultureInfo.InvariantCulture, out points);
+                                // Third pass for any additional scoring from discover.json that may not be covered in the specific conditions or general scoring
+                                var discoverJson = ReadJsonFile(Path.Combine(discoverCCDirectory, mode, "discover.json"));
+                                points = GetDiscoverValue(discoverJson, hero, choice.ToString()) ?? 0;
+                                description = $"Origin: {Origin_Card}\nPath: {mode}\\discover.json";
                                 break;
                         }
 
-                        // Suspicious Alchemist: fix condition
-                        // If enemy has Suspicious Alchemist on board and that alchemist revealed a card matching our choice (best effort heuristic)
+                        // Suspicious Alchemist: if enemy has it and the revealed card is in graveyard
                         if (board.MinionEnemy.Any(m => m.Template.Id == Card.Cards.REV_000) && board.EnemyGraveyard.Contains(choice))
                         {
-                            description = $"Suspicious Alchemist possible opponent selected card {cardTemplate.Name}";
+                            description = "Suspicious Alchemist possible opponent selected card " + cardTemplate.Name;
                             points += 500;
                         }
 
@@ -341,86 +353,85 @@ namespace UniversalDiscover
                             points = LastChance(choice, points, board);
                         }
 
-                        // Add to card list with points
                         choicesCardValue.Add(new CardValue(choice, points));
                         TotalPoints += points;
                     }
-                    if (TotalPoints > 0) break;
+
+                    if (TotalPoints > 0)
+                        break;
                 }
 
-                // Card selection with highest points
                 double bestPoints = 0;
-                for (var i = 0; i < choicesCardValue.Count; i++) // index through each card
+                for (int i = 0; i < choicesCardValue.Count; i++)
                 {
-                    double pts = Math.Round(choicesCardValue[i].GetPoints(), 2); // round to 2 decimal places
-                    AddLog($"{i + 1}) {CardTemplate.LoadFromId(choicesCardValue[i].GetCard()).Name}: {pts:F2}");  // log with 2 decimals
-                    if (!(bestPoints < pts)) continue; // selects highest points
-                    bestChoice = choicesCardValue[i].GetCard();
-                    bestPoints = pts;
+                    double pts = Math.Round(choicesCardValue[i].GetPoints(), 2);
+                    var cardName = choiceTemplates[choicesCardValue[i].GetCard()].Name;
+                    AddLog($"{i + 1}) {cardName}: {pts,2:F2}");
+                    if (bestPoints < pts)
+                    {
+                        bestChoice = choicesCardValue[i].GetCard();
+                        bestPoints = pts;
+                    }
                 }
 
-                // Out to Bot log
                 AddLog(Divider);
                 if (bestPoints <= 0)
                 {
-                    AddLog($"Selecting: {CardTemplate.LoadFromId(bestChoice).Name}");
-                    AddLog($"Origin: {Origin_Card}");
+                    AddLog("Selecting: " + choiceTemplates[bestChoice].Name);
+                    AddLog("Origin: " + Origin_Card);
                 }
                 else
                 {
-                    AddLog($"{(discard ? "Discard" : "Best")}: {CardTemplate.LoadFromId(bestChoice).Name}: {bestPoints:F2}");
+                    AddLog(string.Format("{0}: {1}: {2:F2}", discard ? "Discard" : "Best", choiceTemplates[bestChoice].Name, bestPoints));
                     if (!string.IsNullOrEmpty(description))
                         AddLog(description);
                 }
                 AddLog(Divider);
-                Bot.Log(logBuilder.ToString());
-                return bestChoice; // returns cardID
+                Bot.Log(log);
+                return bestChoice;
             }
             catch (Exception ex)
             {
-                Bot.Log($"Error in UniversalDiscover: {ex.Message}");
-                return choices[random.Next(0, choices.Count)]; // Fallback to random choice on error
+                Bot.Log("===== Universal Discover ===EE");
+                Bot.Log("Error in UniversalDiscover: " + ex.Message);
+                Bot.Log(new string('=', 40));
+                return lastChance;
             }
         }
 
         // Origin card correction
-        private Tuple<Card.Cards, int> OriginCardCorrection(Card.Cards originCard, List<Card.Cards> choices, Board board, string mode)
+        private Card.Cards OriginCardCorrection(string json, Card.Cards originCard, Board board)
         {
-            // List of origin cards for correction
             var originChoices = new List<Card.Cards>();
 
-            if (mode == "Arena")
-                return Tuple.Create(originCard, 2);
+            // Add cards from opponent board and graveyard that are in the enemyCards list
+            originChoices.AddRange(board.MinionEnemy.Select(card => card.Template.Id).Where(enemyCards.Contains));
 
-            if (!File.Exists($"{discoverCCDirectory}{mode}\\{originCard}.ini"))
+            // Add cards from friendly board and graveyard that are in the friendCards list
+            originChoices.AddRange(board.MinionFriend.Select(card => card.Template.Id).Where(friendCards.Contains));
+
+            // Add last played card if it exists, as it can be the origin of the discover
+            if (board.PlayedCards.Any())
+                originChoices.Add(board.PlayedCards.Last());
+
+            // Select origin card for a match, checking in reverse order (most recent entries first)
+            for (int i = originChoices.Count - 1; i >= 0; i--)
             {
-                // Add enemy cards matching enemyCards  
-                originChoices.AddRange(board.MinionEnemy.Select(card => card.Template.Id).Where(enemyCards.Contains));
+                var card = originChoices[i];
 
-                // Add friendly cards matching friendCards  
-                originChoices.AddRange(board.MinionFriend.Select(card => card.Template.Id).Where(friendCards.Contains));
+                if (originCard == card)
+                    break; // No correction needed
 
-                // Add last played card  
-                if (board.PlayedCards.Any())
-                    originChoices.Add(board.PlayedCards.Last());
-
-                // Select origin card for a match  
-                foreach (var card in originChoices)
+                if (OriginCardExists(json, card.ToString()))
                 {
-                    if (originCard == card)
-                        break; // No correction needed
-                    if (File.Exists(discoverCCDirectory + mode + "\\" + card + ".ini"))
-                    {
-                        AddLog($"Origin card correction: {CardTemplate.LoadFromId(card).Name}");
-                        return Tuple.Create(card, 0);
-                    }
+                    AddLog($"Origin card correction: {CardTemplate.LoadFromId(card).Name}");
+                    return card;
                 }
             }
 
-            return Tuple.Create(originCard, 0);
+            return originCard;
         }
 
-        // Get from list
         public class CardValue
         {
             private readonly double _points;
@@ -443,44 +454,13 @@ namespace UniversalDiscover
             }
         }
 
-        // Memory management, input/output operations
-        public class IniManager
+        // Combine all Addlog, includes return and new line
+        private void AddLog(string message)
         {
-            private const int CSize = 1024;
-
-            public IniManager(string path)
-            {
-                Path = path;
-            }
-
-            public string Path { get; set; }
-
-            public string GetString(string section, string key, string Default = null)
-            {
-                StringBuilder buffer = new StringBuilder(CSize);
-                GetString(section, key, Default, buffer, CSize, Path);
-                return buffer.ToString();
-            }
-
-            public void WriteString(string section, string key, string sValue)
-            {
-                WriteString(section, key, sValue, Path);
-            }
-
-            [DllImport("kernel32.dll", EntryPoint = "GetPrivateProfileString")]
-            private static extern int GetString(string section, string key, string def, StringBuilder bufer, int size, string path);
-
-            [DllImport("kernel32.dll", EntryPoint = "WritePrivateProfileString")]
-            private static extern int WriteString(string section, string key, string str, string path);
+            log += "\r\n" + message;
         }
 
-        // Adds text to log variable
-        private void AddLog(string entry)
-        {
-            logBuilder.Append("\r\n").Append(entry);
-        }
-
-        // Get current deck mode from selected deck string
+        // Get current mode: Standard, Wild, Arena, Practice/Casual
         private static string CurrentMode()
         {
             var mode = Bot.CurrentMode();
@@ -498,7 +478,7 @@ namespace UniversalDiscover
             return "Wild";
         }
 
-        //  *********** Special conditions ***********
+        // *********** Special conditions ***********
 
         // Thrall's Gift
         private double ThrallsGift(Card.Cards choice, Board board)
@@ -511,19 +491,26 @@ namespace UniversalDiscover
             switch (choice)
             {
                 case Card.Cards.CS2_046: // Bloodlust
-                    description = String.Format("From: Thrall's Gift, mana: {0}, F->count: {1}, E->count: {2}", availableMana, friendCount, enemyCount);
-                    if (friendCount > 0 && CardTemplate.LoadFromId(Card.Cards.CS2_046).Cost <= availableMana)
+                    description = string.Format(
+                        "From: Thrall's Gift, mana: {0}, F->count: {1}, E->count: {2}",
+                        availableMana, friendCount, enemyCount);
+
+                    if (friendCount > 0 &&
+                        CardTemplate.LoadFromId(Card.Cards.CS2_046).Cost <= availableMana)
                     {
-                        points = CurrentFriendAttack(board) + (friendCount * 3) >= CurrentEnemyBoardDefense(board) ? 100 : CurrentFriendAttack(board) + (friendCount * 3);
+                        int buffedAttack = CurrentFriendAttack(board) + friendCount * 3;
+                        points = buffedAttack >= CurrentEnemyBoardDefense(board) ? 100 : buffedAttack;
                     }
                     break;
 
-                case Card.Cards.CORE_EX1_259: //  Lightning Storm
+                case Card.Cards.CORE_EX1_259: // Lightning Storm
                     points = enemyCount * 3;
                     break;
 
-                case Card.Cards.CORE_EX1_246: //  Hex
-                    if (friendCount < 4 && availableMana >= 3 && board.MinionEnemy.Any(x => x.IsTaunt && x.CurrentAtk > 4 && x.CurrentHealth > 4))
+                case Card.Cards.CORE_EX1_246: // Hex
+                    if (friendCount < 4 &&
+                        availableMana >= 3 &&
+                        board.MinionEnemy.Any(x => x.IsTaunt && x.CurrentAtk > 4 && x.CurrentHealth > 4))
                     {
                         points = 100;
                     }
@@ -538,69 +525,68 @@ namespace UniversalDiscover
             if (choice != Card.Cards.REV_838) return 0;
 
             int totemCount =
-                board.MinionFriend.Count(m => totemCards.Contains(m.Template.Id))
-                + board.FriendGraveyard.Count(id => totemCards.Contains(id));
+                board.MinionFriend.Count(m => totemCards.Contains(m.Template.Id)) +
+                board.FriendGraveyard.Count(id => totemCards.Contains(id));
 
             int effectiveCost = Math.Max(10 - totemCount, 0);
             bool playableSoon = effectiveCost - 3 <= board.MaxMana;
 
             if (playableSoon)
             {
-                description = $"Best: Gigantotem calculated cost: {effectiveCost}";
+                description = $"Best: Gigantotem calculated cost: {effectiveCost}, MaxMana  {board.MaxMana}";
                 return 100;
             }
             return 0;
         }
 
         // Kazakus, Golem Shaper choice cards 
-        private static readonly List<Kazakus> kazakusCards = new List<Kazakus>() //  Create a list of Kazakus choiceCards
-        {           // Kazakus, Golem Shaper choice cards popularity from HSReplay
-               //  First choice
-                new Kazakus(){ Name = "Lesser Golem", Lesser = 200, Greater = 1, Superior = 1 }, // BAR_079_m1
-                new Kazakus(){ Name = "Greater Golem", Lesser = 1, Greater = 200, Superior = 1 }, // BAR_079_m2
-                new Kazakus(){ Name = "Superior Golem", Lesser = 1, Greater = 1, Superior = 200 }, // BAR_079_m3
-                //  Second choice
-                new Kazakus(){ Name = "Grave Moss", Lesser = 196, Greater = 196, Superior = 196 }, // Poisonous, BAR_079t9
-                new Kazakus(){ Name = "Sungrass", Lesser = 198, Greater = 198, Superior = 198 }, // Divine Shield, BAR_079t6
-                new Kazakus(){ Name = "Fadeleaf", Lesser = 195, Greater = 195, Superior = 195 }, // Stealth, BAR_079t8
-                new Kazakus(){ Name = "Earthroot", Lesser = 197, Greater = 197, Superior = 197 }, // Taunt, BAR_079t5
-                new Kazakus(){ Name = "Liferoot", Lesser = 199, Greater = 199, Superior = 199 }, // Lifesteal, BAR_079t7
-                new Kazakus(){ Name = "Swifthistle", Lesser = 200, Greater = 200, Superior = 200 }, // Rush, BAR_079t4
-                //  Third choice
-                new Kazakus(){ Name = "Wildvine", Lesser = 101, Greater = 50.524, Superior = 41.67 }, // Give your other minions +(1, 2, 4), BAR_079t10, BAR_079t10b, BAR_079t10c
-                new Kazakus(){ Name = "Firebloom", Lesser = 75.333, Greater = 67.907, Superior = 44.94 }, // Deal 3 damage to (1, 2, 4) random enemy minion, BAR_079t13, BAR_079t13b, BAR_079t13c
-                new Kazakus(){ Name = "Gromsblood", Lesser = 63.581, Greater = 1, Superior = 1 }, // Summon a copy of this, BAR_079t11
-                new Kazakus(){ Name = "Kingsblood", Lesser = 26, Greater = 24.1, Superior = 9.8 }, // Draw a card (1, 2, 4), BAR_079t15, BAR_079t15b, BAR_079t15c
-                new Kazakus(){ Name = "Icecap", Lesser = 1, Greater = 6.97, Superior = 31.65 }, // Freeze (1, 2, 4) random enemy minions, BAR_079t12b, BAR_079t12, BAR_079t12c
-                new Kazakus(){ Name = "Mageroyal", Lesser = 1, Greater = 2.12, Superior = 1 }, // Spell Damage +(1, 2, 4), BAR_079t14, BAR_079t14b, BAR_079t14c
-    };
+        private static readonly List<Kazakus> kazakusCards = new List<Kazakus>
+        {
+            new Kazakus { Name = "Lesser Golem",   Lesser = 200, Greater = 1,     Superior = 1   },
+            new Kazakus { Name = "Greater Golem",  Lesser = 1,   Greater = 200,   Superior = 1   },
+            new Kazakus { Name = "Superior Golem", Lesser = 1,   Greater = 1,     Superior = 200 },
+
+            new Kazakus { Name = "Grave Moss", Lesser = 196, Greater = 196, Superior = 196 },
+            new Kazakus { Name = "Sungrass",   Lesser = 198, Greater = 198, Superior = 198 },
+            new Kazakus { Name = "Fadeleaf",   Lesser = 195, Greater = 195, Superior = 195 },
+            new Kazakus { Name = "Earthroot",  Lesser = 197, Greater = 197, Superior = 197 },
+            new Kazakus { Name = "Liferoot",   Lesser = 199, Greater = 199, Superior = 199 },
+            new Kazakus { Name = "Swifthistle",Lesser = 200, Greater = 200, Superior = 200 },
+
+            new Kazakus { Name = "Wildvine",  Lesser = 101,   Greater = 50.524, Superior = 41.67 },
+            new Kazakus { Name = "Firebloom", Lesser = 75.333,Greater = 67.907, Superior = 44.94 },
+            new Kazakus { Name = "Gromsblood",Lesser = 63.581,Greater = 1,      Superior = 1    },
+            new Kazakus { Name = "Kingsblood",Lesser = 26,    Greater = 24.1,   Superior = 9.8  },
+            new Kazakus { Name = "Icecap",    Lesser = 1,     Greater = 6.97,   Superior = 31.65},
+            new Kazakus { Name = "Mageroyal", Lesser = 1,     Greater = 2.12,   Superior = 1    },
+        };
 
         // Kazakus, Golem Shaper, Forged in the Barrens
         private static double KazakusGolemShaper(string kazakusCard, Board board)
         {
-            // Select Superior Golem if equal or more than 8 mana
+            Kazakus wildvine = kazakusCards.Find(x => x.Name == "Wildvine");
+            Kazakus selected = kazakusCards.Find(x => x.Name == kazakusCard);
+
+            if (selected == null || wildvine == null)
+                return 0;
+
             if (board.MaxMana >= 8)
             {
-                // Deal damage to enemy minions vs give your minions health
                 if (board.MinionFriend.Count >= board.MinionEnemy.Count)
-                    kazakusCards.Find(x => x.Name == "Wildvine").Superior += 100;
-                return kazakusCards.Find(x => x.Name == kazakusCard).Superior;
+                    wildvine.Superior += 100;
+                return selected.Superior;
             }
 
-            // Select Greater Golem  if equal or more than 4 mana
             if (board.MaxMana >= 4)
             {
-                // Deal damage to enemy minions vs give your minions health
                 if (board.MinionFriend.Count >= board.MinionEnemy.Count)
-                    kazakusCards.Find(x => x.Name == "Wildvine").Greater += 100;
-                return kazakusCards.Find(x => x.Name == kazakusCard).Greater;
+                    wildvine.Greater += 100;
+                return selected.Greater;
             }
 
-            // Default Lesser Golem
-            // Deal damage to enemy minions vs give your minions health
             if (board.MinionFriend.Count >= board.MinionEnemy.Count)
-                kazakusCards.Find(x => x.Name == "Wildvine").Lesser += 100;
-            return kazakusCards.Find(x => x.Name == kazakusCard).Lesser; // Greater Golem
+                wildvine.Lesser += 100;
+            return selected.Lesser;
         }
 
         private class Kazakus
@@ -611,7 +597,7 @@ namespace UniversalDiscover
             public double Superior { get; set; }
         }
 
-        // Guess the weight, Madness at the Darkmoon Faire
+        // Guess the Weight, Madness at the Darkmoon Faire
         private static string GuessTheWeight(Board board)
         {
             var currentDeck = CurrentDeck(board);
@@ -628,35 +614,37 @@ namespace UniversalDiscover
             return less + "/" + more;
         }
 
-        // Capture Coldtooth Mine, Fractured in Alterac Valley
-        private static double CaptureColdtoothMine(Board board) // Select highest cost card if equal or 1 higher current mana available
+        // Capture Coldtooth Mine, Ashes of Outland
+        private static double CaptureColdtoothMine(Board board)
         {
-            // Get list of current cards in my deck
-            List<Card.Cards> currentDeck = new List<Card.Cards>();
-            currentDeck = CurrentDeck(board);
-            if (currentDeck.Select(CardTemplate.LoadFromId).Max(x => x.Cost) >= board.ManaAvailable - 1)
-                return 100;
-            return 1;
+            List<Card.Cards> currentDeck = CurrentDeck(board);
+            if (currentDeck.Count == 0)
+                return 1;
+
+            int maxCost = currentDeck.Select(CardTemplate.LoadFromId).Max(x => x.Cost);
+            return maxCost >= board.ManaAvailable - 1 ? 100 : 1;
         }
 
         // Bru'kan of the Elements, Fractured in Alterac Valley
         private static double BrukanOfTheElements(Card.Cards choice, Board board)
         {
-            double[] points = { 40, 30, 20, 10 }; // Default; Earth Invocation[0], Water Invocation[1], Fire Invocation[2], Lightning Invocation[3]
-            // Overrides
-            if (CurrentEnemyBoardDefense(board) - CurrentFriendAttack(board) <= 6) // Can opponent hero can be destroyed this turn
-                points[2] = 100; // Fire Invocation
-            else if (board.MinionEnemy.Count > 1 && CurrentEnemyBoardHealth(board) / board.MinionEnemy.Count < 4) // If opponent has more than 2 minions on board average health 3 or less. Deal 2 damage to all enemy minions
-                points[3] = 90; // for Lightning Invocation
+            double[] points = { 40, 30, 20, 10 };
+            if (CurrentEnemyBoardDefense(board) - CurrentFriendAttack(board) <= 6)
+                points[2] = 100;
+            else if (board.MinionEnemy.Count > 1 &&
+                     board.MinionEnemy.Count > 0 &&
+                     CurrentEnemyBoardHealth(board) / board.MinionEnemy.Count < 4)
+                points[3] = 90;
+
             switch (choice)
             {
-                case Card.Cards.AV_258t:  // Earth Invocation, Summon two 2/3 Elementals with Taunt
+                case Card.Cards.AV_258t:
                     return points[0];
-                case Card.Cards.AV_258t2: // Water Invocation(67816) Restore 6 Health to all friendly characters
+                case Card.Cards.AV_258t2:
                     return points[1];
-                case Card.Cards.AV_258t3: // Fire Invocation(67817) Deal 6 damage to the enemy hero
+                case Card.Cards.AV_258t3:
                     return points[2];
-                case Card.Cards.AV_258t4: // Lightning Invocation(67818) Deal 2 damage to all enemy minions
+                case Card.Cards.AV_258t4:
                     return points[3];
             }
             return 0;
@@ -666,84 +654,81 @@ namespace UniversalDiscover
         private double MurlocHolmes(Card.Cards choice, Board board)
         {
             description = "Murloc Holmes, possible choices: ";
-            // Create new empty list, add cards from opponent graveyard and board
-            var _opponentCards = (from _card in board.EnemyGraveyard select _card).ToList(); // First options
-            _opponentCards.AddRange(from _card in board.MinionEnemy select _card.Template.Id);
-            // Out to bot log
-            foreach (var _card in _opponentCards)
-            {
-                // Bot.Log("Card: " + CardTemplate.LoadFromId(card).Name);
-                description += CardTemplate.LoadFromId(_card).Name + ", ";
-            }
-            // First possible choice, the coin
+
+            var opponentCards = board.EnemyGraveyard.ToList();
+            opponentCards.AddRange(board.MinionEnemy.Select(c => c.Template.Id));
+
+            foreach (var c in opponentCards)
+                description += CardTemplate.LoadFromId(c).Name + ", ";
+
             if (CardTemplate.LoadFromId(choice).Name == "The Coin")
                 return 500;
-            // Second possible choice apply points to matched cards
-            foreach (var card in _opponentCards)
+
+            for (int i = 0; i < opponentCards.Count; i++)
             {
-                if (card == choice)
-                    return 200 - _opponentCards.IndexOf(card); // Subtract index of _opponentCards list in order of opponent cards in Graveyard --> board
+                if (opponentCards[i] == choice)
+                    return 200 - i;
             }
-            // If no cards found, try external file
             return 0;
         }
 
         // Beetlemancy, March of the Lich King
         private double Beetlemancy(Card.Cards choice, Board board)
         {
-            switch (choice)
-            {
-                case Card.Cards.RLK_654t: // Summon two 3/3 Beetles with Taunt
-                    if (board.MinionFriend.Count < 6)
-                        return 60;
-                    else
-                        return 40;
-                default: // Default, gain 12 Armor if no room on board for 2 beetles 
-                    return 50;
-            }
+            if (choice == Card.Cards.RLK_654t)
+                return board.MinionFriend.Count < 6 ? 60 : 40;
+
+            return 50;
         }
 
         // Drum Circle, Festival of Legends
-        private double DrumCircle(Card.Cards choice, Board board) // dbfId: 94201
+        private double DrumCircle(Card.Cards choice, Board board)
         {
             int points = board.MinionFriend.Count;
-            switch (choice) // choice cards selected from origin card, Drum Circle
+            switch (choice)
             {
-                case Card.Cards.ETC_373b: // Good vibrations
+                case Card.Cards.ETC_373b:
                     if (EnemyHasLethal(board) && points > 0)
                         return 106 + points;
-                    else
-                        return 100 + points; // 1st choice, points increase / more minions on board, give your minions +2/+4 and Taunt
-                case Card.Cards.ETC_373a: // Flower power
-                    return 107 - points; // 2nd choice, points decrease / more minions on board, summon five 2/2 Treants
+                    return 100 + points;
+                case Card.Cards.ETC_373a:
+                    return 107 - points;
                 default:
                     return points;
             }
         }
 
         // Peaceful Piper, Festival of Legends
-        private double PeacefulPiper(Card.Cards choice, Board board) // Choose One - Draw a Beast; or Discover one.
+        private double PeacefulPiper(Card.Cards choice, Board board)
         {
             switch (choice)
             {
-                case Card.Cards.ETC_375a: // Friendly face
-                    if (board.Deck.Count(card => CardTemplate.LoadFromId(card).Races.Contains(Card.CRace.PET)) > 0) // If deck has a beast card then, Draw a Beast.
-                        return 100;
-                    else
-                        return 10;
-                case Card.Cards.ETC_375b: // Happy Hippie, Discover a Beast.
+                case Card.Cards.ETC_375a:
+                    return board.Deck.Any(card =>
+                        CardTemplate.LoadFromId(card).Races.Contains(Card.CRace.PET))
+                        ? 100
+                        : 10;
+                case Card.Cards.ETC_375b:
                     return 50;
-                default: return 10;
+                default:
+                    return 10;
             }
         }
 
         // Fight Over Me, Festival of Legends, Choose two enemy minions. They fight! Add copies of any that die to your hand.
         private double FightOverMe(Card.Cards choice, Board board)
         {
-            var _opponentCards = board.MinionEnemy.FindAll(x => x.Type == Card.CType.MINION).OrderByDescending(x => x.CurrentAtk + x.CurrentHealth).ToList();
-            foreach (var card in _opponentCards)
-                if (card.Template.Id == choice)
-                    return 200 - _opponentCards.IndexOf(card); // Subtract index of _opponentCards list in order of descending
+            var opponentCards = board.MinionEnemy
+                .FindAll(x => x.Type == Card.CType.MINION)
+                .OrderByDescending(x => x.CurrentAtk + x.CurrentHealth)
+                .ToList();
+
+            for (int i = 0; i < opponentCards.Count; i++)
+            {
+                if (opponentCards[i].Template.Id == choice)
+                    return 200 - i;
+            }
+
             return 10;
         }
 
@@ -752,37 +737,36 @@ namespace UniversalDiscover
         {
             double totalCost = 0;
             double totalCount = 0;
+
             switch (choice)
             {
-                case Card.Cards.TTN_940a: // Summon copies all other friendly minions.
+                case Card.Cards.TTN_940a:
                     if (!board.MinionFriend.Any()) return 0;
                     totalCost = board.MinionFriend.Sum(x => x.CurrentCost);
-                    totalCount = board.MinionFriend.Count();
+                    totalCount = board.MinionFriend.Count;
                     break;
-                case Card.Cards.TTN_940b: // Duplicate your hand.
+                case Card.Cards.TTN_940b:
                     if (!board.Hand.Any()) return 0;
                     totalCost = board.Hand.Sum(x => x.CurrentCost);
-                    totalCount = board.Hand.Count();
+                    totalCount = board.Hand.Count;
                     break;
             }
-            return totalCost / totalCount; // Calculate average cost of card, return highest average
+
+            return totalCount > 0 ? totalCost / totalCount : 0;
         }
 
-        //  *********** End of special card conditions ***********
-        // Card definition version check. Update files if required
+        // *********** Version and deck helpers ***********
+
         private void FileVersionCheck()
         {
-            // Construct the file paths
             string updaterPath = Path.Combine(smartBotDirectory, "DiscoverMulliganUpdater.exe");
 
-            // Check if updater exists
             if (File.Exists(updaterPath))
             {
                 string newVersion = NewVersion();
                 string currentVersion = CurrentVersion();
 
-                // Launch updater if version has changed
-                if (currentVersion != newVersion)
+                if (!string.Equals(currentVersion, newVersion, StringComparison.Ordinal))
                 {
                     Process.Start(updaterPath);
                     Bot.Log("[PLUGIN] -> EvilEyesDiscovery: Updating Files ...");
@@ -801,102 +785,289 @@ namespace UniversalDiscover
 
             int mondays = firstMonday > end ? 0 : ((end - firstMonday).Days / 7) + 1;
             double result = mondays / 100.0 + 300;
-            string newVersion = result.ToString("F2", CultureInfo.InvariantCulture);
-            return newVersion;
+            return result.ToString("F2", CultureInfo.InvariantCulture);
         }
 
         // Get current version from EE_Information.txt
         private string CurrentVersion()
         {
             string infoPath = Path.Combine(discoverCCDirectory, "EE_Information.txt");
+            if (!File.Exists(infoPath))
+                return null;
 
-            // Read first line and extract version number using regex
-            string firstLine = File.ReadLines(infoPath).First();
+            string firstLine = File.ReadLines(infoPath).FirstOrDefault();
+            if (string.IsNullOrEmpty(firstLine))
+                return null;
+
+            int open = firstLine.IndexOf('(');
+            int close = firstLine.IndexOf(')', open + 1);
+            if (open >= 0 && close > open)
+                return firstLine.Substring(open + 1, close - open - 1);
+
+            // fallback to regex if format differs
             Match match = Regex.Match(firstLine, @"\((.+?)\)");
-            if (match.Success)
-                return match.Groups[1].Value;
-            return null;
+            return match.Success ? match.Groups[1].Value : null;
         }
 
-        // Return list of current cards remaining in my deck
+        private void CleanupIniFiles()
+        {
+            string flagFile = Path.Combine(discoverCCDirectory, "DiscoverFlag.json");
+
+            // Already ran once?
+            if (File.Exists(flagFile))
+                return;
+
+            foreach (var folder in new[] { "Standard", "Wild", "Arena" })
+            {
+                var path = Path.Combine(discoverCCDirectory, folder);
+                if (!Directory.Exists(path)) continue;
+
+                try
+                {
+                    foreach (var file in Directory.GetFiles(path, "*.ini"))
+                        File.Delete(file);
+                }
+                catch
+                {
+                    break; // stop on first failure
+                }
+            }
+
+            // Create flag file
+            File.WriteAllText(flagFile, "1");
+        }
+
+        // Calculate the current deck composition by removing cards in hand, on board, and in graveyard from the original deck list
         private static List<Card.Cards> CurrentDeck(Board board)
         {
-            var played = new HashSet<Card.Cards>(
-            board.Hand.Select(h => h.Template.Id)
-            .Concat(board.MinionFriend.Select(m => m.Template.Id))
-            .Concat(board.FriendGraveyard));
+            var playedList = board.Hand.Select(h => h.Template.Id)
+                .Concat(board.MinionFriend.Select(m => m.Template.Id))
+                .Concat(board.FriendGraveyard)
+                .ToList();
 
-            return board.Deck.Where(card => !played.Contains(card)).ToList();
+            var remaining = board.Deck.ToList();
+
+            foreach (var id in playedList)
+                remaining.Remove(id);   // removes only one copy
+
+            return remaining;
         }
 
-        // Board calculations
-        // Calculate friendly attack value
+        // *********** Board calculations ***********
+        // Calculate total attack of all friendly minions and weapon, which is crucial for assessing lethal damage and board threats
         private static int CurrentFriendAttack(Board board)
         {
-            return (board.MinionFriend.FindAll(x => x.CanAttack && (x.IsCharge || x.NumTurnsInPlay != 0) && x.CountAttack == 0 && !x.IsTired).Sum(x => x.CurrentAtk) + (board.HasWeapon(true) && board.HeroFriend.CountAttack == 0 ? board.WeaponFriend.CurrentAtk : 0));
+            int minionAttack = board.MinionFriend
+                .FindAll(x => x.CanAttack &&
+                              (x.IsCharge || x.NumTurnsInPlay != 0) &&
+                              x.CountAttack == 0 &&
+                              !x.IsTired)
+                .Sum(x => x.CurrentAtk);
+
+            int weaponAttack = board.HasWeapon(true) && board.HeroFriend.CountAttack == 0
+                ? board.WeaponFriend.CurrentAtk
+                : 0;
+
+            return minionAttack + weaponAttack;
         }
 
-        // Calculate friendly defense value (armor, health and taunt)
+        // Calculate total defense of friendly board including hero and taunt minions, which is important for assessing survivability and prioritizing targets
         private static int CurrentFriendDefense(Board board)
         {
-            return board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor + (board.MinionFriend.FindAll(x => x.IsTaunt == true).Sum(x => x.CurrentHealth));
+            return board.HeroFriend.CurrentHealth +
+                   board.HeroFriend.CurrentArmor +
+                   board.MinionFriend.FindAll(x => x.IsTaunt).Sum(x => x.CurrentHealth);
         }
 
-        // Calculate opponent board defense value (armor, health and taunt values)
+        // Calculate total defense of enemy board including hero and taunt minions, which is important for assessing lethal damage and prioritizing targets
         private static int CurrentEnemyBoardDefense(Board board)
         {
-            return board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor + (board.MinionEnemy.FindAll(x => x.IsTaunt == true).Sum(x => x.CurrentHealth));
+            return board.HeroEnemy.CurrentHealth +
+                   board.HeroEnemy.CurrentArmor +
+                   board.MinionEnemy.FindAll(x => x.IsTaunt).Sum(x => x.CurrentHealth);
         }
 
-        // Calculate opponent hero defense value (armor and health)
+        // Calculate total defense of enemy hero, which is important for assessing lethal damage and prioritizing targets
         private static int CurrentEnemyHeroDefense(Board board)
         {
             return board.HeroEnemy.CurrentHealth + board.HeroEnemy.CurrentArmor;
         }
 
-        // Calculate opponent attack value
+        // Calculate total attack of all enemy minions and weapon, which is crucial for assessing lethal damage and board threats
         private static int CurrentEnemyAttack(Board board)
         {
-            return board.MinionEnemy.FindAll(x => x.CanAttack && (x.IsCharge || x.NumTurnsInPlay != 0) && x.CountAttack == 0 && !x.IsTired).Sum(x => x.CurrentAtk) + (board.HasWeapon(false) && board.HeroEnemy.CountAttack == 0 ? board.WeaponEnemy.CurrentAtk : 0);
+            int minionAttack = board.MinionEnemy
+                .FindAll(x => x.CanAttack &&
+                              (x.IsCharge || x.NumTurnsInPlay != 0) &&
+                              x.CountAttack == 0 &&
+                              !x.IsTired)
+                .Sum(x => x.CurrentAtk);
+
+            int weaponAttack = board.HasWeapon(false) && board.HeroEnemy.CountAttack == 0
+                ? board.WeaponEnemy.CurrentAtk
+                : 0;
+
+            return minionAttack + weaponAttack;
         }
 
-        // Calculate opponent board health value
+        // Calculate total health of all enemy minions, which can be relevant for certain card effects and to assess board state
         private static int CurrentEnemyBoardHealth(Board board)
         {
             return board.MinionEnemy.FindAll(x => x.CurrentHealth > 0).Sum(x => x.CurrentHealth);
         }
 
-        // Check if enemy has lethal
+        // Check if enemy has lethal damage available, considering taunt minions and hero defense
         private static bool EnemyHasLethal(Board board)
         {
-            if (board.MinionFriend.Any(x => x.IsTaunt)) return false;
-            return board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor <=
-                   board.MinionEnemy.FindAll(
-                       x => x.CanAttack && (x.IsCharge || x.NumTurnsInPlay != 0) && x.CountAttack == 0 && !x.IsTired)
-                       .Sum(x => x.CurrentAtk) +
-                   (board.HasWeapon(false) && board.HeroEnemy.CountAttack == 0 ? board.WeaponEnemy.CurrentAtk : 0);
+            if (board.MinionFriend.Any(x => x.IsTaunt))
+                return false;
+
+            int heroDefense = board.HeroFriend.CurrentHealth + board.HeroFriend.CurrentArmor;
+            return heroDefense <= CurrentEnemyAttack(board);
         }
 
-        // Last chance card for a win
+        // Calculate a score based on how closely the card's cost matches the available mana, which can help prioritize cards that are more likely to be played immediately
+        private static int CalculateScore(int cost, int mana)
+        {
+            if (mana <= 0)
+                return 0; // avoid division by zero
+
+            int difference = Math.Abs(cost - mana);
+
+            // Score = 100 * (1 - (difference / total))
+            double score = 100.0 * (1.0 - ((double)difference / (double)mana));
+
+            // Clamp to 0–100
+            if (score < 0)
+                score = 0;
+            if (score > 100)
+                score = 100;
+
+            return (int)Math.Round(score);
+        }
+
+        // Last chance to play an affordable card, especially if it can lead to lethal damage or prevent defeat, which is a critical decision point in the game
         private double LastChance(Card.Cards card, double points, Board board)
         {
-            // Declare variables
             var cardTemplate = CardTemplate.LoadFromId(card);
 
-            // Has card charge and able to kill opponent hero
-            if (cardTemplate.Charge && CurrentEnemyBoardDefense(board) <= (CurrentFriendAttack(board) + cardTemplate.Atk))
+            if (cardTemplate.Charge &&
+                CurrentEnemyBoardDefense(board) <= CurrentFriendAttack(board) + cardTemplate.Atk)
             {
                 description = "Possible enemy defeat, selecting charge card";
                 points = 1000 + cardTemplate.Atk;
             }
 
-            // If card has taunt and enemy has lethal
             if (cardTemplate.Taunt && EnemyHasLethal(board))
             {
                 description = "Enemy has lethal, selecting taunt card";
                 points = 1000 + cardTemplate.Health;
             }
+
             return points;
+        }
+
+        // Get popularity of a specific value card under a parent card
+        private static double? GetDiscoverScore(string json, string parentCardId, string valueCardId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return null;
+                }
+                var root = JsonConvert.DeserializeObject<List<DiscoverChoice>>(json);
+                return root?.FirstOrDefault(x => x.CardId != null && x.CardId.Equals(parentCardId, StringComparison.OrdinalIgnoreCase))?.Values?
+                    .FirstOrDefault(v => v.CardId != null && v.CardId.Equals(valueCardId, StringComparison.OrdinalIgnoreCase))?.DiscoverScore;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Get class-specific numeric value for a card from discover.JSON
+        private static double? GetDiscoverValue(string json, string @class, string cardId)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return null;
+                }
+                var entries = JsonConvert.DeserializeObject<List<DiscoverClassEntry>>(json);
+                var card = entries?.FirstOrDefault(e => string.Equals(e.CardId, cardId, StringComparison.OrdinalIgnoreCase));
+                if (card.Classes != null && card.Classes.TryGetValue(@class, out var value))
+                    return value;
+                else
+                    return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        // Check if there is any discover choice with the given origin card id
+        private static bool OriginCardExists(string json, string originCard)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    return false;
+                }
+                var root = JsonConvert.DeserializeObject<List<DiscoverChoice>>(json);
+                return root != null && root.Any(choice => string.Equals(choice.CardId, originCard, StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        // Helper to read a JSON file and return its contents as a string
+        private static string ReadJsonFile(String path)
+        {
+            return File.ReadAllText(path);
+        }
+
+        // *** Newtonsoft.Json models***
+        // ============================================================
+        // These classes are used to deserialize the JSON files containing discover choice popularity and class-specific values.
+
+        public sealed class DiscoverChoice
+        {
+            // Origin card id of the discover choice
+            [JsonProperty("card_id")]
+            public string CardId { get; set; }
+
+            // List of possible discovered cards and their popularity
+            [JsonProperty("values")]
+            public List<DiscoverValue> Values { get; set; } = new List<DiscoverValue>();
+        }
+
+        public sealed class DiscoverValue
+        {
+            // Card id of a discovered option
+            [JsonProperty("card_id")]
+            public string CardId { get; set; }
+
+            // Popularity value associated with this option
+            [JsonProperty("discover_score")]
+            public double DiscoverScore { get; set; }
+        }
+
+        // Class to represent entries in discover.json which map card ids to class-specific numeric values
+        public sealed class DiscoverClassEntry
+        {
+            // Card id of the entry
+            [JsonProperty("card_id")]
+            public string CardId { get; set; }
+
+            // Map from class name (e.g., "DEATHKNIGHT") to numeric value
+            [JsonProperty("classes")]
+            public Dictionary<string, double> Classes { get; set; }
         }
     }
 }

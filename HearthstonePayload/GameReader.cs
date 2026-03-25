@@ -703,6 +703,19 @@ namespace HearthstonePayload
                 className = _ctx.CallAny(screen, "GetRealClassName", "GetClassName")?.ToString() ?? string.Empty;
             }
 
+            // 新版炉石使用 TwoScoop 子类区分胜败：
+            // m_twoScoop 运行时类型为 VictoryTwoScoop（胜利）或 DefeatTwoScoop（失败）
+            if (string.IsNullOrWhiteSpace(className))
+            {
+                var twoScoop = _ctx.GetFieldOrPropertyAny(screen, "m_twoScoop", "m_endGameTwoScoop");
+                if (twoScoop != null)
+                {
+                    className = twoScoop.GetType().Name;
+                    if (string.IsNullOrWhiteSpace(className))
+                        className = _ctx.CallAny(twoScoop, "GetScriptClassName")?.ToString() ?? string.Empty;
+                }
+            }
+
             if (!shown && IsEndGameScreenProbablyVisible(screen, className))
                 shown = true;
 
@@ -716,6 +729,17 @@ namespace HearthstonePayload
 
             if (!string.IsNullOrWhiteSpace(className) && IsObjectProbablyVisible(screen))
                 return true;
+
+            // 检查 TwoScoop 组件的可见状态
+            var twoScoop = _ctx.GetFieldOrPropertyAny(screen, "m_twoScoop", "m_endGameTwoScoop");
+            if (twoScoop != null)
+            {
+                var tsShown = _ctx.CallAny(twoScoop, "IsShown");
+                if (tsShown is bool tsb && tsb) return true;
+
+                var tsIsShown = _ctx.GetFieldOrPropertyAny(twoScoop, "m_isShown");
+                if (tsIsShown is bool tisb && tisb) return true;
+            }
 
             var candidates = new[]
             {
@@ -783,6 +807,30 @@ namespace HearthstonePayload
                 if (lower.Contains("victory")) return GameResult.Win;
                 if (lower.Contains("defeat")) return GameResult.Loss;
                 if (lower.Contains("tie") || lower.Contains("draw")) return GameResult.Tie;
+            }
+
+            // endScreenClass 为空时，尝试从 EndGameScreen.m_twoScoop 运行时类型推断
+            if (string.IsNullOrWhiteSpace(endScreenClass))
+            {
+                try
+                {
+                    var egsType = _ctx.AsmCSharp?.GetType("EndGameScreen");
+                    if (egsType != null)
+                    {
+                        var egsInstance = _ctx.CallStaticAny(egsType, "Get");
+                        if (egsInstance != null)
+                        {
+                            var twoScoop = _ctx.GetFieldOrPropertyAny(egsInstance, "m_twoScoop", "m_endGameTwoScoop");
+                            if (twoScoop != null)
+                            {
+                                var tsClassName = twoScoop.GetType().Name?.ToLowerInvariant() ?? string.Empty;
+                                if (tsClassName.Contains("victory")) return GameResult.Win;
+                                if (tsClassName.Contains("defeat")) return GameResult.Loss;
+                            }
+                        }
+                    }
+                }
+                catch { }
             }
 
             var friendlyHero = _ctx.CallAny(friendly, "GetHero");

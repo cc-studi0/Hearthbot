@@ -146,6 +146,20 @@ namespace HearthstonePayload
             {
                 var state = reader.ReadGameState();
                 var endScreenShown = reader.IsEndGameScreenShown(out var endClass);
+
+                try
+                {
+                    _logSource?.LogInfo(string.Format(
+                        "[GetResult] refresh attempt={0}, state={1}, isGameOver={2}, result={3}, endScreen={4}, endClass={5}",
+                        attempt,
+                        state != null ? "ok" : "null",
+                        state?.IsGameOver,
+                        state?.Result,
+                        endScreenShown,
+                        string.IsNullOrWhiteSpace(endClass) ? "(empty)" : endClass));
+                }
+                catch { }
+
                 if (endScreenShown)
                     TryCacheLastGameResultFromEndScreenClass(endClass);
 
@@ -435,6 +449,16 @@ namespace HearthstonePayload
                 {
                     if (state.IsGameOver || state.Result != GameResult.None)
                     {
+                        try
+                        {
+                            _logSource?.LogInfo(string.Format(
+                                "[GetSeed] game-over detected: isGameOver={0}, result={1}, endScreenClass={2}",
+                                state.IsGameOver,
+                                state.Result,
+                                state.EndGameScreenClass ?? "(null)"));
+                        }
+                        catch { }
+
                         // 优先使用 GameState 的结果
                         if (state.Result != GameResult.None)
                         {

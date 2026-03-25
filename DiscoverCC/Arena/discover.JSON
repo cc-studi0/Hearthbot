@@ -1,0 +1,8848 @@
+[
+  {
+    "card_id": "DREAM_05",
+    "classes": {
+      "DEATHKNIGHT": 53.05,
+      "DRUID": 52.07,
+      "HUNTER": 63.09,
+      "MAGE": 58.11,
+      "PALADIN": 57.98,
+      "PRIEST": 36.16,
+      "ROGUE": 61.87,
+      "SHAMAN": 56.0,
+      "WARRIOR": 58.1,
+      "DEMONHUNTER": 39.45
+    }
+  },
+  {
+    "card_id": "NEW1_016",
+    "classes": {
+      "DEATHKNIGHT": 53.36,
+      "DRUID": 54.57,
+      "HUNTER": 47.35,
+      "MAGE": 33.5,
+      "PALADIN": 47.62,
+      "PRIEST": 53.44,
+      "ROGUE": 39.33,
+      "SHAMAN": 47.18,
+      "WARLOCK": 35.21,
+      "WARRIOR": 49.46,
+      "DEMONHUNTER": 52.7
+    }
+  },
+  {
+    "card_id": "EX1_105",
+    "classes": {
+      "DEATHKNIGHT": 54.17,
+      "DRUID": 51.57,
+      "HUNTER": 49.36,
+      "MAGE": 43.2,
+      "PALADIN": 31.38,
+      "PRIEST": 53.47,
+      "ROGUE": 57.58,
+      "SHAMAN": 45.55,
+      "WARLOCK": 49.36,
+      "WARRIOR": 46.97,
+      "DEMONHUNTER": 34.74
+    }
+  },
+  {
+    "card_id": "EX1_572",
+    "classes": {
+      "DEATHKNIGHT": 60.95,
+      "DRUID": 56.17,
+      "HUNTER": 55.67,
+      "MAGE": 62.66,
+      "PALADIN": 48.84,
+      "PRIEST": 58.53,
+      "ROGUE": 56.14,
+      "SHAMAN": 54.21,
+      "WARLOCK": 71.87,
+      "WARRIOR": 49.44,
+      "DEMONHUNTER": 0.0
+    }
+  },
+  {
+    "card_id": "EX1_016",
+    "classes": {
+      "DEATHKNIGHT": 57.42,
+      "DRUID": 44.82,
+      "HUNTER": 49.29,
+      "MAGE": 59.07,
+      "PALADIN": 46.27,
+      "PRIEST": 59.01,
+      "ROGUE": 55.85,
+      "SHAMAN": 49.63,
+      "WARLOCK": 15.01,
+      "WARRIOR": 49.34,
+      "DEMONHUNTER": 37.52
+    }
+  },
+  {
+    "card_id": "FP1_002",
+    "classes": {
+      "DEATHKNIGHT": 56.3,
+      "DRUID": 55.51,
+      "HUNTER": 52.69,
+      "MAGE": 50.35,
+      "PALADIN": 52.85,
+      "PRIEST": 59.48,
+      "ROGUE": 54.84,
+      "SHAMAN": 54.73,
+      "WARLOCK": 47.14,
+      "WARRIOR": 53.97,
+      "DEMONHUNTER": 45.97
+    }
+  },
+  {
+    "card_id": "FP1_012",
+    "classes": {
+      "DEATHKNIGHT": 48.66,
+      "DRUID": 40.15,
+      "HUNTER": 36.34,
+      "MAGE": 47.68,
+      "PALADIN": 53.77,
+      "PRIEST": 36.74,
+      "ROGUE": 43.18,
+      "SHAMAN": 52.16,
+      "WARLOCK": 39.0,
+      "WARRIOR": 55.04,
+      "DEMONHUNTER": 44.14
+    }
+  },
+  {
+    "card_id": "AT_080",
+    "classes": {
+      "DEATHKNIGHT": 18.18,
+      "DRUID": 29.4,
+      "HUNTER": 50.85,
+      "MAGE": 38.77,
+      "PALADIN": 71.45,
+      "PRIEST": 53.68,
+      "ROGUE": 35.35,
+      "SHAMAN": 43.56,
+      "WARLOCK": 61.89,
+      "WARRIOR": 25.83,
+      "DEMONHUNTER": 50.45
+    }
+  },
+  {
+    "card_id": "OG_087",
+    "classes": {
+      "DEATHKNIGHT": 44.08,
+      "DRUID": 53.81,
+      "HUNTER": 22.29,
+      "MAGE": 42.04,
+      "PALADIN": 53.58,
+      "PRIEST": 45.04,
+      "ROGUE": 49.95,
+      "SHAMAN": 48.2,
+      "WARLOCK": 43.53,
+      "WARRIOR": 51.01,
+      "DEMONHUNTER": 52.84
+    }
+  },
+  {
+    "card_id": "OG_133",
+    "classes": {
+      "DEATHKNIGHT": 51.85,
+      "DRUID": 32.23,
+      "HUNTER": 36.02,
+      "MAGE": 42.79,
+      "PALADIN": 39.05,
+      "PRIEST": 52.07,
+      "ROGUE": 56.55,
+      "SHAMAN": 35.89,
+      "WARLOCK": 55.45,
+      "WARRIOR": 52.62,
+      "DEMONHUNTER": 64.82
+    }
+  },
+  {
+    "card_id": "OG_134",
+    "classes": {
+      "DEATHKNIGHT": 48.07,
+      "DRUID": 53.23,
+      "HUNTER": 38.03,
+      "MAGE": 45.31,
+      "PALADIN": 54.71,
+      "PRIEST": 40.38,
+      "ROGUE": 52.95,
+      "SHAMAN": 49.4,
+      "WARLOCK": 29.09,
+      "WARRIOR": 44.51,
+      "DEMONHUNTER": 44.73
+    }
+  },
+  {
+    "card_id": "KAR_096",
+    "classes": {
+      "DEATHKNIGHT": 38.27,
+      "DRUID": 44.24,
+      "HUNTER": 33.67,
+      "MAGE": 38.66,
+      "PALADIN": 35.8,
+      "PRIEST": 27.55,
+      "ROGUE": 48.21,
+      "SHAMAN": 23.31,
+      "WARLOCK": 5.5,
+      "WARRIOR": 38.02,
+      "DEMONHUNTER": 0.35
+    }
+  },
+  {
+    "card_id": "ICC_705",
+    "classes": {
+      "DEATHKNIGHT": 54.69
+    }
+  },
+  {
+    "card_id": "LOOT_161",
+    "classes": {
+      "DEATHKNIGHT": 57.54,
+      "DRUID": 45.28,
+      "HUNTER": 50.66,
+      "MAGE": 59.6,
+      "PALADIN": 53.32,
+      "PRIEST": 42.24,
+      "ROGUE": 53.24,
+      "SHAMAN": 52.0,
+      "WARLOCK": 25.47,
+      "WARRIOR": 43.17,
+      "DEMONHUNTER": 41.8
+    }
+  },
+  {
+    "card_id": "GIL_623",
+    "classes": {
+      "DEATHKNIGHT": 52.13,
+      "DRUID": 44.06,
+      "HUNTER": 33.15,
+      "MAGE": 50.0,
+      "PALADIN": 40.68,
+      "PRIEST": 18.39,
+      "ROGUE": 42.46,
+      "SHAMAN": 34.64,
+      "WARLOCK": 58.07,
+      "WARRIOR": 50.33,
+      "DEMONHUNTER": 37.8
+    }
+  },
+  {
+    "card_id": "GIL_667",
+    "classes": {
+      "DEATHKNIGHT": 51.82,
+      "DRUID": 40.16,
+      "HUNTER": 47.92,
+      "MAGE": 41.66,
+      "PALADIN": 37.67,
+      "PRIEST": 36.8,
+      "ROGUE": 50.41,
+      "SHAMAN": 37.16,
+      "WARLOCK": 33.8,
+      "WARRIOR": 45.58,
+      "DEMONHUNTER": 40.43
+    }
+  },
+  {
+    "card_id": "TOT_332",
+    "classes": {
+      "DEATHKNIGHT": 53.12,
+      "DRUID": 56.39,
+      "HUNTER": 43.96,
+      "MAGE": 45.25,
+      "PALADIN": 57.94,
+      "PRIEST": 61.68,
+      "ROGUE": 49.64,
+      "SHAMAN": 49.74,
+      "WARLOCK": 66.87,
+      "WARRIOR": 52.5,
+      "DEMONHUNTER": 22.79
+    }
+  },
+  {
+    "card_id": "ULD_309",
+    "classes": {
+      "DEATHKNIGHT": 55.72,
+      "DRUID": 53.3,
+      "HUNTER": 51.77,
+      "MAGE": 49.28,
+      "PALADIN": 50.86,
+      "PRIEST": 51.16,
+      "ROGUE": 53.2,
+      "SHAMAN": 52.67,
+      "WARLOCK": 35.21,
+      "WARRIOR": 52.35,
+      "DEMONHUNTER": 51.44
+    }
+  },
+  {
+    "card_id": "DRG_054",
+    "classes": {
+      "DEATHKNIGHT": 58.51,
+      "DRUID": 48.7,
+      "HUNTER": 50.76,
+      "MAGE": 20.24,
+      "PALADIN": 51.56,
+      "PRIEST": 53.21,
+      "ROGUE": 31.78,
+      "SHAMAN": 50.89,
+      "WARLOCK": 23.25,
+      "WARRIOR": 38.11,
+      "DEMONHUNTER": 5.5
+    }
+  },
+  {
+    "card_id": "DRG_063",
+    "classes": {
+      "DEATHKNIGHT": 25.3,
+      "DRUID": 47.7,
+      "HUNTER": 0.15,
+      "MAGE": 11.58,
+      "PALADIN": 52.57,
+      "PRIEST": 22.56,
+      "ROGUE": 35.54,
+      "SHAMAN": 57.29,
+      "WARRIOR": 23.39
+    }
+  },
+  {
+    "card_id": "DRG_076",
+    "classes": {
+      "DEATHKNIGHT": 55.45,
+      "DRUID": 50.72,
+      "HUNTER": 52.56,
+      "MAGE": 50.67,
+      "PALADIN": 56.47,
+      "PRIEST": 44.75,
+      "ROGUE": 52.49,
+      "SHAMAN": 52.21,
+      "WARLOCK": 47.81,
+      "WARRIOR": 49.53,
+      "DEMONHUNTER": 39.92
+    }
+  },
+  {
+    "card_id": "BT_717",
+    "classes": {
+      "DEATHKNIGHT": 52.84,
+      "DRUID": 46.25,
+      "HUNTER": 50.49,
+      "MAGE": 34.74,
+      "PALADIN": 52.94,
+      "PRIEST": 41.17,
+      "ROGUE": 54.36,
+      "SHAMAN": 45.93,
+      "WARLOCK": 43.35,
+      "WARRIOR": 47.11,
+      "DEMONHUNTER": 41.52
+    }
+  },
+  {
+    "card_id": "BT_720",
+    "classes": {
+      "DEATHKNIGHT": 50.2,
+      "DRUID": 46.9,
+      "HUNTER": 47.89,
+      "MAGE": 33.72,
+      "PALADIN": 53.79,
+      "PRIEST": 42.37,
+      "ROGUE": 46.74,
+      "SHAMAN": 39.63,
+      "WARLOCK": 42.43,
+      "WARRIOR": 43.48,
+      "DEMONHUNTER": 50.09
+    }
+  },
+  {
+    "card_id": "BT_722",
+    "classes": {
+      "DEATHKNIGHT": 57.7,
+      "DRUID": 53.24,
+      "HUNTER": 54.01,
+      "MAGE": 53.74,
+      "PALADIN": 55.28,
+      "PRIEST": 51.87,
+      "ROGUE": 59.12,
+      "SHAMAN": 51.73,
+      "WARLOCK": 41.77,
+      "WARRIOR": 49.08,
+      "DEMONHUNTER": 42.52
+    }
+  },
+  {
+    "card_id": "SCH_283",
+    "classes": {
+      "DEATHKNIGHT": 52.38,
+      "DRUID": 49.83,
+      "HUNTER": 51.67,
+      "MAGE": 41.46,
+      "PALADIN": 48.74,
+      "PRIEST": 35.07,
+      "ROGUE": 52.4,
+      "SHAMAN": 48.73,
+      "WARLOCK": 63.59,
+      "WARRIOR": 47.04,
+      "DEMONHUNTER": 43.51
+    }
+  },
+  {
+    "card_id": "SCH_160",
+    "classes": {
+      "DEATHKNIGHT": 57.24,
+      "DRUID": 56.53,
+      "HUNTER": 50.81,
+      "MAGE": 51.72,
+      "PALADIN": 49.31,
+      "PRIEST": 51.19,
+      "ROGUE": 54.16,
+      "SHAMAN": 54.21,
+      "WARLOCK": 38.22,
+      "WARRIOR": 53.3,
+      "DEMONHUNTER": 47.56
+    }
+  },
+  {
+    "card_id": "DMF_002",
+    "classes": {
+      "DEATHKNIGHT": 26.7,
+      "DRUID": 46.73,
+      "HUNTER": 16.72,
+      "MAGE": 12.52,
+      "PALADIN": 24.37,
+      "PRIEST": 39.15,
+      "ROGUE": 44.61,
+      "SHAMAN": 56.58,
+      "WARLOCK": 12.8,
+      "WARRIOR": 36.68,
+      "DEMONHUNTER": 66.89
+    }
+  },
+  {
+    "card_id": "DMF_004",
+    "classes": {
+      "DEATHKNIGHT": 54.15,
+      "DRUID": 53.31,
+      "HUNTER": 37.26,
+      "MAGE": 39.95,
+      "PALADIN": 49.07,
+      "PRIEST": 40.69,
+      "ROGUE": 52.53,
+      "SHAMAN": 47.45,
+      "WARLOCK": 32.82,
+      "WARRIOR": 47.54,
+      "DEMONHUNTER": 47.94
+    }
+  },
+  {
+    "card_id": "DMF_254",
+    "classes": {
+      "DEATHKNIGHT": 52.1,
+      "DRUID": 44.02,
+      "HUNTER": 11.07,
+      "MAGE": 62.17,
+      "PALADIN": 9.13,
+      "PRIEST": 48.25,
+      "ROGUE": 19.22,
+      "SHAMAN": 50.41,
+      "WARLOCK": 13.94,
+      "WARRIOR": 62.67,
+      "DEMONHUNTER": 66.7
+    }
+  },
+  {
+    "card_id": "YOP_034",
+    "classes": {
+      "DEATHKNIGHT": 19.76,
+      "DRUID": 31.87,
+      "HUNTER": 16.72,
+      "MAGE": 7.57,
+      "PALADIN": 0.15,
+      "PRIEST": 69.27,
+      "ROGUE": 24.37,
+      "SHAMAN": 56.64,
+      "WARLOCK": 16.89,
+      "WARRIOR": 59.79,
+      "DEMONHUNTER": 26.89
+    }
+  },
+  {
+    "card_id": "BAR_065",
+    "classes": {
+      "DEATHKNIGHT": 56.75,
+      "DRUID": 53.05,
+      "HUNTER": 53.61,
+      "MAGE": 50.91,
+      "PALADIN": 53.67,
+      "PRIEST": 51.85,
+      "ROGUE": 53.89,
+      "SHAMAN": 53.67,
+      "WARLOCK": 44.41,
+      "WARRIOR": 52.15,
+      "DEMONHUNTER": 49.14
+    }
+  },
+  {
+    "card_id": "BAR_069",
+    "classes": {
+      "DEATHKNIGHT": 45.68,
+      "DRUID": 47.57,
+      "HUNTER": 40.77,
+      "MAGE": 50.0,
+      "PALADIN": 39.56,
+      "PRIEST": 46.38,
+      "ROGUE": 7.57,
+      "SHAMAN": 40.48,
+      "WARLOCK": 58.07,
+      "WARRIOR": 54.07,
+      "DEMONHUNTER": 0.0
+    }
+  },
+  {
+    "card_id": "BAR_072",
+    "classes": {
+      "DEATHKNIGHT": 48.9,
+      "DRUID": 41.95,
+      "HUNTER": 63.24,
+      "MAGE": 15.45,
+      "PALADIN": 53.46,
+      "PRIEST": 40.21,
+      "ROGUE": 52.76,
+      "SHAMAN": 23.35,
+      "WARLOCK": 36.46,
+      "WARRIOR": 34.7,
+      "DEMONHUNTER": 36.35
+    }
+  },
+  {
+    "card_id": "BAR_025",
+    "classes": {
+      "DEATHKNIGHT": 55.55,
+      "DRUID": 51.45,
+      "HUNTER": 53.14,
+      "MAGE": 46.59,
+      "PALADIN": 53.14,
+      "PRIEST": 58.56,
+      "ROGUE": 58.07,
+      "SHAMAN": 52.39,
+      "WARLOCK": 41.64,
+      "WARRIOR": 55.04,
+      "DEMONHUNTER": 41.15
+    }
+  },
+  {
+    "card_id": "SW_062",
+    "classes": {
+      "DEATHKNIGHT": 53.7,
+      "DRUID": 50.45,
+      "HUNTER": 46.52,
+      "MAGE": 48.98,
+      "PALADIN": 42.22,
+      "PRIEST": 53.84,
+      "ROGUE": 49.67,
+      "SHAMAN": 46.17,
+      "WARLOCK": 58.02,
+      "WARRIOR": 51.91,
+      "DEMONHUNTER": 50.67
+    }
+  },
+  {
+    "card_id": "SW_065",
+    "classes": {
+      "DEATHKNIGHT": 56.58,
+      "DRUID": 54.65,
+      "HUNTER": 50.08,
+      "MAGE": 52.88,
+      "PALADIN": 53.24,
+      "PRIEST": 50.26,
+      "ROGUE": 53.37,
+      "SHAMAN": 52.62,
+      "WARLOCK": 40.73,
+      "WARRIOR": 53.31,
+      "DEMONHUNTER": 48.35
+    }
+  },
+  {
+    "card_id": "SW_068",
+    "classes": {
+      "DEATHKNIGHT": 49.72,
+      "DRUID": 38.5,
+      "HUNTER": 24.94,
+      "MAGE": 40.36,
+      "PALADIN": 39.53,
+      "PRIEST": 41.48,
+      "ROGUE": 48.49,
+      "SHAMAN": 42.46,
+      "WARLOCK": 27.27,
+      "WARRIOR": 38.69,
+      "DEMONHUNTER": 43.56
+    }
+  },
+  {
+    "card_id": "CS3_033",
+    "classes": {
+      "DEATHKNIGHT": 69.1,
+      "DRUID": 56.4,
+      "HUNTER": 49.53,
+      "MAGE": 50.76,
+      "PALADIN": 37.06,
+      "PRIEST": 54.69,
+      "ROGUE": 50.11,
+      "SHAMAN": 52.61,
+      "WARLOCK": 71.87,
+      "WARRIOR": 51.01,
+      "DEMONHUNTER": 0.0
+    }
+  },
+  {
+    "card_id": "AV_222",
+    "classes": {
+      "DEATHKNIGHT": 49.62,
+      "DRUID": 51.03,
+      "HUNTER": 50.66,
+      "MAGE": 45.05,
+      "PALADIN": 48.18,
+      "PRIEST": 48.99,
+      "ROGUE": 50.57,
+      "SHAMAN": 50.77,
+      "WARLOCK": 38.57,
+      "WARRIOR": 52.11,
+      "DEMONHUNTER": 37.37
+    }
+  },
+  {
+    "card_id": "AV_126",
+    "classes": {
+      "DEATHKNIGHT": 52.82,
+      "DRUID": 51.68,
+      "HUNTER": 52.53,
+      "MAGE": 46.69,
+      "PALADIN": 55.03,
+      "PRIEST": 47.72,
+      "ROGUE": 53.68,
+      "SHAMAN": 50.94,
+      "WARLOCK": 46.42,
+      "WARRIOR": 48.64,
+      "DEMONHUNTER": 48.28
+    }
+  },
+  {
+    "card_id": "ONY_004",
+    "classes": {
+      "DEATHKNIGHT": 56.37,
+      "DRUID": 54.62,
+      "HUNTER": 54.41,
+      "MAGE": 30.29,
+      "PALADIN": 42.58,
+      "PRIEST": 59.86,
+      "ROGUE": 42.83,
+      "SHAMAN": 52.13,
+      "WARLOCK": 34.52,
+      "WARRIOR": 46.64,
+      "DEMONHUNTER": 45.88
+    }
+  },
+  {
+    "card_id": "ONY_005",
+    "classes": {
+      "DEATHKNIGHT": 60.94,
+      "DRUID": 59.43,
+      "HUNTER": 50.15,
+      "MAGE": 53.26,
+      "PALADIN": 48.06,
+      "PRIEST": 59.67,
+      "ROGUE": 55.12,
+      "SHAMAN": 54.53,
+      "WARLOCK": 41.19,
+      "WARRIOR": 54.71,
+      "DEMONHUNTER": 48.57
+    }
+  },
+  {
+    "card_id": "TSC_007",
+    "classes": {
+      "DEATHKNIGHT": 52.08,
+      "DRUID": 47.82,
+      "HUNTER": 44.25,
+      "MAGE": 43.51,
+      "PALADIN": 45.54,
+      "PRIEST": 42.71,
+      "ROGUE": 47.74,
+      "SHAMAN": 48.08,
+      "WARLOCK": 34.43,
+      "WARRIOR": 47.81,
+      "DEMONHUNTER": 34.94
+    }
+  },
+  {
+    "card_id": "TSC_020",
+    "classes": {
+      "DEATHKNIGHT": 54.82,
+      "DRUID": 57.15,
+      "HUNTER": 60.37,
+      "MAGE": 55.16,
+      "PALADIN": 47.69,
+      "PRIEST": 17.92,
+      "ROGUE": 54.02,
+      "SHAMAN": 43.94,
+      "WARRIOR": 58.09,
+      "DEMONHUNTER": 28.42
+    }
+  },
+  {
+    "card_id": "TSC_827",
+    "classes": {
+      "DEATHKNIGHT": 57.77,
+      "DRUID": 57.63,
+      "HUNTER": 50.28,
+      "MAGE": 54.15,
+      "PALADIN": 51.61,
+      "PRIEST": 53.47,
+      "ROGUE": 58.44,
+      "SHAMAN": 49.61,
+      "WARLOCK": 20.19,
+      "WARRIOR": 49.97,
+      "DEMONHUNTER": 51.31
+    }
+  },
+  {
+    "card_id": "TSC_052",
+    "classes": {
+      "DEATHKNIGHT": 57.6,
+      "DRUID": 56.97,
+      "HUNTER": 51.85,
+      "MAGE": 51.13,
+      "PALADIN": 54.67,
+      "PRIEST": 49.6,
+      "ROGUE": 54.92,
+      "SHAMAN": 55.18,
+      "WARLOCK": 44.85,
+      "WARRIOR": 53.16,
+      "DEMONHUNTER": 50.62
+    }
+  },
+  {
+    "card_id": "TSC_645",
+    "classes": {
+      "DEATHKNIGHT": 54.98,
+      "DRUID": 51.06,
+      "HUNTER": 48.27,
+      "MAGE": 45.89,
+      "PALADIN": 54.69,
+      "PRIEST": 44.1,
+      "ROGUE": 54.33,
+      "SHAMAN": 48.05,
+      "WARLOCK": 34.22,
+      "WARRIOR": 51.93,
+      "DEMONHUNTER": 37.67
+    }
+  },
+  {
+    "card_id": "TSC_064",
+    "classes": {
+      "DEATHKNIGHT": 54.28,
+      "DRUID": 58.76,
+      "HUNTER": 46.62,
+      "MAGE": 55.94,
+      "PALADIN": 54.45,
+      "PRIEST": 45.18,
+      "ROGUE": 58.9,
+      "SHAMAN": 51.71,
+      "WARLOCK": 42.09,
+      "WARRIOR": 51.41,
+      "DEMONHUNTER": 49.74
+    }
+  },
+  {
+    "card_id": "CORE_EX1_007",
+    "classes": {
+      "DEATHKNIGHT": 53.23,
+      "DRUID": 51.18,
+      "HUNTER": 47.93,
+      "MAGE": 39.08,
+      "PALADIN": 55.4,
+      "PRIEST": 49.5,
+      "ROGUE": 44.8,
+      "SHAMAN": 47.07,
+      "WARLOCK": 22.17,
+      "WARRIOR": 53.06,
+      "DEMONHUNTER": 46.85
+    }
+  },
+  {
+    "card_id": "CORE_UNG_928",
+    "classes": {
+      "DEATHKNIGHT": 51.79,
+      "DRUID": 47.07,
+      "HUNTER": 44.05,
+      "MAGE": 50.35,
+      "PALADIN": 49.07,
+      "PRIEST": 45.05,
+      "ROGUE": 51.84,
+      "SHAMAN": 49.57,
+      "WARLOCK": 40.3,
+      "WARRIOR": 48.92,
+      "DEMONHUNTER": 35.94
+    }
+  },
+  {
+    "card_id": "REV_251",
+    "classes": {
+      "DEATHKNIGHT": 50.4,
+      "DRUID": 41.15,
+      "HUNTER": 49.1,
+      "MAGE": 42.55,
+      "PALADIN": 37.83,
+      "PRIEST": 36.88,
+      "ROGUE": 49.52,
+      "SHAMAN": 38.29,
+      "WARLOCK": 34.32,
+      "WARRIOR": 38.58,
+      "DEMONHUNTER": 34.37
+    }
+  },
+  {
+    "card_id": "REV_957",
+    "classes": {
+      "DEATHKNIGHT": 58.78,
+      "DRUID": 55.91,
+      "HUNTER": 52.34,
+      "MAGE": 55.58,
+      "PALADIN": 56.16,
+      "PRIEST": 49.91,
+      "ROGUE": 57.96,
+      "SHAMAN": 54.16,
+      "WARLOCK": 38.04,
+      "WARRIOR": 53.2,
+      "DEMONHUNTER": 42.1
+    }
+  },
+  {
+    "card_id": "RLK_018",
+    "classes": {
+      "DEATHKNIGHT": 56.81
+    }
+  },
+  {
+    "card_id": "RLK_057",
+    "classes": {
+      "DEATHKNIGHT": 53.59
+    }
+  },
+  {
+    "card_id": "RLK_063",
+    "classes": {
+      "DEATHKNIGHT": 57.48
+    }
+  },
+  {
+    "card_id": "REV_375",
+    "classes": {
+      "DEATHKNIGHT": 57.45,
+      "DRUID": 53.51,
+      "HUNTER": 48.78,
+      "MAGE": 49.1,
+      "PALADIN": 44.57,
+      "PRIEST": 44.38,
+      "ROGUE": 41.21,
+      "SHAMAN": 43.86,
+      "WARLOCK": 50.39,
+      "WARRIOR": 48.89,
+      "DEMONHUNTER": 39.56
+    }
+  },
+  {
+    "card_id": "REV_013",
+    "classes": {
+      "DEATHKNIGHT": 57.21,
+      "DRUID": 52.89,
+      "HUNTER": 57.79,
+      "MAGE": 50.54,
+      "PALADIN": 45.28,
+      "PRIEST": 54.84,
+      "ROGUE": 56.95,
+      "SHAMAN": 45.48,
+      "WARLOCK": 48.14,
+      "WARRIOR": 49.48,
+      "DEMONHUNTER": 42.09
+    }
+  },
+  {
+    "card_id": "MAW_033",
+    "classes": {
+      "DEATHKNIGHT": 57.09,
+      "DRUID": 52.93,
+      "HUNTER": 49.56,
+      "MAGE": 62.09,
+      "PALADIN": 49.19,
+      "PRIEST": 53.87,
+      "ROGUE": 59.72,
+      "SHAMAN": 53.45,
+      "WARLOCK": 13.72,
+      "WARRIOR": 52.68,
+      "DEMONHUNTER": 54.87
+    }
+  },
+  {
+    "card_id": "REV_019",
+    "classes": {
+      "DEATHKNIGHT": 54.51,
+      "DRUID": 52.56,
+      "HUNTER": 51.09,
+      "MAGE": 46.68,
+      "PALADIN": 53.03,
+      "PRIEST": 54.58,
+      "ROGUE": 57.18,
+      "SHAMAN": 58.78,
+      "WARLOCK": 10.93,
+      "WARRIOR": 50.84,
+      "DEMONHUNTER": 48.29
+    }
+  },
+  {
+    "card_id": "RLK_116",
+    "classes": {
+      "DEATHKNIGHT": 55.67
+    }
+  },
+  {
+    "card_id": "RLK_118",
+    "classes": {
+      "DEATHKNIGHT": 57.15
+    }
+  },
+  {
+    "card_id": "RLK_706",
+    "classes": {
+      "DEATHKNIGHT": 61.65
+    }
+  },
+  {
+    "card_id": "RLK_708",
+    "classes": {
+      "DEATHKNIGHT": 56.99
+    }
+  },
+  {
+    "card_id": "RLK_709",
+    "classes": {
+      "DEATHKNIGHT": 55.39
+    }
+  },
+  {
+    "card_id": "RLK_713",
+    "classes": {
+      "DEATHKNIGHT": 58.77
+    }
+  },
+  {
+    "card_id": "RLK_503",
+    "classes": {
+      "DEATHKNIGHT": 55.38
+    }
+  },
+  {
+    "card_id": "RLK_720",
+    "classes": {
+      "DEATHKNIGHT": 54.05
+    }
+  },
+  {
+    "card_id": "RLK_504",
+    "classes": {
+      "DEATHKNIGHT": 57.94
+    }
+  },
+  {
+    "card_id": "RLK_506",
+    "classes": {
+      "DEATHKNIGHT": 52.66
+    }
+  },
+  {
+    "card_id": "RLK_730",
+    "classes": {
+      "DEATHKNIGHT": 52.22
+    }
+  },
+  {
+    "card_id": "RLK_741",
+    "classes": {
+      "DEATHKNIGHT": 55.35
+    }
+  },
+  {
+    "card_id": "RLK_511",
+    "classes": {
+      "DEATHKNIGHT": 55.53
+    }
+  },
+  {
+    "card_id": "RLK_512",
+    "classes": {
+      "DEATHKNIGHT": 54.91
+    }
+  },
+  {
+    "card_id": "RLK_516",
+    "classes": {
+      "DEATHKNIGHT": 58.74
+    }
+  },
+  {
+    "card_id": "RLK_744",
+    "classes": {
+      "DEATHKNIGHT": 54.45
+    }
+  },
+  {
+    "card_id": "RLK_518",
+    "classes": {
+      "DEATHKNIGHT": 50.47,
+      "DRUID": 45.28,
+      "HUNTER": 52.68,
+      "MAGE": 44.18,
+      "PALADIN": 58.33,
+      "PRIEST": 42.68,
+      "ROGUE": 50.02,
+      "SHAMAN": 43.88,
+      "WARLOCK": 30.6,
+      "WARRIOR": 52.0,
+      "DEMONHUNTER": 52.55
+    }
+  },
+  {
+    "card_id": "RLK_914",
+    "classes": {
+      "DEATHKNIGHT": 57.38,
+      "DRUID": 50.98,
+      "HUNTER": 54.51,
+      "MAGE": 56.73,
+      "PALADIN": 57.64,
+      "PRIEST": 52.23,
+      "ROGUE": 56.2,
+      "SHAMAN": 50.44,
+      "WARLOCK": 15.2,
+      "WARRIOR": 43.96,
+      "DEMONHUNTER": 45.09
+    }
+  },
+  {
+    "card_id": "RLK_915",
+    "classes": {
+      "DEATHKNIGHT": 54.5,
+      "DRUID": 54.32,
+      "HUNTER": 50.07,
+      "MAGE": 47.59,
+      "PALADIN": 47.99,
+      "PRIEST": 48.96,
+      "ROGUE": 51.12,
+      "SHAMAN": 49.84,
+      "WARLOCK": 26.31,
+      "WARRIOR": 51.55,
+      "DEMONHUNTER": 25.9
+    }
+  },
+  {
+    "card_id": "RLK_834",
+    "classes": {
+      "DEATHKNIGHT": 57.14,
+      "DRUID": 50.34,
+      "HUNTER": 49.81,
+      "MAGE": 59.84,
+      "PALADIN": 55.18,
+      "PRIEST": 50.1,
+      "ROGUE": 58.23,
+      "SHAMAN": 49.36,
+      "WARLOCK": 14.07,
+      "WARRIOR": 49.97,
+      "DEMONHUNTER": 50.87
+    }
+  },
+  {
+    "card_id": "RLK_951",
+    "classes": {
+      "DEATHKNIGHT": 55.39,
+      "DRUID": 53.45,
+      "HUNTER": 52.04,
+      "MAGE": 50.54,
+      "PALADIN": 54.83,
+      "PRIEST": 51.99,
+      "ROGUE": 54.56,
+      "SHAMAN": 50.83,
+      "WARLOCK": 45.09,
+      "WARRIOR": 53.38,
+      "DEMONHUNTER": 49.18
+    }
+  },
+  {
+    "card_id": "RLK_955",
+    "classes": {
+      "DEATHKNIGHT": 53.76,
+      "DRUID": 46.53,
+      "HUNTER": 51.49,
+      "MAGE": 52.68,
+      "PALADIN": 48.1,
+      "PRIEST": 40.08,
+      "ROGUE": 49.79,
+      "SHAMAN": 40.98,
+      "WARLOCK": 29.71,
+      "WARRIOR": 50.9,
+      "DEMONHUNTER": 29.98
+    }
+  },
+  {
+    "card_id": "RLK_958",
+    "classes": {
+      "DEATHKNIGHT": 55.54
+    }
+  },
+  {
+    "card_id": "RLK_590",
+    "classes": {
+      "DEATHKNIGHT": 51.1,
+      "DRUID": 47.12,
+      "HUNTER": 45.04,
+      "MAGE": 50.11,
+      "PALADIN": 35.13,
+      "PRIEST": 48.93,
+      "ROGUE": 48.7,
+      "SHAMAN": 44.83,
+      "WARLOCK": 55.99,
+      "WARRIOR": 53.91,
+      "DEMONHUNTER": 58.13
+    }
+  },
+  {
+    "card_id": "RLK_593",
+    "classes": {
+      "DEATHKNIGHT": 50.14,
+      "DRUID": 42.36,
+      "HUNTER": 43.4,
+      "MAGE": 100.0,
+      "PALADIN": 55.92,
+      "PRIEST": 27.65,
+      "ROGUE": 49.46,
+      "SHAMAN": 37.36,
+      "WARLOCK": 50.39,
+      "WARRIOR": 45.06,
+      "DEMONHUNTER": 36.13
+    }
+  },
+  {
+    "card_id": "RLK_219",
+    "classes": {
+      "DEATHKNIGHT": 55.21,
+      "DRUID": 46.48,
+      "HUNTER": 50.22,
+      "MAGE": 50.05,
+      "PALADIN": 47.49,
+      "PRIEST": 49.47,
+      "ROGUE": 52.17,
+      "SHAMAN": 54.83,
+      "WARLOCK": 43.99,
+      "WARRIOR": 49.84,
+      "DEMONHUNTER": 26.79
+    }
+  },
+  {
+    "card_id": "RLK_222",
+    "classes": {
+      "DEATHKNIGHT": 53.69,
+      "DRUID": 53.69,
+      "HUNTER": 55.25,
+      "MAGE": 43.39,
+      "PALADIN": 59.1,
+      "PRIEST": 41.33,
+      "ROGUE": 53.68,
+      "SHAMAN": 48.57,
+      "WARLOCK": 55.5,
+      "WARRIOR": 54.22,
+      "DEMONHUNTER": 29.69
+    }
+  },
+  {
+    "card_id": "RLK_225",
+    "classes": {
+      "DEATHKNIGHT": 57.67
+    }
+  },
+  {
+    "card_id": "RLK_970",
+    "classes": {
+      "DEATHKNIGHT": 58.84,
+      "DRUID": 54.65,
+      "HUNTER": 52.39,
+      "MAGE": 61.19,
+      "PALADIN": 55.82,
+      "PRIEST": 50.02,
+      "ROGUE": 57.54,
+      "SHAMAN": 57.52,
+      "WARLOCK": 31.77,
+      "WARRIOR": 48.78,
+      "DEMONHUNTER": 57.05
+    }
+  },
+  {
+    "card_id": "ETC_522",
+    "classes": {
+      "DEATHKNIGHT": 55.62
+    }
+  },
+  {
+    "card_id": "ETC_526",
+    "classes": {
+      "DEATHKNIGHT": 60.55
+    }
+  },
+  {
+    "card_id": "ETC_533",
+    "classes": {
+      "DEATHKNIGHT": 53.72
+    }
+  },
+  {
+    "card_id": "RLK_867",
+    "classes": {
+      "DEATHKNIGHT": 55.3,
+      "DRUID": 52.88,
+      "HUNTER": 48.61,
+      "MAGE": 53.5,
+      "PALADIN": 50.41,
+      "PRIEST": 48.11,
+      "ROGUE": 57.5,
+      "SHAMAN": 49.07,
+      "WARLOCK": 35.21,
+      "WARRIOR": 50.53,
+      "DEMONHUNTER": 39.33
+    }
+  },
+  {
+    "card_id": "ETC_088",
+    "classes": {
+      "DEATHKNIGHT": 55.58,
+      "DRUID": 51.26,
+      "HUNTER": 47.4,
+      "MAGE": 50.05,
+      "PALADIN": 52.06,
+      "PRIEST": 48.78,
+      "ROGUE": 53.15,
+      "SHAMAN": 49.96,
+      "WARLOCK": 35.18,
+      "WARRIOR": 55.07,
+      "DEMONHUNTER": 43.72
+    }
+  },
+  {
+    "card_id": "ETC_423",
+    "classes": {
+      "DEATHKNIGHT": 59.76
+    }
+  },
+  {
+    "card_id": "ETC_424",
+    "classes": {
+      "DEATHKNIGHT": 61.44
+    }
+  },
+  {
+    "card_id": "ETC_099",
+    "classes": {
+      "DEATHKNIGHT": 50.93,
+      "DRUID": 52.42,
+      "HUNTER": 52.13,
+      "MAGE": 45.42,
+      "PALADIN": 53.22,
+      "PRIEST": 44.12,
+      "ROGUE": 50.44,
+      "SHAMAN": 51.91,
+      "WARLOCK": 30.3,
+      "WARRIOR": 52.15,
+      "DEMONHUNTER": 49.15
+    }
+  },
+  {
+    "card_id": "ETC_350",
+    "classes": {
+      "DEATHKNIGHT": 56.6,
+      "DRUID": 55.71,
+      "HUNTER": 54.05,
+      "MAGE": 55.33,
+      "PALADIN": 55.7,
+      "PRIEST": 53.28,
+      "ROGUE": 53.63,
+      "SHAMAN": 52.25,
+      "WARLOCK": 38.17,
+      "WARRIOR": 49.87,
+      "DEMONHUNTER": 39.52
+    }
+  },
+  {
+    "card_id": "ETC_103",
+    "classes": {
+      "DEATHKNIGHT": 55.11,
+      "DRUID": 54.47,
+      "HUNTER": 49.5,
+      "MAGE": 49.47,
+      "PALADIN": 51.95,
+      "PRIEST": 51.41,
+      "ROGUE": 54.35,
+      "SHAMAN": 53.29,
+      "WARLOCK": 42.71,
+      "WARRIOR": 52.25,
+      "DEMONHUNTER": 44.29
+    }
+  },
+  {
+    "card_id": "ETC_540",
+    "classes": {
+      "DEATHKNIGHT": 55.53,
+      "DRUID": 54.75,
+      "HUNTER": 50.82,
+      "MAGE": 49.06,
+      "PALADIN": 47.03,
+      "PRIEST": 46.45,
+      "ROGUE": 51.13,
+      "SHAMAN": 49.38,
+      "WARLOCK": 48.31,
+      "WARRIOR": 53.81,
+      "DEMONHUNTER": 45.09
+    }
+  },
+  {
+    "card_id": "ETC_543",
+    "classes": {
+      "DEATHKNIGHT": 57.23,
+      "DRUID": 53.34,
+      "HUNTER": 52.91,
+      "MAGE": 56.79,
+      "PALADIN": 57.17,
+      "PRIEST": 42.98,
+      "ROGUE": 56.86,
+      "SHAMAN": 57.49,
+      "WARLOCK": 33.57,
+      "WARRIOR": 49.87,
+      "DEMONHUNTER": 48.5
+    }
+  },
+  {
+    "card_id": "JAM_004",
+    "classes": {
+      "DEATHKNIGHT": 53.5
+    }
+  },
+  {
+    "card_id": "JAM_007",
+    "classes": {
+      "DEATHKNIGHT": 56.08,
+      "PALADIN": 53.24
+    }
+  },
+  {
+    "card_id": "JAM_005",
+    "classes": {
+      "DEATHKNIGHT": 60.46,
+      "HUNTER": 57.55
+    }
+  },
+  {
+    "card_id": "TTN_039",
+    "classes": {
+      "DEATHKNIGHT": 55.45,
+      "DRUID": 50.98,
+      "HUNTER": 48.78,
+      "MAGE": 50.27,
+      "PALADIN": 54.16,
+      "PRIEST": 54.33,
+      "ROGUE": 55.81,
+      "SHAMAN": 51.38,
+      "WARLOCK": 39.4,
+      "WARRIOR": 51.83,
+      "DEMONHUNTER": 44.97
+    }
+  },
+  {
+    "card_id": "TTN_042",
+    "classes": {
+      "DEATHKNIGHT": 52.57,
+      "DRUID": 49.64,
+      "HUNTER": 47.95,
+      "MAGE": 46.91,
+      "PALADIN": 49.78,
+      "PRIEST": 41.39,
+      "ROGUE": 50.08,
+      "SHAMAN": 49.43,
+      "WARLOCK": 22.02,
+      "WARRIOR": 46.09,
+      "DEMONHUNTER": 48.25
+    }
+  },
+  {
+    "card_id": "TTN_076",
+    "classes": {
+      "DEATHKNIGHT": 54.24,
+      "DRUID": 48.87,
+      "HUNTER": 52.22,
+      "MAGE": 47.21,
+      "PALADIN": 49.65,
+      "PRIEST": 49.65,
+      "ROGUE": 46.7,
+      "SHAMAN": 48.93,
+      "WARLOCK": 44.1,
+      "WARRIOR": 50.22,
+      "DEMONHUNTER": 44.66
+    }
+  },
+  {
+    "card_id": "TTN_812",
+    "classes": {
+      "DEATHKNIGHT": 58.79,
+      "DRUID": 56.92,
+      "HUNTER": 55.0,
+      "MAGE": 53.29,
+      "PALADIN": 55.94,
+      "PRIEST": 48.88,
+      "ROGUE": 58.31,
+      "SHAMAN": 53.92,
+      "WARLOCK": 45.09,
+      "WARRIOR": 52.09,
+      "DEMONHUNTER": 49.09
+    }
+  },
+  {
+    "card_id": "TTN_083",
+    "classes": {
+      "DEATHKNIGHT": 52.87,
+      "DRUID": 43.93,
+      "HUNTER": 49.16,
+      "MAGE": 38.7,
+      "PALADIN": 50.12,
+      "PRIEST": 56.66,
+      "ROGUE": 64.1,
+      "SHAMAN": 33.41,
+      "WARLOCK": 8.89,
+      "WARRIOR": 49.66,
+      "DEMONHUNTER": 39.92
+    }
+  },
+  {
+    "card_id": "TTN_457",
+    "classes": {
+      "DEATHKNIGHT": 55.63
+    }
+  },
+  {
+    "card_id": "TTN_458",
+    "classes": {
+      "DEATHKNIGHT": 50.01,
+      "DRUID": 50.48,
+      "HUNTER": 44.94,
+      "MAGE": 49.3,
+      "PALADIN": 46.13,
+      "PRIEST": 49.11,
+      "ROGUE": 51.81,
+      "SHAMAN": 45.56,
+      "WARLOCK": 41.54,
+      "WARRIOR": 49.28,
+      "DEMONHUNTER": 33.79
+    }
+  },
+  {
+    "card_id": "ETC_209",
+    "classes": {
+      "DEATHKNIGHT": 56.1
+    }
+  },
+  {
+    "card_id": "TTN_700",
+    "classes": {
+      "DEATHKNIGHT": 59.33,
+      "DRUID": 46.11,
+      "HUNTER": 52.07,
+      "MAGE": 32.9,
+      "PALADIN": 55.56,
+      "PRIEST": 48.22,
+      "ROGUE": 55.01,
+      "SHAMAN": 47.32,
+      "WARLOCK": 22.89,
+      "WARRIOR": 47.76,
+      "DEMONHUNTER": 42.72
+    }
+  },
+  {
+    "card_id": "TTN_711",
+    "classes": {
+      "DEATHKNIGHT": 51.01,
+      "DRUID": 50.38,
+      "HUNTER": 49.22,
+      "MAGE": 35.94,
+      "PALADIN": 49.05,
+      "PRIEST": 40.93,
+      "ROGUE": 50.02,
+      "SHAMAN": 48.72,
+      "WARLOCK": 36.46,
+      "WARRIOR": 47.01,
+      "DEMONHUNTER": 28.87
+    }
+  },
+  {
+    "card_id": "TTN_712",
+    "classes": {
+      "DEATHKNIGHT": 49.85,
+      "DRUID": 18.21,
+      "HUNTER": 19.07,
+      "MAGE": 22.35,
+      "PALADIN": 11.39,
+      "PRIEST": 31.75,
+      "ROGUE": 30.54,
+      "SHAMAN": 25.82,
+      "WARLOCK": 24.82,
+      "WARRIOR": 54.78,
+      "DEMONHUNTER": 39.91
+    }
+  },
+  {
+    "card_id": "TTN_713",
+    "classes": {
+      "DEATHKNIGHT": 54.42,
+      "DRUID": 50.02,
+      "HUNTER": 50.36,
+      "MAGE": 43.72,
+      "PALADIN": 51.93,
+      "PRIEST": 51.62,
+      "ROGUE": 53.58,
+      "SHAMAN": 50.3,
+      "WARLOCK": 43.61,
+      "WARRIOR": 47.88,
+      "DEMONHUNTER": 47.41
+    }
+  },
+  {
+    "card_id": "TTN_715",
+    "classes": {
+      "DEATHKNIGHT": 52.3,
+      "DRUID": 52.14,
+      "HUNTER": 49.76,
+      "MAGE": 45.87,
+      "PALADIN": 50.28,
+      "PRIEST": 45.19,
+      "ROGUE": 47.19,
+      "SHAMAN": 51.07,
+      "WARLOCK": 38.09,
+      "WARRIOR": 50.06,
+      "DEMONHUNTER": 42.92
+    }
+  },
+  {
+    "card_id": "TTN_718",
+    "classes": {
+      "DEATHKNIGHT": 53.72,
+      "DRUID": 54.57,
+      "HUNTER": 50.2,
+      "MAGE": 47.45,
+      "PALADIN": 50.39,
+      "PRIEST": 47.38,
+      "ROGUE": 51.76,
+      "SHAMAN": 51.94,
+      "WARLOCK": 40.65,
+      "WARRIOR": 51.04,
+      "DEMONHUNTER": 39.8
+    }
+  },
+  {
+    "card_id": "TTN_931",
+    "classes": {
+      "DEATHKNIGHT": 52.48,
+      "DRUID": 47.52,
+      "HUNTER": 46.79,
+      "MAGE": 41.08,
+      "PALADIN": 48.91,
+      "PRIEST": 44.05,
+      "ROGUE": 47.18,
+      "SHAMAN": 45.19,
+      "WARLOCK": 37.35,
+      "WARRIOR": 46.44,
+      "DEMONHUNTER": 41.71
+    }
+  },
+  {
+    "card_id": "TTN_479",
+    "classes": {
+      "DEATHKNIGHT": 51.0,
+      "DRUID": 57.83,
+      "HUNTER": 52.14,
+      "MAGE": 55.36,
+      "PALADIN": 49.47,
+      "PRIEST": 28.53,
+      "ROGUE": 52.75,
+      "SHAMAN": 53.92,
+      "WARLOCK": 59.82,
+      "WARRIOR": 42.56,
+      "DEMONHUNTER": 9.62
+    }
+  },
+  {
+    "card_id": "TTN_751",
+    "classes": {
+      "DEATHKNIGHT": 55.34,
+      "DRUID": 48.72,
+      "HUNTER": 33.83,
+      "MAGE": 52.72,
+      "PALADIN": 49.09,
+      "PRIEST": 60.56,
+      "ROGUE": 58.09,
+      "SHAMAN": 42.39,
+      "WARLOCK": 46.67,
+      "WARRIOR": 56.46,
+      "DEMONHUNTER": 47.19
+    }
+  },
+  {
+    "card_id": "TTN_754",
+    "classes": {
+      "DEATHKNIGHT": 54.49,
+      "DRUID": 44.52,
+      "HUNTER": 47.43,
+      "MAGE": 53.56,
+      "PALADIN": 47.73,
+      "PRIEST": 54.75,
+      "ROGUE": 58.73,
+      "SHAMAN": 48.62,
+      "WARLOCK": 47.63,
+      "WARRIOR": 51.06,
+      "DEMONHUNTER": 43.87
+    }
+  },
+  {
+    "card_id": "WW_901",
+    "classes": {
+      "DEATHKNIGHT": 57.02,
+      "DRUID": 57.2,
+      "HUNTER": 54.52,
+      "MAGE": 53.05,
+      "PALADIN": 56.31,
+      "PRIEST": 51.4,
+      "ROGUE": 56.64,
+      "SHAMAN": 51.09,
+      "WARLOCK": 43.16,
+      "WARRIOR": 52.45,
+      "DEMONHUNTER": 52.52
+    }
+  },
+  {
+    "card_id": "WW_906",
+    "classes": {
+      "DEATHKNIGHT": 54.26,
+      "DRUID": 45.92,
+      "HUNTER": 54.66,
+      "MAGE": 45.53,
+      "PALADIN": 49.83,
+      "PRIEST": 39.48,
+      "ROGUE": 51.92,
+      "SHAMAN": 51.11,
+      "WARLOCK": 26.33,
+      "WARRIOR": 41.11,
+      "DEMONHUNTER": 43.81
+    }
+  },
+  {
+    "card_id": "WW_351",
+    "classes": {
+      "DEATHKNIGHT": 56.8,
+      "ROGUE": 53.08,
+      "WARLOCK": 46.8
+    }
+  },
+  {
+    "card_id": "WW_354",
+    "classes": {
+      "DEATHKNIGHT": 55.97
+    }
+  },
+  {
+    "card_id": "WW_358",
+    "classes": {
+      "DEATHKNIGHT": 58.38
+    }
+  },
+  {
+    "card_id": "YOG_515",
+    "classes": {
+      "DEATHKNIGHT": 37.82,
+      "DRUID": 48.94,
+      "HUNTER": 25.24,
+      "MAGE": 47.96,
+      "PALADIN": 55.14,
+      "PRIEST": 34.69,
+      "ROGUE": 52.09,
+      "SHAMAN": 52.59,
+      "WARLOCK": 28.93,
+      "WARRIOR": 51.04,
+      "DEMONHUNTER": 51.61
+    }
+  },
+  {
+    "card_id": "WW_044",
+    "classes": {
+      "DEATHKNIGHT": 54.9,
+      "DRUID": 56.42,
+      "HUNTER": 47.31,
+      "MAGE": 47.71,
+      "PALADIN": 52.74,
+      "PRIEST": 57.46,
+      "ROGUE": 51.96,
+      "SHAMAN": 51.21,
+      "WARLOCK": 37.38,
+      "WARRIOR": 50.9,
+      "DEMONHUNTER": 36.31
+    }
+  },
+  {
+    "card_id": "WW_383",
+    "classes": {
+      "DEATHKNIGHT": 55.02,
+      "DRUID": 54.6,
+      "HUNTER": 48.94,
+      "MAGE": 49.16,
+      "PALADIN": 51.81,
+      "PRIEST": 48.49,
+      "ROGUE": 54.05,
+      "SHAMAN": 51.39,
+      "WARLOCK": 36.45,
+      "WARRIOR": 53.92,
+      "DEMONHUNTER": 48.11
+    }
+  },
+  {
+    "card_id": "WW_418",
+    "classes": {
+      "DEATHKNIGHT": 55.91,
+      "DRUID": 54.55,
+      "HUNTER": 49.38,
+      "MAGE": 50.98,
+      "PALADIN": 54.0,
+      "PRIEST": 48.2,
+      "ROGUE": 53.97,
+      "SHAMAN": 50.1,
+      "WARLOCK": 41.34,
+      "WARRIOR": 52.48,
+      "DEMONHUNTER": 46.51
+    }
+  },
+  {
+    "card_id": "WW_423",
+    "classes": {
+      "DEATHKNIGHT": 53.92,
+      "DRUID": 50.2,
+      "HUNTER": 53.43,
+      "MAGE": 47.07,
+      "PALADIN": 52.05,
+      "PRIEST": 41.26,
+      "ROGUE": 55.44,
+      "SHAMAN": 52.93,
+      "WARLOCK": 42.7,
+      "WARRIOR": 49.21,
+      "DEMONHUNTER": 40.74
+    }
+  },
+  {
+    "card_id": "WW_391",
+    "classes": {
+      "DEATHKNIGHT": 55.82,
+      "DRUID": 55.82,
+      "HUNTER": 51.03,
+      "MAGE": 49.06,
+      "PALADIN": 51.42,
+      "PRIEST": 47.15,
+      "ROGUE": 55.26,
+      "SHAMAN": 54.83,
+      "WARLOCK": 40.98,
+      "WARRIOR": 54.76,
+      "DEMONHUNTER": 46.85
+    }
+  },
+  {
+    "card_id": "WW_434",
+    "classes": {
+      "DEATHKNIGHT": 59.36,
+      "DRUID": 53.73,
+      "HUNTER": 54.55,
+      "MAGE": 57.07,
+      "PALADIN": 56.54,
+      "PRIEST": 53.31,
+      "ROGUE": 60.59,
+      "SHAMAN": 54.89,
+      "WARLOCK": 43.14,
+      "WARRIOR": 56.15,
+      "DEMONHUNTER": 59.36
+    }
+  },
+  {
+    "card_id": "WW_827",
+    "classes": {
+      "DEATHKNIGHT": 58.22,
+      "DRUID": 55.6,
+      "HUNTER": 54.35,
+      "MAGE": 52.89,
+      "PALADIN": 53.84,
+      "PRIEST": 54.19,
+      "ROGUE": 56.58,
+      "SHAMAN": 49.4,
+      "WARLOCK": 42.02,
+      "WARRIOR": 54.64,
+      "DEMONHUNTER": 42.13
+    }
+  },
+  {
+    "card_id": "DEEP_005",
+    "classes": {
+      "DEATHKNIGHT": 55.33,
+      "HUNTER": 51.09
+    }
+  },
+  {
+    "card_id": "CORE_SW_066",
+    "classes": {
+      "DEATHKNIGHT": 54.71,
+      "DRUID": 52.11,
+      "HUNTER": 53.19,
+      "MAGE": 51.33,
+      "PALADIN": 52.4,
+      "PRIEST": 48.11,
+      "ROGUE": 52.55,
+      "SHAMAN": 49.52,
+      "WARLOCK": 34.87,
+      "WARRIOR": 53.93,
+      "DEMONHUNTER": 42.64
+    }
+  },
+  {
+    "card_id": "CORE_ULD_723",
+    "classes": {
+      "DEATHKNIGHT": 57.75,
+      "DRUID": 56.29,
+      "HUNTER": 52.6,
+      "MAGE": 58.77,
+      "PALADIN": 56.53,
+      "PRIEST": 42.24,
+      "ROGUE": 56.43,
+      "SHAMAN": 56.3,
+      "WARLOCK": 44.84,
+      "WARRIOR": 55.0,
+      "DEMONHUNTER": 43.73
+    }
+  },
+  {
+    "card_id": "TOY_000",
+    "classes": {
+      "DEATHKNIGHT": 54.07,
+      "DRUID": 57.17,
+      "HUNTER": 45.87,
+      "MAGE": 51.87,
+      "PALADIN": 54.11,
+      "PRIEST": 43.37,
+      "ROGUE": 54.48,
+      "SHAMAN": 52.02,
+      "WARLOCK": 25.74,
+      "WARRIOR": 52.19,
+      "DEMONHUNTER": 40.48
+    }
+  },
+  {
+    "card_id": "TOY_006",
+    "classes": {
+      "DEATHKNIGHT": 58.11,
+      "DRUID": 56.7,
+      "HUNTER": 54.87,
+      "MAGE": 54.42,
+      "PALADIN": 55.7,
+      "PRIEST": 53.14,
+      "ROGUE": 57.33,
+      "SHAMAN": 55.89,
+      "WARLOCK": 46.61,
+      "WARRIOR": 54.88,
+      "DEMONHUNTER": 48.94
+    }
+  },
+  {
+    "card_id": "DEEP_017",
+    "classes": {
+      "DEATHKNIGHT": 57.91,
+      "PALADIN": 55.05
+    }
+  },
+  {
+    "card_id": "TOY_054",
+    "classes": {
+      "DEATHKNIGHT": 53.88,
+      "DRUID": 52.64,
+      "HUNTER": 50.33,
+      "MAGE": 49.52,
+      "PALADIN": 49.28,
+      "PRIEST": 44.01,
+      "ROGUE": 52.58,
+      "SHAMAN": 54.56,
+      "WARLOCK": 43.22,
+      "WARRIOR": 51.73,
+      "DEMONHUNTER": 47.5
+    }
+  },
+  {
+    "card_id": "WON_113",
+    "classes": {
+      "DEATHKNIGHT": 48.04,
+      "DRUID": 49.18,
+      "HUNTER": 34.97,
+      "MAGE": 44.35,
+      "PALADIN": 48.39,
+      "PRIEST": 49.67,
+      "ROGUE": 41.52,
+      "SHAMAN": 46.95,
+      "WARLOCK": 46.93,
+      "WARRIOR": 47.26,
+      "DEMONHUNTER": 57.32
+    }
+  },
+  {
+    "card_id": "WON_145",
+    "classes": {
+      "DEATHKNIGHT": 53.58,
+      "DRUID": 52.49,
+      "HUNTER": 40.39,
+      "MAGE": 47.96,
+      "PALADIN": 46.38,
+      "PRIEST": 48.3,
+      "ROGUE": 51.09,
+      "SHAMAN": 43.44,
+      "WARLOCK": 26.46,
+      "WARRIOR": 52.71,
+      "DEMONHUNTER": 46.14
+    }
+  },
+  {
+    "card_id": "DEEP_034",
+    "classes": {
+      "DEATHKNIGHT": 51.16,
+      "DRUID": 46.43,
+      "HUNTER": 35.58,
+      "MAGE": 55.92,
+      "PALADIN": 61.22,
+      "PRIEST": 42.71,
+      "ROGUE": 51.9,
+      "SHAMAN": 52.79,
+      "WARLOCK": 55.62,
+      "WARRIOR": 52.86,
+      "DEMONHUNTER": 8.74
+    }
+  },
+  {
+    "card_id": "TOY_307",
+    "classes": {
+      "DEATHKNIGHT": 55.06,
+      "DRUID": 53.01,
+      "HUNTER": 50.63,
+      "MAGE": 52.17,
+      "PALADIN": 53.79,
+      "PRIEST": 46.39,
+      "ROGUE": 52.37,
+      "SHAMAN": 52.31,
+      "WARLOCK": 38.67,
+      "WARRIOR": 51.61,
+      "DEMONHUNTER": 48.1
+    }
+  },
+  {
+    "card_id": "TOY_312",
+    "classes": {
+      "DEATHKNIGHT": 56.78,
+      "DRUID": 55.65,
+      "HUNTER": 52.44,
+      "MAGE": 49.04,
+      "PALADIN": 52.37,
+      "PRIEST": 48.73,
+      "ROGUE": 54.22,
+      "SHAMAN": 55.32,
+      "WARLOCK": 36.98,
+      "WARRIOR": 54.27,
+      "DEMONHUNTER": 47.24
+    }
+  },
+  {
+    "card_id": "TOY_341",
+    "classes": {
+      "DEATHKNIGHT": 58.77,
+      "DRUID": 58.99,
+      "HUNTER": 49.17,
+      "MAGE": 50.29,
+      "PALADIN": 61.58,
+      "PRIEST": 57.02,
+      "ROGUE": 60.92,
+      "SHAMAN": 48.09,
+      "WARLOCK": 45.1,
+      "WARRIOR": 54.45,
+      "DEMONHUNTER": 44.99
+    }
+  },
+  {
+    "card_id": "TOY_601",
+    "classes": {
+      "DEATHKNIGHT": 50.03,
+      "DRUID": 64.33,
+      "HUNTER": 53.76,
+      "MAGE": 30.63,
+      "PALADIN": 67.9,
+      "PRIEST": 59.44,
+      "ROGUE": 58.16,
+      "SHAMAN": 63.33,
+      "WARLOCK": 52.22,
+      "WARRIOR": 50.27,
+      "DEMONHUNTER": 10.35
+    }
+  },
+  {
+    "card_id": "TOY_391",
+    "classes": {
+      "DEATHKNIGHT": 48.36,
+      "DRUID": 49.76,
+      "HUNTER": 47.17,
+      "MAGE": 41.01,
+      "PALADIN": 41.34,
+      "PRIEST": 47.83,
+      "ROGUE": 48.47,
+      "SHAMAN": 43.72,
+      "WARLOCK": 22.91,
+      "WARRIOR": 35.09,
+      "DEMONHUNTER": 41.28
+    }
+  },
+  {
+    "card_id": "TOY_386",
+    "classes": {
+      "DEATHKNIGHT": 54.9,
+      "DRUID": 56.89,
+      "HUNTER": 51.65,
+      "MAGE": 45.18,
+      "PALADIN": 51.04,
+      "PRIEST": 43.83,
+      "ROGUE": 56.11,
+      "SHAMAN": 43.95,
+      "WARLOCK": 44.39,
+      "WARRIOR": 50.38,
+      "DEMONHUNTER": 45.86
+    }
+  },
+  {
+    "card_id": "TOY_517",
+    "classes": {
+      "DEATHKNIGHT": 57.01,
+      "DRUID": 52.1,
+      "HUNTER": 50.17,
+      "MAGE": 44.54,
+      "PALADIN": 53.8,
+      "PRIEST": 43.54,
+      "ROGUE": 51.9,
+      "SHAMAN": 54.88,
+      "WARLOCK": 45.3,
+      "WARRIOR": 51.0,
+      "DEMONHUNTER": 50.58
+    }
+  },
+  {
+    "card_id": "GIFT_01",
+    "classes": {
+      "DEATHKNIGHT": 54.58,
+      "DRUID": 47.98,
+      "HUNTER": 38.97,
+      "MAGE": 44.56,
+      "PALADIN": 43.9,
+      "PRIEST": 48.76,
+      "ROGUE": 40.2,
+      "SHAMAN": 37.6,
+      "WARLOCK": 14.35,
+      "WARRIOR": 49.12,
+      "DEMONHUNTER": 45.67
+    }
+  },
+  {
+    "card_id": "TOY_822",
+    "classes": {
+      "DEATHKNIGHT": 57.78
+    }
+  },
+  {
+    "card_id": "TOY_829",
+    "classes": {
+      "DEATHKNIGHT": 52.59
+    }
+  },
+  {
+    "card_id": "TOY_830",
+    "classes": {
+      "DEATHKNIGHT": 63.84
+    }
+  },
+  {
+    "card_id": "TOY_528",
+    "classes": {
+      "DEATHKNIGHT": 20.52,
+      "DRUID": 36.69,
+      "HUNTER": 55.5,
+      "MAGE": 47.09,
+      "PALADIN": 50.45,
+      "PRIEST": 10.35,
+      "ROGUE": 13.68,
+      "SHAMAN": 17.21,
+      "WARLOCK": 16.89,
+      "WARRIOR": 20.72,
+      "DEMONHUNTER": 27.89
+    }
+  },
+  {
+    "card_id": "TOY_896",
+    "classes": {
+      "DEATHKNIGHT": 53.99,
+      "DRUID": 51.71,
+      "HUNTER": 22.04,
+      "MAGE": 46.86,
+      "PALADIN": 50.07,
+      "PRIEST": 50.99,
+      "ROGUE": 48.93,
+      "SHAMAN": 17.5,
+      "WARRIOR": 48.85,
+      "DEMONHUNTER": 27.02
+    }
+  },
+  {
+    "card_id": "VAC_514",
+    "classes": {
+      "DEATHKNIGHT": 58.72
+    }
+  },
+  {
+    "card_id": "MIS_006",
+    "classes": {
+      "DEATHKNIGHT": 58.51
+    }
+  },
+  {
+    "card_id": "VAC_304",
+    "classes": {
+      "DEATHKNIGHT": 54.71,
+      "DRUID": 55.02,
+      "HUNTER": 48.85,
+      "MAGE": 46.09,
+      "PALADIN": 50.64,
+      "PRIEST": 53.46,
+      "ROGUE": 55.2,
+      "SHAMAN": 51.09,
+      "WARLOCK": 31.02,
+      "WARRIOR": 51.66,
+      "DEMONHUNTER": 49.74
+    }
+  },
+  {
+    "card_id": "VAC_523",
+    "classes": {
+      "DEATHKNIGHT": 56.19,
+      "DRUID": 55.74,
+      "HUNTER": 53.79,
+      "MAGE": 49.43,
+      "PALADIN": 53.96,
+      "PRIEST": 52.42,
+      "ROGUE": 53.22,
+      "SHAMAN": 54.94,
+      "WARLOCK": 43.59,
+      "WARRIOR": 51.31,
+      "DEMONHUNTER": 47.01
+    }
+  },
+  {
+    "card_id": "VAC_702",
+    "classes": {
+      "DEATHKNIGHT": 51.71,
+      "DRUID": 56.13,
+      "HUNTER": 50.8,
+      "MAGE": 42.03,
+      "PALADIN": 53.21,
+      "PRIEST": 53.86,
+      "ROGUE": 48.28,
+      "SHAMAN": 49.83,
+      "WARLOCK": 34.39,
+      "WARRIOR": 51.65,
+      "DEMONHUNTER": 50.17
+    }
+  },
+  {
+    "card_id": "VAC_934",
+    "classes": {
+      "DEATHKNIGHT": 42.0,
+      "DRUID": 42.03,
+      "HUNTER": 57.45,
+      "MAGE": 25.5,
+      "PALADIN": 43.35,
+      "PRIEST": 39.66,
+      "ROGUE": 43.53,
+      "SHAMAN": 43.15,
+      "WARLOCK": 46.01,
+      "WARRIOR": 42.51,
+      "DEMONHUNTER": 25.67
+    }
+  },
+  {
+    "card_id": "VAC_935",
+    "classes": {
+      "DEATHKNIGHT": 56.29,
+      "DRUID": 49.16,
+      "HUNTER": 45.74,
+      "MAGE": 47.44,
+      "PALADIN": 48.59,
+      "PRIEST": 44.66,
+      "ROGUE": 55.0,
+      "SHAMAN": 57.37,
+      "WARLOCK": 18.02,
+      "WARRIOR": 58.09,
+      "DEMONHUNTER": 47.48
+    }
+  },
+  {
+    "card_id": "VAC_936",
+    "classes": {
+      "DEATHKNIGHT": 52.43,
+      "DRUID": 54.81,
+      "HUNTER": 53.31,
+      "MAGE": 33.43,
+      "PALADIN": 53.39,
+      "PRIEST": 36.69,
+      "ROGUE": 45.96,
+      "SHAMAN": 51.93,
+      "WARLOCK": 49.96,
+      "WARRIOR": 44.72,
+      "DEMONHUNTER": 54.71
+    }
+  },
+  {
+    "card_id": "VAC_426",
+    "classes": {
+      "DEATHKNIGHT": 58.92
+    }
+  },
+  {
+    "card_id": "VAC_946",
+    "classes": {
+      "DEATHKNIGHT": 58.22,
+      "DRUID": 56.01,
+      "HUNTER": 54.77,
+      "MAGE": 51.01,
+      "PALADIN": 54.69,
+      "PRIEST": 50.7,
+      "ROGUE": 56.57,
+      "SHAMAN": 50.78,
+      "WARLOCK": 37.01,
+      "WARRIOR": 52.09,
+      "DEMONHUNTER": 43.11
+    }
+  },
+  {
+    "card_id": "VAC_432",
+    "classes": {
+      "DEATHKNIGHT": 52.96,
+      "DRUID": 52.75,
+      "HUNTER": 52.51,
+      "MAGE": 47.01,
+      "PALADIN": 48.88,
+      "PRIEST": 42.57,
+      "ROGUE": 50.34,
+      "SHAMAN": 47.78,
+      "WARLOCK": 35.71,
+      "WARRIOR": 45.95,
+      "DEMONHUNTER": 40.17
+    }
+  },
+  {
+    "card_id": "VAC_436",
+    "classes": {
+      "DEATHKNIGHT": 57.61
+    }
+  },
+  {
+    "card_id": "VAC_442",
+    "classes": {
+      "DEATHKNIGHT": 36.4,
+      "DRUID": 0.39,
+      "HUNTER": 47.02,
+      "MAGE": 54.83,
+      "PALADIN": 10.35,
+      "PRIEST": 0.0,
+      "ROGUE": 37.7,
+      "SHAMAN": 54.01,
+      "WARLOCK": 0.3,
+      "WARRIOR": 38.37,
+      "DEMONHUNTER": 16.89
+    }
+  },
+  {
+    "card_id": "VAC_445",
+    "classes": {
+      "DEATHKNIGHT": 56.25
+    }
+  },
+  {
+    "card_id": "MIS_314",
+    "classes": {
+      "DEATHKNIGHT": 58.76,
+      "DRUID": 56.84,
+      "HUNTER": 53.16,
+      "MAGE": 55.85,
+      "PALADIN": 51.4,
+      "PRIEST": 48.99,
+      "ROGUE": 55.07,
+      "SHAMAN": 54.17,
+      "WARLOCK": 45.37,
+      "WARRIOR": 54.25,
+      "DEMONHUNTER": 45.64
+    }
+  },
+  {
+    "card_id": "TOY_101",
+    "classes": {
+      "DEATHKNIGHT": 56.33,
+      "DRUID": 55.32,
+      "HUNTER": 52.1,
+      "MAGE": 52.58,
+      "PALADIN": 55.4,
+      "PRIEST": 49.85,
+      "ROGUE": 55.94,
+      "SHAMAN": 53.26,
+      "WARLOCK": 40.87,
+      "WARRIOR": 52.24,
+      "DEMONHUNTER": 45.44
+    }
+  },
+  {
+    "card_id": "WORK_010",
+    "classes": {
+      "DEATHKNIGHT": 58.49
+    }
+  },
+  {
+    "card_id": "GDB_862",
+    "classes": {
+      "DEATHKNIGHT": 53.54,
+      "DRUID": 43.91,
+      "HUNTER": 48.77,
+      "MAGE": 38.39,
+      "PALADIN": 53.63,
+      "PRIEST": 42.29,
+      "ROGUE": 55.38,
+      "SHAMAN": 41.44,
+      "WARLOCK": 28.9,
+      "WARRIOR": 44.42,
+      "DEMONHUNTER": 21.27
+    }
+  },
+  {
+    "card_id": "CORE_RLK_087",
+    "classes": {
+      "DEATHKNIGHT": 53.75
+    }
+  },
+  {
+    "card_id": "CORE_RLK_062",
+    "classes": {
+      "DEATHKNIGHT": 50.34
+    }
+  },
+  {
+    "card_id": "CORE_RLK_066",
+    "classes": {
+      "DEATHKNIGHT": 56.34
+    }
+  },
+  {
+    "card_id": "CORE_RLK_505",
+    "classes": {
+      "DEATHKNIGHT": 53.46
+    }
+  },
+  {
+    "card_id": "CORE_RLK_042",
+    "classes": {
+      "DEATHKNIGHT": 53.77
+    }
+  },
+  {
+    "card_id": "CORE_RLK_051",
+    "classes": {
+      "DEATHKNIGHT": 58.64
+    }
+  },
+  {
+    "card_id": "GDB_132",
+    "classes": {
+      "DEATHKNIGHT": 44.94,
+      "DRUID": 49.8,
+      "HUNTER": 43.77,
+      "MAGE": 34.28,
+      "PALADIN": 46.68,
+      "PRIEST": 45.69,
+      "ROGUE": 53.35,
+      "SHAMAN": 43.39,
+      "WARLOCK": 24.25,
+      "WARRIOR": 34.88,
+      "DEMONHUNTER": 44.93
+    }
+  },
+  {
+    "card_id": "CORE_RLK_035",
+    "classes": {
+      "DEATHKNIGHT": 53.49
+    }
+  },
+  {
+    "card_id": "GDB_874",
+    "classes": {
+      "DEATHKNIGHT": 57.15,
+      "DRUID": 56.84,
+      "HUNTER": 51.64,
+      "MAGE": 52.67,
+      "PALADIN": 53.24,
+      "PRIEST": 49.66,
+      "ROGUE": 53.49,
+      "SHAMAN": 53.85,
+      "WARLOCK": 43.78,
+      "WARRIOR": 54.12,
+      "DEMONHUNTER": 52.74
+    }
+  },
+  {
+    "card_id": "CORE_UNG_809",
+    "classes": {
+      "DEATHKNIGHT": 53.65,
+      "DRUID": 57.48,
+      "HUNTER": 57.11,
+      "MAGE": 55.17,
+      "PALADIN": 54.69,
+      "PRIEST": 43.53,
+      "ROGUE": 57.49,
+      "SHAMAN": 51.46,
+      "WARLOCK": 39.65,
+      "WARRIOR": 51.3,
+      "DEMONHUNTER": 45.11
+    }
+  },
+  {
+    "card_id": "GDB_468",
+    "classes": {
+      "DEATHKNIGHT": 52.73
+    }
+  },
+  {
+    "card_id": "GDB_470",
+    "classes": {
+      "DEATHKNIGHT": 53.53
+    }
+  },
+  {
+    "card_id": "GDB_320",
+    "classes": {
+      "DEATHKNIGHT": 49.35,
+      "DRUID": 49.06,
+      "HUNTER": 44.35,
+      "MAGE": 47.2,
+      "PALADIN": 46.84,
+      "PRIEST": 45.78,
+      "ROGUE": 53.03,
+      "SHAMAN": 43.33,
+      "WARLOCK": 28.78,
+      "WARRIOR": 44.74,
+      "DEMONHUNTER": 41.54
+    }
+  },
+  {
+    "card_id": "GDB_321",
+    "classes": {
+      "DEATHKNIGHT": 49.0,
+      "DRUID": 44.21,
+      "HUNTER": 44.5,
+      "MAGE": 34.75,
+      "PALADIN": 38.08,
+      "PRIEST": 30.34,
+      "ROGUE": 41.99,
+      "SHAMAN": 47.51,
+      "WARLOCK": 38.13,
+      "WARRIOR": 56.92,
+      "DEMONHUNTER": 0.15
+    }
+  },
+  {
+    "card_id": "GDB_322",
+    "classes": {
+      "DEATHKNIGHT": 45.3,
+      "DRUID": 50.33,
+      "HUNTER": 45.26,
+      "MAGE": 51.92,
+      "PALADIN": 52.29,
+      "PRIEST": 42.32,
+      "ROGUE": 50.08,
+      "SHAMAN": 43.42,
+      "WARLOCK": 18.78,
+      "WARRIOR": 54.5,
+      "DEMONHUNTER": 47.6
+    }
+  },
+  {
+    "card_id": "GDB_330",
+    "classes": {
+      "DEATHKNIGHT": 47.18,
+      "DRUID": 48.0,
+      "HUNTER": 43.22,
+      "MAGE": 40.92,
+      "PALADIN": 41.01,
+      "PRIEST": 44.2,
+      "ROGUE": 51.96,
+      "SHAMAN": 46.67,
+      "WARLOCK": 35.81,
+      "WARRIOR": 34.08,
+      "DEMONHUNTER": 44.54
+    }
+  },
+  {
+    "card_id": "GDB_478",
+    "classes": {
+      "DEATHKNIGHT": 55.92
+    }
+  },
+  {
+    "card_id": "GDB_145",
+    "classes": {
+      "DEATHKNIGHT": 49.49,
+      "DRUID": 56.1,
+      "HUNTER": 49.87,
+      "MAGE": 36.91,
+      "PALADIN": 42.6,
+      "PRIEST": 47.66,
+      "ROGUE": 56.17,
+      "SHAMAN": 43.47,
+      "WARLOCK": 25.41,
+      "WARRIOR": 41.7,
+      "DEMONHUNTER": 41.8
+    }
+  },
+  {
+    "card_id": "Core_UNG_072",
+    "classes": {
+      "DEATHKNIGHT": 53.13,
+      "DRUID": 48.15,
+      "HUNTER": 46.53,
+      "MAGE": 38.6,
+      "PALADIN": 49.84,
+      "PRIEST": 45.1,
+      "ROGUE": 47.11,
+      "SHAMAN": 47.31,
+      "WARLOCK": 33.99,
+      "WARRIOR": 48.72,
+      "DEMONHUNTER": 43.54
+    }
+  },
+  {
+    "card_id": "CORE_DRG_079",
+    "classes": {
+      "DEATHKNIGHT": 50.16,
+      "DRUID": 50.57,
+      "HUNTER": 45.08,
+      "MAGE": 43.58,
+      "PALADIN": 44.89,
+      "PRIEST": 44.91,
+      "ROGUE": 49.92,
+      "SHAMAN": 44.28,
+      "WARLOCK": 52.2,
+      "WARRIOR": 48.68,
+      "DEMONHUNTER": 35.54
+    }
+  },
+  {
+    "card_id": "LEG_RLK_101",
+    "classes": {
+      "DEATHKNIGHT": 53.86
+    }
+  },
+  {
+    "card_id": "LEG_RLK_071",
+    "classes": {
+      "DEATHKNIGHT": 55.15
+    }
+  },
+  {
+    "card_id": "EDR_000",
+    "classes": {
+      "DEATHKNIGHT": 55.03,
+      "DRUID": 58.21,
+      "HUNTER": 50.59,
+      "MAGE": 51.91,
+      "PALADIN": 39.78,
+      "PRIEST": 57.93,
+      "ROGUE": 51.97,
+      "SHAMAN": 43.59,
+      "WARLOCK": 66.87,
+      "WARRIOR": 47.03,
+      "DEMONHUNTER": 0.0
+    }
+  },
+  {
+    "card_id": "EDR_001",
+    "classes": {
+      "DEATHKNIGHT": 54.71,
+      "DRUID": 51.47,
+      "HUNTER": 50.76,
+      "MAGE": 47.61,
+      "PALADIN": 52.87,
+      "PRIEST": 52.37,
+      "ROGUE": 52.04,
+      "SHAMAN": 48.87,
+      "WARLOCK": 34.77,
+      "WARRIOR": 50.04,
+      "DEMONHUNTER": 46.66
+    }
+  },
+  {
+    "card_id": "EDR_105",
+    "classes": {
+      "DEATHKNIGHT": 57.68,
+      "DRUID": 55.9,
+      "HUNTER": 52.41,
+      "MAGE": 52.37,
+      "PALADIN": 55.77,
+      "PRIEST": 53.77,
+      "ROGUE": 56.04,
+      "SHAMAN": 51.63,
+      "WARLOCK": 43.26,
+      "WARRIOR": 53.1,
+      "DEMONHUNTER": 49.27
+    }
+  },
+  {
+    "card_id": "EDR_453",
+    "classes": {
+      "DEATHKNIGHT": 60.08,
+      "DRUID": 57.92,
+      "HUNTER": 51.03,
+      "MAGE": 44.05,
+      "PALADIN": 61.13,
+      "PRIEST": 48.59,
+      "ROGUE": 58.36,
+      "SHAMAN": 53.53,
+      "WARLOCK": 45.9,
+      "WARRIOR": 60.56,
+      "DEMONHUNTER": 54.22
+    }
+  },
+  {
+    "card_id": "EDR_810",
+    "classes": {
+      "DEATHKNIGHT": 58.92
+    }
+  },
+  {
+    "card_id": "EDR_811",
+    "classes": {
+      "DEATHKNIGHT": 57.0
+    }
+  },
+  {
+    "card_id": "EDR_814",
+    "classes": {
+      "DEATHKNIGHT": 57.88
+    }
+  },
+  {
+    "card_id": "EDR_469",
+    "classes": {
+      "DEATHKNIGHT": 55.53,
+      "DRUID": 43.21,
+      "HUNTER": 41.61,
+      "MAGE": 46.24,
+      "PALADIN": 63.89,
+      "PRIEST": 16.89,
+      "ROGUE": 54.25,
+      "SHAMAN": 18.67,
+      "WARLOCK": 56.31,
+      "WARRIOR": 50.75,
+      "DEMONHUNTER": 38.3
+    }
+  },
+  {
+    "card_id": "EDR_844",
+    "classes": {
+      "DEATHKNIGHT": 55.33,
+      "DRUID": 56.43,
+      "HUNTER": 22.53,
+      "MAGE": 51.59,
+      "PALADIN": 55.62,
+      "PRIEST": 51.72,
+      "ROGUE": 51.9,
+      "SHAMAN": 33.1,
+      "WARRIOR": 50.48,
+      "DEMONHUNTER": 63.68
+    }
+  },
+  {
+    "card_id": "EDR_260",
+    "classes": {
+      "DEATHKNIGHT": 54.69,
+      "DRUID": 53.77,
+      "HUNTER": 47.58,
+      "MAGE": 49.49,
+      "PALADIN": 50.4,
+      "PRIEST": 48.89,
+      "ROGUE": 52.23,
+      "SHAMAN": 50.15,
+      "WARLOCK": 37.35,
+      "WARRIOR": 49.62,
+      "DEMONHUNTER": 49.25
+    }
+  },
+  {
+    "card_id": "EDR_849",
+    "classes": {
+      "DEATHKNIGHT": 56.74,
+      "DRUID": 53.32,
+      "HUNTER": 51.44,
+      "MAGE": 54.9,
+      "PALADIN": 52.3,
+      "PRIEST": 45.8,
+      "ROGUE": 53.83,
+      "SHAMAN": 51.49,
+      "WARLOCK": 47.22,
+      "WARRIOR": 50.8,
+      "DEMONHUNTER": 45.02
+    }
+  },
+  {
+    "card_id": "EDR_817",
+    "classes": {
+      "DEATHKNIGHT": 58.71
+    }
+  },
+  {
+    "card_id": "EDR_813",
+    "classes": {
+      "DEATHKNIGHT": 57.4
+    }
+  },
+  {
+    "card_id": "EDR_486",
+    "classes": {
+      "DEATHKNIGHT": 51.98,
+      "DRUID": 43.46,
+      "HUNTER": 50.14,
+      "MAGE": 39.7,
+      "PALADIN": 43.03,
+      "PRIEST": 36.44,
+      "ROGUE": 46.57,
+      "SHAMAN": 56.53,
+      "WARLOCK": 42.03,
+      "WARRIOR": 46.46,
+      "DEMONHUNTER": 26.64
+    }
+  },
+  {
+    "card_id": "EDR_846",
+    "classes": {
+      "DEATHKNIGHT": 52.67,
+      "DRUID": 59.32,
+      "HUNTER": 60.61,
+      "MAGE": 63.67,
+      "PALADIN": 61.13,
+      "PRIEST": 41.74,
+      "ROGUE": 55.45,
+      "SHAMAN": 54.4,
+      "WARRIOR": 63.49,
+      "DEMONHUNTER": 41.17
+    }
+  },
+  {
+    "card_id": "EDR_856",
+    "classes": {
+      "DEATHKNIGHT": 52.73,
+      "DRUID": 52.92,
+      "HUNTER": 48.76,
+      "MAGE": 34.02,
+      "PALADIN": 57.45,
+      "PRIEST": 44.91,
+      "ROGUE": 47.41,
+      "SHAMAN": 47.11,
+      "WARLOCK": 54.8,
+      "WARRIOR": 45.25,
+      "DEMONHUNTER": 39.68
+    }
+  },
+  {
+    "card_id": "EDR_780",
+    "classes": {
+      "DEATHKNIGHT": 53.29,
+      "DRUID": 53.27,
+      "HUNTER": 42.86,
+      "MAGE": 32.56,
+      "PALADIN": 64.27,
+      "PRIEST": 48.12,
+      "ROGUE": 48.95,
+      "SHAMAN": 41.04,
+      "WARLOCK": 41.99,
+      "WARRIOR": 38.28,
+      "DEMONHUNTER": 37.7
+    }
+  },
+  {
+    "card_id": "EDR_889",
+    "classes": {
+      "DEATHKNIGHT": 52.3,
+      "DRUID": 55.86,
+      "HUNTER": 51.42,
+      "MAGE": 57.82,
+      "PALADIN": 44.44,
+      "PRIEST": 49.48,
+      "ROGUE": 56.84,
+      "SHAMAN": 32.78,
+      "WARLOCK": 46.65,
+      "WARRIOR": 51.94,
+      "DEMONHUNTER": 54.7
+    }
+  },
+  {
+    "card_id": "FIR_929",
+    "classes": {
+      "DEATHKNIGHT": 53.7,
+      "DRUID": 50.61,
+      "HUNTER": 46.06,
+      "MAGE": 54.89,
+      "PALADIN": 50.83,
+      "PRIEST": 53.27,
+      "ROGUE": 50.26,
+      "SHAMAN": 55.32,
+      "WARLOCK": 42.02,
+      "WARRIOR": 55.78,
+      "DEMONHUNTER": 38.4
+    }
+  },
+  {
+    "card_id": "EDR_971",
+    "classes": {
+      "DEATHKNIGHT": 53.07,
+      "DRUID": 48.38,
+      "HUNTER": 51.03,
+      "MAGE": 46.53,
+      "PALADIN": 51.13,
+      "PRIEST": 54.0,
+      "ROGUE": 53.3,
+      "SHAMAN": 50.64,
+      "WARLOCK": 40.0,
+      "WARRIOR": 46.32,
+      "DEMONHUNTER": 46.63
+    }
+  },
+  {
+    "card_id": "EDR_819",
+    "classes": {
+      "DEATHKNIGHT": 50.93
+    }
+  },
+  {
+    "card_id": "EDR_571",
+    "classes": {
+      "DEATHKNIGHT": 58.61,
+      "DRUID": 54.96,
+      "HUNTER": 49.61,
+      "MAGE": 49.07,
+      "PALADIN": 47.82,
+      "PRIEST": 46.82,
+      "ROGUE": 51.71,
+      "SHAMAN": 51.16,
+      "WARLOCK": 15.4,
+      "WARRIOR": 54.98,
+      "DEMONHUNTER": 31.76
+    }
+  },
+  {
+    "card_id": "EDR_572",
+    "classes": {
+      "DEATHKNIGHT": 58.73,
+      "DRUID": 55.97,
+      "HUNTER": 52.52,
+      "MAGE": 50.93,
+      "PALADIN": 48.92,
+      "PRIEST": 53.84,
+      "ROGUE": 54.96,
+      "SHAMAN": 49.45,
+      "WARLOCK": 35.54,
+      "WARRIOR": 54.69,
+      "DEMONHUNTER": 46.16
+    }
+  },
+  {
+    "card_id": "EDR_979",
+    "classes": {
+      "DEATHKNIGHT": 51.74,
+      "DRUID": 48.08,
+      "HUNTER": 36.88,
+      "MAGE": 36.92,
+      "PALADIN": 57.53,
+      "PRIEST": 34.54,
+      "ROGUE": 58.37,
+      "SHAMAN": 57.48,
+      "WARLOCK": 37.83,
+      "WARRIOR": 53.47,
+      "DEMONHUNTER": 52.87
+    }
+  },
+  {
+    "card_id": "TLC_432",
+    "classes": {
+      "DEATHKNIGHT": 54.43
+    }
+  },
+  {
+    "card_id": "TLC_435",
+    "classes": {
+      "DEATHKNIGHT": 52.61
+    }
+  },
+  {
+    "card_id": "TLC_603",
+    "classes": {
+      "DEATHKNIGHT": 50.1,
+      "DRUID": 57.06,
+      "HUNTER": 53.59,
+      "MAGE": 54.39,
+      "PALADIN": 53.91,
+      "PRIEST": 57.8,
+      "ROGUE": 51.58,
+      "SHAMAN": 53.47,
+      "WARLOCK": 48.27,
+      "WARRIOR": 46.71,
+      "DEMONHUNTER": 57.9
+    }
+  },
+  {
+    "card_id": "BG31_BOB",
+    "classes": {
+      "DEATHKNIGHT": 47.81,
+      "DRUID": 46.58,
+      "HUNTER": 40.07,
+      "MAGE": 46.33,
+      "PALADIN": 41.56,
+      "PRIEST": 43.33,
+      "ROGUE": 45.92,
+      "SHAMAN": 42.14,
+      "WARLOCK": 37.74,
+      "WARRIOR": 44.79,
+      "DEMONHUNTER": 42.82
+    }
+  },
+  {
+    "card_id": "TLC_100",
+    "classes": {
+      "DEATHKNIGHT": 58.52,
+      "DRUID": 55.9,
+      "HUNTER": 51.71,
+      "MAGE": 47.1,
+      "PALADIN": 47.26,
+      "PRIEST": 53.72,
+      "ROGUE": 52.05,
+      "SHAMAN": 45.46,
+      "WARLOCK": 58.46,
+      "WARRIOR": 51.8,
+      "DEMONHUNTER": 59.31
+    }
+  },
+  {
+    "card_id": "TLC_106",
+    "classes": {
+      "DEATHKNIGHT": 53.32,
+      "DRUID": 42.42,
+      "HUNTER": 49.84,
+      "MAGE": 8.89,
+      "PALADIN": 52.82,
+      "PRIEST": 50.55,
+      "ROGUE": 62.98,
+      "SHAMAN": 40.2,
+      "WARLOCK": 42.67,
+      "WARRIOR": 44.35,
+      "DEMONHUNTER": 29.76
+    }
+  },
+  {
+    "card_id": "TLC_243",
+    "classes": {
+      "DEATHKNIGHT": 50.45,
+      "DRUID": 53.39,
+      "HUNTER": 47.53,
+      "MAGE": 48.56,
+      "PALADIN": 49.76,
+      "PRIEST": 42.73,
+      "ROGUE": 45.29,
+      "SHAMAN": 53.01,
+      "WARLOCK": 27.39,
+      "WARRIOR": 51.17,
+      "DEMONHUNTER": 31.91
+    }
+  },
+  {
+    "card_id": "TLC_249",
+    "classes": {
+      "DEATHKNIGHT": 55.61,
+      "DRUID": 52.39,
+      "HUNTER": 55.33,
+      "MAGE": 53.85,
+      "PALADIN": 51.88,
+      "PRIEST": 48.96,
+      "ROGUE": 57.1,
+      "SHAMAN": 52.99,
+      "WARLOCK": 50.85,
+      "WARRIOR": 49.12,
+      "DEMONHUNTER": 49.49
+    }
+  },
+  {
+    "card_id": "TIME_002",
+    "classes": {
+      "DEATHKNIGHT": 53.53,
+      "DRUID": 50.32,
+      "HUNTER": 42.38,
+      "MAGE": 47.49,
+      "PALADIN": 48.98,
+      "PRIEST": 47.62,
+      "ROGUE": 50.69,
+      "SHAMAN": 48.93,
+      "WARLOCK": 37.72,
+      "WARRIOR": 47.19,
+      "DEMONHUNTER": 52.76
+    }
+  },
+  {
+    "card_id": "TIME_003",
+    "classes": {
+      "DEATHKNIGHT": 53.95,
+      "DRUID": 51.97,
+      "HUNTER": 51.06,
+      "MAGE": 44.65,
+      "PALADIN": 54.33,
+      "PRIEST": 43.76,
+      "ROGUE": 57.88,
+      "SHAMAN": 49.91,
+      "WARLOCK": 35.4,
+      "WARRIOR": 49.23,
+      "DEMONHUNTER": 44.11
+    }
+  },
+  {
+    "card_id": "TIME_004",
+    "classes": {
+      "DEATHKNIGHT": 45.64,
+      "DRUID": 51.19,
+      "HUNTER": 58.55,
+      "MAGE": 24.43,
+      "PALADIN": 57.67,
+      "PRIEST": 49.39,
+      "ROGUE": 54.3,
+      "SHAMAN": 44.28,
+      "WARLOCK": 59.54,
+      "WARRIOR": 46.48,
+      "DEMONHUNTER": 51.43
+    }
+  },
+  {
+    "card_id": "DINO_435",
+    "classes": {
+      "DEATHKNIGHT": 58.85,
+      "DRUID": 50.23,
+      "HUNTER": 50.59,
+      "MAGE": 48.81,
+      "PALADIN": 48.13,
+      "PRIEST": 50.0,
+      "ROGUE": 49.4,
+      "SHAMAN": 48.51,
+      "WARLOCK": 36.49,
+      "WARRIOR": 44.66,
+      "DEMONHUNTER": 40.1
+    }
+  },
+  {
+    "card_id": "CORE_EDR_004",
+    "classes": {
+      "DEATHKNIGHT": 57.68,
+      "DRUID": 54.61,
+      "HUNTER": 56.5,
+      "MAGE": 52.12,
+      "PALADIN": 55.27,
+      "PRIEST": 49.94,
+      "ROGUE": 54.08,
+      "SHAMAN": 51.51,
+      "WARLOCK": 40.87,
+      "WARRIOR": 53.65,
+      "DEMONHUNTER": 45.42
+    }
+  },
+  {
+    "card_id": "TIME_619",
+    "classes": {
+      "DEATHKNIGHT": 60.5
+    }
+  },
+  {
+    "card_id": "TIME_619t",
+    "classes": {
+      "DEATHKNIGHT": 59.23
+    }
+  },
+  {
+    "card_id": "TIME_619t2",
+    "classes": {
+      "DEATHKNIGHT": 58.4
+    }
+  },
+  {
+    "card_id": "TIME_616",
+    "classes": {
+      "DEATHKNIGHT": 55.88
+    }
+  },
+  {
+    "card_id": "TIME_611",
+    "classes": {
+      "DEATHKNIGHT": 53.7
+    }
+  },
+  {
+    "card_id": "TIME_613",
+    "classes": {
+      "DEATHKNIGHT": 57.38
+    }
+  },
+  {
+    "card_id": "TIME_610",
+    "classes": {
+      "DEATHKNIGHT": 59.64
+    }
+  },
+  {
+    "card_id": "TIME_041",
+    "classes": {
+      "DEATHKNIGHT": 45.2,
+      "DRUID": 41.91,
+      "HUNTER": 42.88,
+      "MAGE": 59.89,
+      "PALADIN": 49.97,
+      "PRIEST": 15.35,
+      "ROGUE": 38.66,
+      "SHAMAN": 39.45,
+      "WARLOCK": 25.15,
+      "WARRIOR": 57.89,
+      "DEMONHUNTER": 23.89
+    }
+  },
+  {
+    "card_id": "TIME_045",
+    "classes": {
+      "DEATHKNIGHT": 56.96,
+      "DRUID": 55.82,
+      "HUNTER": 46.49,
+      "MAGE": 38.65,
+      "PALADIN": 54.1,
+      "PRIEST": 61.18,
+      "ROGUE": 46.13,
+      "SHAMAN": 52.39,
+      "WARLOCK": 55.22,
+      "WARRIOR": 51.49,
+      "DEMONHUNTER": 34.52
+    }
+  },
+  {
+    "card_id": "TIME_051",
+    "classes": {
+      "DEATHKNIGHT": 49.01,
+      "DRUID": 51.42,
+      "HUNTER": 41.62,
+      "MAGE": 33.13,
+      "PALADIN": 48.53,
+      "PRIEST": 57.3,
+      "ROGUE": 35.79,
+      "SHAMAN": 36.18,
+      "WARLOCK": 21.89,
+      "WARRIOR": 21.04,
+      "DEMONHUNTER": 24.06
+    }
+  },
+  {
+    "card_id": "TIME_060",
+    "classes": {
+      "DEATHKNIGHT": 60.04,
+      "DRUID": 48.49,
+      "HUNTER": 46.6,
+      "MAGE": 48.17,
+      "PALADIN": 48.64,
+      "PRIEST": 51.56,
+      "ROGUE": 55.74,
+      "SHAMAN": 47.2,
+      "WARLOCK": 43.28,
+      "WARRIOR": 57.92,
+      "DEMONHUNTER": 51.85
+    }
+  },
+  {
+    "card_id": "TIME_062",
+    "classes": {
+      "DEATHKNIGHT": 48.54,
+      "DRUID": 50.15,
+      "HUNTER": 46.34,
+      "MAGE": 44.34,
+      "PALADIN": 46.9,
+      "PRIEST": 40.51,
+      "ROGUE": 55.18,
+      "SHAMAN": 49.08,
+      "WARLOCK": 40.43,
+      "WARRIOR": 48.91,
+      "DEMONHUNTER": 48.94
+    }
+  },
+  {
+    "card_id": "TIME_618",
+    "classes": {
+      "DEATHKNIGHT": 50.37
+    }
+  },
+  {
+    "card_id": "TIME_612",
+    "classes": {
+      "DEATHKNIGHT": 57.07
+    }
+  },
+  {
+    "card_id": "TIME_614",
+    "classes": {
+      "DEATHKNIGHT": 56.73
+    }
+  },
+  {
+    "card_id": "TIME_617",
+    "classes": {
+      "DEATHKNIGHT": 49.27
+    }
+  },
+  {
+    "card_id": "TIME_100",
+    "classes": {
+      "DEATHKNIGHT": 53.59,
+      "DRUID": 44.99,
+      "HUNTER": 54.49,
+      "MAGE": 50.68,
+      "PALADIN": 52.8,
+      "PRIEST": 49.17,
+      "ROGUE": 55.81,
+      "SHAMAN": 49.79,
+      "WARLOCK": 35.78,
+      "WARRIOR": 40.65,
+      "DEMONHUNTER": 51.36
+    }
+  },
+  {
+    "card_id": "END_036",
+    "classes": {
+      "DEATHKNIGHT": 51.82,
+      "DRUID": 50.43,
+      "HUNTER": 48.72,
+      "MAGE": 35.46,
+      "PALADIN": 25.3,
+      "PRIEST": 41.48,
+      "ROGUE": 56.06,
+      "SHAMAN": 44.18,
+      "WARLOCK": 50.3,
+      "WARRIOR": 40.68,
+      "DEMONHUNTER": 15.17
+    }
+  },
+  {
+    "card_id": "END_037",
+    "classes": {
+      "DEATHKNIGHT": 43.86,
+      "DRUID": 45.82,
+      "HUNTER": 40.31,
+      "MAGE": 40.58,
+      "PALADIN": 39.58,
+      "PRIEST": 39.08,
+      "ROGUE": 27.27,
+      "SHAMAN": 45.28,
+      "WARLOCK": 0.15,
+      "WARRIOR": 41.11,
+      "DEMONHUNTER": 28.78
+    }
+  },
+  {
+    "card_id": "TLC_888",
+    "classes": {
+      "DEATHKNIGHT": 51.03,
+      "DRUID": 50.79,
+      "HUNTER": 45.98,
+      "MAGE": 47.35,
+      "PALADIN": 55.65,
+      "PRIEST": 47.03,
+      "ROGUE": 56.27,
+      "SHAMAN": 50.65,
+      "WARLOCK": 27.07,
+      "WARRIOR": 50.63,
+      "DEMONHUNTER": 48.01
+    }
+  },
+  {
+    "card_id": "CATA_111",
+    "classes": {
+      "DEATHKNIGHT": 52.0,
+      "DRUID": 55.95,
+      "HUNTER": 50.81,
+      "MAGE": 49.16,
+      "PALADIN": 49.67,
+      "PRIEST": 47.52,
+      "ROGUE": 54.28,
+      "SHAMAN": 43.84,
+      "WARLOCK": 35.48,
+      "WARRIOR": 52.26,
+      "DEMONHUNTER": 47.09
+    }
+  },
+  {
+    "card_id": "CATA_720",
+    "classes": {
+      "DEATHKNIGHT": 23.68,
+      "DRUID": 41.68,
+      "HUNTER": 16.13,
+      "MAGE": 25.04,
+      "PALADIN": 71.07,
+      "PRIEST": 19.57,
+      "ROGUE": 25.39,
+      "SHAMAN": 36.79,
+      "WARRIOR": 30.58
+    }
+  },
+  {
+    "card_id": "CATA_721",
+    "classes": {
+      "DEATHKNIGHT": 53.88,
+      "DRUID": 54.98,
+      "HUNTER": 49.34,
+      "MAGE": 49.39,
+      "PALADIN": 52.0,
+      "PRIEST": 47.38,
+      "ROGUE": 53.85,
+      "SHAMAN": 49.69,
+      "WARLOCK": 28.89,
+      "WARRIOR": 47.66,
+      "DEMONHUNTER": 39.31
+    }
+  },
+  {
+    "card_id": "CATA_722",
+    "classes": {
+      "DEATHKNIGHT": 57.04,
+      "ROGUE": 57.09,
+      "SHAMAN": 57.13,
+      "WARLOCK": 42.46,
+      "WARRIOR": 54.03,
+      "DEMONHUNTER": 49.82
+    }
+  },
+  {
+    "card_id": "CATA_723",
+    "classes": {
+      "DEATHKNIGHT": 55.01,
+      "DRUID": 48.61,
+      "HUNTER": 49.82,
+      "MAGE": 53.04,
+      "PALADIN": 53.8,
+      "PRIEST": 52.53,
+      "ROGUE": 51.23,
+      "SHAMAN": 50.37,
+      "WARLOCK": 36.17,
+      "WARRIOR": 49.16,
+      "DEMONHUNTER": 49.67
+    }
+  },
+  {
+    "card_id": "CATA_464",
+    "classes": {
+      "DEATHKNIGHT": 53.46
+    }
+  },
+  {
+    "card_id": "CATA_465",
+    "classes": {
+      "DEATHKNIGHT": 60.4
+    }
+  },
+  {
+    "card_id": "CATA_467",
+    "classes": {
+      "DEATHKNIGHT": 58.18
+    }
+  },
+  {
+    "card_id": "CATA_469",
+    "classes": {
+      "DEATHKNIGHT": 54.48
+    }
+  },
+  {
+    "card_id": "CATA_470",
+    "classes": {
+      "DEATHKNIGHT": 51.48
+    }
+  },
+  {
+    "card_id": "CATA_497",
+    "classes": {
+      "DEATHKNIGHT": 59.29,
+      "ROGUE": 62.92,
+      "SHAMAN": 62.07,
+      "WARLOCK": 53.28,
+      "WARRIOR": 61.45,
+      "DEMONHUNTER": 57.5
+    }
+  },
+  {
+    "card_id": "CATA_471",
+    "classes": {
+      "DEATHKNIGHT": 63.46
+    }
+  },
+  {
+    "card_id": "CATA_556",
+    "classes": {
+      "DEATHKNIGHT": 56.94,
+      "DRUID": 57.07,
+      "HUNTER": 53.08,
+      "MAGE": 50.69,
+      "PALADIN": 54.11,
+      "PRIEST": 50.57,
+      "ROGUE": 54.63,
+      "SHAMAN": 53.61,
+      "WARLOCK": 43.41,
+      "WARRIOR": 54.02,
+      "DEMONHUNTER": 45.51
+    }
+  },
+  {
+    "card_id": "CATA_476",
+    "classes": {
+      "DEATHKNIGHT": 53.32,
+      "DRUID": 51.44,
+      "HUNTER": 54.74,
+      "MAGE": 40.51,
+      "PALADIN": 53.23,
+      "PRIEST": 52.15,
+      "ROGUE": 59.98,
+      "SHAMAN": 56.28,
+      "WARLOCK": 55.96,
+      "WARRIOR": 54.58,
+      "DEMONHUNTER": 51.77
+    }
+  },
+  {
+    "card_id": "CATA_206",
+    "classes": {
+      "DEATHKNIGHT": 50.01,
+      "DRUID": 45.4,
+      "HUNTER": 52.16,
+      "MAGE": 52.11,
+      "PALADIN": 48.67,
+      "PRIEST": 40.84,
+      "ROGUE": 52.78,
+      "SHAMAN": 45.21,
+      "WARLOCK": 30.89,
+      "WARRIOR": 42.14,
+      "DEMONHUNTER": 33.91
+    }
+  },
+  {
+    "card_id": "CATA_208",
+    "classes": {
+      "DEATHKNIGHT": 56.37,
+      "DRUID": 56.95,
+      "HUNTER": 55.86,
+      "MAGE": 55.27,
+      "PALADIN": 54.9,
+      "PRIEST": 45.94,
+      "ROGUE": 55.84,
+      "SHAMAN": 50.29,
+      "WARLOCK": 58.22,
+      "WARRIOR": 51.46,
+      "DEMONHUNTER": 32.38
+    }
+  },
+  {
+    "card_id": "CATA_209",
+    "classes": {
+      "DEATHKNIGHT": 53.87,
+      "DRUID": 51.53,
+      "HUNTER": 54.36,
+      "MAGE": 44.91,
+      "PALADIN": 49.04,
+      "PRIEST": 52.42,
+      "ROGUE": 54.11,
+      "SHAMAN": 49.96,
+      "WARLOCK": 28.64,
+      "WARRIOR": 49.68,
+      "DEMONHUNTER": 45.87
+    }
+  },
+  {
+    "card_id": "CATA_210",
+    "classes": {
+      "DEATHKNIGHT": 57.54,
+      "DRUID": 58.52,
+      "HUNTER": 56.66,
+      "MAGE": 52.93,
+      "PALADIN": 54.79,
+      "PRIEST": 43.38,
+      "ROGUE": 56.65,
+      "SHAMAN": 53.92,
+      "WARLOCK": 43.58,
+      "WARRIOR": 54.85,
+      "DEMONHUNTER": 46.71
+    }
+  },
+  {
+    "card_id": "CATA_612",
+    "classes": {
+      "DEATHKNIGHT": 48.87,
+      "DRUID": 47.89,
+      "HUNTER": 56.81,
+      "MAGE": 57.01,
+      "PALADIN": 53.71,
+      "PRIEST": 53.22,
+      "ROGUE": 42.78,
+      "SHAMAN": 32.74,
+      "WARLOCK": 31.01,
+      "WARRIOR": 40.12,
+      "DEMONHUNTER": 21.28
+    }
+  },
+  {
+    "card_id": "CATA_613",
+    "classes": {
+      "DEATHKNIGHT": 15.3,
+      "DRUID": 37.07,
+      "HUNTER": 0.3,
+      "MAGE": 0.15,
+      "PALADIN": 33.59,
+      "ROGUE": 12.8,
+      "SHAMAN": 25.35,
+      "WARLOCK": 39.74,
+      "WARRIOR": 26.68
+    }
+  },
+  {
+    "card_id": "CATA_614",
+    "classes": {
+      "DEATHKNIGHT": 56.28,
+      "DRUID": 56.38,
+      "HUNTER": 52.6,
+      "MAGE": 51.26,
+      "PALADIN": 54.85,
+      "PRIEST": 47.81,
+      "ROGUE": 55.16,
+      "SHAMAN": 51.51,
+      "WARLOCK": 46.64,
+      "WARRIOR": 53.89,
+      "DEMONHUNTER": 48.68
+    }
+  },
+  {
+    "card_id": "CATA_615",
+    "classes": {
+      "DEATHKNIGHT": 39.75,
+      "DRUID": 35.55,
+      "HUNTER": 51.23,
+      "MAGE": 42.95,
+      "PALADIN": 39.39,
+      "PRIEST": 14.95,
+      "ROGUE": 18.0,
+      "SHAMAN": 29.97,
+      "WARLOCK": 16.89,
+      "WARRIOR": 32.39,
+      "DEMONHUNTER": 42.77
+    }
+  },
+  {
+    "card_id": "CATA_616",
+    "classes": {
+      "DEATHKNIGHT": 55.23,
+      "DRUID": 45.28,
+      "HUNTER": 40.53,
+      "MAGE": 54.58,
+      "PALADIN": 46.62,
+      "PRIEST": 27.39,
+      "ROGUE": 47.32,
+      "SHAMAN": 45.91,
+      "WARLOCK": 37.13,
+      "WARRIOR": 57.42,
+      "DEMONHUNTER": 45.48
+    }
+  },
+  {
+    "card_id": "CATA_156",
+    "classes": {
+      "DEATHKNIGHT": 58.81
+    }
+  },
+  {
+    "card_id": "CATA_161",
+    "classes": {
+      "DEATHKNIGHT": 56.13
+    }
+  },
+  {
+    "card_id": "CATA_780",
+    "classes": {
+      "DEATHKNIGHT": 59.6
+    }
+  },
+  {
+    "card_id": "CATA_898",
+    "classes": {
+      "DEATHKNIGHT": 51.05,
+      "DRUID": 51.54,
+      "HUNTER": 48.72,
+      "MAGE": 45.77,
+      "PALADIN": 48.44,
+      "PRIEST": 49.85,
+      "ROGUE": 51.85,
+      "SHAMAN": 46.76,
+      "WARLOCK": 44.39,
+      "WARRIOR": 46.01,
+      "DEMONHUNTER": 53.16
+    }
+  },
+  {
+    "card_id": "CATA_897",
+    "classes": {
+      "DEATHKNIGHT": 52.97,
+      "DRUID": 51.24,
+      "HUNTER": 56.94,
+      "MAGE": 47.98,
+      "PALADIN": 56.23,
+      "PRIEST": 52.29,
+      "ROGUE": 48.94,
+      "SHAMAN": 46.57,
+      "WARLOCK": 34.13,
+      "WARRIOR": 51.62,
+      "DEMONHUNTER": 47.91
+    }
+  },
+  {
+    "card_id": "CATA_180",
+    "classes": {
+      "DEATHKNIGHT": 70.6,
+      "DRUID": 36.67,
+      "HUNTER": 0.0,
+      "PALADIN": 28.72,
+      "PRIEST": 0.0,
+      "ROGUE": 12.17,
+      "SHAMAN": 47.38,
+      "WARLOCK": 0.0,
+      "DEMONHUNTER": 0.15
+    }
+  },
+  {
+    "card_id": "CATA_185",
+    "classes": {
+      "DEATHKNIGHT": 44.34,
+      "DRUID": 38.29,
+      "HUNTER": 35.35,
+      "MAGE": 58.5,
+      "PALADIN": 53.8,
+      "PRIEST": 61.89,
+      "ROGUE": 57.47,
+      "SHAMAN": 50.2,
+      "WARLOCK": 0.24,
+      "WARRIOR": 63.7
+    }
+  },
+  {
+    "card_id": "CATA_186",
+    "classes": {
+      "DEATHKNIGHT": 53.02,
+      "DRUID": 53.6,
+      "HUNTER": 60.88,
+      "MAGE": 49.68,
+      "PALADIN": 37.91,
+      "PRIEST": 38.56,
+      "ROGUE": 55.96,
+      "SHAMAN": 53.12,
+      "WARLOCK": 29.52,
+      "WARRIOR": 58.0,
+      "DEMONHUNTER": 56.42
+    }
+  },
+  {
+    "card_id": "CATA_155",
+    "classes": {
+      "DEATHKNIGHT": 60.26
+    }
+  },
+  {
+    "card_id": "CATA_190h",
+    "classes": {
+      "DEATHKNIGHT": 60.87,
+      "ROGUE": 67.05,
+      "SHAMAN": 65.03,
+      "WARLOCK": 53.02,
+      "WARRIOR": 61.97,
+      "DEMONHUNTER": 59.94
+    }
+  },
+  {
+    "card_id": "CORE_CATA_007",
+    "classes": {
+      "DEATHKNIGHT": 57.08
+    }
+  },
+  {
+    "card_id": "CORE_CATA_009",
+    "classes": {
+      "DEATHKNIGHT": 51.64
+    }
+  },
+  {
+    "card_id": "CORE_BT_156",
+    "classes": {
+      "DEATHKNIGHT": 25.3,
+      "DRUID": 87.8,
+      "HUNTER": 0.24,
+      "MAGE": 25.39,
+      "WARLOCK": 51.03
+    }
+  },
+  {
+    "card_id": "CATA_999",
+    "classes": {
+      "DEATHKNIGHT": 53.81,
+      "DRUID": 55.89,
+      "HUNTER": 54.41,
+      "MAGE": 54.01,
+      "PALADIN": 44.32,
+      "PRIEST": 52.61,
+      "ROGUE": 47.27,
+      "SHAMAN": 52.39,
+      "WARLOCK": 32.26,
+      "WARRIOR": 50.76,
+      "DEMONHUNTER": 22.41
+    }
+  },
+  {
+    "card_id": "EX1_154",
+    "classes": {
+      "DRUID": 54.29
+    }
+  },
+  {
+    "card_id": "CFM_308",
+    "classes": {
+      "DRUID": 50.26
+    }
+  },
+  {
+    "card_id": "LOOT_149",
+    "classes": {
+      "DRUID": 53.09
+    }
+  },
+  {
+    "card_id": "DRG_313",
+    "classes": {
+      "DRUID": 53.24
+    }
+  },
+  {
+    "card_id": "DRG_318",
+    "classes": {
+      "DRUID": 60.07
+    }
+  },
+  {
+    "card_id": "BT_129",
+    "classes": {
+      "DRUID": 55.85
+    }
+  },
+  {
+    "card_id": "SCH_333",
+    "classes": {
+      "DRUID": 58.35
+    }
+  },
+  {
+    "card_id": "YOP_025",
+    "classes": {
+      "DRUID": 55.19
+    }
+  },
+  {
+    "card_id": "YOP_026",
+    "classes": {
+      "DRUID": 61.94
+    }
+  },
+  {
+    "card_id": "BAR_534",
+    "classes": {
+      "DRUID": 61.14
+    }
+  },
+  {
+    "card_id": "SW_419",
+    "classes": {
+      "DRUID": 52.12
+    }
+  },
+  {
+    "card_id": "SW_431",
+    "classes": {
+      "DRUID": 56.69
+    }
+  },
+  {
+    "card_id": "DED_003",
+    "classes": {
+      "DRUID": 54.13
+    }
+  },
+  {
+    "card_id": "AV_210",
+    "classes": {
+      "DRUID": 54.55
+    }
+  },
+  {
+    "card_id": "AV_294",
+    "classes": {
+      "DRUID": 58.0
+    }
+  },
+  {
+    "card_id": "ONY_021",
+    "classes": {
+      "DRUID": 51.78
+    }
+  },
+  {
+    "card_id": "TSC_908",
+    "classes": {
+      "DRUID": 49.21
+    }
+  },
+  {
+    "card_id": "TSC_654",
+    "classes": {
+      "DRUID": 56.76
+    }
+  },
+  {
+    "card_id": "TID_002",
+    "classes": {
+      "DRUID": 57.71
+    }
+  },
+  {
+    "card_id": "CORE_AT_037",
+    "classes": {
+      "DRUID": 57.69
+    }
+  },
+  {
+    "card_id": "REV_307",
+    "classes": {
+      "DRUID": 56.83
+    }
+  },
+  {
+    "card_id": "REV_313",
+    "classes": {
+      "DRUID": 59.85
+    }
+  },
+  {
+    "card_id": "REV_314",
+    "classes": {
+      "DRUID": 65.04
+    }
+  },
+  {
+    "card_id": "REV_336",
+    "classes": {
+      "DRUID": 59.64
+    }
+  },
+  {
+    "card_id": "MAW_025",
+    "classes": {
+      "DRUID": 54.6
+    }
+  },
+  {
+    "card_id": "RLK_650",
+    "classes": {
+      "DRUID": 58.72
+    }
+  },
+  {
+    "card_id": "ETC_373",
+    "classes": {
+      "DRUID": 60.7
+    }
+  },
+  {
+    "card_id": "ETC_376",
+    "classes": {
+      "DRUID": 56.53
+    }
+  },
+  {
+    "card_id": "ETC_382",
+    "classes": {
+      "DRUID": 50.78
+    }
+  },
+  {
+    "card_id": "ETC_385",
+    "classes": {
+      "DRUID": 50.93
+    }
+  },
+  {
+    "card_id": "ETC_386",
+    "classes": {
+      "DRUID": 45.93
+    }
+  },
+  {
+    "card_id": "ETC_387",
+    "classes": {
+      "DRUID": 57.31
+    }
+  },
+  {
+    "card_id": "TTN_903",
+    "classes": {
+      "DRUID": 55.16
+    }
+  },
+  {
+    "card_id": "TTN_950",
+    "classes": {
+      "DRUID": 58.01
+    }
+  },
+  {
+    "card_id": "TTN_955",
+    "classes": {
+      "DRUID": 62.08
+    }
+  },
+  {
+    "card_id": "WW_820",
+    "classes": {
+      "DRUID": 56.91
+    }
+  },
+  {
+    "card_id": "WW_825",
+    "classes": {
+      "DRUID": 57.3
+    }
+  },
+  {
+    "card_id": "WW_821",
+    "classes": {
+      "DRUID": 54.57
+    }
+  },
+  {
+    "card_id": "YOG_403",
+    "classes": {
+      "DRUID": 57.41
+    }
+  },
+  {
+    "card_id": "WW_816",
+    "classes": {
+      "DRUID": 55.5
+    }
+  },
+  {
+    "card_id": "WW_818",
+    "classes": {
+      "DRUID": 58.94
+    }
+  },
+  {
+    "card_id": "GIFT_10",
+    "classes": {
+      "DRUID": 53.55
+    }
+  },
+  {
+    "card_id": "TOY_801",
+    "classes": {
+      "DRUID": 57.64
+    }
+  },
+  {
+    "card_id": "TOY_806",
+    "classes": {
+      "DRUID": 54.47
+    }
+  },
+  {
+    "card_id": "VAC_506",
+    "classes": {
+      "DRUID": 47.55
+    }
+  },
+  {
+    "card_id": "VAC_508",
+    "classes": {
+      "DRUID": 50.02
+    }
+  },
+  {
+    "card_id": "VAC_511",
+    "classes": {
+      "DRUID": 56.33
+    }
+  },
+  {
+    "card_id": "VAC_907",
+    "classes": {
+      "DRUID": 47.86
+    }
+  },
+  {
+    "card_id": "VAC_949",
+    "classes": {
+      "DRUID": 55.26
+    }
+  },
+  {
+    "card_id": "VAC_950",
+    "classes": {
+      "DRUID": 52.84
+    }
+  },
+  {
+    "card_id": "VAC_438",
+    "classes": {
+      "DRUID": 47.06
+    }
+  },
+  {
+    "card_id": "VAC_439",
+    "classes": {
+      "DRUID": 50.02
+    }
+  },
+  {
+    "card_id": "MIS_300",
+    "classes": {
+      "DRUID": 48.05
+    }
+  },
+  {
+    "card_id": "EDR_060",
+    "classes": {
+      "DRUID": 47.24
+    }
+  },
+  {
+    "card_id": "GDB_851",
+    "classes": {
+      "DRUID": 52.62
+    }
+  },
+  {
+    "card_id": "GDB_852",
+    "classes": {
+      "DRUID": 55.01
+    }
+  },
+  {
+    "card_id": "GDB_855",
+    "classes": {
+      "DRUID": 54.44
+    }
+  },
+  {
+    "card_id": "EDR_209",
+    "classes": {
+      "DRUID": 55.98
+    }
+  },
+  {
+    "card_id": "GDB_883",
+    "classes": {
+      "DRUID": 57.13
+    }
+  },
+  {
+    "card_id": "EDR_847",
+    "classes": {
+      "DRUID": 51.67
+    }
+  },
+  {
+    "card_id": "EDR_848",
+    "classes": {
+      "DRUID": 54.92
+    }
+  },
+  {
+    "card_id": "EDR_270",
+    "classes": {
+      "DRUID": 57.89
+    }
+  },
+  {
+    "card_id": "EDR_272",
+    "classes": {
+      "DRUID": 46.22
+    }
+  },
+  {
+    "card_id": "CORE_TSC_650",
+    "classes": {
+      "DRUID": 52.89
+    }
+  },
+  {
+    "card_id": "TLC_231",
+    "classes": {
+      "DRUID": 51.8
+    }
+  },
+  {
+    "card_id": "TIME_211",
+    "classes": {
+      "DRUID": 51.36
+    }
+  },
+  {
+    "card_id": "TIME_211t1",
+    "classes": {
+      "DRUID": 52.18
+    }
+  },
+  {
+    "card_id": "TIME_211t2",
+    "classes": {
+      "DRUID": 55.47
+    }
+  },
+  {
+    "card_id": "TIME_023",
+    "classes": {
+      "DRUID": 51.38
+    }
+  },
+  {
+    "card_id": "TIME_701",
+    "classes": {
+      "DRUID": 57.16
+    }
+  },
+  {
+    "card_id": "TIME_702",
+    "classes": {
+      "DRUID": 54.96
+    }
+  },
+  {
+    "card_id": "TIME_704",
+    "classes": {
+      "DRUID": 57.63
+    }
+  },
+  {
+    "card_id": "TIME_705",
+    "classes": {
+      "DRUID": 49.01
+    }
+  },
+  {
+    "card_id": "TIME_730",
+    "classes": {
+      "DRUID": 52.18
+    }
+  },
+  {
+    "card_id": "CATA_130",
+    "classes": {
+      "DRUID": 58.73
+    }
+  },
+  {
+    "card_id": "CATA_131",
+    "classes": {
+      "DRUID": 59.93
+    }
+  },
+  {
+    "card_id": "CATA_132",
+    "classes": {
+      "DRUID": 59.2
+    }
+  },
+  {
+    "card_id": "CATA_133",
+    "classes": {
+      "DRUID": 57.17
+    }
+  },
+  {
+    "card_id": "CATA_134",
+    "classes": {
+      "DRUID": 36.45
+    }
+  },
+  {
+    "card_id": "CATA_136",
+    "classes": {
+      "DRUID": 49.21
+    }
+  },
+  {
+    "card_id": "CATA_139",
+    "classes": {
+      "DRUID": 61.79
+    }
+  },
+  {
+    "card_id": "CATA_138",
+    "classes": {
+      "DRUID": 61.83
+    }
+  },
+  {
+    "card_id": "CATA_135",
+    "classes": {
+      "DRUID": 58.02
+    }
+  },
+  {
+    "card_id": "CORE_CATA_006",
+    "classes": {
+      "DRUID": 55.57
+    }
+  },
+  {
+    "card_id": "UNG_800",
+    "classes": {
+      "HUNTER": 56.15
+    }
+  },
+  {
+    "card_id": "LOOT_222",
+    "classes": {
+      "HUNTER": 57.92
+    }
+  },
+  {
+    "card_id": "DRG_254",
+    "classes": {
+      "HUNTER": 51.43
+    }
+  },
+  {
+    "card_id": "BT_211",
+    "classes": {
+      "HUNTER": 52.42
+    }
+  },
+  {
+    "card_id": "BT_213",
+    "classes": {
+      "HUNTER": 54.3
+    }
+  },
+  {
+    "card_id": "SCH_300",
+    "classes": {
+      "HUNTER": 53.98
+    }
+  },
+  {
+    "card_id": "BAR_035",
+    "classes": {
+      "HUNTER": 53.31
+    }
+  },
+  {
+    "card_id": "SW_455",
+    "classes": {
+      "HUNTER": 44.71
+    }
+  },
+  {
+    "card_id": "SW_458",
+    "classes": {
+      "HUNTER": 58.51
+    }
+  },
+  {
+    "card_id": "SW_323",
+    "classes": {
+      "HUNTER": 49.6
+    }
+  },
+  {
+    "card_id": "SW_460",
+    "classes": {
+      "HUNTER": 44.94
+    }
+  },
+  {
+    "card_id": "SW_463",
+    "classes": {
+      "HUNTER": 54.1
+    }
+  },
+  {
+    "card_id": "AV_244",
+    "classes": {
+      "HUNTER": 55.52
+    }
+  },
+  {
+    "card_id": "AV_113",
+    "classes": {
+      "HUNTER": 56.39
+    }
+  },
+  {
+    "card_id": "ONY_009",
+    "classes": {
+      "HUNTER": 50.0
+    }
+  },
+  {
+    "card_id": "ONY_010",
+    "classes": {
+      "HUNTER": 49.22
+    }
+  },
+  {
+    "card_id": "TSC_945",
+    "classes": {
+      "HUNTER": 44.22
+    }
+  },
+  {
+    "card_id": "TSC_070",
+    "classes": {
+      "HUNTER": 55.33
+    }
+  },
+  {
+    "card_id": "REV_350",
+    "classes": {
+      "HUNTER": 53.62
+    }
+  },
+  {
+    "card_id": "REV_352",
+    "classes": {
+      "HUNTER": 52.35
+    }
+  },
+  {
+    "card_id": "MAW_009",
+    "classes": {
+      "HUNTER": 55.07
+    }
+  },
+  {
+    "card_id": "RLK_821",
+    "classes": {
+      "HUNTER": 52.97
+    }
+  },
+  {
+    "card_id": "RLK_825",
+    "classes": {
+      "HUNTER": 56.8
+    }
+  },
+  {
+    "card_id": "RLK_827",
+    "classes": {
+      "HUNTER": 58.26
+    }
+  },
+  {
+    "card_id": "RLK_828",
+    "classes": {
+      "HUNTER": 58.13
+    }
+  },
+  {
+    "card_id": "ETC_418",
+    "classes": {
+      "HUNTER": 55.33
+    }
+  },
+  {
+    "card_id": "ETC_831",
+    "classes": {
+      "HUNTER": 55.74
+    }
+  },
+  {
+    "card_id": "ETC_201",
+    "classes": {
+      "HUNTER": 54.08
+    }
+  },
+  {
+    "card_id": "TTN_078",
+    "classes": {
+      "HUNTER": 56.15
+    }
+  },
+  {
+    "card_id": "ETC_207",
+    "classes": {
+      "HUNTER": 52.41
+    }
+  },
+  {
+    "card_id": "CORE_UNG_912",
+    "classes": {
+      "HUNTER": 54.48
+    }
+  },
+  {
+    "card_id": "TTN_092",
+    "classes": {
+      "HUNTER": 60.59
+    }
+  },
+  {
+    "card_id": "WW_806",
+    "classes": {
+      "HUNTER": 56.04
+    }
+  },
+  {
+    "card_id": "WW_808",
+    "classes": {
+      "HUNTER": 54.08
+    }
+  },
+  {
+    "card_id": "WW_810",
+    "classes": {
+      "HUNTER": 56.73
+    }
+  },
+  {
+    "card_id": "WW_812",
+    "classes": {
+      "HUNTER": 58.87
+    }
+  },
+  {
+    "card_id": "WW_807",
+    "classes": {
+      "HUNTER": 56.68
+    }
+  },
+  {
+    "card_id": "YOG_506",
+    "classes": {
+      "HUNTER": 54.53
+    }
+  },
+  {
+    "card_id": "WW_811",
+    "classes": {
+      "HUNTER": 48.13
+    }
+  },
+  {
+    "card_id": "TOY_353",
+    "classes": {
+      "HUNTER": 56.61
+    }
+  },
+  {
+    "card_id": "TOY_354",
+    "classes": {
+      "HUNTER": 57.13
+    }
+  },
+  {
+    "card_id": "TOY_355",
+    "classes": {
+      "HUNTER": 54.43
+    }
+  },
+  {
+    "card_id": "TOY_356",
+    "classes": {
+      "HUNTER": 51.74
+    }
+  },
+  {
+    "card_id": "TOY_358",
+    "classes": {
+      "HUNTER": 55.2
+    }
+  },
+  {
+    "card_id": "VAC_407",
+    "classes": {
+      "HUNTER": 51.01
+    }
+  },
+  {
+    "card_id": "VAC_408",
+    "classes": {
+      "HUNTER": 50.42
+    }
+  },
+  {
+    "card_id": "VAC_410",
+    "classes": {
+      "HUNTER": 55.18
+    }
+  },
+  {
+    "card_id": "VAC_415",
+    "classes": {
+      "HUNTER": 52.64
+    }
+  },
+  {
+    "card_id": "VAC_416",
+    "classes": {
+      "HUNTER": 52.18
+    }
+  },
+  {
+    "card_id": "WORK_019",
+    "classes": {
+      "HUNTER": 49.35
+    }
+  },
+  {
+    "card_id": "GDB_840",
+    "classes": {
+      "HUNTER": 54.76
+    }
+  },
+  {
+    "card_id": "GDB_841",
+    "classes": {
+      "HUNTER": 54.57
+    }
+  },
+  {
+    "card_id": "GDB_844",
+    "classes": {
+      "HUNTER": 55.04
+    }
+  },
+  {
+    "card_id": "GDB_846",
+    "classes": {
+      "HUNTER": 55.08
+    }
+  },
+  {
+    "card_id": "CORE_AT_062",
+    "classes": {
+      "HUNTER": 54.06
+    }
+  },
+  {
+    "card_id": "GDB_237",
+    "classes": {
+      "HUNTER": 53.96
+    }
+  },
+  {
+    "card_id": "LEG_CS3_015",
+    "classes": {
+      "HUNTER": 51.67
+    }
+  },
+  {
+    "card_id": "EDR_416",
+    "classes": {
+      "HUNTER": 55.47
+    }
+  },
+  {
+    "card_id": "EDR_853",
+    "classes": {
+      "HUNTER": 49.4
+    }
+  },
+  {
+    "card_id": "EDR_262",
+    "classes": {
+      "HUNTER": 51.97
+    }
+  },
+  {
+    "card_id": "FIR_909",
+    "classes": {
+      "HUNTER": 51.24
+    }
+  },
+  {
+    "card_id": "CORE_AV_337",
+    "classes": {
+      "HUNTER": 48.32
+    }
+  },
+  {
+    "card_id": "TLC_823",
+    "classes": {
+      "HUNTER": 52.65
+    }
+  },
+  {
+    "card_id": "TLC_825",
+    "classes": {
+      "HUNTER": 53.77
+    }
+  },
+  {
+    "card_id": "TLC_826",
+    "classes": {
+      "HUNTER": 41.35
+    }
+  },
+  {
+    "card_id": "TLC_366",
+    "classes": {
+      "HUNTER": 49.76
+    }
+  },
+  {
+    "card_id": "DINO_422",
+    "classes": {
+      "HUNTER": 55.14
+    }
+  },
+  {
+    "card_id": "DINO_434",
+    "classes": {
+      "HUNTER": 56.35
+    }
+  },
+  {
+    "card_id": "TIME_600",
+    "classes": {
+      "HUNTER": 50.47
+    }
+  },
+  {
+    "card_id": "TIME_606",
+    "classes": {
+      "HUNTER": 53.27
+    }
+  },
+  {
+    "card_id": "TIME_609t1",
+    "classes": {
+      "HUNTER": 57.1
+    }
+  },
+  {
+    "card_id": "TIME_609t2",
+    "classes": {
+      "HUNTER": 58.14
+    }
+  },
+  {
+    "card_id": "TIME_609",
+    "classes": {
+      "HUNTER": 61.4
+    }
+  },
+  {
+    "card_id": "TIME_602",
+    "classes": {
+      "HUNTER": 49.43
+    }
+  },
+  {
+    "card_id": "CATA_820",
+    "classes": {
+      "HUNTER": 33.27
+    }
+  },
+  {
+    "card_id": "CATA_550",
+    "classes": {
+      "HUNTER": 60.53
+    }
+  },
+  {
+    "card_id": "CATA_551",
+    "classes": {
+      "HUNTER": 50.83
+    }
+  },
+  {
+    "card_id": "CATA_552",
+    "classes": {
+      "HUNTER": 56.16
+    }
+  },
+  {
+    "card_id": "CATA_553",
+    "classes": {
+      "HUNTER": 52.96
+    }
+  },
+  {
+    "card_id": "CATA_554",
+    "classes": {
+      "HUNTER": 48.1
+    }
+  },
+  {
+    "card_id": "CATA_557",
+    "classes": {
+      "HUNTER": 53.79
+    }
+  },
+  {
+    "card_id": "CATA_558",
+    "classes": {
+      "HUNTER": 54.42
+    }
+  },
+  {
+    "card_id": "CATA_560",
+    "classes": {
+      "HUNTER": 52.08
+    }
+  },
+  {
+    "card_id": "CATA_566",
+    "classes": {
+      "HUNTER": 51.48
+    }
+  },
+  {
+    "card_id": "CS2_029",
+    "classes": {
+      "MAGE": 53.59
+    }
+  },
+  {
+    "card_id": "KAR_076",
+    "classes": {
+      "MAGE": 53.53
+    }
+  },
+  {
+    "card_id": "UNG_941",
+    "classes": {
+      "MAGE": 53.48
+    }
+  },
+  {
+    "card_id": "UNG_948",
+    "classes": {
+      "MAGE": 51.8
+    }
+  },
+  {
+    "card_id": "UNG_955",
+    "classes": {
+      "MAGE": 47.04
+    }
+  },
+  {
+    "card_id": "UNG_846",
+    "classes": {
+      "MAGE": 52.31
+    }
+  },
+  {
+    "card_id": "ICC_833",
+    "classes": {
+      "MAGE": 48.42
+    }
+  },
+  {
+    "card_id": "LOOT_231",
+    "classes": {
+      "MAGE": 53.23
+    }
+  },
+  {
+    "card_id": "LOOT_537",
+    "classes": {
+      "MAGE": 53.4
+    }
+  },
+  {
+    "card_id": "TRL_310",
+    "classes": {
+      "MAGE": 60.65
+    }
+  },
+  {
+    "card_id": "ULD_216",
+    "classes": {
+      "MAGE": 54.76
+    }
+  },
+  {
+    "card_id": "DRG_324",
+    "classes": {
+      "MAGE": 57.19
+    }
+  },
+  {
+    "card_id": "YOD_008",
+    "classes": {
+      "MAGE": 48.93
+    }
+  },
+  {
+    "card_id": "SCH_241",
+    "classes": {
+      "MAGE": 52.97
+    }
+  },
+  {
+    "card_id": "DMF_100",
+    "classes": {
+      "MAGE": 53.28
+    }
+  },
+  {
+    "card_id": "DMF_101",
+    "classes": {
+      "MAGE": 46.26
+    }
+  },
+  {
+    "card_id": "BAR_546",
+    "classes": {
+      "MAGE": 47.51
+    }
+  },
+  {
+    "card_id": "BAR_547",
+    "classes": {
+      "MAGE": 53.34
+    }
+  },
+  {
+    "card_id": "SW_107",
+    "classes": {
+      "MAGE": 46.51
+    }
+  },
+  {
+    "card_id": "DED_517",
+    "classes": {
+      "MAGE": 51.13
+    }
+  },
+  {
+    "card_id": "AV_212",
+    "classes": {
+      "MAGE": 49.13
+    }
+  },
+  {
+    "card_id": "AV_114",
+    "classes": {
+      "MAGE": 55.1
+    }
+  },
+  {
+    "card_id": "CORE_CS2_023",
+    "classes": {
+      "MAGE": 49.18
+    }
+  },
+  {
+    "card_id": "AV_283",
+    "classes": {
+      "MAGE": 53.92
+    }
+  },
+  {
+    "card_id": "AV_284",
+    "classes": {
+      "MAGE": 56.37
+    }
+  },
+  {
+    "card_id": "AV_290",
+    "classes": {
+      "MAGE": 56.57
+    }
+  },
+  {
+    "card_id": "TID_709",
+    "classes": {
+      "MAGE": 43.4
+    }
+  },
+  {
+    "card_id": "CORE_CS2_028",
+    "classes": {
+      "MAGE": 47.94
+    }
+  },
+  {
+    "card_id": "REV_505",
+    "classes": {
+      "MAGE": 52.3
+    }
+  },
+  {
+    "card_id": "MAW_013",
+    "classes": {
+      "MAGE": 51.05
+    }
+  },
+  {
+    "card_id": "RLK_803",
+    "classes": {
+      "MAGE": 56.94
+    }
+  },
+  {
+    "card_id": "REV_601",
+    "classes": {
+      "MAGE": 51.82
+    }
+  },
+  {
+    "card_id": "RLK_542",
+    "classes": {
+      "MAGE": 51.77
+    }
+  },
+  {
+    "card_id": "RLK_546",
+    "classes": {
+      "MAGE": 53.71
+    }
+  },
+  {
+    "card_id": "ETC_521",
+    "classes": {
+      "MAGE": 55.21
+    }
+  },
+  {
+    "card_id": "ETC_535",
+    "classes": {
+      "MAGE": 55.83
+    }
+  },
+  {
+    "card_id": "ETC_536",
+    "classes": {
+      "MAGE": 51.65
+    }
+  },
+  {
+    "card_id": "JAM_032",
+    "classes": {
+      "MAGE": 52.3,
+      "WARLOCK": 39.11
+    }
+  },
+  {
+    "card_id": "JAM_002",
+    "classes": {
+      "MAGE": 49.27
+    }
+  },
+  {
+    "card_id": "TTN_075",
+    "classes": {
+      "MAGE": 49.42
+    }
+  },
+  {
+    "card_id": "ETC_206",
+    "classes": {
+      "MAGE": 53.82
+    }
+  },
+  {
+    "card_id": "TTN_475",
+    "classes": {
+      "MAGE": 55.87
+    }
+  },
+  {
+    "card_id": "TTN_476",
+    "classes": {
+      "MAGE": 47.05
+    }
+  },
+  {
+    "card_id": "TTN_477",
+    "classes": {
+      "MAGE": 49.69
+    }
+  },
+  {
+    "card_id": "JAM_031",
+    "classes": {
+      "MAGE": 50.06
+    }
+  },
+  {
+    "card_id": "YOG_519",
+    "classes": {
+      "MAGE": 56.46
+    }
+  },
+  {
+    "card_id": "WW_427",
+    "classes": {
+      "MAGE": 54.27
+    }
+  },
+  {
+    "card_id": "TTN_095",
+    "classes": {
+      "MAGE": 57.01
+    }
+  },
+  {
+    "card_id": "TOY_370",
+    "classes": {
+      "MAGE": 48.13
+    }
+  },
+  {
+    "card_id": "TOY_376",
+    "classes": {
+      "MAGE": 55.47
+    }
+  },
+  {
+    "card_id": "TOY_377",
+    "classes": {
+      "MAGE": 52.38
+    }
+  },
+  {
+    "card_id": "VAC_509",
+    "classes": {
+      "MAGE": 57.38
+    }
+  },
+  {
+    "card_id": "VAC_522",
+    "classes": {
+      "MAGE": 52.57
+    }
+  },
+  {
+    "card_id": "VAC_435",
+    "classes": {
+      "MAGE": 54.31
+    }
+  },
+  {
+    "card_id": "VAC_953",
+    "classes": {
+      "MAGE": 47.73
+    }
+  },
+  {
+    "card_id": "TOY_373",
+    "classes": {
+      "MAGE": 55.93
+    }
+  },
+  {
+    "card_id": "WORK_026",
+    "classes": {
+      "MAGE": 54.02
+    }
+  },
+  {
+    "card_id": "GDB_301",
+    "classes": {
+      "MAGE": 59.76
+    }
+  },
+  {
+    "card_id": "GDB_302",
+    "classes": {
+      "MAGE": 54.93
+    }
+  },
+  {
+    "card_id": "GDB_303",
+    "classes": {
+      "MAGE": 54.7
+    }
+  },
+  {
+    "card_id": "GDB_305",
+    "classes": {
+      "MAGE": 56.28
+    }
+  },
+  {
+    "card_id": "FIR_910",
+    "classes": {
+      "MAGE": 50.16
+    }
+  },
+  {
+    "card_id": "FIR_911",
+    "classes": {
+      "MAGE": 53.53
+    }
+  },
+  {
+    "card_id": "FIR_913",
+    "classes": {
+      "MAGE": 58.06
+    }
+  },
+  {
+    "card_id": "EDR_874",
+    "classes": {
+      "MAGE": 48.47
+    }
+  },
+  {
+    "card_id": "TLC_220",
+    "classes": {
+      "MAGE": 54.54
+    }
+  },
+  {
+    "card_id": "TLC_226",
+    "classes": {
+      "MAGE": 55.33
+    }
+  },
+  {
+    "card_id": "TLC_461",
+    "classes": {
+      "MAGE": 53.12
+    }
+  },
+  {
+    "card_id": "TLC_334",
+    "classes": {
+      "MAGE": 55.53
+    }
+  },
+  {
+    "card_id": "TIME_000",
+    "classes": {
+      "MAGE": 52.26
+    }
+  },
+  {
+    "card_id": "TIME_852",
+    "classes": {
+      "MAGE": 42.51
+    }
+  },
+  {
+    "card_id": "TIME_852t3",
+    "classes": {
+      "MAGE": 44.83
+    }
+  },
+  {
+    "card_id": "TIME_852t1",
+    "classes": {
+      "MAGE": 41.81
+    }
+  },
+  {
+    "card_id": "TIME_855",
+    "classes": {
+      "MAGE": 52.67
+    }
+  },
+  {
+    "card_id": "TIME_856",
+    "classes": {
+      "MAGE": 50.53
+    }
+  },
+  {
+    "card_id": "TIME_861",
+    "classes": {
+      "MAGE": 48.73
+    }
+  },
+  {
+    "card_id": "CATA_452",
+    "classes": {
+      "MAGE": 55.07
+    }
+  },
+  {
+    "card_id": "CATA_458",
+    "classes": {
+      "MAGE": 51.59
+    }
+  },
+  {
+    "card_id": "CATA_483",
+    "classes": {
+      "MAGE": 54.39
+    }
+  },
+  {
+    "card_id": "CATA_484",
+    "classes": {
+      "MAGE": 55.19
+    }
+  },
+  {
+    "card_id": "CATA_485",
+    "classes": {
+      "MAGE": 54.48
+    }
+  },
+  {
+    "card_id": "CATA_487",
+    "classes": {
+      "MAGE": 52.83
+    }
+  },
+  {
+    "card_id": "CATA_488",
+    "classes": {
+      "MAGE": 70.24
+    }
+  },
+  {
+    "card_id": "CATA_489",
+    "classes": {
+      "MAGE": 33.05
+    }
+  },
+  {
+    "card_id": "CATA_978",
+    "classes": {
+      "MAGE": 49.74
+    }
+  },
+  {
+    "card_id": "CATA_979",
+    "classes": {
+      "MAGE": 49.65
+    }
+  },
+  {
+    "card_id": "CORE_SW_108",
+    "classes": {
+      "MAGE": 50.45
+    }
+  },
+  {
+    "card_id": "CORE_BT_072",
+    "classes": {
+      "MAGE": 40.37
+    }
+  },
+  {
+    "card_id": "CORE_BAR_541",
+    "classes": {
+      "MAGE": 47.5
+    }
+  },
+  {
+    "card_id": "LOE_017",
+    "classes": {
+      "PALADIN": 52.81
+    }
+  },
+  {
+    "card_id": "BOT_909",
+    "classes": {
+      "PALADIN": 54.51
+    }
+  },
+  {
+    "card_id": "BT_011",
+    "classes": {
+      "PALADIN": 53.38
+    }
+  },
+  {
+    "card_id": "BT_020",
+    "classes": {
+      "PALADIN": 56.79
+    }
+  },
+  {
+    "card_id": "BT_024",
+    "classes": {
+      "PALADIN": 52.64
+    }
+  },
+  {
+    "card_id": "BT_025",
+    "classes": {
+      "PALADIN": 54.4
+    }
+  },
+  {
+    "card_id": "BT_026",
+    "classes": {
+      "PALADIN": 55.78
+    }
+  },
+  {
+    "card_id": "BT_334",
+    "classes": {
+      "PALADIN": 55.85
+    }
+  },
+  {
+    "card_id": "SCH_138",
+    "classes": {
+      "PALADIN": 53.87
+    }
+  },
+  {
+    "card_id": "SCH_149",
+    "classes": {
+      "PALADIN": 54.64
+    }
+  },
+  {
+    "card_id": "DMF_194",
+    "classes": {
+      "PALADIN": 53.97
+    }
+  },
+  {
+    "card_id": "YOP_011",
+    "classes": {
+      "PALADIN": 58.33
+    }
+  },
+  {
+    "card_id": "SW_315",
+    "classes": {
+      "PALADIN": 54.52
+    }
+  },
+  {
+    "card_id": "DED_501",
+    "classes": {
+      "PALADIN": 49.63
+    }
+  },
+  {
+    "card_id": "DED_502",
+    "classes": {
+      "PALADIN": 52.87
+    }
+  },
+  {
+    "card_id": "CORE_CS2_093",
+    "classes": {
+      "PALADIN": 53.92
+    }
+  },
+  {
+    "card_id": "CORE_ICC_038",
+    "classes": {
+      "PALADIN": 55.47
+    }
+  },
+  {
+    "card_id": "AV_340",
+    "classes": {
+      "PALADIN": 55.88
+    }
+  },
+  {
+    "card_id": "AV_339",
+    "classes": {
+      "PALADIN": 52.0
+    }
+  },
+  {
+    "card_id": "ONY_022",
+    "classes": {
+      "PALADIN": 53.7
+    }
+  },
+  {
+    "card_id": "REV_947",
+    "classes": {
+      "PALADIN": 54.45
+    }
+  },
+  {
+    "card_id": "REV_958",
+    "classes": {
+      "PALADIN": 56.25
+    }
+  },
+  {
+    "card_id": "RLK_527",
+    "classes": {
+      "PALADIN": 52.14
+    }
+  },
+  {
+    "card_id": "RLK_916",
+    "classes": {
+      "PALADIN": 49.39
+    }
+  },
+  {
+    "card_id": "RLK_917",
+    "classes": {
+      "PALADIN": 54.93
+    }
+  },
+  {
+    "card_id": "RLK_918",
+    "classes": {
+      "PALADIN": 53.22
+    }
+  },
+  {
+    "card_id": "RLK_919",
+    "classes": {
+      "PALADIN": 48.52
+    }
+  },
+  {
+    "card_id": "CORE_GVG_061",
+    "classes": {
+      "PALADIN": 54.6
+    }
+  },
+  {
+    "card_id": "TTN_853",
+    "classes": {
+      "PALADIN": 53.0
+    }
+  },
+  {
+    "card_id": "TTN_858",
+    "classes": {
+      "PALADIN": 56.95
+    }
+  },
+  {
+    "card_id": "JAM_009",
+    "classes": {
+      "PALADIN": 52.9
+    }
+  },
+  {
+    "card_id": "WW_344",
+    "classes": {
+      "PALADIN": 55.57
+    }
+  },
+  {
+    "card_id": "TTN_907",
+    "classes": {
+      "PALADIN": 54.62
+    }
+  },
+  {
+    "card_id": "YOG_525",
+    "classes": {
+      "PALADIN": 51.35
+    }
+  },
+  {
+    "card_id": "WW_366",
+    "classes": {
+      "PALADIN": 47.29
+    }
+  },
+  {
+    "card_id": "CORE_CFM_753",
+    "classes": {
+      "PALADIN": 53.63
+    }
+  },
+  {
+    "card_id": "CORE_BT_292",
+    "classes": {
+      "PALADIN": 54.48
+    }
+  },
+  {
+    "card_id": "WON_052",
+    "classes": {
+      "PALADIN": 53.09
+    }
+  },
+  {
+    "card_id": "CORE_CS2_094",
+    "classes": {
+      "PALADIN": 49.57
+    }
+  },
+  {
+    "card_id": "TOY_808",
+    "classes": {
+      "PALADIN": 55.19
+    }
+  },
+  {
+    "card_id": "TOY_810",
+    "classes": {
+      "PALADIN": 60.48
+    }
+  },
+  {
+    "card_id": "TOY_811",
+    "classes": {
+      "PALADIN": 58.26
+    }
+  },
+  {
+    "card_id": "TOY_812",
+    "classes": {
+      "PALADIN": 52.36
+    }
+  },
+  {
+    "card_id": "TOY_813",
+    "classes": {
+      "PALADIN": 59.47
+    }
+  },
+  {
+    "card_id": "TOY_880",
+    "classes": {
+      "PALADIN": 60.0
+    }
+  },
+  {
+    "card_id": "TOY_716",
+    "classes": {
+      "PALADIN": 58.42
+    }
+  },
+  {
+    "card_id": "VAC_916",
+    "classes": {
+      "PALADIN": 51.62
+    }
+  },
+  {
+    "card_id": "VAC_923",
+    "classes": {
+      "PALADIN": 49.99
+    }
+  },
+  {
+    "card_id": "GDB_721",
+    "classes": {
+      "PALADIN": 54.77
+    }
+  },
+  {
+    "card_id": "GDB_726",
+    "classes": {
+      "PALADIN": 59.21
+    }
+  },
+  {
+    "card_id": "GDB_728",
+    "classes": {
+      "PALADIN": 55.46
+    }
+  },
+  {
+    "card_id": "GDB_137",
+    "classes": {
+      "PALADIN": 56.12
+    }
+  },
+  {
+    "card_id": "GDB_138",
+    "classes": {
+      "PALADIN": 62.61
+    }
+  },
+  {
+    "card_id": "GDB_139",
+    "classes": {
+      "PALADIN": 60.36
+    }
+  },
+  {
+    "card_id": "GDB_141",
+    "classes": {
+      "PALADIN": 61.33
+    }
+  },
+  {
+    "card_id": "EDR_255",
+    "classes": {
+      "PALADIN": 48.48
+    }
+  },
+  {
+    "card_id": "EDR_253",
+    "classes": {
+      "PALADIN": 56.1
+    }
+  },
+  {
+    "card_id": "EDR_259",
+    "classes": {
+      "PALADIN": 57.21
+    }
+  },
+  {
+    "card_id": "EDR_257",
+    "classes": {
+      "PALADIN": 50.27
+    }
+  },
+  {
+    "card_id": "CORE_TSC_076",
+    "classes": {
+      "PALADIN": 47.68
+    }
+  },
+  {
+    "card_id": "TLC_438",
+    "classes": {
+      "PALADIN": 57.08
+    }
+  },
+  {
+    "card_id": "TLC_240",
+    "classes": {
+      "PALADIN": 54.37
+    }
+  },
+  {
+    "card_id": "TIME_009",
+    "classes": {
+      "PALADIN": 61.96
+    }
+  },
+  {
+    "card_id": "TIME_009t1",
+    "classes": {
+      "PALADIN": 57.74
+    }
+  },
+  {
+    "card_id": "TIME_009t2",
+    "classes": {
+      "PALADIN": 61.66
+    }
+  },
+  {
+    "card_id": "TIME_015",
+    "classes": {
+      "PALADIN": 53.3
+    }
+  },
+  {
+    "card_id": "TIME_017",
+    "classes": {
+      "PALADIN": 55.38
+    }
+  },
+  {
+    "card_id": "TIME_018",
+    "classes": {
+      "PALADIN": 49.99
+    }
+  },
+  {
+    "card_id": "TIME_019",
+    "classes": {
+      "PALADIN": 56.12
+    }
+  },
+  {
+    "card_id": "TIME_700",
+    "classes": {
+      "PALADIN": 55.4
+    }
+  },
+  {
+    "card_id": "TIME_706",
+    "classes": {
+      "PALADIN": 52.61
+    }
+  },
+  {
+    "card_id": "TIME_044",
+    "classes": {
+      "PALADIN": 56.24
+    }
+  },
+  {
+    "card_id": "CATA_432",
+    "classes": {
+      "PALADIN": 52.18
+    }
+  },
+  {
+    "card_id": "CATA_472",
+    "classes": {
+      "PALADIN": 54.01
+    }
+  },
+  {
+    "card_id": "CATA_473",
+    "classes": {
+      "PALADIN": 60.05
+    }
+  },
+  {
+    "card_id": "CATA_474",
+    "classes": {
+      "PALADIN": 56.08
+    }
+  },
+  {
+    "card_id": "CATA_475",
+    "classes": {
+      "PALADIN": 55.74
+    }
+  },
+  {
+    "card_id": "CATA_477",
+    "classes": {
+      "PALADIN": 50.74
+    }
+  },
+  {
+    "card_id": "CATA_478",
+    "classes": {
+      "PALADIN": 52.0
+    }
+  },
+  {
+    "card_id": "CATA_479",
+    "classes": {
+      "PALADIN": 34.74
+    }
+  },
+  {
+    "card_id": "CATA_621",
+    "classes": {
+      "PALADIN": 51.53
+    }
+  },
+  {
+    "card_id": "CATA_480",
+    "classes": {
+      "PALADIN": 53.9
+    }
+  },
+  {
+    "card_id": "LEG_TTN_908",
+    "classes": {
+      "PALADIN": 25.15
+    }
+  },
+  {
+    "card_id": "EX1_339",
+    "classes": {
+      "PRIEST": 48.96
+    }
+  },
+  {
+    "card_id": "CS2_235",
+    "classes": {
+      "PRIEST": 45.04
+    }
+  },
+  {
+    "card_id": "GVG_010",
+    "classes": {
+      "PRIEST": 47.97
+    }
+  },
+  {
+    "card_id": "AT_015",
+    "classes": {
+      "PRIEST": 48.69
+    }
+  },
+  {
+    "card_id": "CFM_603",
+    "classes": {
+      "PRIEST": 52.37
+    }
+  },
+  {
+    "card_id": "CFM_605",
+    "classes": {
+      "PRIEST": 48.58
+    }
+  },
+  {
+    "card_id": "CFM_626",
+    "classes": {
+      "PRIEST": 49.94
+    }
+  },
+  {
+    "card_id": "CFM_662",
+    "classes": {
+      "PRIEST": 46.93
+    }
+  },
+  {
+    "card_id": "UNG_029",
+    "classes": {
+      "PRIEST": 47.29
+    }
+  },
+  {
+    "card_id": "UNG_854",
+    "classes": {
+      "PRIEST": 52.67
+    }
+  },
+  {
+    "card_id": "LOOT_008",
+    "classes": {
+      "PRIEST": 50.03
+    }
+  },
+  {
+    "card_id": "ICC_830",
+    "classes": {
+      "PRIEST": 39.36
+    }
+  },
+  {
+    "card_id": "LOOT_187",
+    "classes": {
+      "PRIEST": 52.92
+    }
+  },
+  {
+    "card_id": "LOOT_410",
+    "classes": {
+      "PRIEST": 50.46
+    }
+  },
+  {
+    "card_id": "ULD_714",
+    "classes": {
+      "PRIEST": 48.98
+    }
+  },
+  {
+    "card_id": "BT_252",
+    "classes": {
+      "PRIEST": 52.08
+    }
+  },
+  {
+    "card_id": "BT_198",
+    "classes": {
+      "PRIEST": 47.98
+    }
+  },
+  {
+    "card_id": "SCH_233",
+    "classes": {
+      "PRIEST": 52.15
+    }
+  },
+  {
+    "card_id": "SCH_512",
+    "classes": {
+      "PRIEST": 47.77
+    }
+  },
+  {
+    "card_id": "SCH_513",
+    "classes": {
+      "PRIEST": 51.67,
+      "WARLOCK": 39.12
+    }
+  },
+  {
+    "card_id": "DMF_187",
+    "classes": {
+      "PRIEST": 53.14
+    }
+  },
+  {
+    "card_id": "BAR_314",
+    "classes": {
+      "PRIEST": 53.01
+    }
+  },
+  {
+    "card_id": "SW_012",
+    "classes": {
+      "PRIEST": 49.93
+    }
+  },
+  {
+    "card_id": "SW_441",
+    "classes": {
+      "PRIEST": 46.96
+    }
+  },
+  {
+    "card_id": "SW_444",
+    "classes": {
+      "PRIEST": 50.27
+    }
+  },
+  {
+    "card_id": "DED_513",
+    "classes": {
+      "PRIEST": 47.12
+    }
+  },
+  {
+    "card_id": "AV_207",
+    "classes": {
+      "PRIEST": 49.4
+    }
+  },
+  {
+    "card_id": "CORE_CS1_112",
+    "classes": {
+      "PRIEST": 51.21
+    }
+  },
+  {
+    "card_id": "CORE_EX1_193",
+    "classes": {
+      "PRIEST": 50.82
+    }
+  },
+  {
+    "card_id": "AV_325",
+    "classes": {
+      "PRIEST": 46.46
+    }
+  },
+  {
+    "card_id": "AV_328",
+    "classes": {
+      "PRIEST": 51.08
+    }
+  },
+  {
+    "card_id": "AV_330",
+    "classes": {
+      "PRIEST": 43.51
+    }
+  },
+  {
+    "card_id": "ONY_028",
+    "classes": {
+      "PRIEST": 45.44
+    }
+  },
+  {
+    "card_id": "REV_247",
+    "classes": {
+      "PRIEST": 52.47
+    }
+  },
+  {
+    "card_id": "REV_249",
+    "classes": {
+      "PRIEST": 50.77
+    }
+  },
+  {
+    "card_id": "MAW_022",
+    "classes": {
+      "PRIEST": 47.08
+    }
+  },
+  {
+    "card_id": "REV_290",
+    "classes": {
+      "PRIEST": 54.21
+    }
+  },
+  {
+    "card_id": "RLK_816",
+    "classes": {
+      "PRIEST": 50.43
+    }
+  },
+  {
+    "card_id": "NX2_020",
+    "classes": {
+      "PRIEST": 49.92
+    }
+  },
+  {
+    "card_id": "CS3_014",
+    "classes": {
+      "PRIEST": 48.97
+    }
+  },
+  {
+    "card_id": "RLK_845",
+    "classes": {
+      "PRIEST": 50.23
+    }
+  },
+  {
+    "card_id": "ETC_314",
+    "classes": {
+      "PRIEST": 49.94
+    }
+  },
+  {
+    "card_id": "ETC_335",
+    "classes": {
+      "PRIEST": 55.6
+    }
+  },
+  {
+    "card_id": "ETC_338",
+    "classes": {
+      "PRIEST": 49.23
+    }
+  },
+  {
+    "card_id": "ETC_339",
+    "classes": {
+      "PRIEST": 47.68
+    }
+  },
+  {
+    "card_id": "CORE_ICC_210",
+    "classes": {
+      "PRIEST": 48.84
+    }
+  },
+  {
+    "card_id": "JAM_023",
+    "classes": {
+      "PRIEST": 48.29,
+      "ROGUE": 53.35
+    }
+  },
+  {
+    "card_id": "TTN_430",
+    "classes": {
+      "PRIEST": 47.15
+    }
+  },
+  {
+    "card_id": "TTN_484",
+    "classes": {
+      "PRIEST": 49.51
+    }
+  },
+  {
+    "card_id": "WW_393",
+    "classes": {
+      "PRIEST": 51.4
+    }
+  },
+  {
+    "card_id": "TOY_380",
+    "classes": {
+      "PRIEST": 53.26
+    }
+  },
+  {
+    "card_id": "TOY_381",
+    "classes": {
+      "PRIEST": 40.12
+    }
+  },
+  {
+    "card_id": "TOY_382",
+    "classes": {
+      "PRIEST": 47.07
+    }
+  },
+  {
+    "card_id": "TOY_387",
+    "classes": {
+      "PRIEST": 50.49
+    }
+  },
+  {
+    "card_id": "DEEP_021",
+    "classes": {
+      "PRIEST": 40.91
+    }
+  },
+  {
+    "card_id": "MIS_714",
+    "classes": {
+      "PRIEST": 49.49
+    }
+  },
+  {
+    "card_id": "VAC_404",
+    "classes": {
+      "PRIEST": 49.24
+    }
+  },
+  {
+    "card_id": "VAC_414",
+    "classes": {
+      "PRIEST": 49.34
+    }
+  },
+  {
+    "card_id": "VAC_420",
+    "classes": {
+      "PRIEST": 44.06
+    }
+  },
+  {
+    "card_id": "VAC_423",
+    "classes": {
+      "PRIEST": 46.92
+    }
+  },
+  {
+    "card_id": "MIS_305",
+    "classes": {
+      "PRIEST": 54.47
+    }
+  },
+  {
+    "card_id": "GDB_439",
+    "classes": {
+      "PRIEST": 50.88
+    }
+  },
+  {
+    "card_id": "WORK_031",
+    "classes": {
+      "PRIEST": 44.7
+    }
+  },
+  {
+    "card_id": "GDB_452",
+    "classes": {
+      "PRIEST": 46.64
+    }
+  },
+  {
+    "card_id": "GDB_460",
+    "classes": {
+      "PRIEST": 49.66
+    }
+  },
+  {
+    "card_id": "EDR_460",
+    "classes": {
+      "PRIEST": 51.76
+    }
+  },
+  {
+    "card_id": "EDR_461",
+    "classes": {
+      "PRIEST": 56.07
+    }
+  },
+  {
+    "card_id": "EDR_462",
+    "classes": {
+      "PRIEST": 52.23
+    }
+  },
+  {
+    "card_id": "EDR_464",
+    "classes": {
+      "PRIEST": 62.43
+    }
+  },
+  {
+    "card_id": "EDR_476",
+    "classes": {
+      "PRIEST": 55.19
+    }
+  },
+  {
+    "card_id": "TLC_814",
+    "classes": {
+      "PRIEST": 51.71
+    }
+  },
+  {
+    "card_id": "DINO_426",
+    "classes": {
+      "PRIEST": 51.95
+    }
+  },
+  {
+    "card_id": "TIME_890",
+    "classes": {
+      "PRIEST": 61.05
+    }
+  },
+  {
+    "card_id": "TIME_890t",
+    "classes": {
+      "PRIEST": 62.9
+    }
+  },
+  {
+    "card_id": "TIME_890t2",
+    "classes": {
+      "PRIEST": 65.84
+    }
+  },
+  {
+    "card_id": "TIME_433",
+    "classes": {
+      "PRIEST": 49.48
+    }
+  },
+  {
+    "card_id": "TIME_037",
+    "classes": {
+      "PRIEST": 50.58
+    }
+  },
+  {
+    "card_id": "TLC_835",
+    "classes": {
+      "PRIEST": 48.09
+    }
+  },
+  {
+    "card_id": "CORE_BAR_310",
+    "classes": {
+      "PRIEST": 45.06
+    }
+  },
+  {
+    "card_id": "TIME_447",
+    "classes": {
+      "PRIEST": 48.44
+    }
+  },
+  {
+    "card_id": "CATA_300",
+    "classes": {
+      "PRIEST": 45.2
+    }
+  },
+  {
+    "card_id": "CATA_301",
+    "classes": {
+      "PRIEST": 49.01
+    }
+  },
+  {
+    "card_id": "CATA_303",
+    "classes": {
+      "PRIEST": 47.39
+    }
+  },
+  {
+    "card_id": "CATA_302",
+    "classes": {
+      "PRIEST": 48.32
+    }
+  },
+  {
+    "card_id": "CATA_306",
+    "classes": {
+      "PRIEST": 29.34
+    }
+  },
+  {
+    "card_id": "CATA_305",
+    "classes": {
+      "PRIEST": 44.96
+    }
+  },
+  {
+    "card_id": "CATA_304",
+    "classes": {
+      "PRIEST": 47.74
+    }
+  },
+  {
+    "card_id": "CATA_307",
+    "classes": {
+      "PRIEST": 46.37
+    }
+  },
+  {
+    "card_id": "CATA_216",
+    "classes": {
+      "PRIEST": 50.77
+    }
+  },
+  {
+    "card_id": "CATA_308",
+    "classes": {
+      "PRIEST": 48.33
+    }
+  },
+  {
+    "card_id": "CORE_CATA_002",
+    "classes": {
+      "PRIEST": 52.74
+    }
+  },
+  {
+    "card_id": "EX1_144",
+    "classes": {
+      "ROGUE": 52.2
+    }
+  },
+  {
+    "card_id": "EX1_129",
+    "classes": {
+      "ROGUE": 55.18
+    }
+  },
+  {
+    "card_id": "AT_033",
+    "classes": {
+      "ROGUE": 48.15
+    }
+  },
+  {
+    "card_id": "LOE_012",
+    "classes": {
+      "ROGUE": 54.52
+    }
+  },
+  {
+    "card_id": "LOE_019",
+    "classes": {
+      "ROGUE": 57.85
+    }
+  },
+  {
+    "card_id": "OG_330",
+    "classes": {
+      "ROGUE": 55.25
+    }
+  },
+  {
+    "card_id": "KAR_070",
+    "classes": {
+      "ROGUE": 57.56
+    }
+  },
+  {
+    "card_id": "UNG_064",
+    "classes": {
+      "ROGUE": 54.11
+    }
+  },
+  {
+    "card_id": "UNG_823",
+    "classes": {
+      "ROGUE": 52.66
+    }
+  },
+  {
+    "card_id": "GIL_598",
+    "classes": {
+      "ROGUE": 61.01
+    }
+  },
+  {
+    "card_id": "BOT_286",
+    "classes": {
+      "ROGUE": 55.44
+    }
+  },
+  {
+    "card_id": "DAL_415",
+    "classes": {
+      "ROGUE": 54.35
+    }
+  },
+  {
+    "card_id": "DAL_716",
+    "classes": {
+      "ROGUE": 58.55
+    }
+  },
+  {
+    "card_id": "DRG_028",
+    "classes": {
+      "ROGUE": 54.52
+    }
+  },
+  {
+    "card_id": "BT_703",
+    "classes": {
+      "ROGUE": 53.75
+    }
+  },
+  {
+    "card_id": "SCH_519",
+    "classes": {
+      "ROGUE": 53.04
+    }
+  },
+  {
+    "card_id": "DMF_515",
+    "classes": {
+      "ROGUE": 52.46
+    }
+  },
+  {
+    "card_id": "DMF_071",
+    "classes": {
+      "ROGUE": 42.38
+    }
+  },
+  {
+    "card_id": "BAR_319",
+    "classes": {
+      "ROGUE": 57.8
+    }
+  },
+  {
+    "card_id": "CORE_KAR_069",
+    "classes": {
+      "ROGUE": 56.23
+    }
+  },
+  {
+    "card_id": "AV_710",
+    "classes": {
+      "ROGUE": 55.78
+    }
+  },
+  {
+    "card_id": "AV_711",
+    "classes": {
+      "ROGUE": 56.9
+    }
+  },
+  {
+    "card_id": "AV_405",
+    "classes": {
+      "ROGUE": 60.62
+    }
+  },
+  {
+    "card_id": "ONY_032",
+    "classes": {
+      "ROGUE": 55.96
+    }
+  },
+  {
+    "card_id": "TSC_932",
+    "classes": {
+      "ROGUE": 52.15
+    }
+  },
+  {
+    "card_id": "TSC_933",
+    "classes": {
+      "ROGUE": 56.78
+    }
+  },
+  {
+    "card_id": "AV_601",
+    "classes": {
+      "ROGUE": 55.68
+    }
+  },
+  {
+    "card_id": "REV_939",
+    "classes": {
+      "ROGUE": 57.43
+    }
+  },
+  {
+    "card_id": "RLK_217",
+    "classes": {
+      "ROGUE": 57.51
+    }
+  },
+  {
+    "card_id": "RLK_570",
+    "classes": {
+      "ROGUE": 55.72
+    }
+  },
+  {
+    "card_id": "RLK_569",
+    "classes": {
+      "ROGUE": 53.74
+    }
+  },
+  {
+    "card_id": "RLK_568",
+    "classes": {
+      "ROGUE": 53.71
+    }
+  },
+  {
+    "card_id": "RLK_571",
+    "classes": {
+      "ROGUE": 52.58
+    }
+  },
+  {
+    "card_id": "RLK_572",
+    "classes": {
+      "ROGUE": 51.85
+    }
+  },
+  {
+    "card_id": "NX2_006",
+    "classes": {
+      "ROGUE": 58.63
+    }
+  },
+  {
+    "card_id": "ETC_076",
+    "classes": {
+      "ROGUE": 54.54
+    }
+  },
+  {
+    "card_id": "TTN_925",
+    "classes": {
+      "ROGUE": 56.37
+    }
+  },
+  {
+    "card_id": "TTN_726",
+    "classes": {
+      "ROGUE": 54.12
+    }
+  },
+  {
+    "card_id": "WW_006",
+    "classes": {
+      "ROGUE": 55.79
+    }
+  },
+  {
+    "card_id": "WW_416",
+    "classes": {
+      "ROGUE": 52.82
+    }
+  },
+  {
+    "card_id": "WW_364",
+    "classes": {
+      "ROGUE": 58.36
+    }
+  },
+  {
+    "card_id": "DEEP_022",
+    "classes": {
+      "ROGUE": 53.52
+    }
+  },
+  {
+    "card_id": "WON_076",
+    "classes": {
+      "ROGUE": 55.97
+    }
+  },
+  {
+    "card_id": "TOY_512",
+    "classes": {
+      "ROGUE": 49.47
+    }
+  },
+  {
+    "card_id": "TOY_514",
+    "classes": {
+      "ROGUE": 54.06
+    }
+  },
+  {
+    "card_id": "TOY_516",
+    "classes": {
+      "ROGUE": 55.66
+    }
+  },
+  {
+    "card_id": "MIS_903",
+    "classes": {
+      "ROGUE": 56.23
+    }
+  },
+  {
+    "card_id": "VAC_701",
+    "classes": {
+      "ROGUE": 55.54
+    }
+  },
+  {
+    "card_id": "VAC_333",
+    "classes": {
+      "ROGUE": 54.29
+    }
+  },
+  {
+    "card_id": "VAC_334",
+    "classes": {
+      "ROGUE": 51.08
+    }
+  },
+  {
+    "card_id": "VAC_461",
+    "classes": {
+      "ROGUE": 54.19
+    }
+  },
+  {
+    "card_id": "VAC_464",
+    "classes": {
+      "ROGUE": 56.24
+    }
+  },
+  {
+    "card_id": "WORK_004",
+    "classes": {
+      "ROGUE": 58.13
+    }
+  },
+  {
+    "card_id": "WORK_006",
+    "classes": {
+      "ROGUE": 55.84
+    }
+  },
+  {
+    "card_id": "GDB_870",
+    "classes": {
+      "ROGUE": 56.45
+    }
+  },
+  {
+    "card_id": "EDR_521",
+    "classes": {
+      "ROGUE": 52.8
+    }
+  },
+  {
+    "card_id": "EDR_523",
+    "classes": {
+      "ROGUE": 55.86
+    }
+  },
+  {
+    "card_id": "EDR_527",
+    "classes": {
+      "ROGUE": 53.88
+    }
+  },
+  {
+    "card_id": "EDR_528",
+    "classes": {
+      "ROGUE": 56.63
+    }
+  },
+  {
+    "card_id": "TLC_515",
+    "classes": {
+      "ROGUE": 53.7
+    }
+  },
+  {
+    "card_id": "TLC_516",
+    "classes": {
+      "ROGUE": 53.94
+    }
+  },
+  {
+    "card_id": "TLC_522",
+    "classes": {
+      "ROGUE": 55.75
+    }
+  },
+  {
+    "card_id": "TIME_875",
+    "classes": {
+      "ROGUE": 58.15
+    }
+  },
+  {
+    "card_id": "TIME_875t",
+    "classes": {
+      "ROGUE": 28.34
+    }
+  },
+  {
+    "card_id": "TIME_875t1",
+    "classes": {
+      "ROGUE": 57.65
+    }
+  },
+  {
+    "card_id": "CORE_DAL_720",
+    "classes": {
+      "ROGUE": 52.03
+    }
+  },
+  {
+    "card_id": "TIME_039",
+    "classes": {
+      "ROGUE": 55.03
+    }
+  },
+  {
+    "card_id": "TIME_711",
+    "classes": {
+      "ROGUE": 55.93
+    }
+  },
+  {
+    "card_id": "TIME_712",
+    "classes": {
+      "ROGUE": 55.78
+    }
+  },
+  {
+    "card_id": "CATA_200",
+    "classes": {
+      "ROGUE": 57.24
+    }
+  },
+  {
+    "card_id": "CATA_201",
+    "classes": {
+      "ROGUE": 60.3
+    }
+  },
+  {
+    "card_id": "CATA_202",
+    "classes": {
+      "ROGUE": 51.05
+    }
+  },
+  {
+    "card_id": "CATA_203",
+    "classes": {
+      "ROGUE": 47.21
+    }
+  },
+  {
+    "card_id": "CATA_215",
+    "classes": {
+      "ROGUE": 52.88
+    }
+  },
+  {
+    "card_id": "CATA_481",
+    "classes": {
+      "ROGUE": 39.88
+    }
+  },
+  {
+    "card_id": "CATA_158",
+    "classes": {
+      "ROGUE": 57.69
+    }
+  },
+  {
+    "card_id": "CATA_785",
+    "classes": {
+      "ROGUE": 58.28
+    }
+  },
+  {
+    "card_id": "CATA_786",
+    "classes": {
+      "ROGUE": 50.42
+    }
+  },
+  {
+    "card_id": "CATA_154",
+    "classes": {
+      "ROGUE": 60.43
+    }
+  },
+  {
+    "card_id": "CORE_TID_931",
+    "classes": {
+      "ROGUE": 57.01
+    }
+  },
+  {
+    "card_id": "AT_053",
+    "classes": {
+      "SHAMAN": 53.12
+    }
+  },
+  {
+    "card_id": "OG_027",
+    "classes": {
+      "SHAMAN": 49.88
+    }
+  },
+  {
+    "card_id": "CFM_696",
+    "classes": {
+      "SHAMAN": 49.95
+    }
+  },
+  {
+    "card_id": "UNG_208",
+    "classes": {
+      "SHAMAN": 53.16
+    }
+  },
+  {
+    "card_id": "LOOT_504",
+    "classes": {
+      "SHAMAN": 50.07
+    }
+  },
+  {
+    "card_id": "BOT_533",
+    "classes": {
+      "SHAMAN": 54.17
+    }
+  },
+  {
+    "card_id": "DAL_047",
+    "classes": {
+      "SHAMAN": 49.37
+    }
+  },
+  {
+    "card_id": "DAL_433",
+    "classes": {
+      "SHAMAN": 49.76
+    }
+  },
+  {
+    "card_id": "BT_102",
+    "classes": {
+      "SHAMAN": 56.27
+    }
+  },
+  {
+    "card_id": "BT_106",
+    "classes": {
+      "SHAMAN": 50.04
+    }
+  },
+  {
+    "card_id": "BT_115",
+    "classes": {
+      "SHAMAN": 53.58
+    }
+  },
+  {
+    "card_id": "SCH_235",
+    "classes": {
+      "SHAMAN": 46.65
+    }
+  },
+  {
+    "card_id": "SCH_236",
+    "classes": {
+      "SHAMAN": 53.79
+    }
+  },
+  {
+    "card_id": "SCH_507",
+    "classes": {
+      "SHAMAN": 46.99
+    }
+  },
+  {
+    "card_id": "DMF_701",
+    "classes": {
+      "SHAMAN": 52.96
+    }
+  },
+  {
+    "card_id": "DMF_705",
+    "classes": {
+      "SHAMAN": 55.89
+    }
+  },
+  {
+    "card_id": "BAR_848",
+    "classes": {
+      "SHAMAN": 53.96
+    }
+  },
+  {
+    "card_id": "WC_005",
+    "classes": {
+      "SHAMAN": 54.15
+    }
+  },
+  {
+    "card_id": "BAR_750",
+    "classes": {
+      "SHAMAN": 51.93
+    }
+  },
+  {
+    "card_id": "SW_032",
+    "classes": {
+      "SHAMAN": 56.63
+    }
+  },
+  {
+    "card_id": "SW_033",
+    "classes": {
+      "SHAMAN": 51.29
+    }
+  },
+  {
+    "card_id": "SW_115",
+    "classes": {
+      "SHAMAN": 52.6
+    }
+  },
+  {
+    "card_id": "DED_509",
+    "classes": {
+      "SHAMAN": 56.71
+    }
+  },
+  {
+    "card_id": "AV_259",
+    "classes": {
+      "SHAMAN": 53.63
+    }
+  },
+  {
+    "card_id": "AV_260",
+    "classes": {
+      "SHAMAN": 55.29
+    }
+  },
+  {
+    "card_id": "AV_266",
+    "classes": {
+      "SHAMAN": 53.69
+    }
+  },
+  {
+    "card_id": "CORE_EX1_246",
+    "classes": {
+      "SHAMAN": 52.3
+    }
+  },
+  {
+    "card_id": "CORE_EX1_259",
+    "classes": {
+      "SHAMAN": 51.57
+    }
+  },
+  {
+    "card_id": "TSC_631",
+    "classes": {
+      "SHAMAN": 55.48
+    }
+  },
+  {
+    "card_id": "TID_005",
+    "classes": {
+      "SHAMAN": 53.34
+    }
+  },
+  {
+    "card_id": "REV_923",
+    "classes": {
+      "SHAMAN": 52.68
+    }
+  },
+  {
+    "card_id": "REV_924",
+    "classes": {
+      "SHAMAN": 44.83
+    }
+  },
+  {
+    "card_id": "REV_925",
+    "classes": {
+      "SHAMAN": 50.69
+    }
+  },
+  {
+    "card_id": "REV_936",
+    "classes": {
+      "SHAMAN": 48.58
+    }
+  },
+  {
+    "card_id": "RLK_913",
+    "classes": {
+      "SHAMAN": 49.38
+    }
+  },
+  {
+    "card_id": "RLK_551",
+    "classes": {
+      "SHAMAN": 45.32
+    }
+  },
+  {
+    "card_id": "RLK_553",
+    "classes": {
+      "SHAMAN": 48.11
+    }
+  },
+  {
+    "card_id": "RLK_554",
+    "classes": {
+      "SHAMAN": 48.07
+    }
+  },
+  {
+    "card_id": "ETC_357",
+    "classes": {
+      "SHAMAN": 54.4
+    }
+  },
+  {
+    "card_id": "ETC_369",
+    "classes": {
+      "SHAMAN": 47.91
+    }
+  },
+  {
+    "card_id": "TTN_317",
+    "classes": {
+      "SHAMAN": 54.8
+    }
+  },
+  {
+    "card_id": "WW_326",
+    "classes": {
+      "SHAMAN": 54.08
+    }
+  },
+  {
+    "card_id": "WW_327",
+    "classes": {
+      "SHAMAN": 54.9
+    }
+  },
+  {
+    "card_id": "WW_026",
+    "classes": {
+      "SHAMAN": 61.91
+    }
+  },
+  {
+    "card_id": "WW_027",
+    "classes": {
+      "SHAMAN": 56.77
+    }
+  },
+  {
+    "card_id": "YOG_524",
+    "classes": {
+      "SHAMAN": 55.04
+    }
+  },
+  {
+    "card_id": "TOY_500",
+    "classes": {
+      "SHAMAN": 47.78
+    }
+  },
+  {
+    "card_id": "TOY_501",
+    "classes": {
+      "SHAMAN": 50.99
+    }
+  },
+  {
+    "card_id": "TOY_503",
+    "classes": {
+      "SHAMAN": 48.39
+    }
+  },
+  {
+    "card_id": "TOY_507",
+    "classes": {
+      "SHAMAN": 52.02
+    }
+  },
+  {
+    "card_id": "TOY_508",
+    "classes": {
+      "SHAMAN": 54.96
+    }
+  },
+  {
+    "card_id": "TOY_513",
+    "classes": {
+      "SHAMAN": 55.96
+    }
+  },
+  {
+    "card_id": "VAC_301",
+    "classes": {
+      "SHAMAN": 56.31
+    }
+  },
+  {
+    "card_id": "VAC_305",
+    "classes": {
+      "SHAMAN": 49.16
+    }
+  },
+  {
+    "card_id": "VAC_308",
+    "classes": {
+      "SHAMAN": 52.46
+    }
+  },
+  {
+    "card_id": "CORE_BOT_451",
+    "classes": {
+      "SHAMAN": 45.04
+    }
+  },
+  {
+    "card_id": "VAC_323",
+    "classes": {
+      "SHAMAN": 55.2
+    }
+  },
+  {
+    "card_id": "VAC_328",
+    "classes": {
+      "SHAMAN": 53.62
+    }
+  },
+  {
+    "card_id": "VAC_449",
+    "classes": {
+      "SHAMAN": 55.96
+    }
+  },
+  {
+    "card_id": "GDB_434",
+    "classes": {
+      "SHAMAN": 50.13
+    }
+  },
+  {
+    "card_id": "GDB_443",
+    "classes": {
+      "SHAMAN": 52.98
+    }
+  },
+  {
+    "card_id": "GDB_445",
+    "classes": {
+      "SHAMAN": 48.16
+    }
+  },
+  {
+    "card_id": "GDB_447",
+    "classes": {
+      "SHAMAN": 55.86
+    }
+  },
+  {
+    "card_id": "GDB_451",
+    "classes": {
+      "SHAMAN": 51.93
+    }
+  },
+  {
+    "card_id": "GDB_901",
+    "classes": {
+      "SHAMAN": 54.16
+    }
+  },
+  {
+    "card_id": "GDB_479",
+    "classes": {
+      "SHAMAN": 57.06
+    }
+  },
+  {
+    "card_id": "TLC_221",
+    "classes": {
+      "SHAMAN": 52.61
+    }
+  },
+  {
+    "card_id": "TLC_223",
+    "classes": {
+      "SHAMAN": 55.07
+    }
+  },
+  {
+    "card_id": "TLC_227",
+    "classes": {
+      "SHAMAN": 50.54
+    }
+  },
+  {
+    "card_id": "TLC_222",
+    "classes": {
+      "SHAMAN": 55.64
+    }
+  },
+  {
+    "card_id": "TLC_225",
+    "classes": {
+      "SHAMAN": 52.17
+    }
+  },
+  {
+    "card_id": "DINO_406",
+    "classes": {
+      "SHAMAN": 53.85
+    }
+  },
+  {
+    "card_id": "TIME_209",
+    "classes": {
+      "SHAMAN": 50.53
+    }
+  },
+  {
+    "card_id": "TIME_209t",
+    "classes": {
+      "SHAMAN": 54.72
+    }
+  },
+  {
+    "card_id": "TIME_209t2",
+    "classes": {
+      "SHAMAN": 52.42
+    }
+  },
+  {
+    "card_id": "TIME_013",
+    "classes": {
+      "SHAMAN": 45.33
+    }
+  },
+  {
+    "card_id": "TIME_215",
+    "classes": {
+      "SHAMAN": 49.53
+    }
+  },
+  {
+    "card_id": "TIME_217",
+    "classes": {
+      "SHAMAN": 45.21
+    }
+  },
+  {
+    "card_id": "TLC_482",
+    "classes": {
+      "SHAMAN": 56.8
+    }
+  },
+  {
+    "card_id": "TIME_216",
+    "classes": {
+      "SHAMAN": 50.48
+    }
+  },
+  {
+    "card_id": "CORE_WC_042",
+    "classes": {
+      "SHAMAN": 55.92
+    }
+  },
+  {
+    "card_id": "TIME_218",
+    "classes": {
+      "SHAMAN": 48.7
+    }
+  },
+  {
+    "card_id": "CATA_724",
+    "classes": {
+      "SHAMAN": 45.68
+    }
+  },
+  {
+    "card_id": "CATA_561",
+    "classes": {
+      "SHAMAN": 57.61
+    }
+  },
+  {
+    "card_id": "CATA_563",
+    "classes": {
+      "SHAMAN": 50.01
+    }
+  },
+  {
+    "card_id": "CATA_564",
+    "classes": {
+      "SHAMAN": 54.55
+    }
+  },
+  {
+    "card_id": "CATA_565",
+    "classes": {
+      "SHAMAN": 58.55
+    }
+  },
+  {
+    "card_id": "CATA_567",
+    "classes": {
+      "SHAMAN": 56.84
+    }
+  },
+  {
+    "card_id": "CATA_568",
+    "classes": {
+      "SHAMAN": 58.83
+    }
+  },
+  {
+    "card_id": "CATA_569",
+    "classes": {
+      "SHAMAN": 49.47
+    }
+  },
+  {
+    "card_id": "CATA_570",
+    "classes": {
+      "SHAMAN": 49.01
+    }
+  },
+  {
+    "card_id": "CATA_153",
+    "classes": {
+      "SHAMAN": 68.83
+    }
+  },
+  {
+    "card_id": "CORE_CATA_004",
+    "classes": {
+      "SHAMAN": 49.54
+    }
+  },
+  {
+    "card_id": "FP1_022",
+    "classes": {
+      "WARLOCK": 46.77
+    }
+  },
+  {
+    "card_id": "GVG_015",
+    "classes": {
+      "WARLOCK": 43.28
+    }
+  },
+  {
+    "card_id": "LOEA_01",
+    "classes": {
+      "WARLOCK": 39.06
+    }
+  },
+  {
+    "card_id": "KAR_205",
+    "classes": {
+      "WARLOCK": 38.61
+    }
+  },
+  {
+    "card_id": "ICC_041",
+    "classes": {
+      "WARLOCK": 42.25
+    }
+  },
+  {
+    "card_id": "LOOT_014",
+    "classes": {
+      "WARLOCK": 43.84
+    }
+  },
+  {
+    "card_id": "LOOT_417",
+    "classes": {
+      "WARLOCK": 33.95
+    }
+  },
+  {
+    "card_id": "GILA_BOSS_35t",
+    "classes": {
+      "WARLOCK": 40.31
+    }
+  },
+  {
+    "card_id": "BOT_568",
+    "classes": {
+      "WARLOCK": 46.19
+    }
+  },
+  {
+    "card_id": "DAL_422",
+    "classes": {
+      "WARLOCK": 36.06
+    }
+  },
+  {
+    "card_id": "ULD_163",
+    "classes": {
+      "WARLOCK": 38.18
+    }
+  },
+  {
+    "card_id": "BT_300",
+    "classes": {
+      "WARLOCK": 37.47
+    }
+  },
+  {
+    "card_id": "BT_304",
+    "classes": {
+      "WARLOCK": 43.02
+    }
+  },
+  {
+    "card_id": "SCH_147",
+    "classes": {
+      "WARLOCK": 46.69
+    }
+  },
+  {
+    "card_id": "DMF_117",
+    "classes": {
+      "WARLOCK": 39.59
+    }
+  },
+  {
+    "card_id": "DMF_533",
+    "classes": {
+      "WARLOCK": 43.79
+    }
+  },
+  {
+    "card_id": "WC_021",
+    "classes": {
+      "WARLOCK": 42.29
+    }
+  },
+  {
+    "card_id": "SW_087",
+    "classes": {
+      "WARLOCK": 43.5
+    }
+  },
+  {
+    "card_id": "SW_088",
+    "classes": {
+      "WARLOCK": 38.98
+    }
+  },
+  {
+    "card_id": "SW_090",
+    "classes": {
+      "WARLOCK": 40.43
+    }
+  },
+  {
+    "card_id": "PVPDR_SCH_Active27",
+    "classes": {
+      "WARLOCK": 39.79
+    }
+  },
+  {
+    "card_id": "AV_313",
+    "classes": {
+      "WARLOCK": 37.35
+    }
+  },
+  {
+    "card_id": "AV_316",
+    "classes": {
+      "WARLOCK": 41.29
+    }
+  },
+  {
+    "card_id": "CORE_CS2_062",
+    "classes": {
+      "WARLOCK": 41.86
+    }
+  },
+  {
+    "card_id": "CORE_EX1_309",
+    "classes": {
+      "WARLOCK": 40.45
+    }
+  },
+  {
+    "card_id": "ONY_035",
+    "classes": {
+      "WARLOCK": 37.37
+    }
+  },
+  {
+    "card_id": "REV_239",
+    "classes": {
+      "WARLOCK": 36.57
+    }
+  },
+  {
+    "card_id": "REV_244",
+    "classes": {
+      "WARLOCK": 40.29
+    }
+  },
+  {
+    "card_id": "REV_372",
+    "classes": {
+      "WARLOCK": 40.46
+    }
+  },
+  {
+    "card_id": "RLK_534",
+    "classes": {
+      "WARLOCK": 53.14
+    }
+  },
+  {
+    "card_id": "ETC_068",
+    "classes": {
+      "WARLOCK": 39.17
+    }
+  },
+  {
+    "card_id": "ETC_069",
+    "classes": {
+      "WARLOCK": 41.2
+    }
+  },
+  {
+    "card_id": "ETC_070",
+    "classes": {
+      "WARLOCK": 42.05
+    }
+  },
+  {
+    "card_id": "ETC_082",
+    "classes": {
+      "WARLOCK": 37.85
+    }
+  },
+  {
+    "card_id": "ETC_083",
+    "classes": {
+      "WARLOCK": 41.97
+    }
+  },
+  {
+    "card_id": "ETC_085",
+    "classes": {
+      "WARLOCK": 36.09
+    }
+  },
+  {
+    "card_id": "TTN_456",
+    "classes": {
+      "WARLOCK": 41.24
+    }
+  },
+  {
+    "card_id": "TTN_460",
+    "classes": {
+      "WARLOCK": 42.54
+    }
+  },
+  {
+    "card_id": "TTN_932",
+    "classes": {
+      "WARLOCK": 43.09
+    }
+  },
+  {
+    "card_id": "WW_041",
+    "classes": {
+      "WARLOCK": 41.56
+    }
+  },
+  {
+    "card_id": "WW_042",
+    "classes": {
+      "WARLOCK": 49.32
+    }
+  },
+  {
+    "card_id": "WW_043",
+    "classes": {
+      "WARLOCK": 42.16
+    }
+  },
+  {
+    "card_id": "WW_091",
+    "classes": {
+      "WARLOCK": 46.4
+    }
+  },
+  {
+    "card_id": "WW_092",
+    "classes": {
+      "WARLOCK": 41.88
+    }
+  },
+  {
+    "card_id": "DEEP_030",
+    "classes": {
+      "WARLOCK": 44.24
+    }
+  },
+  {
+    "card_id": "WON_103",
+    "classes": {
+      "WARLOCK": 44.49
+    }
+  },
+  {
+    "card_id": "WON_105",
+    "classes": {
+      "WARLOCK": 48.5
+    }
+  },
+  {
+    "card_id": "WW_436",
+    "classes": {
+      "WARLOCK": 43.57
+    }
+  },
+  {
+    "card_id": "TOY_524",
+    "classes": {
+      "WARLOCK": 53.13
+    }
+  },
+  {
+    "card_id": "TOY_914",
+    "classes": {
+      "WARLOCK": 42.4
+    }
+  },
+  {
+    "card_id": "TOY_883",
+    "classes": {
+      "WARLOCK": 43.78
+    }
+  },
+  {
+    "card_id": "TOY_884",
+    "classes": {
+      "WARLOCK": 47.04
+    }
+  },
+  {
+    "card_id": "TOY_886",
+    "classes": {
+      "WARLOCK": 43.62
+    }
+  },
+  {
+    "card_id": "VAC_943",
+    "classes": {
+      "WARLOCK": 45.42
+    }
+  },
+  {
+    "card_id": "VAC_944",
+    "classes": {
+      "WARLOCK": 49.76
+    }
+  },
+  {
+    "card_id": "VAC_951",
+    "classes": {
+      "WARLOCK": 41.59
+    }
+  },
+  {
+    "card_id": "CORE_SCH_158",
+    "classes": {
+      "WARLOCK": 43.57
+    }
+  },
+  {
+    "card_id": "EDR_485",
+    "classes": {
+      "WARLOCK": 38.33
+    }
+  },
+  {
+    "card_id": "EDR_487",
+    "classes": {
+      "WARLOCK": 53.01
+    }
+  },
+  {
+    "card_id": "EDR_488",
+    "classes": {
+      "WARLOCK": 39.06
+    }
+  },
+  {
+    "card_id": "EDR_489",
+    "classes": {
+      "WARLOCK": 46.3
+    }
+  },
+  {
+    "card_id": "FIR_924",
+    "classes": {
+      "WARLOCK": 43.26
+    }
+  },
+  {
+    "card_id": "FIR_954",
+    "classes": {
+      "WARLOCK": 44.03
+    }
+  },
+  {
+    "card_id": "TLC_451",
+    "classes": {
+      "WARLOCK": 43.11
+    }
+  },
+  {
+    "card_id": "TLC_469",
+    "classes": {
+      "WARLOCK": 35.43
+    }
+  },
+  {
+    "card_id": "TIME_025",
+    "classes": {
+      "WARLOCK": 51.36
+    }
+  },
+  {
+    "card_id": "TIME_027",
+    "classes": {
+      "WARLOCK": 45.14
+    }
+  },
+  {
+    "card_id": "TIME_029",
+    "classes": {
+      "WARLOCK": 43.8
+    }
+  },
+  {
+    "card_id": "TIME_032",
+    "classes": {
+      "WARLOCK": 31.14
+    }
+  },
+  {
+    "card_id": "CATA_725",
+    "classes": {
+      "WARLOCK": 41.95
+    }
+  },
+  {
+    "card_id": "CATA_490",
+    "classes": {
+      "WARLOCK": 45.15
+    }
+  },
+  {
+    "card_id": "CATA_491",
+    "classes": {
+      "WARLOCK": 38.88
+    }
+  },
+  {
+    "card_id": "CATA_492",
+    "classes": {
+      "WARLOCK": 42.21
+    }
+  },
+  {
+    "card_id": "CATA_493",
+    "classes": {
+      "WARLOCK": 49.24
+    }
+  },
+  {
+    "card_id": "CATA_494",
+    "classes": {
+      "WARLOCK": 38.56
+    }
+  },
+  {
+    "card_id": "CATA_496",
+    "classes": {
+      "WARLOCK": 44.33
+    }
+  },
+  {
+    "card_id": "CATA_498",
+    "classes": {
+      "WARLOCK": 42.74
+    }
+  },
+  {
+    "card_id": "CATA_499",
+    "classes": {
+      "WARLOCK": 42.97
+    }
+  },
+  {
+    "card_id": "CATA_726",
+    "classes": {
+      "WARLOCK": 41.87
+    }
+  },
+  {
+    "card_id": "EX1_407",
+    "classes": {
+      "WARRIOR": 44.54
+    }
+  },
+  {
+    "card_id": "OG_312",
+    "classes": {
+      "WARRIOR": 53.68
+    }
+  },
+  {
+    "card_id": "CFM_754",
+    "classes": {
+      "WARRIOR": 49.04
+    }
+  },
+  {
+    "card_id": "ULD_195",
+    "classes": {
+      "WARRIOR": 52.85
+    }
+  },
+  {
+    "card_id": "ULD_720",
+    "classes": {
+      "WARRIOR": 54.47
+    }
+  },
+  {
+    "card_id": "BT_117",
+    "classes": {
+      "WARRIOR": 48.25
+    }
+  },
+  {
+    "card_id": "SCH_237",
+    "classes": {
+      "WARRIOR": 54.6
+    }
+  },
+  {
+    "card_id": "SCH_337",
+    "classes": {
+      "WARRIOR": 54.39
+    }
+  },
+  {
+    "card_id": "DMF_521",
+    "classes": {
+      "WARRIOR": 53.23
+    }
+  },
+  {
+    "card_id": "BAR_844",
+    "classes": {
+      "WARRIOR": 55.61
+    }
+  },
+  {
+    "card_id": "BAR_840",
+    "classes": {
+      "WARRIOR": 49.83
+    }
+  },
+  {
+    "card_id": "BAR_841",
+    "classes": {
+      "WARRIOR": 47.77
+    }
+  },
+  {
+    "card_id": "BAR_334",
+    "classes": {
+      "WARRIOR": 43.37
+    }
+  },
+  {
+    "card_id": "WC_026",
+    "classes": {
+      "WARRIOR": 44.06
+    }
+  },
+  {
+    "card_id": "BAR_896",
+    "classes": {
+      "WARRIOR": 51.88
+    }
+  },
+  {
+    "card_id": "SW_093",
+    "classes": {
+      "WARRIOR": 52.53
+    }
+  },
+  {
+    "card_id": "CORE_EX1_391",
+    "classes": {
+      "WARRIOR": 53.8
+    }
+  },
+  {
+    "card_id": "ONY_024",
+    "classes": {
+      "WARRIOR": 52.97
+    }
+  },
+  {
+    "card_id": "TID_716",
+    "classes": {
+      "WARRIOR": 56.49
+    }
+  },
+  {
+    "card_id": "CORE_EX1_606",
+    "classes": {
+      "WARRIOR": 52.44
+    }
+  },
+  {
+    "card_id": "CORE_AT_064",
+    "classes": {
+      "WARRIOR": 53.02
+    }
+  },
+  {
+    "card_id": "REV_933",
+    "classes": {
+      "WARRIOR": 49.51
+    }
+  },
+  {
+    "card_id": "REV_934",
+    "classes": {
+      "WARRIOR": 52.12
+    }
+  },
+  {
+    "card_id": "REV_316",
+    "classes": {
+      "WARRIOR": 57.63
+    }
+  },
+  {
+    "card_id": "REV_332",
+    "classes": {
+      "WARRIOR": 55.07
+    }
+  },
+  {
+    "card_id": "RLK_960",
+    "classes": {
+      "WARRIOR": 60.48
+    }
+  },
+  {
+    "card_id": "ETC_363",
+    "classes": {
+      "WARRIOR": 52.83
+    }
+  },
+  {
+    "card_id": "ETC_364",
+    "classes": {
+      "WARRIOR": 53.16
+    }
+  },
+  {
+    "card_id": "ETC_365",
+    "classes": {
+      "WARRIOR": 54.31
+    }
+  },
+  {
+    "card_id": "RLK_604",
+    "classes": {
+      "WARRIOR": 61.65
+    }
+  },
+  {
+    "card_id": "ETC_121",
+    "classes": {
+      "WARRIOR": 49.29
+    }
+  },
+  {
+    "card_id": "JAM_014",
+    "classes": {
+      "WARRIOR": 48.48
+    }
+  },
+  {
+    "card_id": "TTN_811",
+    "classes": {
+      "WARRIOR": 59.31
+    }
+  },
+  {
+    "card_id": "TTN_466",
+    "classes": {
+      "WARRIOR": 54.25
+    }
+  },
+  {
+    "card_id": "TTN_467",
+    "classes": {
+      "WARRIOR": 57.35
+    }
+  },
+  {
+    "card_id": "TTN_468",
+    "classes": {
+      "WARRIOR": 54.94
+    }
+  },
+  {
+    "card_id": "TTN_469",
+    "classes": {
+      "WARRIOR": 54.89
+    }
+  },
+  {
+    "card_id": "TTN_470",
+    "classes": {
+      "WARRIOR": 54.28
+    }
+  },
+  {
+    "card_id": "TTN_753",
+    "classes": {
+      "WARRIOR": 52.89
+    }
+  },
+  {
+    "card_id": "WW_346",
+    "classes": {
+      "WARRIOR": 51.51
+    }
+  },
+  {
+    "card_id": "YOG_502",
+    "classes": {
+      "WARRIOR": 52.53
+    }
+  },
+  {
+    "card_id": "WW_367",
+    "classes": {
+      "WARRIOR": 48.72
+    }
+  },
+  {
+    "card_id": "WON_116",
+    "classes": {
+      "WARRIOR": 51.58
+    }
+  },
+  {
+    "card_id": "TOY_605",
+    "classes": {
+      "WARRIOR": 51.0
+    }
+  },
+  {
+    "card_id": "GIFT_07",
+    "classes": {
+      "WARRIOR": 49.44
+    }
+  },
+  {
+    "card_id": "VAC_527",
+    "classes": {
+      "WARRIOR": 52.27
+    }
+  },
+  {
+    "card_id": "VAC_528",
+    "classes": {
+      "WARRIOR": 53.27
+    }
+  },
+  {
+    "card_id": "VAC_341",
+    "classes": {
+      "WARRIOR": 51.43
+    }
+  },
+  {
+    "card_id": "WORK_022",
+    "classes": {
+      "WARRIOR": 51.3
+    }
+  },
+  {
+    "card_id": "WORK_023",
+    "classes": {
+      "WARRIOR": 47.24
+    }
+  },
+  {
+    "card_id": "GDB_226",
+    "classes": {
+      "WARRIOR": 53.87
+    }
+  },
+  {
+    "card_id": "GDB_233",
+    "classes": {
+      "WARRIOR": 50.87
+    }
+  },
+  {
+    "card_id": "GDB_234",
+    "classes": {
+      "WARRIOR": 59.58
+    }
+  },
+  {
+    "card_id": "EDR_454",
+    "classes": {
+      "WARRIOR": 54.65
+    }
+  },
+  {
+    "card_id": "EDR_455",
+    "classes": {
+      "WARRIOR": 54.39
+    }
+  },
+  {
+    "card_id": "EDR_459",
+    "classes": {
+      "WARRIOR": 52.96
+    }
+  },
+  {
+    "card_id": "FIR_939",
+    "classes": {
+      "WARRIOR": 56.1
+    }
+  },
+  {
+    "card_id": "TLC_606",
+    "classes": {
+      "WARRIOR": 54.7
+    }
+  },
+  {
+    "card_id": "TLC_623",
+    "classes": {
+      "WARRIOR": 53.63
+    }
+  },
+  {
+    "card_id": "DINO_401",
+    "classes": {
+      "WARRIOR": 58.11
+    }
+  },
+  {
+    "card_id": "TIME_850",
+    "classes": {
+      "WARRIOR": 49.73
+    }
+  },
+  {
+    "card_id": "TIME_850t",
+    "classes": {
+      "WARRIOR": 49.72
+    }
+  },
+  {
+    "card_id": "TIME_850t1",
+    "classes": {
+      "WARRIOR": 50.58
+    }
+  },
+  {
+    "card_id": "TLC_478",
+    "classes": {
+      "WARRIOR": 51.56
+    }
+  },
+  {
+    "card_id": "TIME_871",
+    "classes": {
+      "WARRIOR": 48.37
+    }
+  },
+  {
+    "card_id": "CORE_WON_350",
+    "classes": {
+      "WARRIOR": 51.55
+    }
+  },
+  {
+    "card_id": "TIME_034",
+    "classes": {
+      "WARRIOR": 54.68
+    }
+  },
+  {
+    "card_id": "TIME_714",
+    "classes": {
+      "WARRIOR": 51.34
+    }
+  },
+  {
+    "card_id": "TIME_715",
+    "classes": {
+      "WARRIOR": 45.15
+    }
+  },
+  {
+    "card_id": "TIME_750",
+    "classes": {
+      "WARRIOR": 53.66
+    }
+  },
+  {
+    "card_id": "CATA_580",
+    "classes": {
+      "WARRIOR": 55.5
+    }
+  },
+  {
+    "card_id": "CATA_581",
+    "classes": {
+      "WARRIOR": 48.67
+    }
+  },
+  {
+    "card_id": "CATA_582",
+    "classes": {
+      "WARRIOR": 52.7
+    }
+  },
+  {
+    "card_id": "CATA_584",
+    "classes": {
+      "WARRIOR": 56.25
+    }
+  },
+  {
+    "card_id": "CATA_585",
+    "classes": {
+      "WARRIOR": 56.37
+    }
+  },
+  {
+    "card_id": "CATA_586",
+    "classes": {
+      "WARRIOR": 51.95
+    }
+  },
+  {
+    "card_id": "CATA_591",
+    "classes": {
+      "WARRIOR": 53.98
+    }
+  },
+  {
+    "card_id": "CATA_610",
+    "classes": {
+      "WARRIOR": 44.36
+    }
+  },
+  {
+    "card_id": "CATA_160",
+    "classes": {
+      "WARRIOR": 54.38
+    }
+  },
+  {
+    "card_id": "CATA_150",
+    "classes": {
+      "WARRIOR": 60.69
+    }
+  },
+  {
+    "card_id": "CORE_WW_329",
+    "classes": {
+      "WARRIOR": 74.17
+    }
+  },
+  {
+    "card_id": "BT_922",
+    "classes": {
+      "DEMONHUNTER": 49.06
+    }
+  },
+  {
+    "card_id": "BT_429",
+    "classes": {
+      "DEMONHUNTER": 60.01
+    }
+  },
+  {
+    "card_id": "BT_175",
+    "classes": {
+      "DEMONHUNTER": 46.38
+    }
+  },
+  {
+    "card_id": "BT_601",
+    "classes": {
+      "DEMONHUNTER": 50.24
+    }
+  },
+  {
+    "card_id": "BT_487",
+    "classes": {
+      "DEMONHUNTER": 48.35
+    }
+  },
+  {
+    "card_id": "BT_490",
+    "classes": {
+      "DEMONHUNTER": 48.67
+    }
+  },
+  {
+    "card_id": "BT_354",
+    "classes": {
+      "DEMONHUNTER": 38.84
+    }
+  },
+  {
+    "card_id": "SCH_702",
+    "classes": {
+      "DEMONHUNTER": 38.71
+    }
+  },
+  {
+    "card_id": "BT_761",
+    "classes": {
+      "DEMONHUNTER": 44.95
+    }
+  },
+  {
+    "card_id": "DMF_224",
+    "classes": {
+      "DEMONHUNTER": 44.24
+    }
+  },
+  {
+    "card_id": "DMF_226",
+    "classes": {
+      "DEMONHUNTER": 33.26
+    }
+  },
+  {
+    "card_id": "YOP_030",
+    "classes": {
+      "DEMONHUNTER": 53.79
+    }
+  },
+  {
+    "card_id": "SW_040",
+    "classes": {
+      "DEMONHUNTER": 50.31
+    }
+  },
+  {
+    "card_id": "SW_043",
+    "classes": {
+      "DEMONHUNTER": 49.08
+    }
+  },
+  {
+    "card_id": "SW_044",
+    "classes": {
+      "DEMONHUNTER": 66.17
+    }
+  },
+  {
+    "card_id": "DED_507",
+    "classes": {
+      "DEMONHUNTER": 48.98
+    }
+  },
+  {
+    "card_id": "CS3_020",
+    "classes": {
+      "DEMONHUNTER": 54.31
+    }
+  },
+  {
+    "card_id": "AV_204",
+    "classes": {
+      "DEMONHUNTER": 56.42
+    }
+  },
+  {
+    "card_id": "AV_269",
+    "classes": {
+      "DEMONHUNTER": 45.16
+    }
+  },
+  {
+    "card_id": "CORE_BT_035",
+    "classes": {
+      "DEMONHUNTER": 48.56
+    }
+  },
+  {
+    "card_id": "AV_118",
+    "classes": {
+      "DEMONHUNTER": 47.55
+    }
+  },
+  {
+    "card_id": "CORE_BT_351",
+    "classes": {
+      "DEMONHUNTER": 47.9
+    }
+  },
+  {
+    "card_id": "CORE_BT_491",
+    "classes": {
+      "DEMONHUNTER": 49.05
+    }
+  },
+  {
+    "card_id": "CORE_BT_801",
+    "classes": {
+      "DEMONHUNTER": 48.07
+    }
+  },
+  {
+    "card_id": "TSC_006",
+    "classes": {
+      "DEMONHUNTER": 54.93
+    }
+  },
+  {
+    "card_id": "TSC_610",
+    "classes": {
+      "DEMONHUNTER": 50.42
+    }
+  },
+  {
+    "card_id": "TSC_826",
+    "classes": {
+      "DEMONHUNTER": 31.29
+    }
+  },
+  {
+    "card_id": "TID_704",
+    "classes": {
+      "DEMONHUNTER": 49.01
+    }
+  },
+  {
+    "card_id": "REV_507",
+    "classes": {
+      "DEMONHUNTER": 43.39
+    }
+  },
+  {
+    "card_id": "REV_509",
+    "classes": {
+      "DEMONHUNTER": 44.53
+    }
+  },
+  {
+    "card_id": "REV_510",
+    "classes": {
+      "DEMONHUNTER": 40.41
+    }
+  },
+  {
+    "card_id": "REV_511",
+    "classes": {
+      "DEMONHUNTER": 43.33
+    }
+  },
+  {
+    "card_id": "RLK_210",
+    "classes": {
+      "DEMONHUNTER": 46.54
+    }
+  },
+  {
+    "card_id": "RLK_212",
+    "classes": {
+      "DEMONHUNTER": 45.54
+    }
+  },
+  {
+    "card_id": "JAM_018",
+    "classes": {
+      "DEMONHUNTER": 49.43
+    }
+  },
+  {
+    "card_id": "ETC_394",
+    "classes": {
+      "DEMONHUNTER": 50.16
+    }
+  },
+  {
+    "card_id": "CORE_YOP_001",
+    "classes": {
+      "DEMONHUNTER": 49.42
+    }
+  },
+  {
+    "card_id": "TTN_842",
+    "classes": {
+      "DEMONHUNTER": 47.84
+    }
+  },
+  {
+    "card_id": "TTN_861",
+    "classes": {
+      "DEMONHUNTER": 48.47
+    }
+  },
+  {
+    "card_id": "TTN_862",
+    "classes": {
+      "DEMONHUNTER": 57.67
+    }
+  },
+  {
+    "card_id": "WW_400",
+    "classes": {
+      "DEMONHUNTER": 28.54
+    }
+  },
+  {
+    "card_id": "WW_404",
+    "classes": {
+      "DEMONHUNTER": 33.99
+    }
+  },
+  {
+    "card_id": "WW_405",
+    "classes": {
+      "DEMONHUNTER": 51.53
+    }
+  },
+  {
+    "card_id": "WW_408",
+    "classes": {
+      "DEMONHUNTER": 49.24
+    }
+  },
+  {
+    "card_id": "TOY_028",
+    "classes": {
+      "DEMONHUNTER": 50.44
+    }
+  },
+  {
+    "card_id": "TOY_641",
+    "classes": {
+      "DEMONHUNTER": 53.77
+    }
+  },
+  {
+    "card_id": "TOY_642",
+    "classes": {
+      "DEMONHUNTER": 49.15
+    }
+  },
+  {
+    "card_id": "TOY_643",
+    "classes": {
+      "DEMONHUNTER": 43.79
+    }
+  },
+  {
+    "card_id": "TOY_644",
+    "classes": {
+      "DEMONHUNTER": 47.35
+    }
+  },
+  {
+    "card_id": "TOY_647",
+    "classes": {
+      "DEMONHUNTER": 50.76
+    }
+  },
+  {
+    "card_id": "VAC_928",
+    "classes": {
+      "DEMONHUNTER": 47.61
+    }
+  },
+  {
+    "card_id": "WORK_014",
+    "classes": {
+      "DEMONHUNTER": 44.81
+    }
+  },
+  {
+    "card_id": "WORK_015",
+    "classes": {
+      "DEMONHUNTER": 46.57
+    }
+  },
+  {
+    "card_id": "GDB_118",
+    "classes": {
+      "DEMONHUNTER": 42.96
+    }
+  },
+  {
+    "card_id": "EDR_421",
+    "classes": {
+      "DEMONHUNTER": 45.32
+    }
+  },
+  {
+    "card_id": "EDR_891",
+    "classes": {
+      "DEMONHUNTER": 47.02
+    }
+  },
+  {
+    "card_id": "EDR_892",
+    "classes": {
+      "DEMONHUNTER": 49.99
+    }
+  },
+  {
+    "card_id": "GDB_902",
+    "classes": {
+      "DEMONHUNTER": 46.15
+    }
+  },
+  {
+    "card_id": "EDR_842",
+    "classes": {
+      "DEMONHUNTER": 51.47
+    }
+  },
+  {
+    "card_id": "FIR_902",
+    "classes": {
+      "DEMONHUNTER": 47.89
+    }
+  },
+  {
+    "card_id": "FIR_904",
+    "classes": {
+      "DEMONHUNTER": 48.94
+    }
+  },
+  {
+    "card_id": "FIR_952",
+    "classes": {
+      "DEMONHUNTER": 51.29
+    }
+  },
+  {
+    "card_id": "CORE_WC_701",
+    "classes": {
+      "DEMONHUNTER": 42.01
+    }
+  },
+  {
+    "card_id": "TLC_900",
+    "classes": {
+      "DEMONHUNTER": 49.95
+    }
+  },
+  {
+    "card_id": "TLC_901",
+    "classes": {
+      "DEMONHUNTER": 41.97
+    }
+  },
+  {
+    "card_id": "TLC_902",
+    "classes": {
+      "DEMONHUNTER": 50.85
+    }
+  },
+  {
+    "card_id": "TLC_630",
+    "classes": {
+      "DEMONHUNTER": 52.45
+    }
+  },
+  {
+    "card_id": "TIME_020",
+    "classes": {
+      "DEMONHUNTER": 22.51
+    }
+  },
+  {
+    "card_id": "TIME_020t1",
+    "classes": {
+      "DEMONHUNTER": 43.26
+    }
+  },
+  {
+    "card_id": "TIME_020t2",
+    "classes": {
+      "DEMONHUNTER": 40.25
+    }
+  },
+  {
+    "card_id": "CORE_BT_493",
+    "classes": {
+      "DEMONHUNTER": 49.22
+    }
+  },
+  {
+    "card_id": "TIME_441",
+    "classes": {
+      "DEMONHUNTER": 45.14
+    }
+  },
+  {
+    "card_id": "TIME_442",
+    "classes": {
+      "DEMONHUNTER": 42.22
+    }
+  },
+  {
+    "card_id": "END_006",
+    "classes": {
+      "DEMONHUNTER": 41.56
+    }
+  },
+  {
+    "card_id": "CATA_525",
+    "classes": {
+      "DEMONHUNTER": 50.76
+    }
+  },
+  {
+    "card_id": "CATA_526",
+    "classes": {
+      "DEMONHUNTER": 49.11
+    }
+  },
+  {
+    "card_id": "CATA_527",
+    "classes": {
+      "DEMONHUNTER": 49.11
+    }
+  },
+  {
+    "card_id": "CATA_528",
+    "classes": {
+      "DEMONHUNTER": 48.43
+    }
+  },
+  {
+    "card_id": "CATA_529",
+    "classes": {
+      "DEMONHUNTER": 49.23
+    }
+  },
+  {
+    "card_id": "CATA_530",
+    "classes": {
+      "DEMONHUNTER": 50.6
+    }
+  },
+  {
+    "card_id": "CATA_533",
+    "classes": {
+      "DEMONHUNTER": 46.42
+    }
+  },
+  {
+    "card_id": "CATA_699",
+    "classes": {
+      "DEMONHUNTER": 45.8
+    }
+  },
+  {
+    "card_id": "CATA_697",
+    "classes": {
+      "DEMONHUNTER": 48.01
+    }
+  },
+  {
+    "card_id": "CATA_151",
+    "classes": {
+      "DEMONHUNTER": 63.74
+    }
+  },
+  {
+    "card_id": "CORE_CATA_001",
+    "classes": {
+      "DEMONHUNTER": 45.36
+    }
+  },
+  {
+    "card_id": "CORE_BT_321",
+    "classes": {
+      "DEMONHUNTER": 67.13
+    }
+  },
+  {
+    "card_id": "CORE_TTN_866",
+    "classes": {
+      "DEMONHUNTER": 37.0
+    }
+  }
+]

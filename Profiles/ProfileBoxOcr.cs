@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -112,7 +112,7 @@ namespace SmartBotProfiles
 
         public static bool ApplyWeakRecommendationBias(ProfileParameters p, Board board, Action<string> addLog, string expectedProfileName = "")
         {
-            if (p == null || board == null || board.Hand == null || board.Hand.Count == 0)
+            if (p == null || board == null)
                 return false;
 
             BoxOcrState state = LoadCurrentState();
@@ -131,62 +131,65 @@ namespace SmartBotProfiles
             bool appliedAny = false;
             List<string> hitNames = new List<string>();
 
-            foreach (Card card in board.Hand)
+            if (board.Hand != null)
             {
-                if (card == null || card.Template == null)
-                    continue;
-
-                if (!state.RecommendedCards.Contains(card.Template.Id))
-                    continue;
-
-                if (card.CurrentCost > board.ManaAvailable)
-                    continue;
-
-                bool appliedThisCard = false;
-
-                if (card.Type == Card.CType.MINION)
+                foreach (Card card in board.Hand)
                 {
-                    if (CanApplyWeakPositiveBias(p.CastMinionsModifiers, card.Template.Id, card.Id))
+                    if (card == null || card.Template == null)
+                        continue;
+
+                    if (!state.RecommendedCards.Contains(card.Template.Id))
+                        continue;
+
+                    if (card.CurrentCost > board.ManaAvailable)
+                        continue;
+
+                    bool appliedThisCard = false;
+
+                    if (card.Type == Card.CType.MINION)
                     {
-                        p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
-                        p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
-                        appliedAny = true;
-                        appliedThisCard = true;
+                        if (CanApplyWeakPositiveBias(p.CastMinionsModifiers, card.Template.Id, card.Id))
+                        {
+                            p.CastMinionsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
+                            p.CastMinionsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
+                            appliedAny = true;
+                            appliedThisCard = true;
+                        }
                     }
-                }
-                else if (card.Type == Card.CType.SPELL)
-                {
-                    if (CanApplyWeakPositiveBias(p.CastSpellsModifiers, card.Template.Id, card.Id))
+                    else if (card.Type == Card.CType.SPELL)
                     {
-                        p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
-                        p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
-                        appliedAny = true;
-                        appliedThisCard = true;
+                        if (CanApplyWeakPositiveBias(p.CastSpellsModifiers, card.Template.Id, card.Id))
+                        {
+                            p.CastSpellsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
+                            p.CastSpellsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
+                            appliedAny = true;
+                            appliedThisCard = true;
+                        }
                     }
-                }
-                else if (card.Type == Card.CType.WEAPON)
-                {
-                    if (CanApplyWeakPositiveBias(p.CastWeaponsModifiers, card.Template.Id, card.Id))
+                    else if (card.Type == Card.CType.WEAPON)
                     {
-                        p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
-                        p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
-                        p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
-                        appliedAny = true;
-                        appliedThisCard = true;
+                        if (CanApplyWeakPositiveBias(p.CastWeaponsModifiers, card.Template.Id, card.Id))
+                        {
+                            p.CastWeaponsModifiers.AddOrUpdate(card.Template.Id, new Modifier(-180));
+                            p.CastWeaponsModifiers.AddOrUpdate(card.Id, new Modifier(-180));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Template.Id, new Modifier(420));
+                            p.PlayOrderModifiers.AddOrUpdate(card.Id, new Modifier(420));
+                            appliedAny = true;
+                            appliedThisCard = true;
+                        }
                     }
-                }
 
-                if (appliedThisCard)
-                {
-                    string name = card.Template.NameCN;
-                    if (string.IsNullOrWhiteSpace(name))
-                        name = card.Template.Name;
-                    hitNames.Add(name);
+                    if (appliedThisCard)
+                    {
+                        string name = card.Template.NameCN;
+                        if (string.IsNullOrWhiteSpace(name))
+                            name = card.Template.Name;
+                        hitNames.Add(name);
+                    }
                 }
             }
 
@@ -227,8 +230,8 @@ namespace SmartBotProfiles
 
                 string joined = string.Join(", ", uniqueNames);
                 if (string.IsNullOrWhiteSpace(joined))
-                    joined = "weak_bias_applied";
-                addLog("[BoxOCR] recommendation hits => " + joined);
+                    joined = "已应用弱引导";
+                addLog("[BoxOCR] 命中推荐 => " + joined);
             }
 
             return appliedAny;

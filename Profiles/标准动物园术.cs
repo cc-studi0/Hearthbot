@@ -18,6 +18,7 @@ namespace SmartBotProfiles
 
         // ===== 英雄技能 / 通用 =====
         private const Card.Cards TheCoin = Card.Cards.GAME_005;
+        private const Card.Cards Innervate = Card.Cards.CORE_EX1_169;
         private const Card.Cards LifeTap = Card.Cards.HERO_07bp;
         private const Card.Cards Banana = Card.Cards.EX1_014t;               // 香蕉（+1/+1）
 
@@ -12952,16 +12953,20 @@ namespace SmartBotProfiles
             return affected;
         }
 
-        // 用户规则：每次手牌动作后都要重算；幸运币/小精灵仍排除。
+        // 用户规则：每次手牌动作后都要重算；幸运币/激活仍排除。
         // 挟持射线仅在“临时牌”时排除，常规射线打完后继续重算。
         private void ConfigureForcedResimulation(Board board, ProfileParameters p)
         {
             if (board == null || board.Hand == null || p == null || p.ForcedResimulationCardList == null)
                 return;
 
+            var excluded = new HashSet<Card.Cards> { TheCoin, Innervate };
             int added = 0;
             foreach (var c in board.Hand.Where(x => x != null && x.Template != null))
             {
+                if (excluded.Contains(c.Template.Id))
+                    continue;
+
                 // 用户规则修正：临时挟持射线不加入重算名单，避免连锁抖动；
                 // 非临时挟持射线仍纳入重算，确保“用完后继续思考”。
                 if (c.Template.Id == AbductionRay && IsTemporaryCard(c))
@@ -12975,7 +12980,7 @@ namespace SmartBotProfiles
             }
 
             if (added > 0)
-                AddLog("重算：已登记手牌重算列表(排除幸运币/小精灵/临时挟持射线) 数量=" + added);
+                AddLog("重算：已登记手牌重算列表(排除幸运币/激活/临时挟持射线) 数量=" + added);
         }
 
         private bool HasOtherPlayableCardThanTomb(Board board, int manaNow)

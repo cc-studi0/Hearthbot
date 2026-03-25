@@ -604,7 +604,7 @@ namespace HearthstonePayload
             _coroutine.SetResult("OK:TARGET_CLICK:" + x + "," + y);
         }
 
-        private static IEnumerator<float> HumanizedTurnStart(int turn, string handEntityIdsCsv)
+        private static IEnumerator<float> HumanizedTurnStart(int turn, string handEntityIdsCsv, int actionCount = 0)
         {
             InputHook.Simulating = true;
             var config = GetHumanizerConfigSnapshot();
@@ -614,13 +614,24 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            int minExtraMs;
-            int maxExtraMs;
-            ConstructedHumanizerPlanner.GetTurnStartRandomRange(config.Intensity, out minExtraMs, out maxExtraMs);
-            var thinkMs = ConstructedHumanizerPlanner.ComputeTurnStartDelayMs(
-                turn,
-                config.Intensity,
-                NextHumanizeInt32(minExtraMs, maxExtraMs));
+            int thinkMs;
+            if (actionCount > 0)
+            {
+                // 基于操作复杂度的思考时间
+                thinkMs = ConstructedHumanizerPlanner.ComputeTurnStartDelayMs(
+                    turn, actionCount, config.Intensity, null);
+            }
+            else
+            {
+                // 兼容旧协议：回退到线性递增模型
+                int minExtraMs;
+                int maxExtraMs;
+                ConstructedHumanizerPlanner.GetTurnStartRandomRange(config.Intensity, out minExtraMs, out maxExtraMs);
+                thinkMs = ConstructedHumanizerPlanner.ComputeTurnStartDelayMs(
+                    turn,
+                    config.Intensity,
+                    NextHumanizeInt32(minExtraMs, maxExtraMs));
+            }
 
             var startedUtc = DateTime.UtcNow;
             var shouldScanHand = ConstructedHumanizerPlanner.ShouldScanHandAtTurnStart(
@@ -631,6 +642,33 @@ namespace HearthstonePayload
             var orderedHandEntityIds = ParseEntityIdsCsv(handEntityIdsCsv);
             if (orderedHandEntityIds.Count == 0)
                 orderedHandEntityIds = GameObjectFinder.GetHandEntityIds() ?? new List<int>();
+
+            // 回合开始：有概率先扫视敌方场面
+            if (ConstructedHumanizerPlanner.ShouldScanEnemyBoard(
+                    config.Intensity, NextHumanizeInt32(1, 100))
+                && GetRemainingTurnStartThinkMs(startedUtc, thinkMs) > 400)
+            {
+                var enemyScanIds = BuildEnemyBoardScanEntityIds();
+                if (enemyScanIds.Count > 0)
+                {
+                    scanMode = "enemy_scan";
+                    var scanCount = Math.Min(enemyScanIds.Count, NextHumanizeInt32(1, 3));
+                    for (int i = 0; i < scanCount; i++)
+                    {
+                        if (GetRemainingTurnStartThinkMs(startedUtc, thinkMs) <= 300)
+                            break;
+
+                        if (!GameObjectFinder.GetEntityScreenPos(enemyScanIds[i], out var ex, out var ey))
+                            continue;
+
+                        foreach (var w in MoveCursorConstructed(ex, ey, 10, 0.010f, false))
+                            yield return w;
+
+                        // 悬停阅读敌方随从
+                        yield return GetHumanizePauseSeconds(150, 350);
+                    }
+                }
+            }
 
             if (shouldScanHand)
             {
@@ -682,8 +720,15 @@ namespace HearthstonePayload
             }
 
             var tailMs = GetRemainingTurnStartThinkMs(startedUtc, thinkMs);
-            if (tailMs > 0)
+            if (tailMs > 300 && config.Enabled)
+            {
+                foreach (var w in IdleMicroMovement(tailMs))
+                    yield return w;
+            }
+            else if (tailMs > 0)
+            {
                 yield return tailMs / 1000f;
+            }
 
             _coroutine.SetResult(
                 "OK:HUMAN_TURN_START:"
@@ -770,6 +815,38 @@ namespace HearthstonePayload
             return false;
         }
 
+        /// <summary>
+        /// 获取敌方场上随从的 EntityId 列表（随机打乱顺序）
+        /// </summary>
+        private static List<int> BuildEnemyBoardScanEntityIds()
+        {
+            var result = new List<int>();
+            try
+            {
+                var state = SafeReadGameState();
+                if (state?.MinionEnemy == null)
+                    return result;
+
+                foreach (var entity in state.MinionEnemy)
+                {
+                    if (entity != null && entity.EntityId > 0)
+                        result.Add(entity.EntityId);
+                }
+
+                // 随机打乱顺序，模拟真人不会从左到右依次看
+                for (int i = result.Count - 1; i > 0; i--)
+                {
+                    int j = NextHumanizeInt32(0, i);
+                    var tmp = result[i];
+                    result[i] = result[j];
+                    result[j] = tmp;
+                }
+            }
+            catch { }
+
+            return result;
+        }
+
         private static List<Tuple<int, int>> BuildTurnStartFallbackPoints()
         {
             var result = new List<Tuple<int, int>>();
@@ -810,7 +887,29 @@ namespace HearthstonePayload
             foreach (var wait in MoveCursorConstructed(previewX, previewY, 10, 0.010f, dragging))
                 yield return wait;
 
-            yield return GetHumanizePauseSeconds(100, 220);
+            // 根据目标阵营调整悬停时间：敌方随从最久（"阅读效果"），己方最短
+            int hoverMinMs;
+            int hoverMaxMs;
+            if (targetHeroSide == 0)
+            {
+                // 己方目标
+                hoverMinMs = 80;
+                hoverMaxMs = 180;
+            }
+            else if (targetHeroSide == 1)
+            {
+                // 敌方英雄
+                hoverMinMs = 120;
+                hoverMaxMs = 280;
+            }
+            else
+            {
+                // 敌方随从或未知（需要更多"阅读时间"）
+                hoverMinMs = 200;
+                hoverMaxMs = 450;
+            }
+
+            yield return GetHumanizePauseSeconds(hoverMinMs, hoverMaxMs);
         }
 
         private static bool TryResolveAlternateTargetScreenPos(
@@ -1367,7 +1466,8 @@ namespace HearthstonePayload
                     {
                         int turn = parts.Length > 1 ? int.Parse(parts[1]) : 0;
                         var handEntityIdsCsv = parts.Length > 2 ? parts[2] : string.Empty;
-                        return _coroutine.RunAndWait(HumanizedTurnStart(turn, handEntityIdsCsv), 15000);
+                        int actionCount = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        return _coroutine.RunAndWait(HumanizedTurnStart(turn, handEntityIdsCsv, actionCount), 15000);
                     }
 
                 // ── 战旗模式动作 ──
@@ -1477,6 +1577,10 @@ namespace HearthstonePayload
 
         private static IEnumerable<float> MoveCursorConstructed(int tx, int ty, int steps, float stepDelay, bool dragging)
         {
+            // 非拖拽模式下对目标坐标施加高斯偏移，模拟真人点击不精确
+            if (!dragging && IsConstructedHumanizerEnabled())
+                ApplyGaussianOffset(ref tx, ref ty);
+
             if (IsConstructedHumanizerEnabled()
                 && TryBuildCubicBezierMove(tx, ty, dragging, out var humanizedSteps))
             {
@@ -1573,6 +1677,85 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 思考期间鼠标空闲微动，避免完全静止
+        /// </summary>
+        private static IEnumerable<float> IdleMicroMovement(int durationMs)
+        {
+            if (durationMs <= 0)
+                yield break;
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            double lastDirX = 0d;
+            double lastDirY = 0d;
+
+            while (sw.ElapsedMilliseconds < durationMs)
+            {
+                var intervalMs = NextHumanizeInt32(200, 400);
+                yield return intervalMs / 1000f;
+
+                if (sw.ElapsedMilliseconds >= durationMs)
+                    break;
+
+                var pixels = NextHumanizeInt32(3, 8);
+                // 方向有连续性：上次方向 ×0.3 + 新随机方向 ×0.7
+                double newDirX = NextHumanizeDouble(-1d, 1d);
+                double newDirY = NextHumanizeDouble(-1d, 1d);
+                double dirX = lastDirX * 0.3d + newDirX * 0.7d;
+                double dirY = lastDirY * 0.3d + newDirY * 0.7d;
+                double mag = Math.Sqrt(dirX * dirX + dirY * dirY);
+                if (mag < 0.01d) continue;
+                dirX /= mag;
+                dirY /= mag;
+                lastDirX = dirX;
+                lastDirY = dirY;
+
+                int targetX = MouseSimulator.CurX + (int)(dirX * pixels);
+                int targetY = MouseSimulator.CurY + (int)(dirY * pixels);
+
+                int screenWidth = MouseSimulator.GetScreenWidth();
+                int screenHeight = MouseSimulator.GetScreenHeight();
+                if (screenWidth > 0)
+                    targetX = Math.Max(10, Math.Min(screenWidth - 10, targetX));
+                if (screenHeight > 0)
+                    targetY = Math.Max(10, Math.Min(screenHeight - 10, targetY));
+
+                MouseSimulator.MoveTo(targetX, targetY);
+            }
+        }
+
+        /// <summary>
+        /// 对点击目标坐标施加高斯随机偏移，模拟真人点击不精确
+        /// 使用 Box-Muller 变换生成高斯分布随机数
+        /// </summary>
+        private static void ApplyGaussianOffset(ref int x, ref int y)
+        {
+            int screenWidth = MouseSimulator.GetScreenWidth();
+            if (screenWidth <= 0) return;
+
+            double stdDev = screenWidth * 0.012d;
+            double maxOffset = stdDev * 2.5d;
+
+            double u1, u2;
+            lock (_humanizeRandomSync)
+            {
+                u1 = 1d - _humanizeRandom.NextDouble();
+                u2 = _humanizeRandom.NextDouble();
+            }
+
+            double z0 = Math.Sqrt(-2d * Math.Log(u1)) * Math.Cos(2d * Math.PI * u2);
+            double z1 = Math.Sqrt(-2d * Math.Log(u1)) * Math.Sin(2d * Math.PI * u2);
+
+            double offsetX = z0 * stdDev;
+            double offsetY = z1 * stdDev;
+
+            offsetX = Math.Max(-maxOffset, Math.Min(maxOffset, offsetX));
+            offsetY = Math.Max(-maxOffset, Math.Min(maxOffset, offsetY));
+
+            x += (int)Math.Round(offsetX);
+            y += (int)Math.Round(offsetY);
+        }
+
+        /// <summary>
         /// 鼠标点击结束回合按钮
         /// </summary>
         private static IEnumerator<float> MouseEndTurn()
@@ -1586,14 +1769,63 @@ namespace HearthstonePayload
                 _coroutine.SetResult("OK:END_TURN");
                 yield break;
             }
-            // 瞬移到按钮并点击
-            MouseSimulator.MoveTo(x, y);
-            yield return 0.05f;
-            // 点击
-            MouseSimulator.LeftDown();
-            yield return 0.05f;
-            MouseSimulator.LeftUp();
-            yield return 0.15f;
+
+            // 拟人化：结束回合前可能犹豫
+            var humConfig = GetHumanizerConfigSnapshot();
+            if (humConfig != null && humConfig.Enabled
+                && ConstructedHumanizerPlanner.ShouldHesitateBeforeEndTurn(
+                    humConfig.Intensity, NextHumanizeInt32(1, 100)))
+            {
+                // 先移动到按钮附近
+                foreach (var w in MoveCursorConstructed(x, y, 10, 0.010f, false))
+                    yield return w;
+
+                // 停顿（犹豫）
+                var hesitateMs = ConstructedHumanizerPlanner.GetEndTurnHesitationMs(
+                    humConfig.Intensity, null);
+                yield return hesitateMs / 1000f;
+
+                // 小概率（5%）：移开再移回（"真的要结束吗"）
+                if (NextHumanizeInt32(1, 100) <= 5)
+                {
+                    int screenWidth = MouseSimulator.GetScreenWidth();
+                    int screenHeight = MouseSimulator.GetScreenHeight();
+                    if (screenWidth > 0 && screenHeight > 0)
+                    {
+                        int driftX = x + NextHumanizeInt32(-80, 80);
+                        int driftY = y + NextHumanizeInt32(30, 80);
+                        driftX = Math.Max(0, Math.Min(screenWidth, driftX));
+                        driftY = Math.Max(0, Math.Min(screenHeight, driftY));
+                        foreach (var w in MoveCursorConstructed(driftX, driftY, 8, 0.010f, false))
+                            yield return w;
+                        yield return GetHumanizePauseSeconds(150, 350);
+                    }
+
+                    // 重新获取按钮位置并移回
+                    if (GameObjectFinder.GetEndTurnButtonScreenPos(out x, out y))
+                    {
+                        foreach (var w in MoveCursorConstructed(x, y, 10, 0.010f, false))
+                            yield return w;
+                    }
+                }
+
+                // 点击
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                yield return 0.15f;
+            }
+            else
+            {
+                // 无犹豫：原始逻辑
+                MouseSimulator.MoveTo(x, y);
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.05f;
+                MouseSimulator.LeftUp();
+                yield return 0.15f;
+            }
+
             // 鼠标点击后追加反射调用，确保结束回合生效
             EndTurn();
             yield return 0.3f;
@@ -2087,6 +2319,17 @@ namespace HearthstonePayload
                         yield return 0.05f;
                     }
 
+                    // 手牌目标校验：战吼选手牌等新机制，利用游戏合法目标列表修正
+                    if (sourceLeftHand && targetHeroSide < 0)
+                    {
+                        var correctedTargetId = TryCorrectHandTargetEntityId(targetEntityId);
+                        if (correctedTargetId > 0 && correctedTargetId != targetEntityId)
+                        {
+                            AppendActionTrace("PLAY(mouse) hand-target corrected from=" + targetEntityId + " to=" + correctedTargetId);
+                            targetEntityId = correctedTargetId;
+                        }
+                    }
+
                     bool confirmed = false;
                     for (int attempt = 0; attempt < 2; attempt++)
                     {
@@ -2355,6 +2598,77 @@ namespace HearthstonePayload
 
             yield return 0.2f;
             _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab_mouse");
+        }
+
+        /// <summary>
+        /// 当游戏处于手牌目标选择模式时，从合法目标列表中找到正确的手牌实体。
+        /// 利用 GameState.DoesSelectedOptionHaveHandTarget() 判断是否为手牌选择模式，
+        /// 利用 GetSelectedNetworkOption().Main.Targets 获取合法目标列表。
+        /// 若当前 targetEntityId 不在合法目标中，按 cardId 匹配返回正确的手牌实体。
+        /// 返回修正后的实体 ID，或 0 表示无需/无法修正。
+        /// </summary>
+        private static int TryCorrectHandTargetEntityId(int targetEntityId)
+        {
+            if (targetEntityId <= 0) return 0;
+
+            try
+            {
+                var gs = GetGameState();
+                if (gs == null) return 0;
+
+                // 1. 检查游戏是否处于手牌选择模式
+                if (!TryInvokeMethod(gs, "DoesSelectedOptionHaveHandTarget", Array.Empty<object>(), out var result))
+                    return 0;
+                if (!(result is bool hasHandTarget && hasHandTarget))
+                    return 0;
+
+                // 2. 获取合法目标列表
+                if (!TryInvokeMethod(gs, "GetSelectedNetworkOption", Array.Empty<object>(), out var optionObj) || optionObj == null)
+                    return 0;
+                var main = GetFieldOrProp(optionObj, "Main");
+                if (main == null) return 0;
+                var targets = GetFieldOrProp(main, "Targets") as IEnumerable;
+                if (targets == null) return 0;
+
+                var validTargetIds = new List<int>();
+                foreach (var t in targets)
+                {
+                    var idObj = GetFieldOrProp(t, "ID");
+                    if (idObj is int id && id > 0)
+                        validTargetIds.Add(id);
+                }
+
+                if (validTargetIds.Count == 0)
+                    return 0;
+
+                // 3. 如果 targetEntityId 已在合法目标中 → 无需修正
+                if (validTargetIds.Contains(targetEntityId))
+                    return 0;
+
+                // 4. targetEntityId 不在合法目标中 → 按 cardId 匹配找替代
+                var targetEntity = GetEntity(gs, targetEntityId);
+                if (targetEntity == null) return 0;
+                var targetCardId = (Invoke(targetEntity, "GetCardId")
+                    ?? GetFieldOrProp(targetEntity, "CardId")
+                    ?? GetFieldOrProp(targetEntity, "m_cardId")
+                    ?? GetFieldOrProp(targetEntity, "m_cardID"))?.ToString();
+                if (string.IsNullOrEmpty(targetCardId)) return 0;
+
+                foreach (var validId in validTargetIds)
+                {
+                    var validEntity = GetEntity(gs, validId);
+                    if (validEntity == null) continue;
+                    var validCardId = (Invoke(validEntity, "GetCardId")
+                        ?? GetFieldOrProp(validEntity, "CardId")
+                        ?? GetFieldOrProp(validEntity, "m_cardId")
+                        ?? GetFieldOrProp(validEntity, "m_cardID"))?.ToString();
+                    if (string.Equals(targetCardId, validCardId, StringComparison.OrdinalIgnoreCase))
+                        return validId;
+                }
+            }
+            catch { }
+
+            return 0;
         }
 
         private static bool TryResolvePlayTargetScreenPos(int targetEntityId, int targetHeroSide, out int x, out int y)

@@ -29,6 +29,7 @@ namespace SmartBotProfiles
 
         #region 英雄技能
         private const Card.Cards TheCoin = Card.Cards.GAME_005;
+        private const Card.Cards Innervate = Card.Cards.CORE_EX1_169;
         private const Card.Cards LifeTap = Card.Cards.CS2_056_H1;
         private const Card.Cards LifeTapLegacy = Card.Cards.HERO_07bp;
         #endregion
@@ -2897,7 +2898,7 @@ namespace SmartBotProfiles
             {
                 if (board != null && board.Hand != null && board.Hand.Count > 0)
                 {
-                    var excluded = new HashSet<Card.Cards> { TheCoin };
+                    var excluded = new HashSet<Card.Cards> { TheCoin, Innervate };
                     var unique = new HashSet<Card.Cards>();
 
                     foreach (var c in board.Hand)
