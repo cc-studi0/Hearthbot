@@ -903,16 +903,17 @@ namespace BotMain
                 return;
             }
 
-            var teacherAction = GetFirstLearnableAction(teacherRecommendation?.Actions);
-            if (string.IsNullOrWhiteSpace(teacherAction))
-                return;
-
-            var localAction = GetFirstLearnableAction(localRecommendation?.Actions);
             _teacherDatasetRecorder.RecordActionDecision(
                 _currentLearningMatchId,
                 request,
                 teacherRecommendation,
                 localRecommendation);
+
+            var teacherAction = GetFirstLearnableAction(teacherRecommendation?.Actions);
+            if (string.IsNullOrWhiteSpace(teacherAction))
+                return;
+
+            var localAction = GetFirstLearnableAction(localRecommendation?.Actions);
             _learnedStrategyCoordinator.EnqueueActionSample(new ActionLearningSample
             {
                 MatchId = _currentLearningMatchId,

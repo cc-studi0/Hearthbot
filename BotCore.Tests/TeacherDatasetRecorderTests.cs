@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Text.Json;
 using BotMain;
 using BotMain.Learning;
 using SmartBot.Database;
@@ -31,6 +32,63 @@ namespace BotCore.Tests
                     "local"));
 
             Assert.Single(store.ActionDecisions);
+        }
+
+        [Fact]
+        public void TeacherDatasetRecorder_ActionDecisionContext_IncludesFreshnessAndConsumedFields()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+            var request = BuildActionRequest(
+                "seed-context-1",
+                minimumUpdatedAtMs: 4567,
+                lastConsumedUpdatedAtMs: 3456,
+                lastConsumedPayloadSignature: "consumed-action-signature",
+                lastConsumedActionCommand: "END_TURN",
+                remainingDeckCards: new[] { Card.Cards.CORE_CS2_029 },
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 8001,
+                        CardId = "CARD_FRIEND_CONTEXT",
+                        Zone = "PLAY",
+                        ZonePosition = 2,
+                        IsGenerated = true,
+                        CreatorEntityId = 7001
+                    }
+                },
+                matchContext: new MatchContextSnapshot
+                {
+                    MatchId = "match-context-1",
+                    TurnCount = 9,
+                    ObservedAtMs = 999001
+                });
+
+            recorder.RecordActionDecision(
+                "match-context-1",
+                request,
+                new ActionRecommendationResult(
+                    null,
+                    new[] { "END_TURN" },
+                    "teacher-context",
+                    sourceUpdatedAtMs: 9876,
+                    sourcePayloadSignature: "payload-context-1"),
+                new ActionRecommendationResult(
+                    null,
+                    new[] { "ATTACK|101|900" },
+                    "local-context",
+                    sourceUpdatedAtMs: 8765,
+                    sourcePayloadSignature: "payload-local-context-1"));
+
+            var decision = Assert.Single(store.ActionDecisions);
+            using var context = JsonDocument.Parse(decision.ContextSnapshotJson);
+            var root = context.RootElement;
+
+            Assert.Equal(4567, root.GetProperty("minimum_updated_at_ms").GetInt64());
+            Assert.Equal(3456, root.GetProperty("last_consumed_updated_at_ms").GetInt64());
+            Assert.Equal("consumed-action-signature", root.GetProperty("last_consumed_payload_signature").GetString());
+            Assert.Equal("END_TURN", root.GetProperty("last_consumed_action_command").GetString());
         }
 
         [Fact]
@@ -198,7 +256,49 @@ namespace BotCore.Tests
             Assert.Single(store.ActionDecisions);
         }
 
-        private static ActionRecommendationRequest BuildActionRequest(string seed)
+        [Fact]
+        public void BotService_TryEnqueueActionLearning_RecordsActionDecision_WhenTeacherOnlyEndTurn()
+        {
+            var store = new FakeTeacherDatasetStore();
+            var recorder = new TeacherDatasetRecorder(store);
+            var constructor = typeof(BotService).GetConstructor(
+                BindingFlags.Instance | BindingFlags.NonPublic,
+                binder: null,
+                types: new[] { typeof(TeacherDatasetRecorder) },
+                modifiers: null);
+            Assert.NotNull(constructor);
+
+            var botService = (BotService)constructor.Invoke(new object[] { recorder });
+            SetPrivateField(botService, "_currentLearningMatchId", "match-botservice-end-turn");
+
+            var method = typeof(BotService).GetMethod("TryEnqueueActionLearning", BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+
+            var request = BuildActionRequest("seed-botservice-end-turn");
+            var teacherRecommendation = new ActionRecommendationResult(
+                decisionPlan: null,
+                actions: new[] { "END_TURN" },
+                detail: "teacher-end-turn");
+            var localRecommendation = new ActionRecommendationResult(
+                decisionPlan: null,
+                actions: new[] { "ATTACK|101|900" },
+                detail: "local-attack");
+
+            method.Invoke(botService, new object[] { request, teacherRecommendation, localRecommendation });
+
+            var decision = Assert.Single(store.ActionDecisions);
+            Assert.Equal("END_TURN", decision.TeacherActionCommand);
+        }
+
+        private static ActionRecommendationRequest BuildActionRequest(
+            string seed,
+            long minimumUpdatedAtMs = 0,
+            long lastConsumedUpdatedAtMs = 0,
+            string lastConsumedPayloadSignature = null,
+            string lastConsumedActionCommand = null,
+            IReadOnlyList<Card.Cards> remainingDeckCards = null,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities = null,
+            MatchContextSnapshot matchContext = null)
         {
             var board = new Board
             {
@@ -212,7 +312,20 @@ namespace BotCore.Tests
                 }
             };
 
-            return new ActionRecommendationRequest(seed, board, null, null);
+            return new ActionRecommendationRequest(
+                seed,
+                board,
+                null,
+                null,
+                minimumUpdatedAtMs: minimumUpdatedAtMs,
+                deckName: "Deck Action",
+                deckSignature: "deck-action-signature",
+                remainingDeckCards: remainingDeckCards,
+                friendlyEntities: friendlyEntities,
+                matchContext: matchContext,
+                lastConsumedUpdatedAtMs: lastConsumedUpdatedAtMs,
+                lastConsumedPayloadSignature: lastConsumedPayloadSignature,
+                lastConsumedActionCommand: lastConsumedActionCommand);
         }
 
         private static ChoiceRecommendationRequest BuildChoiceRequest(string seed)

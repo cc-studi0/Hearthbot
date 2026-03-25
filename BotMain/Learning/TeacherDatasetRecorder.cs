@@ -44,6 +44,15 @@ namespace BotMain.Learning
                 {
                     deck_name = request?.DeckName ?? string.Empty,
                     deck_signature = request?.DeckSignature ?? string.Empty,
+                    minimum_updated_at_ms = request?.MinimumUpdatedAtMs ?? 0,
+                    last_consumed_updated_at_ms = request?.LastConsumedUpdatedAtMs ?? 0,
+                    last_consumed_payload_signature = request?.LastConsumedPayloadSignature ?? string.Empty,
+                    last_consumed_action_command = request?.LastConsumedActionCommand ?? string.Empty,
+                    remaining_deck_cards = (request?.RemainingDeckCards ?? Array.Empty<SmartBot.Plugins.API.Card.Cards>())
+                        .Select(card => card.ToString())
+                        .ToArray(),
+                    friendly_entities = BuildFriendlyEntitySummary(request?.FriendlyEntities),
+                    match_context = request?.MatchContext ?? new MatchContextSnapshot(),
                     local_first_action = FirstAction(localRecommendation?.Actions),
                     teacher_detail = teacherRecommendation?.Detail ?? string.Empty,
                     local_detail = localRecommendation?.Detail ?? string.Empty,
