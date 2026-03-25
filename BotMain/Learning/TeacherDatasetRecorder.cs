@@ -292,7 +292,14 @@ namespace BotMain.Learning
 
         private void Log(string message)
         {
-            OnLog?.Invoke($"[TeacherDataset] {message}");
+            try
+            {
+                OnLog?.Invoke($"[TeacherDataset] {message}");
+            }
+            catch
+            {
+                // 日志回调失败不能影响主流程
+            }
         }
 
         private static string FirstAction(IReadOnlyList<string> actions)

@@ -44,6 +44,20 @@ namespace BotCore.Tests
             Assert.Equal(LearnedMatchOutcome.Win, store.LastOutcome);
         }
 
+        [Fact]
+        public void TeacherDatasetRecorder_DoesNotThrow_WhenOnLogCallbackThrows()
+        {
+            var store = new FakeTeacherDatasetStore { OutcomeResult = false, OutcomeDetail = "no_pending_rows" };
+            var recorder = new TeacherDatasetRecorder(store)
+            {
+                OnLog = _ => throw new InvalidOperationException("logger_failed")
+            };
+
+            var ex = Record.Exception(() => recorder.ApplyMatchOutcome("match-log", LearnedMatchOutcome.Loss));
+
+            Assert.Null(ex);
+        }
+
         private static ActionRecommendationRequest BuildActionRequest(string seed)
         {
             var board = new Board
@@ -106,6 +120,10 @@ namespace BotCore.Tests
 
             public LearnedMatchOutcome LastOutcome { get; private set; } = LearnedMatchOutcome.Unknown;
 
+            public bool OutcomeResult { get; set; } = true;
+
+            public string OutcomeDetail { get; set; } = "ok";
+
             public bool TryStoreActionDecision(
                 TeacherActionDecisionRecord decision,
                 IReadOnlyList<TeacherActionCandidateRecord> candidates,
@@ -132,8 +150,8 @@ namespace BotCore.Tests
             {
                 LastOutcomeMatchId = matchId ?? string.Empty;
                 LastOutcome = outcome;
-                detail = "ok";
-                return true;
+                detail = OutcomeDetail;
+                return OutcomeResult;
             }
         }
     }
