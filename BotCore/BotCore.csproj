@@ -5,6 +5,10 @@
     <Nullable>disable</Nullable>
     <DefaultItemExcludes>$(DefaultItemExcludes);_tmp_*\**</DefaultItemExcludes>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
 
   <ItemGroup>
     <Reference Include="SBAPI">

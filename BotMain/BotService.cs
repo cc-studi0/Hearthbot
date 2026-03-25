@@ -1632,8 +1632,7 @@ namespace BotMain
 
         private bool EnsurePreparedAndConnected()
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var root = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+            var root = AppPaths.RootDirectory;
             _sbapiPath = Path.Combine(root, "Libs", "SBAPI.dll");
             _localDataDir = root;
             _smartBotRootOverride = ResolveSmartBotRoot(root);
@@ -4442,8 +4441,7 @@ namespace BotMain
             var root = _localDataDir;
             if (string.IsNullOrWhiteSpace(root))
             {
-                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                root = Path.GetFullPath(Path.Combine(baseDir, "..", "..", "..", ".."));
+                root = AppPaths.RootDirectory;
             }
 
             yield return Path.Combine(root, "cards.json");

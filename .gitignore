@@ -37,6 +37,9 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
+# ========== 发布产物 ==========
+publish/
+
 # ========== Additional local artifacts ==========
 .worktrees/
 obj_codex/

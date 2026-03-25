@@ -8,7 +8,8 @@ namespace BotMain.Learning
 {
     internal sealed class SqliteLearnedStrategyStore : ILearnedStrategyStore
     {
-        internal const string DefaultDatabasePath = @"H:\桌面\炉石脚本\Hearthbot\Data\HsBoxTeacher\teacher.db";
+        internal static readonly string DefaultDatabasePath =
+            Path.Combine(AppPaths.RootDirectory, "Data", "HsBoxTeacher", "teacher.db");
         private const int CurrentSchemaVersion = 2;
 
         private readonly object _sync = new object();

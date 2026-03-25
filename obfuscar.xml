@@ -1,0 +1,29 @@
+<?xml version='1.0'?>
+<Obfuscator>
+  <!-- 路径由 build_release.ps1 在运行时复制到临时目录后设置 -->
+  <Var name="InPath" value="." />
+  <Var name="OutPath" value="..\obfuscated" />
+  <Var name="KeepPublicApi" value="false" />
+  <Var name="HidePrivateApi" value="true" />
+  <Var name="RenameProperties" value="true" />
+  <Var name="RenameEvents" value="true" />
+  <Var name="RenameFields" value="true" />
+  <Var name="UseUnicodeNames" value="true" />
+  <Var name="OptimizeMethods" value="true" />
+
+  <Module file="BotMain.dll">
+    <!-- WPF ViewModel: XAML 绑定依赖属性名 -->
+    <SkipType name="BotMain.MainViewModel" skipProperties="true" />
+    <!-- Profile 脚本通过 SmartBot 命名空间交互 -->
+    <SkipNamespace name="SmartBot.*" />
+    <!-- 运行时反射加载需要保留的类型 -->
+    <SkipType name="BotMain.ProfileLoader" />
+    <SkipType name="BotMain.PluginSystem" />
+    <SkipType name="BotMain.AppPaths" />
+  </Module>
+
+  <Module file="BotCore.dll">
+    <!-- BotCore 中的 SmartBot 命名空间被脚本引用 -->
+    <SkipNamespace name="SmartBot.*" />
+  </Module>
+</Obfuscator>
