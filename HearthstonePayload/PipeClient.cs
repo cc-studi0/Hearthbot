@@ -2,6 +2,8 @@ using System;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace HearthstonePayload
 {
@@ -11,9 +13,11 @@ namespace HearthstonePayload
     public class PipeClient
     {
         private const int Port = 59723;
+        private const int DefaultReadTimeoutMs = 500;
         private TcpClient _tcp;
         private StreamReader _reader;
         private StreamWriter _writer;
+        private Task<string> _pendingRead;
 
         public string LastErrorSummary { get; private set; }
 
@@ -48,16 +52,41 @@ namespace HearthstonePayload
 
         public string Read()
         {
+            return Read(DefaultReadTimeoutMs);
+        }
+
+        public string Read(int timeoutMs)
+        {
             if (!IsConnected) return null;
             try
             {
-                var line = _reader?.ReadLine();
+                var task = _pendingRead ?? _reader?.ReadLineAsync();
+                _pendingRead = null;
+                if (task == null)
+                    return null;
+
+                if (timeoutMs != Timeout.Infinite && timeoutMs >= 0 && !task.Wait(timeoutMs))
+                {
+                    _pendingRead = task;
+                    return null;
+                }
+
+                var line = task.Result;
                 if (line == null)
+                {
+                    LastErrorSummary = "read_eof";
                     Disconnect();
+                }
+                else
+                {
+                    LastErrorSummary = null;
+                }
                 return line;
             }
-            catch
+            catch (Exception ex)
             {
+                var baseEx = ex is AggregateException ? ex.GetBaseException() : ex;
+                LastErrorSummary = "read_failed:" + SummarizeException(baseEx);
                 Disconnect();
                 return null;
             }
@@ -80,6 +109,7 @@ namespace HearthstonePayload
 
         public void Disconnect()
         {
+            _pendingRead = null;
             try { _reader?.Dispose(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _tcp?.Close(); } catch { }

@@ -25,6 +25,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\BotMain\ActionStringParser.cs" Link="ActionStringParser.cs" />
+    <Compile Include="..\BotMain\AppPaths.cs" Link="AppPaths.cs" />
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
     <Compile Include="..\BotMain\BotService.cs" Link="BotService.cs" />
     <Compile Include="..\BotMain\BotApiHandler.cs" Link="BotApiHandler.cs" />
@@ -43,6 +44,7 @@
     <Compile Include="..\BotMain\RankHelper.cs" Link="RankHelper.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
     <Compile Include="..\BotMain\ResourceSync.cs" Link="ResourceSync.cs" />
+    <Compile Include="..\HearthstonePayload\PipeClient.cs" Link="HearthstonePayload\PipeClient.cs" />
     <Compile Include="..\HearthstonePayload\BattlegroundsMagneticDropMath.cs" Link="HearthstonePayload\BattlegroundsMagneticDropMath.cs" />
     <Compile Include="..\HearthstonePayload\GameStateData.cs" Link="HearthstonePayload\GameStateData.cs" />
     <Compile Include="..\HearthstonePayload\PlayTargetConfirmation.cs" Link="HearthstonePayload\PlayTargetConfirmation.cs" />
