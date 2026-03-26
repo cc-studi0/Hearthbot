@@ -184,6 +184,7 @@ namespace BotMain
         public event Action<List<string>> OnMulliganProfilesLoaded;
         public event Action<List<string>> OnDiscoverProfilesLoaded;
         public event Action<List<string>> OnDecksLoaded;
+        public event Action<string, string> OnRankTargetReached;
 
         public BotState State { get; private set; } = BotState.Idle;
         public bool IsPrepared => _prepared;
@@ -608,6 +609,8 @@ namespace BotMain
             ResetAlternateConcedeState();
             _currentMatchResultHandled = false;
             try { _cts?.Cancel(); } catch { }
+            try { _cts?.Dispose(); } catch { }
+            _cts = null;
         }
 
         public void FinishAfterGame()
@@ -3518,9 +3521,13 @@ namespace BotMain
                         .Where(action => !string.IsNullOrWhiteSpace(action))
                         .ToList() ?? new List<string>();
                     var recommendationExecutionKey = BuildBattlegroundRecommendationExecutionKey(recommendation);
+                    // 即使推荐 key 相同，当映射结果变化（例如 handMap 波动导致命令从 1→0）时也需更新 pending 队列，
+                    // 否则旧的失败命令会被无限重试。
+                    var actionsChanged = !AreBattlegroundActionsEqual(currentActions, pendingBattlegroundActions);
                     if (!string.Equals(pendingBattlegroundRecommendationKey, recommendationExecutionKey, StringComparison.Ordinal)
                         || pendingBattlegroundActionIndex >= pendingBattlegroundActions.Count
-                        || pendingBattlegroundActions.Count == 0)
+                        || pendingBattlegroundActions.Count == 0
+                        || actionsChanged)
                     {
                         pendingBattlegroundRecommendationKey = recommendationExecutionKey;
                         pendingBattlegroundActionIndex = 0;
@@ -3586,7 +3593,7 @@ namespace BotMain
                             {
                                 staleActionCount++;
                                 var elapsed = DateTime.UtcNow - staleActionFirstUtc;
-                                if (staleActionCount >= 3 && elapsed.TotalSeconds < 8)
+                                if (staleActionCount >= 3 && elapsed.TotalSeconds < 15)
                                 {
                                     Log($"[BG] ⚠ 同一实体 {entityKey} 已执行 {staleActionCount} 次 ({elapsed.TotalSeconds:F1}s内)，操作可能无效，跳过");
                                     staleActionCount = 0;
@@ -3594,6 +3601,12 @@ namespace BotMain
                                     staleActionEntityKey = string.Empty;
                                     if (SleepOrCancelled(500)) return;
                                     continue;
+                                }
+                                else if (staleActionCount >= 3)
+                                {
+                                    // 窗口过期但仍在重复同一实体，滑动重置以便后续再次检测
+                                    staleActionCount = 1;
+                                    staleActionFirstUtc = DateTime.UtcNow;
                                 }
                             }
                             else
@@ -6219,6 +6232,22 @@ namespace BotMain
             return $"ts:{recommendation.SourceUpdatedAtMs}|actions:{summarizedActions}";
         }
 
+        /// <summary>
+        /// 比较两个动作列表是否完全一致。用于检测同一推荐 key 下映射结果是否因 handMap 波动而变化。
+        /// </summary>
+        private static bool AreBattlegroundActionsEqual(List<string> a, List<string> b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (!string.Equals(a[i], b[i], StringComparison.Ordinal))
+                    return false;
+            }
+            return true;
+        }
+
         internal static bool IsSameBattlegroundRecommendation(
             BattlegroundActionRecommendationResult recommendation,
             long lastConsumedUpdatedAtMs,
@@ -7637,7 +7666,10 @@ namespace BotMain
             if (currentStarLevel < _maxRank)
                 return false;
 
-            Log($"[Limit] TargetRank={RankHelper.FormatRank(_maxRank)} reached ({RankHelper.FormatRank(currentStarLevel, currentEarnedStars, currentLegendIndex)}), stopping.");
+            var reachedRankText = RankHelper.FormatRank(currentStarLevel, currentEarnedStars, currentLegendIndex);
+            var modeText = GetRankFormatNameForCurrentMode() == "FT_STANDARD" ? "标准" : "狂野";
+            Log($"[Limit] TargetRank={RankHelper.FormatRank(_maxRank)} reached ({reachedRankText}), stopping.");
+            OnRankTargetReached?.Invoke(reachedRankText, modeText);
             _running = false;
             return true;
         }

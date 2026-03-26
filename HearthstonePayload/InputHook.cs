@@ -26,6 +26,8 @@ namespace HearthstonePayload
             LeftHeld = false;
             PressFrame = -1;
             ReleaseFrame = -1;
+            SimX = -9999;
+            SimY = -9999;
         }
 
         public static void Apply(Harmony harmony)

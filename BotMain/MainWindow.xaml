@@ -149,6 +149,29 @@
                                   ToolTip="目标段位"/>
                     </StackPanel>
                     <StackPanel Margin="0,2,0,0">
+                        <CheckBox Content="达到段位后推送通知" FontSize="11" IsChecked="{Binding NotifyOnRankReached}" Margin="0,0,0,2"
+                                  ToolTip="达到目标段位停止时，发送微信推送通知"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                            <TextBlock Text="设备名:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                            <TextBox Width="130" Height="20" Text="{Binding DeviceName, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                     VerticalContentAlignment="Center" ToolTip="用于区分多台设备"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                            <TextBlock Text="渠道:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                            <ComboBox Width="145" Height="20" SelectedIndex="{Binding NotifyChannelIndex}" FontSize="11">
+                                <ComboBoxItem Content="PushPlus"/>
+                                <ComboBoxItem Content="Server酱"/>
+                            </ComboBox>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,2">
+                            <TextBlock Text="{Binding NotifyTokenLabel}" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0" Width="45"/>
+                            <TextBox Width="109" Height="20" Text="{Binding NotifyToken, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                     VerticalContentAlignment="Center" ToolTip="PushPlus Token 或 Server酱 SendKey"/>
+                            <Button Content="测试" Width="25" Height="20" Margin="3,0,0,0" FontSize="11"
+                                    Command="{Binding TestNotifyCmd}" ToolTip="发送一条测试通知"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <StackPanel Margin="0,2,0,0">
                         <TextBlock Text="Hearthstone.exe:" FontSize="11" Margin="0,0,0,2"/>
                         <StackPanel Orientation="Horizontal">
                             <TextBox Width="155" Height="20"

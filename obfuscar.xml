@@ -27,6 +27,14 @@
     <SkipType name="BotMain.ProfileLoader" />
     <SkipType name="BotMain.PluginSystem" />
     <SkipType name="BotMain.AppPaths" />
+    <!-- JSON 反序列化 DTO：属性名必须保留供 Newtonsoft.Json 映射 -->
+    <SkipType name="BotMain.HsBoxBrowserStateDto" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxRecommendationEnvelope" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxActionStep" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxCardRef" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxBattlegroundStationsEnvelope" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxBattlegroundStationGroup" skipProperties="true" />
+    <SkipType name="BotMain.HsBoxBattlegroundStationCard" skipProperties="true" />
   </Module>
 
   <Module file="BotCore.dll">

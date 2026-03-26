@@ -11,6 +11,7 @@ using System.Text.Json;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using SmartBot.Plugins.API;
+using BotMain.Notification;
 
 namespace BotMain
 {
@@ -22,6 +23,7 @@ namespace BotMain
         private const int ServiceModeTest = 99;
 
         private readonly BotService _bot = new();
+        private readonly NotificationService _notify = new();
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _prepareTimer;
@@ -42,6 +44,10 @@ namespace BotMain
         private bool _saveHsBoxCallbacks;
         private bool _stopAfterReachRankEnabled;
         private int _stopAfterReachRankStarLevel = RankHelper.LegendStarLevel;
+        private bool _notifyOnRankReached;
+        private int _notifyChannelIndex;
+        private string _notifyToken = string.Empty;
+        private string _deviceName = string.Empty;
         private string _hearthstoneExecutablePath;
         private string _hsBoxExecutablePath;
         private int _matchmakingTimeoutSeconds = 60;
@@ -51,6 +57,8 @@ namespace BotMain
             _dispatcher = Dispatcher.CurrentDispatcher;
 
             _bot.OnLog += EnqueueLog;
+            _notify.OnLog += EnqueueLog;
+            _bot.OnRankTargetReached += OnRankTargetReached;
             _bot.OnStatusChanged += s => _dispatcher.BeginInvoke(() =>
             {
                 Status = s;
@@ -137,6 +145,7 @@ namespace BotMain
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
             RefreshDiscoverCmd = new RelayCommand(_ => _bot.RefreshDiscoverProfiles());
             BrowseHsBoxPathCmd = new RelayCommand(_ => BrowseHsBoxPath());
+            TestNotifyCmd = new RelayCommand(_ => TestNotify());
 
             LoadSettings();
             _settingsLoaded = true;
@@ -303,6 +312,54 @@ namespace BotMain
         public bool StopAfterReachRankSupportedMode => ModeIndex == 0 || ModeIndex == 1;
         public bool StopAfterReachRankTargetEnabled => StopAfterReachRankEnabled && StopAfterReachRankSupportedMode;
         public ObservableCollection<RankTargetOption> RankStopOptions { get; } = new ObservableCollection<RankTargetOption>(RankHelper.BuildTargetOptions());
+
+        // ---- 通知设置 ----
+        public bool NotifyOnRankReached
+        {
+            get => _notifyOnRankReached;
+            set { if (_notifyOnRankReached == value) return; _notifyOnRankReached = value; Notify(); AutoSave(); }
+        }
+        public int NotifyChannelIndex
+        {
+            get => _notifyChannelIndex;
+            set
+            {
+                if (_notifyChannelIndex == value) return;
+                _notifyChannelIndex = value;
+                ApplyNotifyToken();
+                Notify();
+                Notify(nameof(NotifyTokenLabel));
+                AutoSave();
+            }
+        }
+        public string NotifyToken
+        {
+            get => _notifyToken;
+            set
+            {
+                var v = value?.Trim() ?? string.Empty;
+                if (_notifyToken == v) return;
+                _notifyToken = v;
+                ApplyNotifyToken();
+                Notify();
+                AutoSave();
+            }
+        }
+        public string DeviceName
+        {
+            get => _deviceName;
+            set
+            {
+                var v = value?.Trim() ?? string.Empty;
+                if (_deviceName == v) return;
+                _deviceName = v;
+                Notify();
+                AutoSave();
+            }
+        }
+        public string NotifyTokenLabel => NotifyChannelIndex == 0 ? "Token:" : "SendKey:";
+        public ICommand TestNotifyCmd { get; }
+
         public bool FollowHsBoxOperation
         {
             get => _followHsBoxOperation;
@@ -670,6 +727,52 @@ namespace BotMain
             _bot.SetMaxRank(StopAfterReachRankEnabled ? StopAfterReachRankStarLevel : 0);
         }
 
+        private string SelectedNotifyChannelId
+        {
+            get
+            {
+                var opts = _notify.ChannelOptions;
+                return NotifyChannelIndex >= 0 && NotifyChannelIndex < opts.Count
+                    ? opts[NotifyChannelIndex].Id
+                    : opts.Count > 0 ? opts[0].Id : string.Empty;
+            }
+        }
+
+        private void ApplyNotifyToken()
+        {
+            _notify.SetPushPlusToken(NotifyChannelIndex == 0 ? _notifyToken : string.Empty);
+            _notify.SetServerChanKey(NotifyChannelIndex == 1 ? _notifyToken : string.Empty);
+        }
+
+        private void OnRankTargetReached(string rankText, string modeText)
+        {
+            if (!NotifyOnRankReached || string.IsNullOrWhiteSpace(NotifyToken))
+                return;
+
+            var device = string.IsNullOrWhiteSpace(DeviceName) ? "默认设备" : DeviceName;
+            var title = $"[{device}] 达到目标段位";
+            var content = $"设备: {device}\n模式: {modeText}\n达到段位: {rankText}\n时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+
+            _notify.SendNotification(SelectedNotifyChannelId, title, content);
+        }
+
+        private async void TestNotify()
+        {
+            if (string.IsNullOrWhiteSpace(NotifyToken))
+            {
+                AppendLocalLog("[Notify] 请先填写推送 Token/Key");
+                return;
+            }
+            ApplyNotifyToken();
+            var device = string.IsNullOrWhiteSpace(DeviceName) ? "默认设备" : DeviceName;
+            AppendLocalLog($"[Notify] 正在测试推送 ({SelectedNotifyChannelId})...");
+            var (ok, err) = await _notify.TestAsync(SelectedNotifyChannelId);
+            if (ok)
+                AppendLocalLog($"[Notify] 测试推送成功！设备名：{device}");
+            else
+                AppendLocalLog($"[Notify] 测试推送失败: {err}");
+        }
+
         public void SaveSettings()
         {
             try
@@ -703,6 +806,10 @@ namespace BotMain
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
                 dict["StopAfterReachRankEnabled"] = JsonSerializer.SerializeToElement(StopAfterReachRankEnabled);
                 dict["StopAfterReachRankStarLevel"] = JsonSerializer.SerializeToElement(StopAfterReachRankStarLevel);
+                dict["NotifyOnRankReached"] = JsonSerializer.SerializeToElement(NotifyOnRankReached);
+                dict["NotifyChannelIndex"] = JsonSerializer.SerializeToElement(NotifyChannelIndex);
+                dict["NotifyToken"] = JsonSerializer.SerializeToElement(NotifyToken);
+                dict["DeviceName"] = JsonSerializer.SerializeToElement(DeviceName);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -769,6 +876,10 @@ namespace BotMain
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
                         if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) StopAfterReachRankEnabled = v.GetBoolean();
                         if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) StopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
+                        if (dict.TryGetValue("NotifyOnRankReached", out v)) NotifyOnRankReached = v.GetBoolean();
+                        if (dict.TryGetValue("NotifyChannelIndex", out v)) NotifyChannelIndex = ReadOptionalInt32(v, 0);
+                        if (dict.TryGetValue("NotifyToken", out v)) NotifyToken = ReadOptionalString(v) ?? string.Empty;
+                        if (dict.TryGetValue("DeviceName", out v)) DeviceName = ReadOptionalString(v) ?? string.Empty;
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
@@ -791,6 +902,7 @@ namespace BotMain
             _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
             ApplyRankStopSettings();
+            ApplyNotifyToken();
         }
 
         private static string ReadOptionalString(JsonElement element)

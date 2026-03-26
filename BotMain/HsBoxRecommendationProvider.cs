@@ -1377,10 +1377,10 @@ namespace BotMain
                             }
                         }
 
-                        if (cardEntityId <= 0 && isStandardPlay)
+                        if (cardEntityId <= 0 && (isStandardPlay || isSpecialPlay))
                         {
                             log?.Invoke(
-                                $"[BgBridge] 安全跳过 play: actionName={step.ActionName}, cardId={card?.CardId}, pos={pos}, zone={card?.ZoneName ?? string.Empty}, handHit={(hasHandMatch ? 1 : 0)}, shopHit={(hasShopMatch ? 1 : 0)}");
+                                $"[BgBridge] 安全跳过 {name}: actionName={step.ActionName}, cardId={card?.CardId}, pos={pos}, zone={card?.ZoneName ?? string.Empty}, handHit={(hasHandMatch ? 1 : 0)}, shopHit={(hasShopMatch ? 1 : 0)}");
                             return null;
                         }
                     }
@@ -1495,7 +1495,9 @@ namespace BotMain
 
             var actionName = step.ActionName?.Trim().ToLowerInvariant();
             if (!string.Equals(actionName, "play", StringComparison.Ordinal)
-                && !string.Equals(actionName, "play_minion", StringComparison.Ordinal))
+                && !string.Equals(actionName, "play_minion", StringComparison.Ordinal)
+                && !string.Equals(actionName, "special", StringComparison.Ordinal)
+                && !string.Equals(actionName, "play_special", StringComparison.Ordinal))
             {
                 return false;
             }
