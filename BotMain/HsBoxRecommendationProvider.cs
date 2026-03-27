@@ -507,27 +507,9 @@ namespace BotMain
         {
             var evaluated = new EvaluatedActionState();
             var hasStructured = TryGetStructuredActions(state, request, out var structuredActions, out var structuredDetail, out var structuredHadPrematureEndTurn);
-            var hasBody = TryGetBodyActions(state, request, out var bodyActions, out var bodyDetail);
             evaluated.StructuredDetail = structuredDetail;
-            evaluated.BodyDetail = bodyDetail;
+            evaluated.BodyDetail = "body=disabled_hook_only";
             evaluated.ChoiceLike = ConstructedChoiceBridge.LooksLikeChoiceRecommendation(state);
-
-            if (hasStructured && hasBody)
-            {
-                structuredActions = MergeStructuredActionsWithBodyHints(structuredActions, bodyActions, out var mergeDetail);
-                if (!string.IsNullOrWhiteSpace(mergeDetail))
-                    evaluated.StructuredDetail = $"{evaluated.StructuredDetail}; {mergeDetail}";
-            }
-
-            if (hasStructured
-                && structuredHadPrematureEndTurn
-                && hasBody
-                && StartsWithActionableCommand(bodyActions))
-            {
-                evaluated.FinalActions = bodyActions;
-                evaluated.FinalDetail = $"prefer=body_over_json_premature_end_turn; {evaluated.BodyDetail}; {evaluated.StructuredDetail}";
-                return evaluated;
-            }
 
             if (hasStructured)
             {
@@ -542,12 +524,6 @@ namespace BotMain
                 evaluated.FinalDetail = $"choice_deferred ({state?.Detail ?? "state_invalid"})";
                 evaluated.ShouldRetryWithoutAction = true;
                 return evaluated;
-            }
-
-            if (hasBody)
-            {
-                evaluated.FinalActions = bodyActions;
-                evaluated.FinalDetail = $"{evaluated.BodyDetail}; {evaluated.StructuredDetail}";
             }
 
             return evaluated;
@@ -3427,7 +3403,157 @@ namespace BotMain
 
         private static string BuildConstructedHookBootstrapScript()
         {
-            return string.Empty;
+            return @"(() => {
+  function normalizePayload(raw) {
+    return (raw || '')
+      .replaceAll('opp-target-hero', 'oppTargetHero')
+      .replaceAll('opp-target', 'oppTarget')
+      .replaceAll('target-hero', 'targetHero');
+  }
+
+  function ensureState() {
+    if (!window.__hbHsBoxHooks) window.__hbHsBoxHooks = {};
+    if (!window.__hbHsBoxSetterState) window.__hbHsBoxSetterState = {};
+    if (typeof window.__hbHsBoxCount !== 'number') window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0);
+    if (typeof window.__hbHsBoxUpdatedAt !== 'number') window.__hbHsBoxUpdatedAt = Number(window.__hbHsBoxUpdatedAt || 0);
+    if (typeof window.__hbHsBoxHasConstructedCallback !== 'boolean') window.__hbHsBoxHasConstructedCallback = false;
+  }
+
+  function recordPayload(name, raw) {
+    ensureState();
+    raw = raw || '';
+    window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0) + 1;
+    window.__hbHsBoxUpdatedAt = Date.now();
+    window.__hbHsBoxLastRaw = raw;
+    window.__hbHsBoxLastSource = name;
+    try {
+      window.__hbHsBoxLastData = JSON.parse(normalizePayload(raw));
+    } catch (error) {
+      window.__hbHsBoxLastData = { __parseError: String(error), raw: raw };
+    }
+  }
+
+  function buildWrapped(name, original) {
+    ensureState();
+    const slot = window.__hbHsBoxHooks[name] || (window.__hbHsBoxHooks[name] = {});
+    slot.original = original;
+    slot.lastSeen = original;
+    slot.wrapped = function(payload) {
+      payload = payload || '';
+      recordPayload(name, payload);
+      return slot.original.apply(this, arguments);
+    };
+    return slot.wrapped;
+  }
+
+  function installWrapper(name, candidate, assignGlobal) {
+    ensureState();
+    if (typeof candidate !== 'function') return false;
+    const slot = window.__hbHsBoxHooks[name] || (window.__hbHsBoxHooks[name] = {});
+    window.__hbHsBoxHasConstructedCallback = true;
+
+    if (slot.original === candidate && typeof slot.wrapped === 'function') {
+      slot.lastSeen = candidate;
+      if (assignGlobal && window[name] !== slot.wrapped) {
+        window[name] = slot.wrapped;
+      }
+      return true;
+    }
+
+    const wrapped = buildWrapped(name, candidate);
+    if (assignGlobal) {
+      window[name] = wrapped;
+    }
+    return true;
+  }
+
+  function ensureLadderSetter() {
+    ensureState();
+    const name = 'onUpdateLadderActionRecommend';
+    const existingDescriptor = Object.getOwnPropertyDescriptor(window, name);
+    if (existingDescriptor && existingDescriptor.configurable === false) {
+      const current = window[name];
+      if (typeof current === 'function') {
+        installWrapper(name, current, true);
+      }
+      return;
+    }
+
+    if (window.__hbHsBoxLadderSetterInstalled) {
+      const ladderState = window.__hbHsBoxSetterState[name];
+      const current = ladderState ? ladderState.current : window[name];
+      if (typeof current === 'function') {
+        installWrapper(name, current, false);
+        if (ladderState) {
+          ladderState.current = window.__hbHsBoxHooks[name].wrapped;
+        }
+        window.__hbHsBoxHasConstructedCallback = true;
+      }
+      return;
+    }
+
+    const setterState = {
+      current: window[name],
+      internalWrite: false
+    };
+    window.__hbHsBoxSetterState[name] = setterState;
+
+    Object.defineProperty(window, name, {
+      configurable: true,
+      enumerable: true,
+      get() {
+        return setterState.current;
+      },
+      set(value) {
+        setterState.current = value;
+        if (setterState.internalWrite) return;
+        if (typeof value !== 'function') return;
+
+        installWrapper(name, value, false);
+        const slot = window.__hbHsBoxHooks[name];
+        if (slot && typeof slot.wrapped === 'function') {
+          setterState.internalWrite = true;
+          setterState.current = slot.wrapped;
+          setterState.internalWrite = false;
+        }
+      }
+    });
+
+    window.__hbHsBoxLadderSetterInstalled = true;
+
+    if (typeof setterState.current === 'function') {
+      installWrapper(name, setterState.current, false);
+      const slot = window.__hbHsBoxHooks[name];
+      if (slot && typeof slot.wrapped === 'function') {
+        setterState.internalWrite = true;
+        setterState.current = slot.wrapped;
+        setterState.internalWrite = false;
+        window.__hbHsBoxHasConstructedCallback = true;
+      }
+    }
+  }
+
+  function installPatternHooks() {
+    ensureState();
+    const pattern = /^onUpdate\w*Recommend$/;
+    for (const key of Object.keys(window)) {
+      if (!pattern.test(key)) continue;
+      if (key === 'onUpdateLadderActionRecommend') continue;
+      const candidate = window[key];
+      if (typeof candidate !== 'function') continue;
+      installWrapper(key, candidate, true);
+    }
+  }
+
+  try {
+    ensureLadderSetter();
+    installPatternHooks();
+    window.__hbHsBoxBootstrapInstalled = true;
+  } catch (error) {
+    window.__hbHsBoxBootstrapInstalled = false;
+    window.__hbHsBoxBootstrapError = String(error && error.message ? error.message : error);
+  }
+})();";
         }
 
         private static string BuildConstructedStateScript()
@@ -3447,58 +3573,14 @@ namespace BotMain
     title: document.title ?? ''
   };
   try {
-    if (!window.__hbHsBoxHooked) window.__hbHsBoxHooked = {};
-    const pattern = /^onUpdate\w*Recommend$/;
-    let foundAny = false;
-    for (const key of Object.keys(window)) {
-      if (!pattern.test(key)) continue;
-      if (typeof window[key] !== 'function') continue;
-      foundAny = true;
-      if (window.__hbHsBoxHooked[key]) continue;
-      const origKey = '__hbOrig_' + key;
-      window[origKey] = window[key];
-      window[key] = function(e) {
-        e = e || '';
-        window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0) + 1;
-        window.__hbHsBoxUpdatedAt = Date.now();
-        window.__hbHsBoxLastRaw = e;
-        window.__hbHsBoxLastSource = key;
-        try {
-          const normalized = e.replaceAll('opp-target-hero', 'oppTargetHero').replaceAll('opp-target', 'oppTarget').replaceAll('target-hero', 'targetHero');
-          window.__hbHsBoxLastData = JSON.parse(normalized);
-        } catch (error) {
-          window.__hbHsBoxLastData = { __parseError: String(error), raw: e };
-        }
-        return window[origKey].apply(this, arguments);
-      };
-      window.__hbHsBoxHooked[key] = true;
+    if (typeof window.__hbHsBoxBootstrapInstalled !== 'boolean'
+        || !window.__hbHsBoxBootstrapInstalled) {
+      response.reason = window.__hbHsBoxBootstrapError
+        ? 'hook_install_failed:' + window.__hbHsBoxBootstrapError
+        : 'hook_install_failed';
+      return JSON.stringify(response);
     }
-    if (!foundAny) {
-      const current = window.onUpdateLadderActionRecommend;
-      const original = typeof current === 'function' ? current : window.__hbHsBoxOriginal;
-      if (typeof original !== 'function') {
-        response.reason = 'callback_missing';
-        return JSON.stringify(response);
-      }
-      if (window.__hbHsBoxWrapped !== current) {
-        window.__hbHsBoxOriginal = original;
-        window.__hbHsBoxWrapped = function(e) {
-          e = e || '';
-          window.__hbHsBoxCount = Number(window.__hbHsBoxCount || 0) + 1;
-          window.__hbHsBoxUpdatedAt = Date.now();
-          window.__hbHsBoxLastRaw = e;
-          window.__hbHsBoxLastSource = 'onUpdateLadderActionRecommend';
-          try {
-            const normalized = e.replaceAll('opp-target-hero', 'oppTargetHero').replaceAll('opp-target', 'oppTarget').replaceAll('target-hero', 'targetHero');
-            window.__hbHsBoxLastData = JSON.parse(normalized);
-          } catch (error) {
-            window.__hbHsBoxLastData = { __parseError: String(error), raw: e };
-          }
-          return window.__hbHsBoxOriginal.apply(this, arguments);
-        };
-        window.onUpdateLadderActionRecommend = window.__hbHsBoxWrapped;
-      }
-    }
+
     response.ok = true;
     response.hooked = true;
     response.count = Number(window.__hbHsBoxCount || 0);
@@ -3506,7 +3588,9 @@ namespace BotMain
     response.raw = window.__hbHsBoxLastRaw ?? null;
     response.data = window.__hbHsBoxLastData ?? null;
     response.sourceCallback = window.__hbHsBoxLastSource ?? '';
-    response.reason = response.count > 0 ? 'ready' : 'waiting_for_box_payload';
+    response.reason = response.count > 0
+      ? 'ready_callback'
+      : (window.__hbHsBoxHasConstructedCallback ? 'waiting_for_box_payload' : 'callback_missing');
     return JSON.stringify(response);
   } catch (error) {
     response.reason = String(error && error.message ? error.message : error);
@@ -3517,7 +3601,7 @@ namespace BotMain
 
         private static string BuildStateScript()
         {
-            return BuildConstructedStateScript();
+            return BuildConstructedHookBootstrapScript() + Environment.NewLine + BuildConstructedStateScript();
         }
     }
 

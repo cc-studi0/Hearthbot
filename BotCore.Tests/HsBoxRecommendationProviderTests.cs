@@ -392,7 +392,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_BodyFallbackUsesOnlyReferenceA_WhenLaterRecommendationsContainPlayableAction()
+        public void RecommendActions_DoesNotUseBodyFallbackReferenceA_WhenLaterRecommendationsContainPlayableAction()
         {
             var state = CreateState(
                 401,
@@ -417,9 +417,9 @@ namespace BotCore.Tests
                     }
                 }));
 
-            Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "END_TURN" }, result.Actions);
-            Assert.Contains("body_scope=reference_a", result.Detail);
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -514,7 +514,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_UsesFriendlyEntityContext_WhenPlanningBoardIsNullAndBodyFallbackParsesPlay()
+        public void RecommendActions_DoesNotUseFriendlyEntityContextForBodyFallback_WhenPlanningBoardIsNull()
         {
             var state = CreateState(
                 411,
@@ -539,9 +539,9 @@ namespace BotCore.Tests
                     }
                 }));
 
-            Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
-            Assert.Contains("body=ok", result.Detail);
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -1398,8 +1398,8 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|0|0|AT_037a", "OPTION|431|0|0" }, result.Actions);
-            Assert.Contains("merge=body_target_hint", result.Detail);
+            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|0|0|AT_037a" }, result.Actions);
+            Assert.DoesNotContain("merge=body_target_hint", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -2773,6 +2773,78 @@ namespace BotCore.Tests
             Assert.Contains("lastSeen", script, StringComparison.Ordinal);
             Assert.Contains("Object.defineProperty", script, StringComparison.Ordinal);
             Assert.Contains("onUpdateLadderActionRecommend", script, StringComparison.Ordinal);
+        }
+
+        [Fact]
+        public void RecommendActions_DoesNotFallbackToBodyText_WhenCallbackPayloadExistsButStructuredStepsAreMissing()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 123456,
+                Raw = "{\"status\":2,\"data\":[]}",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打出2号位随从 派对邪犬",
+                Reason = "ready_callback",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("body=ok", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("PLAY|", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void RecommendActions_DoesNotUseBodyTextActionMapping_WhenStructuredPayloadCannotMap()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 223344,
+                Raw = "{\"status\":2,\"data\":[]}",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打出2号位随从 派对邪犬",
+                Reason = "ready_callback",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 222,
+                        CardId = "WORK_001",
+                        Zone = "HAND",
+                        ZonePosition = 2
+                    }
+                }));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void BuildConstructedStateScript_UsesCallbackOnlyReasons()
+        {
+            var script = InvokePrivateString("BuildConstructedStateScript");
+
+            Assert.Contains("ready_callback", script, StringComparison.Ordinal);
+            Assert.Contains("waiting_for_box_payload", script, StringComparison.Ordinal);
+            Assert.DoesNotContain("body_only", script, StringComparison.Ordinal);
         }
 
         private static HsBoxRecommendationState CreateState(
