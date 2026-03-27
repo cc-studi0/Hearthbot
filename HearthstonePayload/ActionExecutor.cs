@@ -1250,8 +1250,8 @@ namespace HearthstonePayload
                         int targetId = int.Parse(parts[2]);
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
-                        const int attackConfirmPollCount = 2;
-                        const int attackConfirmSleepMs = 40;
+                        const int attackConfirmPollCount = 1;
+                        const int attackConfirmSleepMs = 60;
                         GameStateData beforeState = null;
                         AttackStateSnapshot beforeSnapshot = default;
                         var hasBeforeSnapshot = false;

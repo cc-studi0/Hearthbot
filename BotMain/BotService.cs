@@ -1870,6 +1870,7 @@ namespace BotMain
             string lastSeedNotReadySignature = string.Empty;
             string lastPlanningBoardUnavailableSignature = string.Empty;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
+            bool lastRecommendationWasAttackOnly = false;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -2270,7 +2271,8 @@ namespace BotMain
                     continue;
                 }
 
-                if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "TurnStart"))
+                var turnStartReadyIntervalMs = lastRecommendationWasAttackOnly ? 80 : 300;
+                if (!WaitForGameReady(pipe, 30, turnStartReadyIntervalMs, 3000, waitScope: "TurnStart"))
                 {
                     gameReadyWaitStreak++;
                     if (gameReadyWaitStreak % 8 == 1)
@@ -2281,49 +2283,58 @@ namespace BotMain
 
                 gameReadyWaitStreak = 0;
                 Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
-                var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
-                if (refreshResult.BoardChanged && planningBoard != null)
-                {
-                    ApplyPlanningBoard(
-                        planningBoard,
-                        ref lastTurnNumber,
-                        ref currentTurnStartedUtc,
-                        ref resimulationCount,
-                        ref actionFailStreak,
-                        ref staleFreshSourceRetryCount,
-                        playActionFailStreakByEntity);
-                }
 
-                if (planningBoard == null)
+                if (lastRecommendationWasAttackOnly && planningBoard != null)
                 {
-                    var failureParts = new List<string>();
-                    if (!string.IsNullOrWhiteSpace(initialBoardParseDetail))
-                        failureParts.Add($"initial={initialBoardParseDetail}");
-                    if (!string.IsNullOrWhiteSpace(refreshResult.Detail))
-                        failureParts.Add($"refresh={refreshResult.Detail}");
-                    if (!string.IsNullOrWhiteSpace(refreshResult.Response))
-                        failureParts.Add($"response={TrimForLog(refreshResult.Response, 80)}");
-                    failureParts.Add($"status={refreshResult.Status}");
-                    failureParts.Add($"attempts={refreshResult.Attempts}");
-                    failureParts.Add($"seedLength={(seed?.Length ?? 0)}");
-                    failureParts.Add($"seed={SummarizeSeedForLog(seed)}");
-                    var failureSignature = string.Join("|", failureParts);
-                    if (ShouldLogRepeatedIssue(ref planningBoardUnavailableStreak, ref lastPlanningBoardUnavailableSignature, failureSignature))
+                    Log("[Action] skipped board recovery (consecutive attack cycle)");
+                }
+                else
+                {
+                    var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                    if (refreshResult.BoardChanged && planningBoard != null)
                     {
-                        Log("[MainLoop] planning board unavailable after ready; " + string.Join("; ", failureParts));
+                        ApplyPlanningBoard(
+                            planningBoard,
+                            ref lastTurnNumber,
+                            ref currentTurnStartedUtc,
+                            ref resimulationCount,
+                            ref actionFailStreak,
+                            ref staleFreshSourceRetryCount,
+                            playActionFailStreakByEntity);
                     }
 
-                    Thread.Sleep(120);
-                    continue;
+                    if (planningBoard == null)
+                    {
+                        var failureParts = new List<string>();
+                        if (!string.IsNullOrWhiteSpace(initialBoardParseDetail))
+                            failureParts.Add($"initial={initialBoardParseDetail}");
+                        if (!string.IsNullOrWhiteSpace(refreshResult.Detail))
+                            failureParts.Add($"refresh={refreshResult.Detail}");
+                        if (!string.IsNullOrWhiteSpace(refreshResult.Response))
+                            failureParts.Add($"response={TrimForLog(refreshResult.Response, 80)}");
+                        failureParts.Add($"status={refreshResult.Status}");
+                        failureParts.Add($"attempts={refreshResult.Attempts}");
+                        failureParts.Add($"seedLength={(seed?.Length ?? 0)}");
+                        failureParts.Add($"seed={SummarizeSeedForLog(seed)}");
+                        var failureSignature = string.Join("|", failureParts);
+                        if (ShouldLogRepeatedIssue(ref planningBoardUnavailableStreak, ref lastPlanningBoardUnavailableSignature, failureSignature))
+                        {
+                            Log("[MainLoop] planning board unavailable after ready; " + string.Join("; ", failureParts));
+                        }
+
+                        Thread.Sleep(120);
+                        continue;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(initialBoardParseDetail)
+                        && refreshResult.Status == PlanningBoardRefreshStatus.Refreshed)
+                    {
+                        Log($"[Action] planning board recovered after ready; initial={initialBoardParseDetail}; refresh={refreshResult.Detail}");
+                    }
                 }
 
                 planningBoardUnavailableStreak = 0;
                 lastPlanningBoardUnavailableSignature = string.Empty;
-                if (!string.IsNullOrWhiteSpace(initialBoardParseDetail)
-                    && refreshResult.Status == PlanningBoardRefreshStatus.Refreshed)
-                {
-                    Log($"[Action] planning board recovered after ready; initial={initialBoardParseDetail}; refresh={refreshResult.Detail}");
-                }
 
                 var recommendationStage = "plugin_simulation";
                 _pluginSystem?.FireOnSimulation();
@@ -2764,6 +2775,9 @@ namespace BotMain
                 {
                 }
 
+                // 判断本轮推荐是否全部为 ATTACK（用于下一轮加速外层循环）
+                lastRecommendationWasAttackOnly = actions != null && actions.Count > 0
+                    && actions.All(a => a.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase));
 
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
                 if (_followHsBoxRecommendations
