@@ -1,0 +1,123 @@
+<Window x:Class="BotMain.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="设置" Width="500" Height="540"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Background="#F0F0F0" FontFamily="Segoe UI" FontSize="12">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="10">
+        <StackPanel Margin="10">
+
+            <!-- 策略 -->
+            <GroupBox Header="策略" Padding="8,6" Margin="0,0,0,8">
+                <StackPanel>
+                    <CheckBox Content="Follow HSBox" FontSize="11" IsChecked="{Binding FollowHsBoxOperation}" Margin="0,0,0,4"
+                              ToolTip="动作、留牌、发现跟随 HSBox 推荐，不走本地 profile / mulligan / discover"/>
+                    <CheckBox Content="Learn From HSBox" FontSize="11" IsChecked="{Binding LearnFromHsBox}" Margin="0,0,0,4"
+                              ToolTip="保留本地 shadow 决策，把 HSBox 教师推荐蒸馏到本地 SQLite 策略库"/>
+                    <CheckBox Content="Use Learned Local" FontSize="11" IsChecked="{Binding UseLearnedLocalStrategy}" Margin="0,0,0,4"
+                              ToolTip="本地 profile / mulligan / discover 先叠加学习到的策略补丁，再回退到原逻辑"/>
+                    <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}"
+                              ToolTip="保存 HSBox 回调到 Logs/HsBoxCallbacks"/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- 行为 -->
+            <GroupBox Header="行为" Padding="8,6" Margin="0,0,0,8">
+                <StackPanel>
+                    <CheckBox Content="拟人化操作" FontSize="11" IsChecked="{Binding HumanizeActionsEnabled}" Margin="0,0,0,4"
+                              ToolTip="仅影响构筑对局内执行动作；不改推荐结果，只改鼠标轨迹、回合起手思考和目标预瞄"/>
+                    <StackPanel Orientation="Horizontal" Margin="16,0,0,4">
+                        <TextBlock Text="强度:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <ComboBox Width="95" Height="20"
+                                  ItemsSource="{Binding HumanizeIntensityOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedIndex="{Binding HumanizeIntensityIndex}"
+                                  IsEnabled="{Binding HumanizeIntensitySelectionEnabled}"
+                                  FontSize="11"/>
+                    </StackPanel>
+                    <CheckBox Content="Coach" FontSize="11" IsChecked="{Binding CoachMode}" Margin="0,0,0,4"/>
+                    <CheckBox Content="Overlay" FontSize="11" IsChecked="{Binding OverlayMode}" Margin="0,0,0,4"/>
+                    <CheckBox Content="Auto-concede if Dead Next" FontSize="11" IsChecked="{Binding ConcedeWhenLethal}" Margin="0,0,0,4"
+                              ToolTip="在结束回合前判断对手下回合稳定斩杀时自动投降"/>
+                    <CheckBox Content="一胜一输（赢后下局投降）" FontSize="11" IsChecked="{Binding AutoConcedeAlternativeMode}" Margin="0,0,0,4"
+                              ToolTip="上一局赢了，则下一局留牌处理完成后立即投降；输了则取消待投降状态"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <CheckBox Content="FPS lock:" FontSize="11" IsChecked="{Binding FpsLock}" Margin="0,0,3,0"/>
+                        <TextBox Width="30" Height="20" Text="{Binding FpsValue}" FontSize="11"
+                                 VerticalContentAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Queue timeout:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <TextBox Width="36" Height="20" Text="{Binding MatchmakingTimeoutSeconds}" FontSize="11"
+                                 VerticalContentAlignment="Center"/>
+                        <TextBlock Text="s" FontSize="11" VerticalAlignment="Center" Margin="3,0,0,0"/>
+                    </StackPanel>
+                    <CheckBox Content="达到段位后停止" FontSize="11" IsChecked="{Binding StopAfterReachRankEnabled}" Margin="0,0,0,4"
+                              ToolTip="仅在 Standard / Wild 排名模式生效；达到目标段位后，在当前对局结算后停止脚本"/>
+                    <ComboBox Width="179" Height="22" Margin="16,0,0,0" HorizontalAlignment="Left"
+                              ItemsSource="{Binding RankStopOptions}"
+                              DisplayMemberPath="Label"
+                              SelectedValuePath="StarLevel"
+                              SelectedValue="{Binding StopAfterReachRankStarLevel}"
+                              IsEnabled="{Binding StopAfterReachRankTargetEnabled}"
+                              FontSize="11"
+                              ToolTip="目标段位"/>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- 通知 -->
+            <GroupBox Header="通知" Padding="8,6" Margin="0,0,0,8">
+                <StackPanel>
+                    <CheckBox Content="达到段位后推送通知" FontSize="11" IsChecked="{Binding NotifyOnRankReached}" Margin="0,0,0,4"
+                              ToolTip="达到目标段位停止时，发送微信推送通知"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="设备名:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <TextBox Width="130" Height="20" Text="{Binding DeviceName, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                 VerticalContentAlignment="Center" ToolTip="用于区分多台设备"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="渠道:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <ComboBox Width="145" Height="20" SelectedIndex="{Binding NotifyChannelIndex}" FontSize="11">
+                            <ComboBoxItem Content="PushPlus"/>
+                            <ComboBoxItem Content="Server酱"/>
+                        </ComboBox>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding NotifyTokenLabel}" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0" Width="45"/>
+                        <TextBox Width="109" Height="20" Text="{Binding NotifyToken, UpdateSourceTrigger=PropertyChanged}" FontSize="11"
+                                 VerticalContentAlignment="Center" ToolTip="PushPlus Token 或 Server酱 SendKey"/>
+                        <Button Content="测试" Width="25" Height="20" Margin="3,0,0,0" FontSize="11"
+                                Command="{Binding TestNotifyCmd}" ToolTip="发送一条测试通知"/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+            <!-- 路径 -->
+            <GroupBox Header="路径" Padding="8,6">
+                <StackPanel>
+                    <TextBlock Text="Hearthstone.exe:" FontSize="11" Margin="0,0,0,2"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                        <TextBox Width="310" Height="20"
+                                 Text="{Binding HearthstoneExecutablePath, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="11" VerticalContentAlignment="Center"
+                                 ToolTip="Leave empty to auto-use the current Hearthstone path"/>
+                        <Button Content="..." Width="24" Height="20" Margin="3,0,0,0"
+                                Command="{Binding BrowseHearthstonePathCmd}"
+                                ToolTip="选择 Hearthstone.exe"/>
+                    </StackPanel>
+                    <TextBlock Text="HSBox (盒子):" FontSize="11" Margin="0,0,0,2"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Width="310" Height="20"
+                                 Text="{Binding HsBoxExecutablePath, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="11" VerticalContentAlignment="Center"
+                                 ToolTip="网易炉石传说盒子 HSAng.exe 路径，留空自动检测"/>
+                        <Button Content="..." Width="24" Height="20" Margin="3,0,0,0"
+                                Command="{Binding BrowseHsBoxPathCmd}"
+                                ToolTip="选择 HSAng.exe"/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
+        </StackPanel>
+    </ScrollViewer>
+</Window>

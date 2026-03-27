@@ -185,6 +185,8 @@ namespace BotMain
         public event Action<List<string>> OnDiscoverProfilesLoaded;
         public event Action<List<string>> OnDecksLoaded;
         public event Action<string, string> OnRankTargetReached;
+        public event Action<string> OnRankUpdated;
+        public event Action OnBotStopped;
 
         public BotState State { get; private set; } = BotState.Idle;
         public bool IsPrepared => _prepared;
@@ -1367,7 +1369,7 @@ namespace BotMain
             LoadPluginSystem();
         }
 
-        private BotStatsSnapshot GetStatsSnapshot()
+        public BotStatsSnapshot GetStatsSnapshot()
         {
             if (_stats == null)
                 return new BotStatsSnapshot(0, 0, 0);
@@ -1612,6 +1614,7 @@ namespace BotMain
 
                 _pluginSystem?.FireOnStarted();
                 StatusChanged("Running");
+                TryQueryCurrentRank(_pipe, force: true);
                 if (CheckRankStopLimit(_pipe, force: true))
                     return;
                 MainLoop();
@@ -1630,6 +1633,7 @@ namespace BotMain
                 _running = false;
                 State = BotState.Idle;
                 StatusChanged(_prepared ? "Ready" : "Waiting Payload");
+                try { OnBotStopped?.Invoke(); } catch { }
             }
         }
 
@@ -1873,8 +1877,12 @@ namespace BotMain
                     if (SleepOrCancelled(500)) break;
                 if (!_running) break;
 
-                if (!wasInGame && CheckRankStopLimit(pipe))
-                    break;
+                if (!wasInGame)
+                {
+                    TryQueryCurrentRank(pipe);
+                    if (CheckRankStopLimit(pipe))
+                        break;
+                }
 
                 _botApiHandler?.Poll();
                 _botApiHandler?.UpdateBotState(
@@ -6427,11 +6435,9 @@ namespace BotMain
 
         private void QueueHumanizerConfigSync()
         {
-            PipeServer pipe;
-            lock (_sync)
-            {
-                pipe = _pipe;
-            }
+            // 不取 _sync 锁：读引用在 .NET 中原子安全，
+            // 避免与主循环 WaitForConnection 持锁阻塞 UI 线程。
+            var pipe = Volatile.Read(ref _pipe);
 
             if (pipe == null || !pipe.IsConnected)
                 return;
@@ -7596,6 +7602,7 @@ namespace BotMain
                 _postGameLeftGameplayConfirmed = false;
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
+                TryQueryCurrentRank(pipe, force: true);
                 if (CheckRankStopLimit(pipe, force: true))
                     return;
                 if (_finishAfterGame)
@@ -7631,9 +7638,9 @@ namespace BotMain
             AutoQueue(pipe);
         }
 
-        private bool CheckRankStopLimit(PipeServer pipe, bool force = false)
+        private bool TryQueryCurrentRank(PipeServer pipe, bool force = false)
         {
-            if (_maxRank <= 0 || pipe == null || !pipe.IsConnected)
+            if (pipe == null || !pipe.IsConnected)
                 return false;
 
             var formatName = GetRankFormatNameForCurrentMode();
@@ -7660,13 +7667,29 @@ namespace BotMain
             if (!gotResp || string.IsNullOrWhiteSpace(rankResp))
                 return false;
 
-            if (!RankHelper.TryParseRankInfoResponse(rankResp, out var currentStarLevel, out var currentEarnedStars, out var currentLegendIndex))
+            if (!RankHelper.TryParseRankInfoResponse(rankResp, out _lastQueriedStarLevel, out _lastQueriedEarnedStars, out _lastQueriedLegendIndex))
                 return false;
 
-            if (currentStarLevel < _maxRank)
+            OnRankUpdated?.Invoke(RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex));
+            return true;
+        }
+
+        private int _lastQueriedStarLevel;
+        private int _lastQueriedEarnedStars;
+        private int _lastQueriedLegendIndex;
+
+        private bool CheckRankStopLimit(PipeServer pipe, bool force = false)
+        {
+            if (_maxRank <= 0)
                 return false;
 
-            var reachedRankText = RankHelper.FormatRank(currentStarLevel, currentEarnedStars, currentLegendIndex);
+            if (!TryQueryCurrentRank(pipe, force))
+                return false;
+
+            if (_lastQueriedStarLevel < _maxRank)
+                return false;
+
+            var reachedRankText = RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex);
             var modeText = GetRankFormatNameForCurrentMode() == "FT_STANDARD" ? "标准" : "狂野";
             Log($"[Limit] TargetRank={RankHelper.FormatRank(_maxRank)} reached ({reachedRankText}), stopping.");
             OnRankTargetReached?.Invoke(reachedRankText, modeText);

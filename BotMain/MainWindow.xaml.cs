@@ -68,11 +68,25 @@ namespace BotMain
                 };
             }
 
+            if (DataContext is MainViewModel vmInit && vmInit.WindowLeft.HasValue && vmInit.WindowTop.HasValue)
+            {
+                Left = vmInit.WindowLeft.Value;
+                Top = vmInit.WindowTop.Value;
+            }
+            else
+            {
+                WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            }
+
             Loaded += OnLoaded;
             Closing += (_, _) =>
             {
                 if (DataContext is MainViewModel viewModel)
+                {
+                    viewModel.WindowLeft = Left;
+                    viewModel.WindowTop = Top;
                     viewModel.SaveSettings();
+                }
             };
         }
 

@@ -1,0 +1,61 @@
+<Window x:Class="BotMain.AccountEditDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="编辑账号" Width="380" Height="380"
+        WindowStartupLocation="CenterOwner" Background="#F0F0F0"
+        FontFamily="Segoe UI" FontSize="12"
+        ResizeMode="NoResize">
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="70"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <TextBlock Grid.Row="0" Text="昵称:" VerticalAlignment="Center"/>
+        <TextBox Grid.Row="0" Grid.Column="1" x:Name="NameBox" Height="24" Margin="0,2"/>
+
+        <TextBlock Grid.Row="1" Text="战网窗口:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="1" Grid.Column="1" x:Name="BnetCombo" Height="24" Margin="0,2"
+                  DisplayMemberPath="DisplayText"/>
+
+        <TextBlock Grid.Row="2" Text="模式:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="2" Grid.Column="1" x:Name="ModeCombo" Height="24" Margin="0,2">
+            <ComboBoxItem Content="标准"/>
+            <ComboBoxItem Content="狂野"/>
+        </ComboBox>
+
+        <TextBlock Grid.Row="3" Text="策略:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ProfileCombo" Height="24" Margin="0,2"/>
+
+        <TextBlock Grid.Row="4" Text="卡组:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="4" Grid.Column="1" x:Name="DeckCombo" Height="24" Margin="0,2"/>
+
+        <TextBlock Grid.Row="5" Text="留牌:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="5" Grid.Column="1" x:Name="MulliganCombo" Height="24" Margin="0,2"/>
+
+        <TextBlock Grid.Row="6" Text="发现:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="6" Grid.Column="1" x:Name="DiscoverCombo" Height="24" Margin="0,2"/>
+
+        <TextBlock Grid.Row="7" Text="目标段位:" VerticalAlignment="Center"/>
+        <ComboBox Grid.Row="7" Grid.Column="1" x:Name="RankCombo" Height="24" Margin="0,2"
+                  DisplayMemberPath="Label" SelectedValuePath="StarLevel"/>
+
+        <StackPanel Grid.Row="9" Grid.ColumnSpan="2" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,8,0,0">
+            <Button Content="确定" Width="70" Height="28" IsDefault="True" Click="OnOk"/>
+            <Button Content="取消" Width="70" Height="28" Margin="8,0,0,0" IsCancel="True"/>
+        </StackPanel>
+    </Grid>
+</Window>

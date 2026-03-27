@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
@@ -8,6 +9,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows.Input;
 using System.Text.Json;
+using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using SmartBot.Plugins.API;
@@ -24,6 +26,7 @@ namespace BotMain
 
         private readonly BotService _bot = new();
         private readonly NotificationService _notify = new();
+        private readonly AccountController _accountController;
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _prepareTimer;
@@ -56,9 +59,17 @@ namespace BotMain
         {
             _dispatcher = Dispatcher.CurrentDispatcher;
 
+            _accountController = new AccountController(_bot, EnqueueLog);
+            _accountController.Load();
+
             _bot.OnLog += EnqueueLog;
             _notify.OnLog += EnqueueLog;
             _bot.OnRankTargetReached += OnRankTargetReached;
+            _bot.OnRankUpdated += rank => _dispatcher.BeginInvoke(() =>
+            {
+                CurrentRankText = rank;
+                Notify(nameof(CurrentRankText));
+            });
             _bot.OnStatusChanged += s => _dispatcher.BeginInvoke(() =>
             {
                 Status = s;
@@ -76,6 +87,7 @@ namespace BotMain
                 Notify(nameof(Losses));
                 Notify(nameof(Concedes));
                 Notify(nameof(WinRate));
+                _accountController.OnStatsChanged(stats);
             });
             _bot.OnBoardUpdated += OnBoard;
             _bot.OnProfilesLoaded += names => _dispatcher.BeginInvoke(() =>
@@ -138,7 +150,7 @@ namespace BotMain
             FinishCmd = new RelayCommand(_ => _bot.FinishAfterGame(), _ => _bot.State == BotState.Running);
             ResetStatsCmd = new RelayCommand(_ => _bot.ResetStats());
             SaveLogCmd = new RelayCommand(_ => SaveLog());
-            SettingsCmd = new RelayCommand(_ => { });
+            SettingsCmd = new RelayCommand(_ => OpenSettingsWindow());
             BrowseHearthstonePathCmd = new RelayCommand(_ => BrowseHearthstonePath());
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());
             RefreshDecksCmd = new RelayCommand(_ => _bot.RefreshDecks());
@@ -146,6 +158,7 @@ namespace BotMain
             RefreshDiscoverCmd = new RelayCommand(_ => _bot.RefreshDiscoverProfiles());
             BrowseHsBoxPathCmd = new RelayCommand(_ => BrowseHsBoxPath());
             TestNotifyCmd = new RelayCommand(_ => TestNotify());
+            OpenAccountControllerCmd = new RelayCommand(_ => OpenAccountControllerWindow());
 
             LoadSettings();
             _settingsLoaded = true;
@@ -154,6 +167,10 @@ namespace BotMain
 
         // 状态
         public string LogText { get; set; } = "";
+        public double? WindowLeft { get; set; }
+        public double? WindowTop { get; set; }
+
+        public string CurrentRankText { get; set; } = "--";
         public string Status { get; set; } = "Idle";
         public bool IsRunning => _bot.State == BotState.Running || _bot.State == BotState.Finishing;
         public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
@@ -523,6 +540,39 @@ namespace BotMain
         public ICommand RefreshDecksCmd { get; }
         public ICommand RefreshMulliganCmd { get; }
         public ICommand RefreshDiscoverCmd { get; }
+        public ICommand OpenAccountControllerCmd { get; }
+
+        private SettingsWindow _settingsWindow;
+
+        private void OpenSettingsWindow()
+        {
+            if (_settingsWindow != null && _settingsWindow.IsLoaded)
+            {
+                _settingsWindow.Activate();
+                return;
+            }
+            _settingsWindow = new SettingsWindow
+            {
+                DataContext = this,
+                Owner = Application.Current.MainWindow
+            };
+            _settingsWindow.Closed += (_, _) => _settingsWindow = null;
+            _settingsWindow.Show();
+        }
+
+        private void OpenAccountControllerWindow()
+        {
+            var window = new AccountControllerWindow(
+                _accountController,
+                ProfileNames.ToList(),
+                DeckNames.ToList(),
+                MulliganNames.ToList(),
+                DiscoverNames.ToList())
+            {
+                Owner = Application.Current.MainWindow
+            };
+            window.Show();
+        }
 
         private void OnBoard(Board board)
         {
@@ -746,6 +796,12 @@ namespace BotMain
 
         private void OnRankTargetReached(string rankText, string modeText)
         {
+            // 如果中控正在运行，委托给中控处理（切换下一个账号）
+            if (_accountController.IsRunning)
+            {
+                _accountController.OnRankTargetReached(rankText, modeText);
+            }
+
             if (!NotifyOnRankReached || string.IsNullOrWhiteSpace(NotifyToken))
                 return;
 
@@ -810,6 +866,9 @@ namespace BotMain
                 dict["NotifyChannelIndex"] = JsonSerializer.SerializeToElement(NotifyChannelIndex);
                 dict["NotifyToken"] = JsonSerializer.SerializeToElement(NotifyToken);
                 dict["DeviceName"] = JsonSerializer.SerializeToElement(DeviceName);
+
+                if (WindowLeft.HasValue) dict["WindowLeft"] = JsonSerializer.SerializeToElement(WindowLeft.Value);
+                if (WindowTop.HasValue) dict["WindowTop"] = JsonSerializer.SerializeToElement(WindowTop.Value);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -880,6 +939,9 @@ namespace BotMain
                         if (dict.TryGetValue("NotifyChannelIndex", out v)) NotifyChannelIndex = ReadOptionalInt32(v, 0);
                         if (dict.TryGetValue("NotifyToken", out v)) NotifyToken = ReadOptionalString(v) ?? string.Empty;
                         if (dict.TryGetValue("DeviceName", out v)) DeviceName = ReadOptionalString(v) ?? string.Empty;
+
+                        if (dict.TryGetValue("WindowLeft", out v)) WindowLeft = v.GetDouble();
+                        if (dict.TryGetValue("WindowTop", out v)) WindowTop = v.GetDouble();
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();

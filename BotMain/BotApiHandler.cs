@@ -475,7 +475,11 @@ namespace BotMain
                 _log?.Invoke("[BotAPI] WhisperToFriend (stub)");
 
             if (ConsumeFlag("_switchAccount"))
-                _log?.Invoke("[BotAPI] SwitchAccount (stub - not supported)");
+            {
+                var login = GetField<string>("_switchAccountLogin");
+                var password = GetField<string>("_switchAccountPassword");
+                _log?.Invoke($"[BotAPI] SwitchAccount requested: {login}");
+            }
 
             if (ConsumeFlag("_cancelQuest"))
                 _log?.Invoke("[BotAPI] CancelQuest (stub)");
