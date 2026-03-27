@@ -3338,43 +3338,32 @@ namespace BotMain
                 {
                     socket.ConnectAsync(new Uri(webSocketDebuggerUrl), cts.Token).GetAwaiter().GetResult();
 
-                    var request = new JObject
+                    SendCommand(socket, BuildAddScriptOnNewDocumentRequest(1, BuildConstructedHookBootstrapScript()), cts.Token);
+                    var bootstrapRegisterResponse = ReceiveResponseById(socket, 1, cts.Token);
+                    if (bootstrapRegisterResponse["error"] != null)
                     {
-                        ["id"] = 1,
-                        ["method"] = "Runtime.evaluate",
-                        ["params"] = new JObject
-                        {
-                            ["expression"] = BuildStateScript(),
-                            ["returnByValue"] = true,
-                            ["awaitPromise"] = true
-                        }
-                    };
-
-                    var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
-                    socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token)
-                        .GetAwaiter().GetResult();
-
-                    while (true)
-                    {
-                        var responseText = ReceiveMessage(socket, cts.Token);
-                        if (string.IsNullOrWhiteSpace(responseText))
-                            continue;
-
-                        var response = JObject.Parse(responseText);
-                        if (response["id"]?.Value<int>() != 1)
-                            continue;
-
-                        var value = response["result"]?["result"]?["value"]?.Value<string>();
-                        if (value == null && response["result"]?["exceptionDetails"] != null)
-                        {
-                            detail = "hsbox_eval_exception:" + response["result"]["exceptionDetails"]?["text"]?.Value<string>();
-                            return false;
-                        }
-
-                        json = value;
-                        detail = "hsbox_eval_ok";
-                        return true;
+                        detail = "hsbox_bootstrap_register_failed:" + bootstrapRegisterResponse["error"]?["message"]?.Value<string>();
+                        return false;
                     }
+
+                    SendCommand(socket, BuildEvaluateRequest(2, BuildConstructedHookBootstrapScript()), cts.Token);
+                    var bootstrapInstallResponse = ReceiveResponseById(socket, 2, cts.Token);
+                    if (!TryGetEvaluateStringResult(bootstrapInstallResponse, out _, out var bootstrapInstallError))
+                    {
+                        detail = bootstrapInstallError;
+                        return false;
+                    }
+
+                    SendCommand(socket, BuildEvaluateRequest(3, BuildConstructedStateScript()), cts.Token);
+                    var stateResponse = ReceiveResponseById(socket, 3, cts.Token);
+                    if (!TryGetEvaluateStringResult(stateResponse, out json, out var stateError))
+                    {
+                        detail = stateError;
+                        return false;
+                    }
+
+                    detail = "hsbox_eval_ok";
+                    return true;
                 }
                 catch (Exception ex)
                 {
@@ -3382,6 +3371,87 @@ namespace BotMain
                     return false;
                 }
             }
+        }
+
+        private static JObject BuildAddScriptOnNewDocumentRequest(int id, string source)
+        {
+            return new JObject
+            {
+                ["id"] = id,
+                ["method"] = "Page.addScriptToEvaluateOnNewDocument",
+                ["params"] = new JObject
+                {
+                    ["source"] = source ?? string.Empty
+                }
+            };
+        }
+
+        private static JObject BuildEvaluateRequest(int id, string expression)
+        {
+            return new JObject
+            {
+                ["id"] = id,
+                ["method"] = "Runtime.evaluate",
+                ["params"] = new JObject
+                {
+                    ["expression"] = expression ?? string.Empty,
+                    ["returnByValue"] = true,
+                    ["awaitPromise"] = true
+                }
+            };
+        }
+
+        private static void SendCommand(ClientWebSocket socket, JObject request, CancellationToken cancellationToken)
+        {
+            var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
+            socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken)
+                .GetAwaiter().GetResult();
+        }
+
+        private static JObject ReceiveResponseById(ClientWebSocket socket, int expectedId, CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                var responseText = ReceiveMessage(socket, cancellationToken);
+                if (string.IsNullOrWhiteSpace(responseText))
+                    continue;
+
+                var response = JObject.Parse(responseText);
+                if (response["id"]?.Value<int>() != expectedId)
+                    continue;
+
+                return response;
+            }
+        }
+
+        private static bool TryGetEvaluateStringResult(JObject response, out string value, out string detail)
+        {
+            value = null;
+            detail = "hsbox_eval_response_invalid";
+            if (response == null)
+                return false;
+
+            if (response["error"] != null)
+            {
+                detail = "hsbox_eval_error:" + response["error"]?["message"]?.Value<string>();
+                return false;
+            }
+
+            value = response["result"]?["result"]?["value"]?.Value<string>();
+            if (value == null && response["result"]?["exceptionDetails"] != null)
+            {
+                detail = "hsbox_eval_exception:" + response["result"]?["exceptionDetails"]?["text"]?.Value<string>();
+                return false;
+            }
+
+            if (value == null)
+            {
+                detail = "hsbox_eval_value_missing";
+                return false;
+            }
+
+            detail = "hsbox_eval_ok";
+            return true;
         }
 
         private static string ReceiveMessage(ClientWebSocket socket, CancellationToken cancellationToken)

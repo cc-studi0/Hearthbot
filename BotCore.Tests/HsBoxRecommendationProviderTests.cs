@@ -2847,6 +2847,15 @@ namespace BotCore.Tests
             Assert.DoesNotContain("body_only", script, StringComparison.Ordinal);
         }
 
+        [Fact]
+        public void BuildAddScriptOnNewDocumentRequest_UsesPageMethod()
+        {
+            var request = InvokePrivateJObject("BuildAddScriptOnNewDocumentRequest", 1, "bootstrap");
+
+            Assert.Equal("Page.addScriptToEvaluateOnNewDocument", request["method"]?.Value<string>());
+            Assert.Equal("bootstrap", request["params"]?["source"]?.Value<string>());
+        }
+
         private static HsBoxRecommendationState CreateState(
             long updatedAtMs,
             string raw,
@@ -2896,6 +2905,13 @@ namespace BotCore.Tests
             var method = typeof(HsBoxRecommendationBridge).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
             Assert.NotNull(method);
             return Assert.IsType<string>(method.Invoke(null, null));
+        }
+
+        private static JObject InvokePrivateJObject(string methodName, params object[] args)
+        {
+            var method = typeof(HsBoxRecommendationBridge).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return Assert.IsType<JObject>(method.Invoke(null, args));
         }
 
         private static CardTemplate CreateTemplate(Card.Cards id, string nameCn, string name)
