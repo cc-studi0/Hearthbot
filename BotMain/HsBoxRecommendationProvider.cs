@@ -3425,7 +3425,12 @@ namespace BotMain
             }
         }
 
-        private static string BuildStateScript()
+        private static string BuildConstructedHookBootstrapScript()
+        {
+            return string.Empty;
+        }
+
+        private static string BuildConstructedStateScript()
         {
             return @"(() => {
   const response = {
@@ -3508,6 +3513,11 @@ namespace BotMain
     return JSON.stringify(response);
   }
 })()";
+        }
+
+        private static string BuildStateScript()
+        {
+            return BuildConstructedStateScript();
         }
     }
 

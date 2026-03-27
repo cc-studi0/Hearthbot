@@ -2740,6 +2740,41 @@ namespace BotCore.Tests
             Assert.Equal("SIG_NEW", lastConsumedPayloadSignature);
         }
 
+        [Fact]
+        public void RecommendActions_WaitsWhenConstructedHookHasNoCallbackPayload_EvenIfBodyTextShowsRecommendations()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 0,
+                UpdatedAtMs = 0,
+                Raw = null,
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打出2号位随从 派对邪犬 打出1号位法术 咒怨之墓",
+                Reason = "waiting_for_box_payload",
+                Envelope = null
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("play_text", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void BuildConstructedHookBootstrapScript_ContainsFunctionIdentityTrackingAndSetterHook()
+        {
+            var script = InvokePrivateString("BuildConstructedHookBootstrapScript");
+
+            Assert.Contains("__hbHsBoxHooks", script, StringComparison.Ordinal);
+            Assert.Contains("lastSeen", script, StringComparison.Ordinal);
+            Assert.Contains("Object.defineProperty", script, StringComparison.Ordinal);
+            Assert.Contains("onUpdateLadderActionRecommend", script, StringComparison.Ordinal);
+        }
+
         private static HsBoxRecommendationState CreateState(
             long updatedAtMs,
             string raw,
@@ -2782,6 +2817,13 @@ namespace BotCore.Tests
                 Reason = "ready",
                 Envelope = envelope
             };
+        }
+
+        private static string InvokePrivateString(string methodName)
+        {
+            var method = typeof(HsBoxRecommendationBridge).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(method);
+            return Assert.IsType<string>(method.Invoke(null, null));
         }
 
         private static CardTemplate CreateTemplate(Card.Cards id, string nameCn, string name)
