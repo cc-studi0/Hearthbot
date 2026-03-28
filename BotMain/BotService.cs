@@ -2786,6 +2786,8 @@ namespace BotMain
 
                     if (actionFailed)
                     {
+                        // 动作失败时重置连续攻击标志，避免下次循环跳过 board recovery
+                        lastRecommendationWasAttackOnly = false;
                         actionFailStreak++;
 
                         if (actionFailStreak >= 3)
