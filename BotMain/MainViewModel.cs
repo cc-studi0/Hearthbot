@@ -51,7 +51,6 @@ namespace BotMain
         private int _notifyChannelIndex;
         private string _notifyToken = string.Empty;
         private string _deviceName = string.Empty;
-        private string _hearthstoneExecutablePath;
         private string _hsBoxExecutablePath;
         private int _matchmakingTimeoutSeconds = 60;
 
@@ -151,7 +150,6 @@ namespace BotMain
             ResetStatsCmd = new RelayCommand(_ => _bot.ResetStats());
             SaveLogCmd = new RelayCommand(_ => SaveLog());
             SettingsCmd = new RelayCommand(_ => OpenSettingsWindow());
-            BrowseHearthstonePathCmd = new RelayCommand(_ => BrowseHearthstonePath());
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());
             RefreshDecksCmd = new RelayCommand(_ => _bot.RefreshDecks());
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
@@ -262,21 +260,6 @@ namespace BotMain
 
                 _matchmakingTimeoutSeconds = normalized;
                 _bot.SetMatchmakingTimeoutSeconds(normalized);
-                Notify();
-                AutoSave();
-            }
-        }
-        public string HearthstoneExecutablePath
-        {
-            get => _hearthstoneExecutablePath;
-            set
-            {
-                var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-                if (string.Equals(_hearthstoneExecutablePath, normalized, StringComparison.Ordinal))
-                    return;
-
-                _hearthstoneExecutablePath = normalized;
-                _bot.SetHearthstoneExecutablePath(normalized);
                 Notify();
                 AutoSave();
             }
@@ -534,7 +517,6 @@ namespace BotMain
         public ICommand SettingsCmd { get; }
         public ICommand ResetStatsCmd { get; }
         public ICommand SaveLogCmd { get; }
-        public ICommand BrowseHearthstonePathCmd { get; }
         public ICommand BrowseHsBoxPathCmd { get; }
         public ICommand RefreshProfilesCmd { get; }
         public ICommand RefreshDecksCmd { get; }
@@ -643,6 +625,7 @@ namespace BotMain
 
                 _startTime = DateTime.Now;
                 _timer.Start();
+                _bot.ClearBattleNetRestartBinding();
                 _bot.Start();
             }
             else
@@ -657,39 +640,6 @@ namespace BotMain
             var dlg = new SaveFileDialog { Filter = "Text|*.txt", FileName = $"log_{DateTime.Now:yyyyMMdd_HHmmss}.txt" };
             if (dlg.ShowDialog() == true)
                 File.WriteAllText(dlg.FileName, LogText);
-        }
-
-        private void BrowseHearthstonePath()
-        {
-            var dlg = new OpenFileDialog
-            {
-                Title = "Select Hearthstone.exe",
-                Filter = "Hearthstone.exe|Hearthstone.exe|Executable files|*.exe|All files|*.*",
-                CheckFileExists = true
-            };
-
-            try
-            {
-                var currentPath = HearthstoneExecutablePath;
-                if (!string.IsNullOrWhiteSpace(currentPath))
-                {
-                    if (Directory.Exists(currentPath))
-                    {
-                        dlg.InitialDirectory = currentPath;
-                    }
-                    else if (File.Exists(currentPath))
-                    {
-                        dlg.InitialDirectory = Path.GetDirectoryName(currentPath);
-                        dlg.FileName = Path.GetFileName(currentPath);
-                    }
-                }
-            }
-            catch
-            {
-            }
-
-            if (dlg.ShowDialog() == true)
-                HearthstoneExecutablePath = dlg.FileName;
         }
 
         private void BrowseHsBoxPath()
@@ -852,7 +802,7 @@ namespace BotMain
                 dict["ModeIndex"] = JsonSerializer.SerializeToElement(ModeIndex);
                 dict["ModeName"] = JsonSerializer.SerializeToElement(CurrentModeName);
                 dict["MatchmakingTimeoutSeconds"] = JsonSerializer.SerializeToElement(MatchmakingTimeoutSeconds);
-                dict["HearthstoneExecutablePath"] = JsonSerializer.SerializeToElement(HearthstoneExecutablePath);
+                dict.Remove("HearthstoneExecutablePath");
                 dict["HsBoxExecutablePath"] = JsonSerializer.SerializeToElement(HsBoxExecutablePath);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
                 dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
@@ -921,7 +871,6 @@ namespace BotMain
                             ModeIndex = loadedMode;
                         }
                         if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) MatchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
-                        if (dict.TryGetValue("HearthstoneExecutablePath", out v)) HearthstoneExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("HsBoxExecutablePath", out v)) HsBoxExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
                         if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
@@ -955,7 +904,6 @@ namespace BotMain
 
             _bot.SetExternalPaths(_savedSmartBotRoot);
             _bot.SetMatchmakingTimeoutSeconds(MatchmakingTimeoutSeconds);
-            _bot.SetHearthstoneExecutablePath(HearthstoneExecutablePath);
             _bot.SetHsBoxExecutablePath(HsBoxExecutablePath);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
             _bot.SetLearnFromHsBoxRecommendations(LearnFromHsBox);

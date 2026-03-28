@@ -476,10 +476,6 @@ namespace BotMain
             _smartBotRootOverride = NormalizeExternalPath(smartBotRoot);
         }
 
-        public void SetHearthstoneExecutablePath(string hearthstoneExecutablePath)
-        {
-        }
-
         public void SetBattleNetRestartBinding(int? processId, string windowTitle = null)
         {
             _battleNetRestartBinding = new BattleNetRestartBinding(processId, windowTitle);
