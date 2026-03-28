@@ -167,6 +167,8 @@ namespace BotMain
         public string LogText { get; set; } = "";
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }
+        public double? WindowWidth { get; set; }
+        public double? WindowHeight { get; set; }
 
         public string CurrentRankText { get; set; } = "--";
         public string Status { get; set; } = "Idle";
@@ -819,6 +821,8 @@ namespace BotMain
 
                 if (WindowLeft.HasValue) dict["WindowLeft"] = JsonSerializer.SerializeToElement(WindowLeft.Value);
                 if (WindowTop.HasValue) dict["WindowTop"] = JsonSerializer.SerializeToElement(WindowTop.Value);
+                if (WindowWidth.HasValue) dict["WindowWidth"] = JsonSerializer.SerializeToElement(WindowWidth.Value);
+                if (WindowHeight.HasValue) dict["WindowHeight"] = JsonSerializer.SerializeToElement(WindowHeight.Value);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
                 dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
@@ -891,6 +895,8 @@ namespace BotMain
 
                         if (dict.TryGetValue("WindowLeft", out v)) WindowLeft = v.GetDouble();
                         if (dict.TryGetValue("WindowTop", out v)) WindowTop = v.GetDouble();
+                        if (dict.TryGetValue("WindowWidth", out v)) WindowWidth = v.GetDouble();
+                        if (dict.TryGetValue("WindowHeight", out v)) WindowHeight = v.GetDouble();
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();

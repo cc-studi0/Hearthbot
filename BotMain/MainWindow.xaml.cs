@@ -78,6 +78,14 @@ namespace BotMain
                 WindowStartupLocation = WindowStartupLocation.CenterScreen;
             }
 
+            if (DataContext is MainViewModel vmSize)
+            {
+                if (vmSize.WindowWidth.HasValue && vmSize.WindowWidth.Value > 0)
+                    Width = vmSize.WindowWidth.Value;
+                if (vmSize.WindowHeight.HasValue && vmSize.WindowHeight.Value > 0)
+                    Height = vmSize.WindowHeight.Value;
+            }
+
             Loaded += OnLoaded;
             Closing += (_, _) =>
             {
@@ -85,6 +93,8 @@ namespace BotMain
                 {
                     viewModel.WindowLeft = Left;
                     viewModel.WindowTop = Top;
+                    viewModel.WindowWidth = Width;
+                    viewModel.WindowHeight = Height;
                     viewModel.SaveSettings();
                 }
             };
