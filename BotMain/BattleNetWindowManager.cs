@@ -76,58 +76,82 @@ namespace BotMain
         /// 从指定战网窗口启动炉石
         /// 流程: 前置窗口 → 点击"开始游戏"按钮 → 等待炉石进程出现
         /// </summary>
+        public static async Task<BattleNetLaunchResult> LaunchHearthstoneFromDetailed(
+            int processId, Action<string> log, CancellationToken ct, int timeoutSeconds = 90)
+        {
+            try
+            {
+                var hWnd = FindWindowByPid(processId);
+                if (hWnd == IntPtr.Zero)
+                {
+                    var message = $"未找到PID={processId}的战网窗口";
+                    log?.Invoke($"[Restart] 自动重启失败：{message}");
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, message, processId);
+                }
+
+                // 1. 前置窗口
+                if (!BringWindowToFront(hWnd))
+                {
+                    var message = $"无法前置PID={processId}的战网窗口";
+                    log?.Invoke($"[Restart] 自动重启失败：{message}");
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.BringToFrontFailed, message, processId);
+                }
+                await Task.Delay(600, ct);
+
+                // 2. 获取窗口位置，计算按钮绝对坐标
+                if (!GetWindowRect(hWnd, out var rect))
+                {
+                    var message = $"获取PID={processId}的战网窗口位置失败";
+                    log?.Invoke($"[Restart] 自动重启失败：{message}");
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowRectFailed, message, processId);
+                }
+
+                var clickX = rect.Left + PlayButtonOffsetX;
+                var clickY = rect.Top + PlayButtonOffsetY;
+                log?.Invoke($"[中控] 点击开始游戏 坐标=({clickX},{clickY}) 窗口=({rect.Left},{rect.Top},{rect.Right},{rect.Bottom})");
+
+                // 3. 点击"开始游戏"按钮
+                ClickAt(clickX, clickY);
+                await Task.Delay(1000, ct);
+
+                // 再点一次确保点击到位
+                ClickAt(clickX, clickY);
+
+                // 4. 等待炉石进程出现
+                log?.Invoke("[中控] 等待炉石进程启动...");
+                var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+                while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+                {
+                    var hsProcs = Process.GetProcessesByName("Hearthstone");
+                    if (hsProcs.Length > 0)
+                    {
+                        var hsPid = hsProcs[0].Id;
+                        var message = $"炉石进程已启动 PID={hsPid}";
+                        log?.Invoke($"[Restart] {message}");
+                        return BattleNetLaunchResult.Succeeded(processId, hsPid, message);
+                    }
+
+                    await Task.Delay(2000, ct);
+                }
+
+                if (ct.IsCancellationRequested)
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.Cancelled, $"启动取消 PID={processId}", processId);
+
+                var timeoutMessage = $"从战网启动炉石超时 PID={processId}";
+                log?.Invoke($"[Restart] 自动重启失败：{timeoutMessage}");
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, timeoutMessage, processId);
+            }
+            catch (OperationCanceledException)
+            {
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.Cancelled, $"启动取消 PID={processId}", processId);
+            }
+        }
+
         public static async Task<bool> LaunchHearthstoneFrom(
             int processId, Action<string> log, CancellationToken ct, int timeoutSeconds = 90)
         {
-            var hWnd = FindWindowByPid(processId);
-            if (hWnd == IntPtr.Zero)
-            {
-                log?.Invoke($"[中控] 未找到PID={processId}的战网窗口");
-                return false;
-            }
-
-            // 1. 前置窗口
-            if (!BringWindowToFront(hWnd))
-            {
-                log?.Invoke($"[中控] 无法前置PID={processId}的战网窗口");
-                return false;
-            }
-            await Task.Delay(600, ct);
-
-            // 2. 获取窗口位置，计算按钮绝对坐标
-            if (!GetWindowRect(hWnd, out var rect))
-            {
-                log?.Invoke("[中控] 获取战网窗口位置失败");
-                return false;
-            }
-
-            var clickX = rect.Left + PlayButtonOffsetX;
-            var clickY = rect.Top + PlayButtonOffsetY;
-            log?.Invoke($"[中控] 点击开始游戏 坐标=({clickX},{clickY}) 窗口=({rect.Left},{rect.Top},{rect.Right},{rect.Bottom})");
-
-            // 3. 点击"开始游戏"按钮
-            ClickAt(clickX, clickY);
-            await Task.Delay(1000, ct);
-
-            // 再点一次确保点击到位
-            ClickAt(clickX, clickY);
-
-            // 4. 等待炉石进程出现
-            log?.Invoke("[中控] 等待炉石进程启动...");
-            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
-            while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
-            {
-                var hsProcs = Process.GetProcessesByName("Hearthstone");
-                if (hsProcs.Length > 0)
-                {
-                    log?.Invoke($"[中控] 炉石进程已启动 PID={hsProcs[0].Id}");
-                    return true;
-                }
-                await Task.Delay(2000, ct);
-            }
-
-            log?.Invoke("[中控] 等待炉石进程超时");
-            return false;
+            var result = await LaunchHearthstoneFromDetailed(processId, log, ct, timeoutSeconds);
+            return result.Success;
         }
 
         /// <summary>
