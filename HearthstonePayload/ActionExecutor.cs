@@ -3596,6 +3596,24 @@ namespace HearthstonePayload
             }
             // 跳过 MaybePreviewAlternateTarget（攻击速度优先）
             foreach (var w in MoveCursorConstructed(tx, ty, 12, 0.012f, false)) yield return w;
+
+            // 点击前最后一刻修正：重新读取目标坐标，如果棋盘重排导致偏移则快���修正
+            {
+                int corrX = 0, corrY = 0;
+                bool corrFound = targetIsEnemyHero
+                    ? GameObjectFinder.GetHeroScreenPos(false, out corrX, out corrY)
+                    : GameObjectFinder.GetEntityScreenPos(targetEntityId, out corrX, out corrY);
+                if (corrFound)
+                {
+                    var cdx = Math.Abs(corrX - tx);
+                    var cdy = Math.Abs(corrY - ty);
+                    if (cdx > 12 || cdy > 12)
+                    {
+                        foreach (var w in SmoothMove(corrX, corrY, 3, 0.005f)) yield return w;
+                    }
+                }
+            }
+
             MouseSimulator.LeftDown();
             yield return 0.015f;
             MouseSimulator.LeftUp();
