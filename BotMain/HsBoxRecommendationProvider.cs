@@ -3627,9 +3627,92 @@ namespace BotMain
     }
   }
 
+  function tryRecoverFromReactState() {
+    ensureState();
+    if (Number(window.__hbHsBoxCount || 0) > 0) return false;
+    try {
+      var fiberKey = null;
+      var allEls = document.querySelectorAll('*');
+      for (var i = 0; i < allEls.length; i++) {
+        var keys = Object.keys(allEls[i]);
+        for (var j = 0; j < keys.length; j++) {
+          if (keys[j].indexOf('__reactFiber') === 0) {
+            fiberKey = keys[j];
+            break;
+          }
+        }
+        if (fiberKey) break;
+      }
+      if (!fiberKey) return false;
+
+      var rootEl = null;
+      for (var i2 = 0; i2 < allEls.length; i2++) {
+        if (allEls[i2][fiberKey]) { rootEl = allEls[i2]; break; }
+      }
+      if (!rootEl) return false;
+
+      var found = null;
+      var visited = 0;
+      function walkFiber(node, depth) {
+        if (!node || visited > 300 || depth > 30 || found) return;
+        visited++;
+        var state = node.memoizedState;
+        var hookIdx = 0;
+        while (state && hookIdx < 15) {
+          var val = state.memoizedState;
+          if (val && typeof val === 'object' && !(val instanceof HTMLElement) && !Array.isArray(val)) {
+            var vk = Object.keys(val);
+            var hasData = false;
+            var hasStatus = false;
+            for (var m = 0; m < vk.length; m++) {
+              if (vk[m] === 'data') hasData = true;
+              if (vk[m] === 'status') hasStatus = true;
+            }
+            if (hasData && hasStatus && Array.isArray(val.data) && val.data.length > 0) {
+              var first = val.data[0];
+              if (first && typeof first === 'object' && typeof first.actionName === 'string') {
+                found = val;
+                return;
+              }
+            }
+          }
+          state = state.next;
+          hookIdx++;
+        }
+        if (node.child) walkFiber(node.child, depth + 1);
+        if (node.sibling) walkFiber(node.sibling, depth);
+      }
+      walkFiber(rootEl[fiberKey], 0);
+
+      if (found) {
+        window.__hbHsBoxCount = 1;
+        window.__hbHsBoxUpdatedAt = Date.now();
+        window.__hbHsBoxLastData = found;
+        window.__hbHsBoxLastSource = 'react_state_recovery';
+        try {
+          var seen = [];
+          window.__hbHsBoxLastRaw = JSON.stringify(found, function(k, v) {
+            if (v && typeof v === 'object') {
+              if (v instanceof HTMLElement) return undefined;
+              if (seen.indexOf(v) >= 0) return undefined;
+              seen.push(v);
+            }
+            return v;
+          });
+        } catch(e) {
+          window.__hbHsBoxLastRaw = '';
+        }
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+
   try {
     ensureLadderSetter();
     installPatternHooks();
+    window.__hbHsBoxReactRecover = tryRecoverFromReactState;
+    tryRecoverFromReactState();
     window.__hbHsBoxBootstrapInstalled = true;
     window.__hbHsBoxBootstrapError = '';
     return JSON.stringify({ ok: true, installed: true, error: '' });
@@ -3669,6 +3752,11 @@ namespace BotMain
 
     response.ok = true;
     response.hooked = true;
+
+    if (Number(window.__hbHsBoxCount || 0) === 0 && typeof window.__hbHsBoxReactRecover === 'function') {
+      window.__hbHsBoxReactRecover();
+    }
+
     response.count = Number(window.__hbHsBoxCount || 0);
     response.updatedAt = Number(window.__hbHsBoxUpdatedAt || 0);
     response.raw = window.__hbHsBoxLastRaw ?? null;
