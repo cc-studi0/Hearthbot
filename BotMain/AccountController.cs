@@ -43,6 +43,7 @@ namespace BotMain
         {
             _bot = bot;
             _log = log;
+            _bot.OnRestartFailed += OnBotRestartFailed;
         }
 
         /// <summary>
@@ -95,6 +96,7 @@ namespace BotMain
             IsRunning = false;
             try { _cts?.Cancel(); } catch { }
             _cts = null;
+            _bot.ClearBattleNetRestartBinding();
             StatusText = "已停止";
             _log?.Invoke("[中控] 队列已停止");
         }
@@ -154,6 +156,8 @@ namespace BotMain
             if (next == null)
             {
                 _log?.Invoke("[中控] 所有账号已完成");
+                _bot.ClearBattleNetRestartBinding();
+                CurrentAccount = null;
                 StatusText = "全部完成";
                 IsRunning = false;
                 return;
@@ -170,6 +174,7 @@ namespace BotMain
             {
                 StatusText = $"正在切换到 {account.DisplayName}...";
                 _log?.Invoke($"[中控] 开始切换到 {account.DisplayName}");
+                _bot.ClearBattleNetRestartBinding();
 
                 // 1. 停止当前 bot
                 if (_bot.State != BotState.Idle)
@@ -225,6 +230,7 @@ namespace BotMain
                 account.Status = AccountStatus.Running;
                 account.StartedAt = DateTime.Now;
                 ApplyAccountSettings(account);
+                _bot.SetBattleNetRestartBinding(account.BattleNetProcessId, account.BattleNetWindowTitle);
 
                 // 7. 记录基准战绩
                 _baselineStats = _bot.GetStatsSnapshot();
@@ -245,6 +251,19 @@ namespace BotMain
                 if (IsRunning)
                     await SwitchToNextAccount();
             }
+        }
+
+        private void OnBotRestartFailed(string reason)
+        {
+            if (!IsRunning)
+                return;
+
+            if (CurrentAccount != null)
+                CurrentAccount.Status = AccountStatus.Failed;
+
+            StatusText = $"自动重启失败：{reason}";
+            _log?.Invoke($"[中控] 因自动重启失败停止队列: {reason}");
+            StopQueue();
         }
 
         private void ApplyAccountSettings(AccountEntry account)
