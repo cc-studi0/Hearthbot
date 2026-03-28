@@ -2785,6 +2785,15 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void BuildConstructedHookBootstrapScript_AvoidsRewrappingManagedCallback()
+        {
+            var script = InvokePrivateString("BuildConstructedHookBootstrapScript");
+
+            Assert.Contains("__hbHsBoxManaged", script, StringComparison.Ordinal);
+            Assert.Contains("candidate === slot.wrapped", script, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void RecommendActions_DoesNotFallbackToBodyText_WhenCallbackPayloadExistsButStructuredStepsAreMissing()
         {
             var state = new HsBoxRecommendationState

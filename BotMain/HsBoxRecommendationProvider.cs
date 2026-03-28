@@ -3513,7 +3513,18 @@ namespace BotMain
       recordPayload(name, payload);
       return slot.original.apply(this, arguments);
     };
+    slot.wrapped.__hbHsBoxManaged = true;
+    slot.wrapped.__hbHsBoxOriginal = original;
     return slot.wrapped;
+  }
+
+  function unwrapManagedCandidate(slot, candidate) {
+    if (typeof candidate !== 'function') return candidate;
+    if (candidate === slot.wrapped && typeof slot.original === 'function') return slot.original;
+    if (candidate.__hbHsBoxManaged === true && typeof candidate.__hbHsBoxOriginal === 'function') {
+      return candidate.__hbHsBoxOriginal;
+    }
+    return candidate;
   }
 
   function installWrapper(name, candidate, assignGlobal) {
@@ -3521,6 +3532,7 @@ namespace BotMain
     if (typeof candidate !== 'function') return false;
     const slot = window.__hbHsBoxHooks[name] || (window.__hbHsBoxHooks[name] = {});
     window.__hbHsBoxHasConstructedCallback = true;
+    candidate = unwrapManagedCandidate(slot, candidate);
 
     if (slot.original === candidate && typeof slot.wrapped === 'function') {
       slot.lastSeen = candidate;
