@@ -2629,20 +2629,6 @@ namespace BotMain
                                 break;
                             }
 
-                            // 攻击未确认生效（confirm_short_timeout）：不消费推荐，触发重新模拟
-                            if (isAttack
-                                && result != null
-                                && result.IndexOf("confirm_short_timeout", StringComparison.OrdinalIgnoreCase) >= 0)
-                            {
-                                Log($"[Action] attack unconfirmed (confirm_short_timeout), not consuming recommendation, requesting resimulation");
-                                RefreshHsBoxActionMinimumUpdatedAtNow();
-                                requestResimulation = true;
-                                resimulationReason = "attack_unconfirmed";
-                                resimulationRequestedThisAction = true;
-                                resimulationReasonThisAction = resimulationReason;
-                                break;
-                            }
-
                             RememberConsumedHsBoxActionRecommendation(recommendation, action);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
