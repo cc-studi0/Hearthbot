@@ -1878,6 +1878,8 @@ namespace BotMain
             string lastPlanningBoardUnavailableSignature = string.Empty;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
             bool lastRecommendationWasAttackOnly = false;
+            IReadOnlyList<EntityContextSnapshot> cachedFriendlyEntities = null;
+            List<Card.Cards> cachedDeckCards = null;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -2344,35 +2346,51 @@ namespace BotMain
                 lastPlanningBoardUnavailableSignature = string.Empty;
 
                 var recommendationStage = "plugin_simulation";
-                _pluginSystem?.FireOnSimulation();
-
-                // 查询牌库剩余卡牌
                 List<Card.Cards> deckCards = null;
-                try
+                IReadOnlyList<EntityContextSnapshot> friendlyEntities = null;
+
+                if (lastRecommendationWasAttackOnly && planningBoard != null)
                 {
-                    recommendationStage = "deck_state";
-                    var deckResp = pipe.SendAndReceive("GET_DECK_STATE", 3000);
-                    if (deckResp != null && deckResp.StartsWith("DECK_STATE:", StringComparison.Ordinal))
+                    // 连续攻击快速通道：跳过牌库查询、牌组上下文、友方实体刷新
+                    deckCards = cachedDeckCards;
+                    friendlyEntities = cachedFriendlyEntities;
+                    Log("[Action] skipped preparation (consecutive attack cycle)");
+                }
+                else
+                {
+                    _pluginSystem?.FireOnSimulation();
+
+                    // 查询牌库剩余卡牌
+                    try
                     {
-                        var raw = deckResp.Substring("DECK_STATE:".Length);
-                        if (!string.IsNullOrWhiteSpace(raw))
+                        recommendationStage = "deck_state";
+                        var deckResp = pipe.SendAndReceive("GET_DECK_STATE", 3000);
+                        if (deckResp != null && deckResp.StartsWith("DECK_STATE:", StringComparison.Ordinal))
                         {
-                            deckCards = new List<Card.Cards>();
-                            foreach (var part in raw.Split('|'))
+                            var raw = deckResp.Substring("DECK_STATE:".Length);
+                            if (!string.IsNullOrWhiteSpace(raw))
                             {
-                                if (TryParseCardId(part, out var cid))
-                                    deckCards.Add(cid);
+                                deckCards = new List<Card.Cards>();
+                                foreach (var part in raw.Split('|'))
+                                {
+                                    if (TryParseCardId(part, out var cid))
+                                        deckCards.Add(cid);
+                                }
+                                Log($"[Deck] remaining cards: {deckCards.Count}");
                             }
-                            Log($"[Deck] remaining cards: {deckCards.Count}");
                         }
                     }
-                }
-                catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
+                    catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
-                recommendationStage = "resolve_deck_context";
-                _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
-                recommendationStage = "friendly_entity_context";
-                var friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
+                    recommendationStage = "resolve_deck_context";
+                    _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
+                    recommendationStage = "friendly_entity_context";
+                    friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
+                }
+
+                // 更新缓存供下次连续攻击使用
+                cachedDeckCards = deckCards;
+                cachedFriendlyEntities = friendlyEntities;
                 recommendationStage = "build_action_request";
                 var actionRequest = new ActionRecommendationRequest(
                     seed,
@@ -2433,7 +2451,7 @@ namespace BotMain
                 staleFreshSourceRetryCount = 0;
                 actions = NormalizeRecommendedActions(actions);
 
-                if (actions != null && actions.Count > 0)
+                if (actions != null && actions.Count > 0 && !lastRecommendationWasAttackOnly)
                     TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities, actions.Count);
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
@@ -2642,7 +2660,8 @@ namespace BotMain
                             catch { }
 
                             // 连续攻击：快速轮询就绪，跳过固定延迟
-                            if (isAttack && nextIsAttack)
+                            // 扩展条件：批次内下一个是攻击，或上一批全部为攻击（跨批次连续攻击）
+                            if (isAttack && (nextIsAttack || lastRecommendationWasAttackOnly))
                             {
                                 var postReadySw = Stopwatch.StartNew();
                                 var postReadyOk = WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
@@ -2792,7 +2811,8 @@ namespace BotMain
                     && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     actionFailStreak = 0;
-                    Thread.Sleep(120);
+                    if (!lastRecommendationWasAttackOnly)
+                        Thread.Sleep(120);
                     continue;
                 }
 
