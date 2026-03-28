@@ -2323,18 +2323,36 @@ namespace HearthstonePayload
                     if (sourceLeftHand && targetHeroSide < 0)
                     {
                         var runtimeResolution = WaitForRuntimePlayTargetResolution(entityId, targetEntityId, 900);
-                        if (runtimeResolution != null && runtimeResolution.Mode == PlayRuntimeTargetMode.HandTarget)
+                        if (runtimeResolution == null)
+                        {
+                            AppendActionTrace(
+                                "PLAY(runtime-target) target_context_not_ready_timeout"
+                                + " sourceEntityId=" + entityId
+                                + " hintedTarget=" + targetEntityId);
+                        }
+                        else if (runtimeResolution.Mode == PlayRuntimeTargetMode.HandTarget)
                         {
                             if (!runtimeResolution.HasResolvedEntity)
                             {
+                                AppendActionTrace(
+                                    "PLAY(runtime-target) " + (runtimeResolution.FailureReason ?? "hand_target_detected_but_no_match")
+                                    + " sourceEntityId=" + entityId
+                                    + " hintedTarget=" + targetEntityId
+                                    + " candidates=" + (runtimeResolution.CandidateSummary ?? string.Empty));
                                 TryResetHeldCard();
                                 _coroutine.SetResult("FAIL:PLAY:hand_target_unresolved:" + entityId + ":" + targetEntityId);
                                 yield break;
                             }
 
+                            AppendActionTrace(
+                                "PLAY(runtime-target) mode=" + runtimeResolution.Mode
+                                + " sourceEntityId=" + entityId
+                                + " hintedTarget=" + targetEntityId
+                                + " resolvedTarget=" + runtimeResolution.ResolvedEntityId
+                                + " reason=" + (runtimeResolution.MatchReason ?? string.Empty)
+                                + " candidates=" + (runtimeResolution.CandidateSummary ?? string.Empty));
                             if (runtimeResolution.ResolvedEntityId != targetEntityId)
                             {
-                                AppendActionTrace("PLAY(mouse) runtime hand-target corrected from=" + targetEntityId + " to=" + runtimeResolution.ResolvedEntityId);
                                 targetEntityId = runtimeResolution.ResolvedEntityId;
                             }
                         }
@@ -2692,7 +2710,10 @@ namespace HearthstonePayload
                 return null;
 
             var hint = BuildRuntimeTargetHint(gameState, targetEntityId);
-            return PlayRuntimeTargetResolver.Resolve(hint, candidates, explicitHandTarget, rawChoiceType);
+            var resolution = PlayRuntimeTargetResolver.Resolve(hint, candidates, explicitHandTarget, rawChoiceType);
+            if (resolution != null)
+                resolution.CandidateSummary = FormatRuntimeTargetCandidates(candidates);
+            return resolution;
         }
 
         private static PlayRuntimeTargetResolution WaitForRuntimePlayTargetResolution(int sourceEntityId, int hintedTargetEntityId, int timeoutMs)
@@ -2828,6 +2849,20 @@ namespace HearthstonePayload
                 return zoneText.Trim();
 
             return MapZoneTagToName(ResolveEntityZoneTag(gameState, entityId));
+        }
+
+        private static string FormatRuntimeTargetCandidates(IEnumerable<PlayRuntimeTargetCandidate> candidates)
+        {
+            if (candidates == null)
+                return string.Empty;
+
+            return string.Join(";", candidates
+                .Where(candidate => candidate != null && candidate.EntityId > 0)
+                .Select(candidate =>
+                    candidate.EntityId
+                    + ":" + (candidate.Zone ?? string.Empty)
+                    + ":" + candidate.ZonePosition
+                    + ":" + (candidate.CardId ?? string.Empty)));
         }
 
         private static string MapZoneTagToName(int zoneTag)

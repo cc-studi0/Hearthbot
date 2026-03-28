@@ -66,6 +66,43 @@ namespace BotCore.Tests
             Assert.Equal(PlayRuntimeTargetMode.HandTarget, resolution.Mode);
             Assert.False(resolution.HasResolvedEntity);
             Assert.Equal(0, resolution.ResolvedEntityId);
+            Assert.Equal("hand_target_detected_but_no_match", resolution.FailureReason);
+        }
+
+        [Fact]
+        public void Resolve_WhenCardMatchesMultipleHandCandidatesWithoutSlotHint_ReturnsMultipleMatchFailure()
+        {
+            var resolution = PlayRuntimeTargetResolver.Resolve(
+                new PlayRuntimeTargetHint
+                {
+                    OriginalTargetEntityId = 91,
+                    CardId = "CATA_499",
+                    ZonePosition = 0
+                },
+                new[]
+                {
+                    new PlayRuntimeTargetCandidate
+                    {
+                        EntityId = 201,
+                        Zone = "HAND",
+                        ZonePosition = 1,
+                        CardId = "CATA_499"
+                    },
+                    new PlayRuntimeTargetCandidate
+                    {
+                        EntityId = 202,
+                        Zone = "HAND",
+                        ZonePosition = 2,
+                        CardId = "CATA_499"
+                    }
+                },
+                explicitHandTarget: true,
+                rawChoiceType: "GENERAL");
+
+            Assert.Equal(PlayRuntimeTargetMode.HandTarget, resolution.Mode);
+            Assert.False(resolution.HasResolvedEntity);
+            Assert.Equal(0, resolution.ResolvedEntityId);
+            Assert.Equal("hand_target_detected_but_multiple_matches", resolution.FailureReason);
         }
     }
 }

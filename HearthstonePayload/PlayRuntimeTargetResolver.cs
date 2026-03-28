@@ -31,6 +31,8 @@ namespace HearthstonePayload
         public PlayRuntimeTargetMode Mode;
         public int ResolvedEntityId;
         public string MatchReason = string.Empty;
+        public string FailureReason = string.Empty;
+        public string CandidateSummary = string.Empty;
 
         public bool HasResolvedEntity
         {
@@ -61,7 +63,11 @@ namespace HearthstonePayload
             if (explicitHandTarget || handCandidates.Count > 0)
             {
                 resolution.Mode = PlayRuntimeTargetMode.HandTarget;
-                ApplyResolvedEntity(resolution, TryResolveCandidate(hint, handCandidates, out var matchReason), matchReason);
+                ApplyResolvedEntity(
+                    resolution,
+                    TryResolveCandidate(hint, handCandidates, out var matchReason, out var failureReason),
+                    matchReason,
+                    failureReason);
                 return resolution;
             }
 
@@ -76,11 +82,18 @@ namespace HearthstonePayload
         private static PlayRuntimeTargetCandidate TryResolveCandidate(
             PlayRuntimeTargetHint hint,
             List<PlayRuntimeTargetCandidate> candidates,
-            out string matchReason)
+            out string matchReason,
+            out string failureReason)
         {
             matchReason = string.Empty;
+            failureReason = string.Empty;
             if (hint == null || candidates == null || candidates.Count == 0)
+            {
+                failureReason = "hand_target_detected_but_no_match";
                 return null;
+            }
+
+            var sawAmbiguousCardMatch = false;
 
             if (hint.OriginalTargetEntityId > 0)
             {
@@ -114,6 +127,9 @@ namespace HearthstonePayload
                     matchReason = "card";
                     return byCard[0];
                 }
+
+                if (byCard.Count > 1)
+                    sawAmbiguousCardMatch = true;
             }
 
             if (hint.ZonePosition > 0)
@@ -126,16 +142,26 @@ namespace HearthstonePayload
                 }
             }
 
+            failureReason = sawAmbiguousCardMatch
+                ? "hand_target_detected_but_multiple_matches"
+                : "hand_target_detected_but_no_match";
             return null;
         }
 
         private static void ApplyResolvedEntity(
             PlayRuntimeTargetResolution resolution,
             PlayRuntimeTargetCandidate candidate,
-            string matchReason)
+            string matchReason,
+            string failureReason)
         {
-            if (resolution == null || candidate == null)
+            if (resolution == null)
                 return;
+
+            if (candidate == null)
+            {
+                resolution.FailureReason = failureReason ?? string.Empty;
+                return;
+            }
 
             resolution.ResolvedEntityId = candidate.EntityId;
             resolution.MatchReason = matchReason ?? string.Empty;
