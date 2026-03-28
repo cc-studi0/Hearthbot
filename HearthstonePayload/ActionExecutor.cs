@@ -2671,6 +2671,159 @@ namespace HearthstonePayload
             return 0;
         }
 
+        private static PlayRuntimeTargetResolution TryResolveRuntimePlayTarget(object gameState, int targetEntityId)
+        {
+            if (gameState == null || targetEntityId <= 0)
+                return null;
+
+            var explicitHandTarget = HasSelectedOptionHandTargetSignal(gameState);
+            var candidates = CollectPlayRuntimeTargetCandidates(gameState, out var rawChoiceType);
+            if ((candidates == null || candidates.Count == 0) && !explicitHandTarget)
+                return null;
+
+            var hint = BuildRuntimeTargetHint(gameState, targetEntityId);
+            return PlayRuntimeTargetResolver.Resolve(hint, candidates, explicitHandTarget, rawChoiceType);
+        }
+
+        private static bool HasSelectedOptionHandTargetSignal(object gameState)
+        {
+            if (gameState == null)
+                return false;
+
+            if (!TryInvokeMethod(gameState, "DoesSelectedOptionHaveHandTarget", Array.Empty<object>(), out var result))
+                return false;
+
+            return result is bool hasHandTarget && hasHandTarget;
+        }
+
+        private static List<PlayRuntimeTargetCandidate> CollectPlayRuntimeTargetCandidates(object gameState, out string rawChoiceType)
+        {
+            rawChoiceType = string.Empty;
+            var candidates = new List<PlayRuntimeTargetCandidate>();
+            if (gameState == null)
+                return candidates;
+
+            AppendSelectedOptionTargets(gameState, candidates);
+
+            if (TryBuildChoiceSnapshot(gameState, out var snapshot) && snapshot != null)
+            {
+                rawChoiceType = snapshot.RawChoiceType ?? string.Empty;
+                if (snapshot.ChoiceEntityIds != null)
+                {
+                    foreach (var entityId in snapshot.ChoiceEntityIds)
+                        TryAppendRuntimeTargetCandidate(gameState, entityId, candidates);
+                }
+            }
+
+            return candidates;
+        }
+
+        private static void AppendSelectedOptionTargets(object gameState, List<PlayRuntimeTargetCandidate> candidates)
+        {
+            if (gameState == null || candidates == null)
+                return;
+
+            if (!TryInvokeMethod(gameState, "GetSelectedNetworkOption", Array.Empty<object>(), out var optionObj) || optionObj == null)
+                return;
+
+            var main = GetFieldOrProp(optionObj, "Main")
+                ?? GetFieldOrProp(optionObj, "m_main")
+                ?? Invoke(optionObj, "GetMain");
+            if (main == null)
+                return;
+
+            var targets = GetFieldOrProp(main, "Targets") as IEnumerable
+                ?? GetFieldOrProp(main, "m_targets") as IEnumerable
+                ?? Invoke(main, "GetTargets") as IEnumerable;
+            if (targets == null)
+                return;
+
+            foreach (var target in targets)
+            {
+                var entityId = ResolveOptionEntityId(target);
+                if (entityId <= 0)
+                    entityId = GetIntFieldOrProp(target, "Target");
+                if (entityId <= 0)
+                    entityId = GetIntFieldOrProp(target, "m_target");
+                if (entityId <= 0)
+                    entityId = GetIntFieldOrProp(target, "EntityID");
+                if (entityId <= 0)
+                    entityId = GetIntFieldOrProp(target, "ID");
+
+                TryAppendRuntimeTargetCandidate(gameState, entityId, candidates);
+            }
+        }
+
+        private static void TryAppendRuntimeTargetCandidate(object gameState, int entityId, List<PlayRuntimeTargetCandidate> candidates)
+        {
+            if (gameState == null || entityId <= 0 || candidates == null)
+                return;
+
+            if (candidates.Any(candidate => candidate != null && candidate.EntityId == entityId))
+                return;
+
+            candidates.Add(new PlayRuntimeTargetCandidate
+            {
+                EntityId = entityId,
+                Zone = ResolveEntityZoneName(gameState, entityId),
+                ZonePosition = ResolveEntityZonePosition(gameState, entityId),
+                CardId = ResolveEntityCardId(gameState, entityId) ?? string.Empty
+            });
+        }
+
+        private static PlayRuntimeTargetHint BuildRuntimeTargetHint(object gameState, int targetEntityId)
+        {
+            return new PlayRuntimeTargetHint
+            {
+                OriginalTargetEntityId = targetEntityId,
+                CardId = ResolveEntityCardId(gameState, targetEntityId) ?? string.Empty,
+                ZonePosition = ResolveEntityZonePosition(gameState, targetEntityId)
+            };
+        }
+
+        private static string ResolveEntityZoneName(object gameState, int entityId)
+        {
+            if (gameState == null || entityId <= 0)
+                return string.Empty;
+
+            var entity = GetEntity(gameState, entityId);
+            if (entity == null)
+                return string.Empty;
+
+            var zoneObj = Invoke(entity, "GetZone")
+                ?? GetFieldOrProp(entity, "Zone")
+                ?? GetFieldOrProp(entity, "m_zone")
+                ?? GetFieldOrProp(entity, "ZONE");
+            var zoneText = zoneObj?.ToString() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(zoneText) && zoneText.Any(char.IsLetter))
+                return zoneText.Trim();
+
+            return MapZoneTagToName(ResolveEntityZoneTag(gameState, entityId));
+        }
+
+        private static string MapZoneTagToName(int zoneTag)
+        {
+            switch (zoneTag)
+            {
+                case 1:
+                    return "DECK";
+                case 2:
+                    return "HAND";
+                case 3:
+                    return "PLAY";
+                case 4:
+                    return "GRAVEYARD";
+                case 5:
+                    return "REMOVEDFROMGAME";
+                case 6:
+                    return "SETASIDE";
+                case 7:
+                    return "SECRET";
+                default:
+                    return string.Empty;
+            }
+        }
+
         private static bool TryResolvePlayTargetScreenPos(int targetEntityId, int targetHeroSide, out int x, out int y)
         {
             x = y = 0;
