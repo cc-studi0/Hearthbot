@@ -1880,6 +1880,7 @@ namespace BotMain
             bool lastRecommendationWasAttackOnly = false;
             IReadOnlyList<EntityContextSnapshot> cachedFriendlyEntities = null;
             List<Card.Cards> cachedDeckCards = null;
+            bool cardComponentsProbed = false;
 
             while (_running && pipe != null && pipe.IsConnected)
             {
@@ -2450,6 +2451,18 @@ namespace BotMain
 
                 staleFreshSourceRetryCount = 0;
                 actions = NormalizeRecommendedActions(actions);
+
+                // 一次性探测手牌卡牌的 Renderer/Collider/Bounds 信息
+                if (!cardComponentsProbed && actions != null && actions.Count > 0)
+                {
+                    cardComponentsProbed = true;
+                    try
+                    {
+                        var probeResult = SendActionCommand(pipe, "PROBE_CARD_COMPONENTS", 5000) ?? "NO_RESPONSE";
+                        Log($"[Probe] card_components: {probeResult}");
+                    }
+                    catch (Exception ex) { Log($"[Probe] card_components error: {ex.Message}"); }
+                }
 
                 if (actions != null && actions.Count > 0 && !lastRecommendationWasAttackOnly)
                     TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities, actions.Count);

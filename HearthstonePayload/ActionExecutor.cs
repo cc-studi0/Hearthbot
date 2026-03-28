@@ -1552,6 +1552,9 @@ namespace HearthstonePayload
                 case "BG_END_TURN":
                     return _coroutine.RunAndWait(MouseEndTurn());
 
+                case "PROBE_CARD_COMPONENTS":
+                    return ProbeHandCardComponents();
+
                 default:
                     return "SKIP:unknown_type:" + type;
             }
@@ -12453,6 +12456,220 @@ namespace HearthstonePayload
             }
 
             _coroutine.SetResult("FAIL:BG_FREEZE:not_confirmed:" + detail);
+        }
+
+        #endregion
+
+        #region 探测工具
+
+        /// <summary>
+        /// 探测手牌卡牌 GameObject 上的组件、Renderer、Bounds 等信息，
+        /// 用于确认能否获取卡牌边框坐标。
+        /// </summary>
+        private static string ProbeHandCardComponents()
+        {
+            try
+            {
+                if (!EnsureTypes()) return "PROBE:no_asm";
+
+                var gs = GetGameState();
+                if (gs == null) return "PROBE:no_gamestate";
+
+                var friendly = Invoke(gs, "GetFriendlySidePlayer")
+                    ?? Invoke(gs, "GetFriendlyPlayer")
+                    ?? Invoke(gs, "GetLocalPlayer");
+                if (friendly == null) return "PROBE:no_player";
+
+                var handZone = Invoke(friendly, "GetHandZone")
+                    ?? Invoke(friendly, "GetHand")
+                    ?? GetFieldOrProp(friendly, "m_handZone")
+                    ?? GetFieldOrProp(friendly, "HandZone");
+                if (handZone == null) return "PROBE:no_handzone";
+
+                var cards = Invoke(handZone, "GetCards") as IEnumerable
+                    ?? GetFieldOrProp(handZone, "Cards") as IEnumerable
+                    ?? GetFieldOrProp(handZone, "m_cards") as IEnumerable
+                    ?? handZone as IEnumerable;
+                if (cards == null) return "PROBE:no_cards";
+
+                var results = new System.Collections.Generic.List<string>();
+                int cardIndex = 0;
+                foreach (var card in cards)
+                {
+                    if (card == null) continue;
+                    if (cardIndex >= 3) break; // 只探测前3张牌
+
+                    var entity = Invoke(card, "GetEntity");
+                    var entityId = entity != null ? GetEntityIdSafe(entity) : 0;
+                    var actor = Invoke(card, "GetActor");
+                    var go = actor != null
+                        ? GetFieldOrProp(actor, "gameObject")
+                        : GetFieldOrProp(card, "gameObject");
+                    if (go == null) go = GetFieldOrProp(card, "gameObject");
+
+                    if (go == null)
+                    {
+                        results.Add($"card[{cardIndex}] eid={entityId} go=null");
+                        cardIndex++;
+                        continue;
+                    }
+
+                    // 列出 GameObject 上所有组件
+                    var components = new System.Collections.Generic.List<string>();
+                    try
+                    {
+                        var getComps = go.GetType().GetMethod("GetComponents",
+                            new[] { typeof(Type) });
+                        if (getComps != null)
+                        {
+                            var componentType = typeof(UnityEngine.Component);
+                            var allComps = getComps.Invoke(go, new object[] { componentType }) as Array;
+                            if (allComps != null)
+                            {
+                                foreach (var comp in allComps)
+                                {
+                                    if (comp != null)
+                                        components.Add(comp.GetType().Name);
+                                }
+                            }
+                        }
+                    }
+                    catch { components.Add("enum_error"); }
+
+                    // 尝试获取 Renderer 和 Bounds
+                    string boundsInfo = "no_renderer";
+                    try
+                    {
+                        var rendererType = typeof(UnityEngine.Renderer);
+                        var getComp = go.GetType().GetMethod("GetComponentInChildren",
+                            new[] { typeof(Type) });
+                        object renderer = null;
+                        if (getComp != null)
+                            renderer = getComp.Invoke(go, new object[] { rendererType });
+
+                        if (renderer != null)
+                        {
+                            var boundsProp = renderer.GetType().GetProperty("bounds");
+                            if (boundsProp != null)
+                            {
+                                var bounds = (UnityEngine.Bounds)boundsProp.GetValue(renderer);
+                                var min = bounds.min;
+                                var max = bounds.max;
+                                var center = bounds.center;
+                                boundsInfo = $"bounds(min={min.x:F2},{min.y:F2},{min.z:F2} max={max.x:F2},{max.y:F2},{max.z:F2} center={center.x:F2},{center.y:F2},{center.z:F2})";
+
+                                // 同时输出中心点 Transform 坐标做对比
+                                var transform = GetFieldOrProp(go, "transform");
+                                var pos = transform != null ? GetFieldOrProp(transform, "position") : null;
+                                if (pos != null)
+                                {
+                                    var px = GetFloatField(pos, "x");
+                                    var py = GetFloatField(pos, "y");
+                                    var pz = GetFloatField(pos, "z");
+                                    boundsInfo += $" transform({px:F2},{py:F2},{pz:F2})";
+                                }
+                            }
+                            else
+                            {
+                                boundsInfo = "renderer_no_bounds_prop(" + renderer.GetType().Name + ")";
+                            }
+                        }
+                    }
+                    catch (Exception ex) { boundsInfo = "bounds_error:" + ex.GetType().Name; }
+
+                    // 尝试获取 Collider（纯反射，避免直接引用 PhysicsModule）
+                    string colliderInfo = "no_collider";
+                    try
+                    {
+                        var colliderTypeName = "UnityEngine.Collider, UnityEngine.PhysicsModule";
+                        var colliderType = Type.GetType(colliderTypeName)
+                            ?? AppDomain.CurrentDomain.GetAssemblies()
+                                .SelectMany(a => { try { return a.GetTypes(); } catch { return Array.Empty<Type>(); } })
+                                .FirstOrDefault(t => t.FullName == "UnityEngine.Collider");
+                        if (colliderType != null)
+                        {
+                            var getComp = go.GetType().GetMethod("GetComponentInChildren",
+                                new[] { typeof(Type) });
+                            object collider = null;
+                            if (getComp != null)
+                                collider = getComp.Invoke(go, new object[] { colliderType });
+                            if (collider != null)
+                            {
+                                var cBoundsProp = collider.GetType().GetProperty("bounds");
+                                if (cBoundsProp != null)
+                                {
+                                    var cBounds = (UnityEngine.Bounds)cBoundsProp.GetValue(collider);
+                                    colliderInfo = $"collider({collider.GetType().Name} min={cBounds.min.x:F2},{cBounds.min.y:F2},{cBounds.min.z:F2} max={cBounds.max.x:F2},{cBounds.max.y:F2},{cBounds.max.z:F2})";
+                                }
+                                else
+                                {
+                                    colliderInfo = "collider(" + collider.GetType().Name + ")";
+                                }
+                            }
+                        }
+                        else
+                        {
+                            colliderInfo = "collider_type_not_found";
+                        }
+                    }
+                    catch (Exception ex) { colliderInfo = "collider_error:" + ex.GetType().Name; }
+
+                    results.Add($"card[{cardIndex}] eid={entityId} components=[{string.Join(",", components)}] {boundsInfo} {colliderInfo}");
+                    cardIndex++;
+                }
+
+                if (results.Count == 0)
+                    return "PROBE:hand_empty";
+
+                return "PROBE:OK|" + string.Join("|", results);
+            }
+            catch (Exception ex)
+            {
+                return "PROBE:error:" + ex.GetType().Name + ":" + ex.Message;
+            }
+        }
+
+        private static int GetEntityIdSafe(object entity)
+        {
+            try
+            {
+                var tagType = _asm?.GetType("GAME_TAG");
+                if (tagType != null)
+                {
+                    var entityIdField = tagType.GetField("ENTITY_ID");
+                    if (entityIdField != null)
+                    {
+                        var tagVal = entityIdField.GetValue(null);
+                        var getTag = entity.GetType().GetMethod("GetTag",
+                            new[] { tagType });
+                        if (getTag != null)
+                        {
+                            var result = getTag.Invoke(entity, new[] { tagVal });
+                            if (result is int i) return i;
+                        }
+                    }
+                }
+                // fallback
+                var idProp = entity.GetType().GetProperty("Id")
+                    ?? entity.GetType().GetProperty("EntityId");
+                if (idProp != null)
+                {
+                    var val = idProp.GetValue(entity);
+                    if (val is int id) return id;
+                }
+            }
+            catch { }
+            return 0;
+        }
+
+        private static float GetFloatField(object obj, string name)
+        {
+            if (obj == null) return 0f;
+            var fi = obj.GetType().GetField(name, BindingFlags.Public | BindingFlags.Instance);
+            if (fi != null) return (float)fi.GetValue(obj);
+            var pi = obj.GetType().GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+            if (pi != null) return (float)pi.GetValue(obj);
+            return 0f;
         }
 
         #endregion
