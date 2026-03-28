@@ -2776,6 +2776,15 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void BuildConstructedHookBootstrapScript_ReturnsStringResultForRuntimeEvaluate()
+        {
+            var script = InvokePrivateString("BuildConstructedHookBootstrapScript");
+
+            Assert.Contains("return JSON.stringify(", script, StringComparison.Ordinal);
+            Assert.Contains("__hbHsBoxBootstrapInstalled", script, StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void RecommendActions_DoesNotFallbackToBodyText_WhenCallbackPayloadExistsButStructuredStepsAreMissing()
         {
             var state = new HsBoxRecommendationState

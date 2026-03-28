@@ -3619,9 +3619,13 @@ namespace BotMain
     ensureLadderSetter();
     installPatternHooks();
     window.__hbHsBoxBootstrapInstalled = true;
+    window.__hbHsBoxBootstrapError = '';
+    return JSON.stringify({ ok: true, installed: true, error: '' });
   } catch (error) {
+    const message = String(error && error.message ? error.message : error);
     window.__hbHsBoxBootstrapInstalled = false;
-    window.__hbHsBoxBootstrapError = String(error && error.message ? error.message : error);
+    window.__hbHsBoxBootstrapError = message;
+    return JSON.stringify({ ok: false, installed: false, error: message });
   }
 })();";
         }
