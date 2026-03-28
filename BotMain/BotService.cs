@@ -186,6 +186,7 @@ namespace BotMain
         public event Action<List<string>> OnDecksLoaded;
         public event Action<string, string> OnRankTargetReached;
         public event Action<string> OnRankUpdated;
+        public event Action<string> OnRestartFailed;
         public event Action OnBotStopped;
 
         public BotState State { get; private set; } = BotState.Idle;
@@ -215,9 +216,9 @@ namespace BotMain
         private string _localDataDir;
         private string _pluginDir;
         private string _smartBotRootOverride;
-        private string _hearthstoneExecutablePathOverride;
-        private string _lastKnownHearthstoneExecutablePath;
         private string _hsBoxExecutablePath;
+        private BattleNetRestartBinding _battleNetRestartBinding;
+        private string _terminalStatusOverride;
 
         private BotApiHandler _botApiHandler;
         private PluginSystem _pluginSystem;
@@ -477,12 +478,20 @@ namespace BotMain
 
         public void SetHearthstoneExecutablePath(string hearthstoneExecutablePath)
         {
-            var normalized = NormalizeExternalPath(hearthstoneExecutablePath);
-            _hearthstoneExecutablePathOverride = normalized;
-            if (!string.IsNullOrWhiteSpace(normalized))
-                _lastKnownHearthstoneExecutablePath = NormalizeHearthstoneLaunchPath(normalized);
+        }
 
-            Log($"[Settings] HearthstonePath={(string.IsNullOrWhiteSpace(normalized) ? "(auto)" : normalized)}");
+        public void SetBattleNetRestartBinding(int? processId, string windowTitle = null)
+        {
+            _battleNetRestartBinding = new BattleNetRestartBinding(processId, windowTitle);
+            Log(processId.HasValue
+                ? $"[Restart] 已绑定战网实例 PID={processId}"
+                : "[Restart] 已清空战网实例绑定");
+        }
+
+        public void ClearBattleNetRestartBinding()
+        {
+            _battleNetRestartBinding = default;
+            Log("[Restart] 已清空战网实例绑定");
         }
 
         public void SetMatchmakingTimeoutSeconds(int seconds)
@@ -589,6 +598,7 @@ namespace BotMain
             if (State != BotState.Idle) return;
 
             State = BotState.Running;
+            _terminalStatusOverride = null;
             _running = true;
             _finishAfterGame = false;
             _nextRankLimitCheckUtc = DateTime.MinValue;
@@ -1632,7 +1642,8 @@ namespace BotMain
                 _pluginSystem?.FireOnStopped();
                 _running = false;
                 State = BotState.Idle;
-                StatusChanged(_prepared ? "Ready" : "Waiting Payload");
+                StatusChanged(ResolveStopStatus(_prepared, _terminalStatusOverride));
+                _terminalStatusOverride = null;
                 try { OnBotStopped?.Invoke(); } catch { }
             }
         }
@@ -8327,12 +8338,14 @@ namespace BotMain
             var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
             if (!hearthstoneAlive)
             {
-                Log($"[Restart] {reason}: 炉石进程已消失，尝试重新启动...");
-                var launchPath = ResolveHearthstoneLaunchPath();
-                if (TryLaunchHearthstone(launchPath))
-                    Log($"[Restart] {reason}: 已启动炉石，等待连接...");
-                else
-                    Log($"[Restart] {reason}: 无法自动启动炉石（路径未知），等待手动启动后重连...");
+                var launchResult = LaunchFromBoundBattleNet(reason);
+                if (!launchResult.Success)
+                {
+                    FailRestartAndStop(launchResult.Message);
+                    return false;
+                }
+
+                Log($"[Restart] {reason}: 已通过战网实例 PID={launchResult.BattleNetProcessId} 启动炉石，等待连接...");
             }
             else
             {
@@ -8364,7 +8377,6 @@ namespace BotMain
             _restartPending = true;
             ResetMatchmakingTracking();
             var hearthstoneProcesses = System.Diagnostics.Process.GetProcessesByName("Hearthstone");
-            var launchPath = ResolveHearthstoneLaunchPath(hearthstoneProcesses);
             try
             {
                 foreach (var proc in hearthstoneProcesses)
@@ -8385,78 +8397,50 @@ namespace BotMain
             _decksLoaded = false;
             _nextDeckFetchUtc = DateTime.UtcNow;
 
-            if (TryLaunchHearthstone(launchPath))
-                Log("[Restart] 已重置连接状态并重新拉起炉石，等待重新连接...");
-            else
-                Log("[Restart] 已重置连接状态，但未能自动拉起炉石，等待外部启动后重新连接...");
+            var launchResult = LaunchFromBoundBattleNet("匹配超时重启");
+            if (!launchResult.Success)
+            {
+                FailRestartAndStop(launchResult.Message);
+                return;
+            }
+
+            Log($"[Restart] 已通过战网实例 PID={launchResult.BattleNetProcessId} 拉起炉石，等待重新连接...");
         }
 
-        private string ResolveHearthstoneLaunchPath(IEnumerable<Process> hearthstoneProcesses = null)
+        private BattleNetLaunchResult LaunchFromBoundBattleNet(string reason)
         {
-            if (hearthstoneProcesses != null)
-            {
-                foreach (var proc in hearthstoneProcesses)
-                {
-                    try
-                    {
-                        var processPath = NormalizeHearthstoneLaunchPath(proc.MainModule?.FileName);
-                        if (!string.IsNullOrWhiteSpace(processPath))
-                        {
-                            _lastKnownHearthstoneExecutablePath = processPath;
-                            return processPath;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"[Restart] 读取炉石路径失败 PID={proc.Id}: {ex.Message}");
-                    }
-                }
-            }
+            var bindingResult = BattleNetRestartBindingValidator.Validate(
+                _battleNetRestartBinding,
+                BattleNetWindowManager.IsProcessAlive);
+            if (!bindingResult.Success)
+                return bindingResult;
 
-            var configuredPath = NormalizeHearthstoneLaunchPath(_hearthstoneExecutablePathOverride);
-            if (!string.IsNullOrWhiteSpace(configuredPath))
-                return configuredPath;
-
-            return NormalizeHearthstoneLaunchPath(_lastKnownHearthstoneExecutablePath);
+            Log($"[Restart] {reason}: 使用战网实例 PID={bindingResult.BattleNetProcessId} 启动炉石");
+            return BattleNetWindowManager
+                .LaunchHearthstoneFromDetailed(
+                    bindingResult.BattleNetProcessId.Value,
+                    Log,
+                    _cts?.Token ?? CancellationToken.None)
+                .GetAwaiter()
+                .GetResult();
         }
 
-        private bool TryLaunchHearthstone(string launchPath)
+        private void FailRestartAndStop(string reason)
         {
-            launchPath = NormalizeHearthstoneLaunchPath(launchPath);
-            if (string.IsNullOrWhiteSpace(launchPath))
-            {
-                Log("[Restart] 未配置 Hearthstone.exe 路径，且当前进程也无法推断启动路径。");
-                return false;
-            }
+            var status = $"自动重启失败：{reason}";
+            _restartPending = false;
+            _terminalStatusOverride = status;
+            Log($"[Restart] {status}");
+            StatusChanged(status);
+            try { OnRestartFailed?.Invoke(reason); } catch { }
+            Stop();
+        }
 
-            if (!File.Exists(launchPath))
-            {
-                Log($"[Restart] Hearthstone.exe 不存在: {launchPath}");
-                return false;
-            }
-
-            try
-            {
-                Thread.Sleep(1500);
-                var startInfo = new ProcessStartInfo
-                {
-                    FileName = launchPath,
-                    WorkingDirectory = Path.GetDirectoryName(launchPath) ?? AppDomain.CurrentDomain.BaseDirectory,
-                    UseShellExecute = true
-                };
-
-                var proc = Process.Start(startInfo);
-                _lastKnownHearthstoneExecutablePath = launchPath;
-                Log(proc != null
-                    ? $"[Restart] 已启动炉石 PID={proc.Id} Path={launchPath}"
-                    : $"[Restart] 已请求启动炉石 Path={launchPath}");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Log($"[Restart] 启动炉石失败: {ex.Message}");
-                return false;
-            }
+        private static string ResolveStopStatus(bool prepared, string terminalStatusOverride)
+        {
+            return string.IsNullOrWhiteSpace(terminalStatusOverride)
+                ? (prepared ? "Ready" : "Waiting Payload")
+                : terminalStatusOverride;
         }
 
         private static string StripClassSuffix(string name)
@@ -8908,18 +8892,6 @@ namespace BotMain
             {
                 return value.Trim();
             }
-        }
-
-        private static string NormalizeHearthstoneLaunchPath(string value)
-        {
-            var normalized = NormalizeExternalPath(value);
-            if (string.IsNullOrWhiteSpace(normalized))
-                return null;
-
-            if (Directory.Exists(normalized))
-                normalized = Path.Combine(normalized, "Hearthstone.exe");
-
-            return NormalizeExternalPath(normalized);
         }
 
         private static bool TryConvertWslMountPathToWindows(string path, out string windowsPath)
