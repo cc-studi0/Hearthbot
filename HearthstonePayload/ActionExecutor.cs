@@ -1251,7 +1251,7 @@ namespace HearthstonePayload
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
                         const int attackConfirmPollCount = 1;
-                        const int attackConfirmSleepMs = 60;
+                        const int attackConfirmSleepMs = 10;
                         GameStateData beforeState = null;
                         AttackStateSnapshot beforeSnapshot = default;
                         var hasBeforeSnapshot = false;
@@ -1615,7 +1615,7 @@ namespace HearthstonePayload
                     {
                         X = tx,
                         Y = ty,
-                        DelaySeconds = dragging ? 0.010f : 0.008f
+                        DelaySeconds = dragging ? 0.010f : 0.004f
                     });
                     steps = builtSteps;
                     return true;
@@ -1634,10 +1634,10 @@ namespace HearthstonePayload
                 double c2x = sx + (dx * 0.72d) - (normalX * offsetMagnitude * c2Scale);
                 double c2y = sy + (dy * 0.72d) - (normalY * offsetMagnitude * c2Scale);
 
-                int stepCount = dragging ? NextHumanizeInt32(14, 24) : NextHumanizeInt32(8, 14);
+                int stepCount = dragging ? NextHumanizeInt32(14, 24) : NextHumanizeInt32(6, 10);
                 float stepDelay = dragging
                     ? (float)NextHumanizeDouble(0.008d, 0.014d)
-                    : (float)NextHumanizeDouble(0.007d, 0.012d);
+                    : (float)NextHumanizeDouble(0.004d, 0.007d);
 
                 for (int i = 1; i <= stepCount; i++)
                 {
@@ -3528,12 +3528,12 @@ namespace HearthstonePayload
 
             // 第一次点击：选中攻击者
             foreach (var wait in MoveCursorConstructed(sx, sy, 10, 0.010f, false)) yield return wait;
-            yield return 0.05f;
+            yield return 0.015f;
             MouseSimulator.LeftDown();
-            yield return 0.05f;
+            yield return 0.015f;
             MouseSimulator.LeftUp();
             // 给客户端一点时间进入攻击选中态
-            yield return 0.08f;
+            yield return 0.03f;
 
             // 拾取攻击者后再定位目标，避免“前一击击杀后目标重排”导致坐标过期。
             bool gotTarget = false;
@@ -3580,7 +3580,7 @@ namespace HearthstonePayload
                     }
                 }
 
-                yield return 0.06f;
+                yield return 0.02f;
             }
             if (!gotTarget)
             {
@@ -3594,12 +3594,12 @@ namespace HearthstonePayload
                 tx = txLatest;
                 ty = tyLatest;
             }
-            foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetIsEnemyHero ? 1 : -1, false)) yield return wait;
+            // 跳过 MaybePreviewAlternateTarget（攻击速度优先）
             foreach (var w in MoveCursorConstructed(tx, ty, 12, 0.012f, false)) yield return w;
             MouseSimulator.LeftDown();
-            yield return 0.05f;
+            yield return 0.015f;
             MouseSimulator.LeftUp();
-            yield return 0.18f;
+            yield return 0.04f;
             _coroutine.SetResult("OK:ATTACK:" + attackerEntityId + ":click_drag_click");
         }
 
