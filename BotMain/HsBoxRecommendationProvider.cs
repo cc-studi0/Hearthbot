@@ -5713,11 +5713,33 @@ namespace BotMain
             if (step.Target != null)
             {
                 var boardId = ResolveBoardEntityId(board.MinionFriend, step.Target);
-                if (boardId > 0)
-                    return boardId;
+                var handId = ResolveOrderedEntityId(board?.Hand, step.Target);
 
-                // 场上未找到 → 可能是手牌目标（战吼选手牌等新机制）
-                return ResolveOrderedEntityId(board?.Hand, step.Target);
+                if (boardId > 0 && handId <= 0)
+                    return boardId;
+                if (handId > 0 && boardId <= 0)
+                    return handId;
+                if (boardId > 0 && handId > 0)
+                {
+                    // 场上和手牌都有同名卡 → 用精确位置+卡牌ID判断目标在哪个区域
+                    var pos = step.Target.GetZonePosition();
+                    var cardId = step.Target.CardId;
+                    if (pos > 0 && !string.IsNullOrWhiteSpace(cardId))
+                    {
+                        var boardExact = board.MinionFriend != null
+                                         && pos <= board.MinionFriend.Count
+                                         && MatchesCardId(board.MinionFriend[pos - 1], cardId);
+                        var handExact = board.Hand != null
+                                        && pos <= board.Hand.Count
+                                        && MatchesCardId(board.Hand[pos - 1], cardId);
+                        if (handExact && !boardExact)
+                            return handId;
+                    }
+
+                    return boardId;
+                }
+
+                return 0;
             }
 
             return 0;
