@@ -2319,14 +2319,24 @@ namespace HearthstonePayload
                         yield return 0.05f;
                     }
 
-                    // 手牌目标校验：战吼选手牌等新机制，利用游戏合法目标列表修正
+                    // 出牌后用运行时合法候选重解析目标，不能再盲信上游 target。
                     if (sourceLeftHand && targetHeroSide < 0)
                     {
-                        var correctedTargetId = TryCorrectHandTargetEntityId(targetEntityId);
-                        if (correctedTargetId > 0 && correctedTargetId != targetEntityId)
+                        var runtimeResolution = WaitForRuntimePlayTargetResolution(entityId, targetEntityId, 900);
+                        if (runtimeResolution != null && runtimeResolution.Mode == PlayRuntimeTargetMode.HandTarget)
                         {
-                            AppendActionTrace("PLAY(mouse) hand-target corrected from=" + targetEntityId + " to=" + correctedTargetId);
-                            targetEntityId = correctedTargetId;
+                            if (!runtimeResolution.HasResolvedEntity)
+                            {
+                                TryResetHeldCard();
+                                _coroutine.SetResult("FAIL:PLAY:hand_target_unresolved:" + entityId + ":" + targetEntityId);
+                                yield break;
+                            }
+
+                            if (runtimeResolution.ResolvedEntityId != targetEntityId)
+                            {
+                                AppendActionTrace("PLAY(mouse) runtime hand-target corrected from=" + targetEntityId + " to=" + runtimeResolution.ResolvedEntityId);
+                                targetEntityId = runtimeResolution.ResolvedEntityId;
+                            }
                         }
                     }
 
@@ -2683,6 +2693,25 @@ namespace HearthstonePayload
 
             var hint = BuildRuntimeTargetHint(gameState, targetEntityId);
             return PlayRuntimeTargetResolver.Resolve(hint, candidates, explicitHandTarget, rawChoiceType);
+        }
+
+        private static PlayRuntimeTargetResolution WaitForRuntimePlayTargetResolution(int sourceEntityId, int hintedTargetEntityId, int timeoutMs)
+        {
+            if (hintedTargetEntityId <= 0)
+                return null;
+
+            var deadline = Environment.TickCount + Math.Max(120, timeoutMs);
+            while (Environment.TickCount - deadline < 0)
+            {
+                var gameState = GetGameState();
+                var resolution = TryResolveRuntimePlayTarget(gameState, hintedTargetEntityId);
+                if (resolution != null && resolution.Mode != PlayRuntimeTargetMode.Unknown)
+                    return resolution;
+
+                Thread.Sleep(40);
+            }
+
+            return null;
         }
 
         private static bool HasSelectedOptionHandTargetSignal(object gameState)
