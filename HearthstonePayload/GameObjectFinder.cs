@@ -156,12 +156,12 @@ namespace HearthstonePayload
                     float gap = nextX - myX;
                     if (gap > 0 && gap < 1.5f)
                     {
-                        float offset = gap * 0.3f; // 默认兜底
+                        float offset = gap * 0.35f; // 默认兜底
                         float rawHalfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
                         if (rawHalfWidth > 0)
                         {
-                            // Renderer 包含装饰溢出，乘 0.35 近似实际可点击半宽
-                            float effectiveHalfWidth = rawHalfWidth * 0.35f;
+                            // Renderer 包含装饰溢出，乘 0.40 近似实际可点击半宽
+                            float effectiveHalfWidth = rawHalfWidth * 0.40f;
                             // 暴露区域中心偏移 = 有效半宽 - 间距/2（间距不够时偏左，间距够时几乎不偏）
                             offset = effectiveHalfWidth - gap * 0.5f;
                             if (offset < 0) offset = 0; // 不需要偏移（卡牌不重叠）
