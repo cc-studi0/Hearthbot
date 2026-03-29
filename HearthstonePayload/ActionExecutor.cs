@@ -6205,6 +6205,13 @@ namespace HearthstonePayload
 
             if (IsTargetChoiceSnapshot(snapshot))
             {
+                var handBlocking = GetHandZoneBlockingReason(GetGameState());
+                if (!string.IsNullOrWhiteSpace(handBlocking))
+                {
+                    detail = handBlocking;
+                    return false;
+                }
+
                 foreach (var entityId in snapshot.ChoiceEntityIds)
                 {
                     if (!TryGetChoiceEntityScreenPos(entityId, out _, out _))
