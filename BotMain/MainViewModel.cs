@@ -52,6 +52,7 @@ namespace BotMain
         private string _notifyToken = string.Empty;
         private string _deviceName = string.Empty;
         private string _hsBoxExecutablePath;
+        private string _gameDirectoryPath;
         private int _matchmakingTimeoutSeconds = 60;
 
         public MainViewModel()
@@ -155,6 +156,7 @@ namespace BotMain
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
             RefreshDiscoverCmd = new RelayCommand(_ => _bot.RefreshDiscoverProfiles());
             BrowseHsBoxPathCmd = new RelayCommand(_ => BrowseHsBoxPath());
+            BrowseGameDirectoryCmd = new RelayCommand(_ => BrowseGameDirectory());
             TestNotifyCmd = new RelayCommand(_ => TestNotify());
             OpenAccountControllerCmd = new RelayCommand(_ => OpenAccountControllerWindow());
 
@@ -279,6 +281,21 @@ namespace BotMain
                 _bot.SetHsBoxExecutablePath(normalized);
                 Notify();
                 AutoSave();
+            }
+        }
+        public string GameDirectoryPath
+        {
+            get => _gameDirectoryPath;
+            set
+            {
+                var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+                if (string.Equals(_gameDirectoryPath, normalized, StringComparison.Ordinal))
+                    return;
+
+                _gameDirectoryPath = normalized;
+                Notify();
+                AutoSave();
+                TryDeployPayloadDll();
             }
         }
         public bool StopAfterReachRankEnabled
@@ -520,6 +537,7 @@ namespace BotMain
         public ICommand ResetStatsCmd { get; }
         public ICommand SaveLogCmd { get; }
         public ICommand BrowseHsBoxPathCmd { get; }
+        public ICommand BrowseGameDirectoryCmd { get; }
         public ICommand RefreshProfilesCmd { get; }
         public ICommand RefreshDecksCmd { get; }
         public ICommand RefreshMulliganCmd { get; }
@@ -677,6 +695,74 @@ namespace BotMain
                 HsBoxExecutablePath = dlg.FileName;
         }
 
+        private void BrowseGameDirectory()
+        {
+            var dlg = new OpenFolderDialog
+            {
+                Title = "选择炉石传说游戏目录 (包含 Hearthstone.exe)"
+            };
+
+            try
+            {
+                var currentPath = GameDirectoryPath;
+                if (!string.IsNullOrWhiteSpace(currentPath) && Directory.Exists(currentPath))
+                    dlg.InitialDirectory = currentPath;
+            }
+            catch { }
+
+            if (dlg.ShowDialog() == true)
+                GameDirectoryPath = dlg.FolderName;
+        }
+
+        private void TryDeployPayloadDll()
+        {
+            try
+            {
+                var gameDir = _gameDirectoryPath;
+                if (string.IsNullOrWhiteSpace(gameDir) || !Directory.Exists(gameDir))
+                    return;
+
+                var pluginsDir = Path.Combine(gameDir, "BepInEx", "plugins");
+                if (!Directory.Exists(pluginsDir))
+                    return;
+
+                var appRoot = AppDomain.CurrentDomain.BaseDirectory;
+                var repoRoot = Path.GetFullPath(Path.Combine(appRoot, ".."));
+                var candidatePaths = new[]
+                {
+                    Path.Combine(repoRoot, "HearthstonePayload", "bin", "Debug", "net472", "HearthstonePayload.dll"),
+                    Path.Combine(repoRoot, "HearthstonePayload", "bin", "Release", "net472", "HearthstonePayload.dll"),
+                    Path.Combine(repoRoot, "HearthstonePayload", "obj", "Debug", "net472", "HearthstonePayload.dll"),
+                    Path.Combine(repoRoot, "HearthstonePayload", "obj", "Release", "net472", "HearthstonePayload.dll")
+                };
+
+                var sourcePath = candidatePaths
+                    .Where(File.Exists)
+                    .OrderByDescending(p => new FileInfo(p).LastWriteTimeUtc)
+                    .FirstOrDefault();
+
+                if (sourcePath == null)
+                    return;
+
+                var destPath = Path.Combine(pluginsDir, "HearthstonePayload.dll");
+                var sourceInfo = new FileInfo(sourcePath);
+
+                if (File.Exists(destPath))
+                {
+                    var destInfo = new FileInfo(destPath);
+                    if (sourceInfo.Length == destInfo.Length && sourceInfo.LastWriteTimeUtc <= destInfo.LastWriteTimeUtc)
+                        return;
+                }
+
+                File.Copy(sourcePath, destPath, overwrite: true);
+                EnqueueLog($"[Deploy] HearthstonePayload.dll 已复制到 {destPath}");
+            }
+            catch (Exception ex)
+            {
+                EnqueueLog($"[Deploy] 复制 HearthstonePayload.dll 失败: {ex.Message}");
+            }
+        }
+
         private string SelectedDeckName => SelectedDeckIndex >= 0 && SelectedDeckIndex < DeckNames.Count
             ? DeckNames[SelectedDeckIndex]
             : "(auto)";
@@ -806,6 +892,7 @@ namespace BotMain
                 dict["MatchmakingTimeoutSeconds"] = JsonSerializer.SerializeToElement(MatchmakingTimeoutSeconds);
                 dict.Remove("HearthstoneExecutablePath");
                 dict["HsBoxExecutablePath"] = JsonSerializer.SerializeToElement(HsBoxExecutablePath);
+                dict["GameDirectoryPath"] = JsonSerializer.SerializeToElement(GameDirectoryPath);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
                 dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
                 dict["UseLearnedLocalStrategy"] = JsonSerializer.SerializeToElement(UseLearnedLocalStrategy);
@@ -876,6 +963,7 @@ namespace BotMain
                         }
                         if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) MatchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
                         if (dict.TryGetValue("HsBoxExecutablePath", out v)) HsBoxExecutablePath = ReadOptionalString(v);
+                        if (dict.TryGetValue("GameDirectoryPath", out v)) _gameDirectoryPath = ReadOptionalString(v);
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
                         if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
                         if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) UseLearnedLocalStrategy = v.GetBoolean();
@@ -919,6 +1007,7 @@ namespace BotMain
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
             ApplyRankStopSettings();
             ApplyNotifyToken();
+            TryDeployPayloadDll();
         }
 
         private static string ReadOptionalString(JsonElement element)

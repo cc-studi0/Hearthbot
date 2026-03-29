@@ -105,6 +105,16 @@
                                 Command="{Binding BrowseHsBoxPathCmd}"
                                 ToolTip="选择 HSAng.exe"/>
                     </StackPanel>
+                    <TextBlock Text="游戏目录:" FontSize="11" Margin="0,6,0,2"/>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBox Width="310" Height="20"
+                                 Text="{Binding GameDirectoryPath, UpdateSourceTrigger=PropertyChanged}"
+                                 FontSize="11" VerticalContentAlignment="Center"
+                                 ToolTip="炉石传说游戏目录，设置后自动部署 Payload 到 BepInEx/plugins"/>
+                        <Button Content="..." Width="24" Height="20" Margin="3,0,0,0"
+                                Command="{Binding BrowseGameDirectoryCmd}"
+                                ToolTip="选择游戏目录"/>
+                    </StackPanel>
                 </StackPanel>
             </GroupBox>
 
