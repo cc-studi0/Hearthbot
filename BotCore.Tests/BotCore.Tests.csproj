@@ -32,6 +32,7 @@
     <Compile Include="..\BotMain\BotApiHandler.cs" Link="BotApiHandler.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
+    <Compile Include="..\BotMain\HandActionCommandMetadata.cs" Link="HandActionCommandMetadata.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
     <Compile Include="..\BotMain\MatchFlowState.cs" Link="MatchFlowState.cs" />
     <Compile Include="..\BotMain\PostGameResultHelper.cs" Link="PostGameResultHelper.cs" />
