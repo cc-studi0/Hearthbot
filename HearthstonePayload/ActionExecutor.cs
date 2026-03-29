@@ -2254,8 +2254,8 @@ namespace HearthstonePayload
                 sourceY = freshY;
             }
 
-            // 纯鼠标拖拽：移动到卡牌位置，按下，直接拖到目标
-            foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
+            // 纯鼠标拖拽：移动到卡牌位置（dragging=true 跳过高斯偏移，手牌精度要求高），按下，直接拖到目标
+            foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, true)) yield return wait;
             yield return 0.04f;
             MouseSimulator.LeftDown();
             yield return 0.12f;
