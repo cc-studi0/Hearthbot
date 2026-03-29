@@ -153,16 +153,16 @@ namespace HearthstonePayload
                     float gap = nextX - myX;
                     if (gap > 0 && gap < 1.5f)
                     {
-                        // 尝试用 Renderer bounds 获取卡牌实际半宽，精确计算暴露区域中心
-                        float offset = gap * 0.4f; // 默认兜底
+                        // 尝试用 Renderer bounds 获取卡牌半宽，乘 0.5 修正装饰溢出后计算暴露区域中心
+                        float offset = gap * 0.2f; // 默认兜底
                         float halfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
                         if (halfWidth > 0 && halfWidth > gap * 0.5f)
                         {
-                            // 暴露区域中心偏移 = 半宽 - 间距/2
-                            offset = halfWidth - gap * 0.5f;
-                            // 不要偏到卡牌外面，也别贴极端边缘
-                            if (offset > halfWidth * 0.9f) offset = halfWidth * 0.9f;
-                            if (offset < gap * 0.1f) offset = gap * 0.1f;
+                            // Renderer 包含光效/阴影，实际可点击半宽约为 extents 的一半
+                            float effectiveHalfWidth = halfWidth * 0.5f;
+                            offset = effectiveHalfWidth - gap * 0.5f;
+                            if (offset < gap * 0.05f) offset = gap * 0.05f;
+                            if (offset > gap * 0.45f) offset = gap * 0.45f;
                         }
 
                         worldPos = MakeVector3(myX - offset,
