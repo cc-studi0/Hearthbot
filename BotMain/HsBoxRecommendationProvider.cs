@@ -4149,6 +4149,16 @@ namespace BotMain
             return true;
         }
 
+        internal static bool TryMapPlayFromBodyTextForTests(
+            string bodyText,
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            out string command,
+            out string detail)
+        {
+            return TryMapPlayActionFromBodyText(bodyText, board, friendlyEntities, out command, out detail);
+        }
+
         public static bool TryMapMulligan(HsBoxRecommendationState state, MulliganRecommendationRequest request, out List<int> replaceEntityIds, out string detail)
         {
             replaceEntityIds = new List<int>();
@@ -5192,10 +5202,10 @@ namespace BotMain
             out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
+            var source = ResolveStrictFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
             if (source <= 0)
             {
-                reason = "play_source_not_found";
+                reason = sourceResolutionDetail;
                 return false;
             }
 
@@ -5229,10 +5239,10 @@ namespace BotMain
             out string reason)
         {
             command = null;
-            var source = ResolveFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
+            var source = ResolveStrictFriendlyHandEntityId(board, friendlyEntities, step.GetPrimaryCard(), out var sourceResolutionDetail);
             if (source <= 0)
             {
-                reason = "trade_source_not_found";
+                reason = sourceResolutionDetail;
                 return false;
             }
 
@@ -5778,6 +5788,76 @@ namespace BotMain
             return source;
         }
 
+        private static int ResolveStrictFriendlyHandEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card,
+            out string resolutionDetail)
+        {
+            resolutionDetail = "hand_source_exact_match_missing";
+            if (card == null)
+                return 0;
+
+            var zonePosition = card.GetZonePosition();
+            var cardId = card.CardId ?? string.Empty;
+            if (zonePosition <= 0 || string.IsNullOrWhiteSpace(cardId))
+            {
+                resolutionDetail = "hand_source_identity_missing";
+                return 0;
+            }
+
+            if (friendlyEntities != null && friendlyEntities.Count > 0)
+            {
+                var snapshotExact = friendlyEntities.FirstOrDefault(entity =>
+                    IsFriendlyZone(entity, "HAND")
+                    && entity.ZonePosition == zonePosition
+                    && MatchesCardId(entity.CardId, cardId));
+                if (snapshotExact != null)
+                {
+                    resolutionDetail = "hand_snapshot_exact_slot_card";
+                    return snapshotExact.EntityId;
+                }
+
+                var sameCard = friendlyEntities
+                    .Where(entity => IsFriendlyZone(entity, "HAND") && MatchesCardId(entity.CardId, cardId))
+                    .ToList();
+                if (sameCard.Count > 1)
+                {
+                    resolutionDetail = "hand_source_duplicate_card_ambiguous";
+                    return 0;
+                }
+
+                if (sameCard.Count == 1 && sameCard[0].ZonePosition != zonePosition)
+                {
+                    resolutionDetail = "hand_source_card_matched_but_slot_changed";
+                    return 0;
+                }
+
+                var sameSlot = friendlyEntities
+                    .FirstOrDefault(entity => IsFriendlyZone(entity, "HAND") && entity.ZonePosition == zonePosition);
+                if (sameSlot != null && !MatchesCardId(sameSlot.CardId, cardId))
+                {
+                    resolutionDetail = "hand_source_slot_matched_but_card_changed";
+                    return 0;
+                }
+            }
+
+            if (board?.Hand == null || zonePosition > board.Hand.Count)
+                return 0;
+
+            var candidate = board.Hand[zonePosition - 1];
+            if (MatchesCardId(candidate, cardId))
+            {
+                resolutionDetail = "ordered_exact_slot_card";
+                return candidate?.Id ?? 0;
+            }
+
+            resolutionDetail = candidate != null
+                ? "hand_source_slot_matched_but_card_changed"
+                : "hand_source_exact_match_missing";
+            return 0;
+        }
+
         private static int ResolveFriendlyBoardEntityId(
             Board board,
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
@@ -6238,34 +6318,8 @@ namespace BotMain
                 return false;
             }
 
-            var source = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "HAND", oneBasedIndex, null);
-            if (source <= 0)
-                source = ResolveEntityIdByZonePosition(board?.Hand, oneBasedIndex);
-            if (source <= 0)
-            {
-                detail = $"play_text_source_missing:{oneBasedIndex}";
-                return false;
-            }
-
-            var actionBlock = ExtractActionBlock(bodyText, match.Index);
-            var target = 0;
-            if (TryResolvePlayTargetFromActionBlock(actionBlock, board, out var resolvedTarget, out var targetDetail, out var hasExplicitTarget))
-            {
-                target = resolvedTarget;
-                detail = $"play_text slot={oneBasedIndex}, target={targetDetail}";
-            }
-            else if (hasExplicitTarget)
-            {
-                detail = $"play_text_target_unresolved:{targetDetail}";
-                return false;
-            }
-            else
-            {
-                detail = $"play_text slot={oneBasedIndex}";
-            }
-
-            command = $"PLAY|{source}|{target}|0";
-            return true;
+            detail = $"play_text_hand_source_identity_missing:{oneBasedIndex}";
+            return false;
         }
 
         private static string ExtractActionBlock(string bodyText, int actionStartIndex)

@@ -590,7 +590,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_PrefersCardIdMatchOverSnapshotSlotFallback_WhenHandSlotsChanged()
+        public void RecommendActions_WaitsWhenHandSourceCardMatchesButSlotChanged()
         {
             var state = CreateState(
                 413,
@@ -625,9 +625,9 @@ namespace BotCore.Tests
                     }
                 }));
 
-            Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
-            Assert.DoesNotContain("slot_fallback", result.Detail);
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("slot_changed", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -878,7 +878,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_ReportsFallbackWhenOnlyOrderedHandSlotCanBeUsed()
+        public void RecommendActions_DoesNotUseOrderedSlotFallback_ForHandSource()
         {
             var state = CreateState(
                 414,
@@ -908,10 +908,75 @@ namespace BotCore.Tests
                 null,
                 null));
 
-            Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|23|0|0" }, result.Actions);
-            Assert.Contains("fallbacks=", result.Detail);
-            Assert.Contains("ordered_slot_fallback", result.Detail);
+            Assert.True(result.ShouldRetryWithoutAction, result.Detail);
+            Assert.Empty(result.Actions);
+            Assert.Contains("hand_source", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("ordered_slot_fallback", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void RecommendActions_FailsWhenCardMatchesButSlotChanged_ForHandSource()
+        {
+            var state = CreateState(
+                415,
+                raw: "coin-card-matches-slot-changed",
+                actionName: "play_special",
+                cardId: "GAME_005",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 71,
+                        CardId = "GAME_005",
+                        Zone = "HAND",
+                        ZonePosition = 3
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 72,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 5
+                    }
+                }));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("slot_changed", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void TryMapPlayActionFromBodyText_DoesNotGuessBySlotOnly()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(11, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(12, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+
+            var ok = HsBoxRecommendationMapper.TryMapPlayFromBodyTextForTests(
+                "推荐打法 打出2号位法术 幸运币",
+                board,
+                null,
+                out var command,
+                out var detail);
+
+            Assert.False(ok);
+            Assert.Null(command);
+            Assert.Contains("hand_source", detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -960,7 +1025,21 @@ namespace BotCore.Tests
 
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
 
-            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 113,
+                        CardId = "EX1_164",
+                        Zone = "HAND",
+                        ZonePosition = 7
+                    }
+                }));
 
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "PLAY|113|0|0" }, result.Actions);
@@ -1021,7 +1100,21 @@ namespace BotCore.Tests
 
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
 
-            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 113,
+                        CardId = "EX1_164",
+                        Zone = "HAND",
+                        ZonePosition = 7
+                    }
+                }));
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "PLAY|101|0|0", "OPTION|101|0|0|AT_037b" }, result.Actions);
         }
@@ -1071,7 +1164,21 @@ namespace BotCore.Tests
 
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
 
-            var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 113,
+                        CardId = "EX1_164",
+                        Zone = "HAND",
+                        ZonePosition = 7
+                    }
+                }));
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { "PLAY|113|0|0", "OPTION|113|0|0|EX1_164a" }, result.Actions);
         }
