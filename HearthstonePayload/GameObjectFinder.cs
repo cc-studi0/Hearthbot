@@ -49,8 +49,9 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 获取手牌卡牌左边缘的屏幕坐标（通过 Renderer.bounds）。
-        /// 如果 Renderer 不可用则降级到 GetEntityScreenPos。
+        /// 获取手牌卡牌左边缘的屏幕坐标。
+        /// 用卡牌自身 Transform 位置减去 Renderer.bounds 半宽，确保定位到正确卡牌的左侧。
+        /// 如果 Renderer 不可用则降级到 GetEntityScreenPos（已含左偏移）。
         /// </summary>
         public static bool GetHandCardLeftEdgeScreenPos(int entityId, out int x, out int y)
         {
@@ -73,7 +74,16 @@ namespace HearthstonePayload
                 if (go == null) go = GetProp(card, "gameObject");
                 if (go == null) return GetEntityScreenPos(entityId, out x, out y);
 
-                // 尝试从 Renderer.bounds 获取左边缘
+                // 获取卡牌自身的 Transform 位置（每张牌独立）
+                var transform = GetProp(go, "transform");
+                var pos = transform != null ? GetProp(transform, "position") : null;
+                if (pos == null) return GetEntityScreenPos(entityId, out x, out y);
+
+                float cardX = GetFloat(pos, "x");
+                float cardY = GetFloat(pos, "y");
+                float cardZ = GetFloat(pos, "z");
+
+                // 尝试从 Renderer.bounds 获取卡牌半宽
                 var rendererType = typeof(UnityEngine.Renderer);
                 var getComp = go.GetType().GetMethod("GetComponentInChildren", new[] { typeof(Type) });
                 if (getComp != null)
@@ -85,15 +95,16 @@ namespace HearthstonePayload
                         if (boundsProp != null)
                         {
                             var bounds = (UnityEngine.Bounds)boundsProp.GetValue(renderer);
-                            // 左边缘X + 中心Y/Z
-                            return MouseSimulator.WorldToScreen(bounds.min.x, bounds.center.y, bounds.center.z, out x, out y);
+                            // 用卡牌中心位置减去半宽的 80%，偏向左边缘但不到极端边界
+                            float leftX = cardX - bounds.extents.x * 0.8f;
+                            return MouseSimulator.WorldToScreen(leftX, cardY, cardZ, out x, out y);
                         }
                     }
                 }
             }
             catch { }
 
-            // Renderer 获取失败，降级
+            // Renderer 获取失败，降级到已有的左偏移逻辑
             return GetEntityScreenPos(entityId, out x, out y);
         }
 
