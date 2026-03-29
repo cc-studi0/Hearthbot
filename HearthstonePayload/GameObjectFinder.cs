@@ -117,9 +117,9 @@ namespace HearthstonePayload
                     ?? handZone as IEnumerable;
                 if (cards == null) return false;
 
-                // 收集所有手牌的 entityId 和位置，用于计算重叠偏移
+                // 收集所有手牌的 entityId、位置和 card 对象
                 var tagType = _asm?.GetType("GAME_TAG");
-                var cardList = new System.Collections.Generic.List<(int id, object pos)>();
+                var cardList = new System.Collections.Generic.List<(int id, object pos, object card)>();
                 foreach (var card in cards)
                 {
                     if (card == null) continue;
@@ -128,7 +128,7 @@ namespace HearthstonePayload
                     var id = GetEntityIdFromObject(entity, tagType);
                     var pos = GetTransformPos(card);
                     if (pos != null)
-                        cardList.Add((id, pos));
+                        cardList.Add((id, pos, card));
                 }
 
                 // 找到目标卡牌在手牌中的索引
@@ -145,7 +145,7 @@ namespace HearthstonePayload
 
                 worldPos = cardList[targetIdx].pos;
 
-                // 非最右侧的牌时，向左偏移避开右侧卡牌的重叠遮挡
+                // 非最右侧的牌时，计算暴露区域中心进行偏移
                 if (targetIdx < cardList.Count - 1)
                 {
                     float myX = GetFloat(worldPos, "x");
@@ -153,8 +153,18 @@ namespace HearthstonePayload
                     float gap = nextX - myX;
                     if (gap > 0 && gap < 1.5f)
                     {
-                        // 偏移到卡牌左侧 40% 处，避开右侧卡牌覆盖区域
-                        float offset = gap * 0.4f;
+                        // 尝试用 Renderer bounds 获取卡牌实际半宽，精确计算暴露区域中心
+                        float offset = gap * 0.4f; // 默认兜底
+                        float halfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
+                        if (halfWidth > 0 && halfWidth > gap * 0.5f)
+                        {
+                            // 暴露区域中心偏移 = 半宽 - 间距/2
+                            offset = halfWidth - gap * 0.5f;
+                            // 不要偏到卡牌外面，也别贴极端边缘
+                            if (offset > halfWidth * 0.9f) offset = halfWidth * 0.9f;
+                            if (offset < gap * 0.1f) offset = gap * 0.1f;
+                        }
+
                         worldPos = MakeVector3(myX - offset,
                             GetFloat(worldPos, "y"),
                             GetFloat(worldPos, "z"));
@@ -165,6 +175,35 @@ namespace HearthstonePayload
             }
             catch { }
             return false;
+        }
+
+        /// <summary>
+        /// 尝试获取卡牌的 Renderer 半宽（世界坐标），用于计算手牌重叠的暴露区域。
+        /// </summary>
+        private static float TryGetCardHalfWidth(object card)
+        {
+            try
+            {
+                if (card == null) return 0f;
+                var actor = Invoke(card, "GetActor");
+                object go = actor != null ? GetProp(actor, "gameObject") : GetProp(card, "gameObject");
+                if (go == null) go = GetProp(card, "gameObject");
+                if (go == null) return 0f;
+
+                var rendererType = typeof(UnityEngine.Renderer);
+                var getComp = go.GetType().GetMethod("GetComponentInChildren", new[] { typeof(Type) });
+                if (getComp == null) return 0f;
+
+                var renderer = getComp.Invoke(go, new object[] { rendererType });
+                if (renderer == null) return 0f;
+
+                var boundsProp = renderer.GetType().GetProperty("bounds");
+                if (boundsProp == null) return 0f;
+
+                var bounds = (UnityEngine.Bounds)boundsProp.GetValue(renderer);
+                return bounds.extents.x;
+            }
+            catch { return 0f; }
         }
         /// </summary>
         public static bool GetHeroPowerScreenPos(out int x, out int y)
