@@ -132,16 +132,6 @@ namespace HearthstonePayload
                     sawAmbiguousCardMatch = true;
             }
 
-            if (hint.ZonePosition > 0)
-            {
-                var bySlot = candidates.FirstOrDefault(candidate => candidate.ZonePosition == hint.ZonePosition);
-                if (bySlot != null)
-                {
-                    matchReason = "slot";
-                    return bySlot;
-                }
-            }
-
             failureReason = sawAmbiguousCardMatch
                 ? "hand_target_detected_but_multiple_matches"
                 : "hand_target_detected_but_no_match";
