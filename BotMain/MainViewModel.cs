@@ -979,21 +979,21 @@ namespace BotMain
                                 loadedMode = UiModeTest;
                             ModeIndex = loadedMode;
                         }
-                        if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) MatchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
-                        if (dict.TryGetValue("HsBoxExecutablePath", out v)) HsBoxExecutablePath = ReadOptionalString(v);
+                        if (dict.TryGetValue("MatchmakingTimeoutSeconds", out v)) _matchmakingTimeoutSeconds = ReadOptionalInt32(v, 60);
+                        if (dict.TryGetValue("HsBoxExecutablePath", out v)) _hsBoxExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("GameDirectoryPath", out v)) _gameDirectoryPath = ReadOptionalString(v);
-                        if (dict.TryGetValue("FollowHsBoxOperation", out v)) FollowHsBoxOperation = v.GetBoolean();
-                        if (dict.TryGetValue("LearnFromHsBox", out v)) LearnFromHsBox = v.GetBoolean();
-                        if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) UseLearnedLocalStrategy = v.GetBoolean();
-                        if (dict.TryGetValue("HumanizeActionsEnabled", out v)) HumanizeActionsEnabled = v.GetBoolean();
+                        if (dict.TryGetValue("FollowHsBoxOperation", out v)) _followHsBoxOperation = v.GetBoolean();
+                        if (dict.TryGetValue("LearnFromHsBox", out v)) _learnFromHsBox = v.GetBoolean();
+                        if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) _useLearnedLocalStrategy = v.GetBoolean();
+                        if (dict.TryGetValue("HumanizeActionsEnabled", out v)) _humanizeActionsEnabled = v.GetBoolean();
                         if (dict.TryGetValue("HumanizeIntensity", out v))
                         {
                             var loadedIntensity = HumanizerProtocol.ParseIntensityToken(ReadOptionalString(v));
-                            HumanizeIntensityIndex = GetHumanizeIntensityIndex(loadedIntensity);
+                            _humanizeIntensityIndex = GetHumanizeIntensityIndex(loadedIntensity);
                         }
-                        if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) SaveHsBoxCallbacks = v.GetBoolean();
-                        if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) StopAfterReachRankEnabled = v.GetBoolean();
-                        if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) StopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
+                        if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) _saveHsBoxCallbacks = v.GetBoolean();
+                        if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) _stopAfterReachRankEnabled = v.GetBoolean();
+                        if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) _stopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
                         if (dict.TryGetValue("NotifyOnRankReached", out v)) NotifyOnRankReached = v.GetBoolean();
                         if (dict.TryGetValue("NotifyChannelIndex", out v)) NotifyChannelIndex = ReadOptionalInt32(v, 0);
                         if (dict.TryGetValue("NotifyToken", out v)) NotifyToken = ReadOptionalString(v) ?? string.Empty;
