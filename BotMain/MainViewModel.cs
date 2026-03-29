@@ -54,6 +54,7 @@ namespace BotMain
         private string _hsBoxExecutablePath;
         private string _gameDirectoryPath;
         private int _matchmakingTimeoutSeconds = 60;
+        private bool _clickOverlayEnabled;
 
         public MainViewModel()
         {
@@ -296,6 +297,17 @@ namespace BotMain
                 Notify();
                 AutoSave();
                 TryDeployPayloadDll();
+            }
+        }
+        public bool ClickOverlayEnabled
+        {
+            get => _clickOverlayEnabled;
+            set
+            {
+                if (_clickOverlayEnabled == value) return;
+                _clickOverlayEnabled = value;
+                _bot.SendRawCommand("TOGGLE_CLICK_OVERLAY");
+                Notify();
             }
         }
         public bool StopAfterReachRankEnabled

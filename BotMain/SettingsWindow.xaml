@@ -118,6 +118,15 @@
                 </StackPanel>
             </GroupBox>
 
+            <!-- 调试 -->
+            <GroupBox Header="调试" Padding="8,6">
+                <StackPanel>
+                    <CheckBox Content="显示手牌点击位置 (游戏内红色十字)" FontSize="11"
+                              IsChecked="{Binding ClickOverlayEnabled}"
+                              ToolTip="在游戏画面上显示脚本对每张手牌的实际点击位置"/>
+                </StackPanel>
+            </GroupBox>
+
         </StackPanel>
     </ScrollViewer>
 </Window>

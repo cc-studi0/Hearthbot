@@ -182,6 +182,51 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 获取所有手牌的脚本点击屏幕坐标（含偏移），用于 Overlay 调试显示。
+        /// </summary>
+        public static System.Collections.Generic.List<(int entityId, int screenX, int screenY)> GetAllHandCardClickPositions()
+        {
+            var result = new System.Collections.Generic.List<(int, int, int)>();
+            try
+            {
+                if (!EnsureTypes()) return result;
+
+                var gs = InvokeStatic(_gameStateType, "Get");
+                if (gs == null) return result;
+
+                var friendly = Invoke(gs, "GetFriendlySidePlayer")
+                    ?? Invoke(gs, "GetFriendlyPlayer")
+                    ?? Invoke(gs, "GetLocalPlayer");
+                if (friendly == null) return result;
+
+                var handZone = Invoke(friendly, "GetHandZone")
+                    ?? Invoke(friendly, "GetHand")
+                    ?? GetProp(friendly, "m_handZone")
+                    ?? GetProp(friendly, "HandZone");
+                if (handZone == null) return result;
+
+                var cards = Invoke(handZone, "GetCards") as IEnumerable
+                    ?? GetProp(handZone, "Cards") as IEnumerable
+                    ?? GetProp(handZone, "m_cards") as IEnumerable
+                    ?? handZone as IEnumerable;
+                if (cards == null) return result;
+
+                var tagType = _asm?.GetType("GAME_TAG");
+                foreach (var card in cards)
+                {
+                    if (card == null) continue;
+                    var entity = Invoke(card, "GetEntity");
+                    if (entity == null) continue;
+                    var id = GetEntityIdFromObject(entity, tagType);
+                    if (id > 0 && GetEntityScreenPos(id, out var sx, out var sy))
+                        result.Add((id, sx, sy));
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        /// <summary>
         /// 尝试获取卡牌的 Renderer 半宽（世界坐标），用于计算手牌重叠的暴露区域。
         /// </summary>
         private static float TryGetCardHalfWidth(object card)

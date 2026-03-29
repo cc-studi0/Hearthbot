@@ -541,6 +541,11 @@ namespace BotMain
             Log($"[Settings] HsBoxPath={(string.IsNullOrWhiteSpace(normalized) ? "(auto-detect)" : normalized)}");
         }
 
+        public void SendRawCommand(string command)
+        {
+            try { _pipe?.SendAndReceive(command, 2000); } catch { }
+        }
+
         public void SetSaveHsBoxCallbacks(bool value)
         {
             _saveHsBoxCallbacks = value;

@@ -39,6 +39,8 @@ namespace HearthstonePayload
         private static Func<object> _pendingAction;
         private static object _pendingResult;
 
+        private static bool _clickOverlayEnabled;
+        private static UnityEngine.Texture2D _overlayDot;
         private static bool _wasPipeConnected;
         private static DateTime _lastConnectWaitLogUtc = DateTime.MinValue;
         private static DateTime _lastRuntimeInitFailureLogUtc = DateTime.MinValue;
@@ -726,6 +728,11 @@ namespace HearthstonePayload
             {
                 _pipe.Write(ActionExecutor.DescribeGameReady());
             }
+            else if (cmd == "TOGGLE_CLICK_OVERLAY")
+            {
+                _clickOverlayEnabled = !_clickOverlayEnabled;
+                _pipe.Write(_clickOverlayEnabled ? "OVERLAY:ON" : "OVERLAY:OFF");
+            }
             else if (cmd == "PING")
             {
                 _pipe.Write("PONG");
@@ -738,6 +745,33 @@ namespace HearthstonePayload
             {
                 _running = false;
             }
+        }
+
+        private void OnGUI()
+        {
+            if (!_clickOverlayEnabled) return;
+            try
+            {
+                if (_overlayDot == null)
+                {
+                    _overlayDot = new UnityEngine.Texture2D(1, 1);
+                    _overlayDot.SetPixel(0, 0, new UnityEngine.Color(1f, 0f, 0f, 0.85f));
+                    _overlayDot.Apply();
+                }
+
+                var positions = GameObjectFinder.GetAllHandCardClickPositions();
+                foreach (var (entityId, sx, sy) in positions)
+                {
+                    const int size = 10;
+                    var rect = new UnityEngine.Rect(sx - size / 2, sy - size / 2, size, size);
+                    UnityEngine.GUI.DrawTexture(rect, _overlayDot);
+
+                    // 十字线增强可见性
+                    UnityEngine.GUI.DrawTexture(new UnityEngine.Rect(sx - size, sy - 1, size * 2, 2), _overlayDot);
+                    UnityEngine.GUI.DrawTexture(new UnityEngine.Rect(sx - 1, sy - size, 2, size * 2), _overlayDot);
+                }
+            }
+            catch { }
         }
 
         private static void StartStartupLogSession()

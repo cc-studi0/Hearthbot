@@ -2239,6 +2239,21 @@ namespace HearthstonePayload
                 yield break;
             }
 
+            // 拖拽前等待手牌布局完成（前一张牌打出后手牌会位移）
+            for (int layoutWait = 0; layoutWait < 20; layoutWait++)
+            {
+                var blocking = GetHandZoneBlockingReason(GetGameState());
+                if (string.IsNullOrWhiteSpace(blocking)) break;
+                yield return 0.05f;
+            }
+
+            // 刷新到最新坐标（手牌位移后）
+            if (GameObjectFinder.GetEntityScreenPos(entityId, out var freshX, out var freshY))
+            {
+                sourceX = freshX;
+                sourceY = freshY;
+            }
+
             // 纯鼠标拖拽：移动到卡牌位置，按下，直接拖到目标
             foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
             yield return 0.04f;
