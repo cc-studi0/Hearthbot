@@ -49,66 +49,6 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 获取手牌卡牌左边缘的屏幕坐标。
-        /// 用卡牌自身 Transform 位置减去 Renderer.bounds 半宽，确保定位到正确卡牌的左侧。
-        /// 如果 Renderer 不可用则降级到 GetEntityScreenPos（已含左偏移）。
-        /// </summary>
-        public static bool GetHandCardLeftEdgeScreenPos(int entityId, out int x, out int y)
-        {
-            x = y = 0;
-            if (!EnsureTypes()) return false;
-
-            try
-            {
-                var gs = InvokeStatic(_gameStateType, "Get");
-                if (gs == null) return GetEntityScreenPos(entityId, out x, out y);
-
-                var entity = GetEntity(gs, entityId);
-                if (entity == null) return GetEntityScreenPos(entityId, out x, out y);
-
-                var card = Invoke(entity, "GetCard");
-                if (card == null) return GetEntityScreenPos(entityId, out x, out y);
-
-                var actor = Invoke(card, "GetActor");
-                object go = actor != null ? GetProp(actor, "gameObject") : GetProp(card, "gameObject");
-                if (go == null) go = GetProp(card, "gameObject");
-                if (go == null) return GetEntityScreenPos(entityId, out x, out y);
-
-                // 获取卡牌自身的 Transform 位置（每张牌独立）
-                var transform = GetProp(go, "transform");
-                var pos = transform != null ? GetProp(transform, "position") : null;
-                if (pos == null) return GetEntityScreenPos(entityId, out x, out y);
-
-                float cardX = GetFloat(pos, "x");
-                float cardY = GetFloat(pos, "y");
-                float cardZ = GetFloat(pos, "z");
-
-                // 尝试从 Renderer.bounds 获取卡牌半宽
-                var rendererType = typeof(UnityEngine.Renderer);
-                var getComp = go.GetType().GetMethod("GetComponentInChildren", new[] { typeof(Type) });
-                if (getComp != null)
-                {
-                    var renderer = getComp.Invoke(go, new object[] { rendererType });
-                    if (renderer != null)
-                    {
-                        var boundsProp = renderer.GetType().GetProperty("bounds");
-                        if (boundsProp != null)
-                        {
-                            var bounds = (UnityEngine.Bounds)boundsProp.GetValue(renderer);
-                            // 用卡牌中心位置减去半宽的 80%，偏向左边缘但不到极端边界
-                            float leftX = cardX - bounds.extents.x * 0.8f;
-                            return MouseSimulator.WorldToScreen(leftX, cardY, cardZ, out x, out y);
-                        }
-                    }
-                }
-            }
-            catch { }
-
-            // Renderer 获取失败，降级到已有的左偏移逻辑
-            return GetEntityScreenPos(entityId, out x, out y);
-        }
-
-        /// <summary>
         /// 获取Entity的世界坐标（反射链）
         /// </summary>
         public static bool GetObjectScreenPos(object obj, out int x, out int y)
