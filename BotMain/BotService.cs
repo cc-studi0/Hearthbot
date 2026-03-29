@@ -152,6 +152,7 @@ namespace BotMain
         private long _hsBoxActionMinimumUpdatedAtMs;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+        private int _choiceRepeatedRecommendationCount;
         private DateTime _nextRankLimitCheckUtc = DateTime.MinValue;
 
         // 运行限制设置
@@ -3203,6 +3204,7 @@ namespace BotMain
             ResetChoiceLogState();
             _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
             _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+            _choiceRepeatedRecommendationCount = 0;
 
             var gotInitialBgResp = TryGetBgStateResponse(pipe, 2000, out var initialBgResp, "BG.InitialProbe");
             initialBgResp = gotInitialBgResp ? initialBgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
@@ -4758,6 +4760,7 @@ namespace BotMain
                 ResetHsBoxActionRecommendationTracking();
                 _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                 _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
+                _choiceRepeatedRecommendationCount = 0;
                 resimulationCount = 0;
                 actionFailStreak = 0;
                 staleFreshSourceRetryCount = 0;
@@ -5241,6 +5244,23 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
+                    var consumed = ChoiceRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                        recommendation.SourceUpdatedAtMs,
+                        recommendation.SourcePayloadSignature,
+                        _lastConsumedHsBoxChoiceUpdatedAtMs,
+                        _lastConsumedHsBoxChoicePayloadSignature,
+                        ref _choiceRepeatedRecommendationCount,
+                        out var releasedDueToRepetition);
+
+                    if (releasedDueToRepetition)
+                    {
+                        Log($"[Choice] consumption_released_due_to_repetition snapshotId={currentState.SnapshotId} mode={currentState.Mode}");
+                        ChoiceRecommendationConsumptionTracker.Reset(
+                            ref _lastConsumedHsBoxChoiceUpdatedAtMs,
+                            ref _lastConsumedHsBoxChoicePayloadSignature);
+                        continue;
+                    }
+
                     Log($"[Choice] waiting snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} detail={recommendation.Detail}");
                     return false;
                 }

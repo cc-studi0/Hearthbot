@@ -7546,6 +7546,17 @@ namespace HearthstonePayload
 
                     if (afterChoiceId != beforeChoiceId || !string.Equals(afterSignature, beforeSignature, StringComparison.Ordinal))
                     {
+                        // 签名变化时二次确认：检查目标 entityId 是否真的被选中。
+                        // 如果选择界面仍在且目标不在已选列表中，可能是手牌重排等无关变化导致的 false positive。
+                        if (CaptureChoiceSnapshotChosen(entityId, out var entityChosen) && !entityChosen)
+                        {
+                            AppendActionTrace("choice_click_false_positive entityId=" + entityId + " attempt=" + attempt + " afterChoiceId=" + afterChoiceId);
+                            beforeChoiceId = afterChoiceId;
+                            beforeSignature = afterSignature;
+                            confirmDetail = "false_positive@mouse" + attempt;
+                            continue;
+                        }
+
                         confirmed = true;
                         confirmDetail = "changed@mouse" + attempt;
                         break;
@@ -7623,6 +7634,20 @@ namespace HearthstonePayload
             }
 
             return false;
+        }
+
+        private static bool CaptureChoiceSnapshotChosen(int entityId, out bool entityChosen)
+        {
+            entityChosen = false;
+
+            var gs = GetGameState();
+            if (gs == null) return false;
+
+            if (!TryBuildChoiceSnapshot(gs, out var snapshot) || snapshot == null)
+                return false;
+
+            entityChosen = snapshot.ChosenEntityIds != null && snapshot.ChosenEntityIds.Contains(entityId);
+            return true;
         }
 
         #endregion

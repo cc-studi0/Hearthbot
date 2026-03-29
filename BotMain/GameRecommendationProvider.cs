@@ -435,6 +435,54 @@ namespace BotMain
             lastConsumedUpdatedAtMs = 0;
             lastConsumedPayloadSignature = string.Empty;
         }
+
+        internal const int ReleaseThreshold = 2;
+
+        public static bool IsSamePayload(
+            long sourceUpdatedAtMs,
+            string sourcePayloadSignature,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature)
+        {
+            if (sourceUpdatedAtMs <= 0 || lastConsumedUpdatedAtMs <= 0)
+                return false;
+
+            if (sourceUpdatedAtMs != lastConsumedUpdatedAtMs)
+                return false;
+
+            if (string.IsNullOrWhiteSpace(lastConsumedPayloadSignature))
+                return true;
+
+            return string.Equals(
+                sourcePayloadSignature ?? string.Empty,
+                lastConsumedPayloadSignature,
+                StringComparison.Ordinal);
+        }
+
+        public static bool ShouldTreatAsConsumed(
+            long sourceUpdatedAtMs,
+            string sourcePayloadSignature,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature,
+            ref int repeatedRecommendationCount,
+            out bool releasedDueToRepetition)
+        {
+            releasedDueToRepetition = false;
+
+            if (!IsSamePayload(sourceUpdatedAtMs, sourcePayloadSignature, lastConsumedUpdatedAtMs, lastConsumedPayloadSignature))
+            {
+                repeatedRecommendationCount = 0;
+                return false;
+            }
+
+            repeatedRecommendationCount++;
+            if (repeatedRecommendationCount < ReleaseThreshold)
+                return true;
+
+            releasedDueToRepetition = true;
+            repeatedRecommendationCount = 0;
+            return false;
+        }
     }
 
     internal sealed class MulliganRecommendationRequest
