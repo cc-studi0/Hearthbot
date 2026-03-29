@@ -726,21 +726,7 @@ namespace BotMain
                 if (!Directory.Exists(pluginsDir))
                     return;
 
-                var appRoot = AppDomain.CurrentDomain.BaseDirectory;
-                var repoRoot = Path.GetFullPath(Path.Combine(appRoot, ".."));
-                var candidatePaths = new[]
-                {
-                    Path.Combine(repoRoot, "HearthstonePayload", "bin", "Debug", "net472", "HearthstonePayload.dll"),
-                    Path.Combine(repoRoot, "HearthstonePayload", "bin", "Release", "net472", "HearthstonePayload.dll"),
-                    Path.Combine(repoRoot, "HearthstonePayload", "obj", "Debug", "net472", "HearthstonePayload.dll"),
-                    Path.Combine(repoRoot, "HearthstonePayload", "obj", "Release", "net472", "HearthstonePayload.dll")
-                };
-
-                var sourcePath = candidatePaths
-                    .Where(File.Exists)
-                    .OrderByDescending(p => new FileInfo(p).LastWriteTimeUtc)
-                    .FirstOrDefault();
-
+                var sourcePath = ResolvePayloadDllPath();
                 if (sourcePath == null)
                     return;
 
@@ -761,6 +747,38 @@ namespace BotMain
             {
                 EnqueueLog($"[Deploy] 复制 HearthstonePayload.dll 失败: {ex.Message}");
             }
+        }
+
+        private static string ResolvePayloadDllPath()
+        {
+            const string dllName = "HearthstonePayload.dll";
+            var appDir = AppDomain.CurrentDomain.BaseDirectory;
+            var candidates = new List<string>();
+
+            // 1. 应用程序目录（打包后 DLL 放在同级目录）
+            candidates.Add(Path.Combine(appDir, dllName));
+
+            // 2. 开发时：从应用目录向上逐级查找仓库中的构建产物
+            try
+            {
+                var dir = Directory.GetParent(appDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+                for (var depth = 0; depth < 5 && dir != null; depth++, dir = dir.Parent)
+                {
+                    var payloadDir = Path.Combine(dir.FullName, "HearthstonePayload");
+                    if (!Directory.Exists(payloadDir))
+                        continue;
+
+                    candidates.Add(Path.Combine(payloadDir, "bin", "Debug", "net472", dllName));
+                    candidates.Add(Path.Combine(payloadDir, "bin", "Release", "net472", dllName));
+                    break;
+                }
+            }
+            catch { }
+
+            return candidates
+                .Where(File.Exists)
+                .OrderByDescending(p => new FileInfo(p).LastWriteTimeUtc)
+                .FirstOrDefault();
         }
 
         private string SelectedDeckName => SelectedDeckIndex >= 0 && SelectedDeckIndex < DeckNames.Count
