@@ -1224,6 +1224,10 @@ namespace HearthstonePayload
                         int sourceId = int.Parse(parts[1]);
                         int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string expectedSourceCardId = parts.Length > 4 ? parts[4] ?? string.Empty : string.Empty;
+                        int expectedSourceZonePosition = parts.Length > 5 && int.TryParse(parts[5], out var parsedSourceZonePosition)
+                            ? parsedSourceZonePosition
+                            : 0;
                         int targetHeroSide = -1; // -1: 不是英雄目标, 0: 我方英雄, 1: 敌方英雄
                         bool sourceUsesBoardDrop = false;
 
@@ -1242,7 +1246,14 @@ namespace HearthstonePayload
                         }
                         catch { }
 
-                        return _coroutine.RunAndWait(MousePlayCardByMouseFlow(sourceId, targetId, position, targetHeroSide, sourceUsesBoardDrop));
+                        return _coroutine.RunAndWait(MousePlayCardByMouseFlow(
+                            sourceId,
+                            targetId,
+                            position,
+                            targetHeroSide,
+                            sourceUsesBoardDrop,
+                            expectedSourceCardId,
+                            expectedSourceZonePosition));
                     }
                 case "ATTACK":
                     {
@@ -1458,7 +1469,14 @@ namespace HearthstonePayload
                         return ExecuteOption(sourceId, targetId, position, subOptionCardId);
                     }
                 case "TRADE":
-                    return _coroutine.RunAndWait(MouseTradeCard(int.Parse(parts[1])));
+                    {
+                        int sourceId = int.Parse(parts[1]);
+                        string expectedSourceCardId = parts.Length > 2 ? parts[2] ?? string.Empty : string.Empty;
+                        int expectedSourceZonePosition = parts.Length > 3 && int.TryParse(parts[3], out var parsedTradeZonePosition)
+                            ? parsedTradeZonePosition
+                            : 0;
+                        return _coroutine.RunAndWait(MouseTradeCard(sourceId, expectedSourceCardId, expectedSourceZonePosition));
+                    }
                 case "CONCEDE":
                     Concede();
                     return "OK:CONCEDE";
@@ -1511,6 +1529,10 @@ namespace HearthstonePayload
                         int handEntityId = int.Parse(parts[1]);
                         int targetEntityId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string expectedSourceCardId = parts.Length > 4 ? parts[4] ?? string.Empty : string.Empty;
+                        int expectedSourceZonePosition = parts.Length > 5 && int.TryParse(parts[5], out var parsedBgZonePosition)
+                            ? parsedBgZonePosition
+                            : 0;
                         int targetHeroSide = -1; // -1: 非英雄目标, 0: 我方英雄, 1: 敌方英雄
                         bool sourceUsesBoardDrop = false;
                         bool isMagneticPlay = false;
@@ -1533,7 +1555,15 @@ namespace HearthstonePayload
                         }
                         catch { }
 
-                        return _coroutine.RunAndWait(BgMousePlayFromHand(handEntityId, targetEntityId, position, targetHeroSide, sourceUsesBoardDrop, isMagneticPlay));
+                        return _coroutine.RunAndWait(BgMousePlayFromHand(
+                            handEntityId,
+                            targetEntityId,
+                            position,
+                            targetHeroSide,
+                            sourceUsesBoardDrop,
+                            isMagneticPlay,
+                            expectedSourceCardId,
+                            expectedSourceZonePosition));
                     }
                 case "BG_HERO_PICK":
                     {
@@ -2185,7 +2215,14 @@ namespace HearthstonePayload
             _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab");
         }
 
-        private static IEnumerator<float> MousePlayCardByMouseFlow(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop)
+        private static IEnumerator<float> MousePlayCardByMouseFlow(
+            int entityId,
+            int targetEntityId,
+            int position,
+            int targetHeroSide,
+            bool sourceUsesBoardDrop,
+            string expectedSourceCardId,
+            int expectedSourceZonePosition)
         {
             InputHook.Simulating = true;
             var gsBeforePlay = GetGameState();
@@ -2194,6 +2231,17 @@ namespace HearthstonePayload
             var sourceZoneTagBeforePlay = ResolveEntityZoneTag(gsBeforePlay, entityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
             var guardRecentDrawCard = ShouldUseRecentDrawPlayGuard(entityId);
+
+            if (!TryValidateHandSourceIdentity(gsBeforePlay, entityId, expectedSourceCardId, expectedSourceZonePosition, out var sourceIdentityDetail))
+            {
+                AppendActionTrace(
+                    "PLAY(source-identity) entityId=" + entityId
+                    + " expectedCardId=" + (expectedSourceCardId ?? string.Empty)
+                    + " expectedZonePos=" + expectedSourceZonePosition
+                    + " result=" + sourceIdentityDetail);
+                _coroutine.SetResult("FAIL:PLAY:source_identity_mismatch:" + entityId + ":" + sourceIdentityDetail);
+                yield break;
+            }
 
             // 等待手牌位置稳定（抽牌动画完成）
             int sourceX = 0, sourceY = 0;
@@ -3164,12 +3212,23 @@ namespace HearthstonePayload
         /// <summary>
         /// 可交易：抓取手牌并拖拽到牌库位置后松手。
         /// </summary>
-        private static IEnumerator<float> MouseTradeCard(int entityId)
+        private static IEnumerator<float> MouseTradeCard(int entityId, string expectedSourceCardId, int expectedSourceZonePosition)
         {
             InputHook.Simulating = true;
 
             var gsBeforeTrade = GetGameState();
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforeTrade, entityId);
+            if (!TryValidateHandSourceIdentity(gsBeforeTrade, entityId, expectedSourceCardId, expectedSourceZonePosition, out var sourceIdentityDetail))
+            {
+                AppendActionTrace(
+                    "TRADE(source-identity) entityId=" + entityId
+                    + " expectedCardId=" + (expectedSourceCardId ?? string.Empty)
+                    + " expectedZonePos=" + expectedSourceZonePosition
+                    + " result=" + sourceIdentityDetail);
+                _coroutine.SetResult("FAIL:TRADE:source_identity_mismatch:" + entityId + ":" + sourceIdentityDetail);
+                yield break;
+            }
+
             bool grabbedViaAPI = TryGrabCardViaAPI(entityId, sourceZonePosition, out var apiGrabMethod, out var apiHeldEntityId, out var apiGrabDetail);
             if (grabbedViaAPI)
             {
@@ -9252,6 +9311,49 @@ namespace HearthstonePayload
             return true;
         }
 
+        private static bool TryValidateHandSourceIdentity(
+            object gameState,
+            int sourceEntityId,
+            string expectedSourceCardId,
+            int expectedSourceZonePosition,
+            out string detail)
+        {
+            detail = "no_expectation";
+            if (string.IsNullOrWhiteSpace(expectedSourceCardId) || expectedSourceZonePosition <= 0)
+                return true;
+
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                var gs = attempt == 0 ? gameState : GetGameState();
+                var inFriendlyHand = TryIsEntityInFriendlyHand(gs, sourceEntityId, out var inHand) && inHand;
+                var snapshot = new HandSourceIdentitySnapshot
+                {
+                    EntityId = sourceEntityId,
+                    InFriendlyHand = inFriendlyHand,
+                    CardId = ResolveEntityCardId(gs, sourceEntityId),
+                    ZonePosition = ResolveEntityZonePosition(gs, sourceEntityId)
+                };
+
+                var resolution = HandSourceIdentityResolver.Validate(
+                    new HandSourceIdentityExpectation
+                    {
+                        SourceEntityId = sourceEntityId,
+                        SourceCardId = expectedSourceCardId,
+                        SourceZonePosition = expectedSourceZonePosition
+                    },
+                    snapshot);
+
+                detail = resolution?.Detail ?? "validation_failed";
+                if (resolution != null && resolution.Success)
+                    return true;
+
+                if (attempt < 2)
+                    Thread.Sleep(120);
+            }
+
+            return false;
+        }
+
         private static bool TryGetFriendlyHandCards(object gameState, out IEnumerable cards)
         {
             cards = null;
@@ -11045,7 +11147,15 @@ namespace HearthstonePayload
         /// <summary>
         /// 战旗打出手牌：从手牌拖到场上，可选带目标
         /// </summary>
-        private static IEnumerator<float> BgMousePlayFromHand(int handEntityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop, bool isMagneticPlay)
+        private static IEnumerator<float> BgMousePlayFromHand(
+            int handEntityId,
+            int targetEntityId,
+            int position,
+            int targetHeroSide,
+            bool sourceUsesBoardDrop,
+            bool isMagneticPlay,
+            string expectedSourceCardId,
+            int expectedSourceZonePosition)
         {
             InputHook.Simulating = true;
 
@@ -11053,6 +11163,17 @@ namespace HearthstonePayload
             var hasBeforeHand = TryReadFriendlyHandEntityIds(gsBeforePlay, out var beforeHandIds);
             var sourceCardId = ResolveEntityCardId(gsBeforePlay, handEntityId);
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, handEntityId);
+
+            if (!TryValidateHandSourceIdentity(gsBeforePlay, handEntityId, expectedSourceCardId, expectedSourceZonePosition, out var sourceIdentityDetail))
+            {
+                AppendActionTrace(
+                    "BG_PLAY(source-identity) entityId=" + handEntityId
+                    + " expectedCardId=" + (expectedSourceCardId ?? string.Empty)
+                    + " expectedZonePos=" + expectedSourceZonePosition
+                    + " result=" + sourceIdentityDetail);
+                _coroutine.SetResult("FAIL:BG_PLAY:source_identity_mismatch:" + handEntityId + ":" + sourceIdentityDetail);
+                yield break;
+            }
 
             bool grabbedViaAPI = false;
             string apiGrabMethod = "none";
