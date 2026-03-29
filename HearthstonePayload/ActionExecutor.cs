@@ -2244,7 +2244,7 @@ namespace HearthstonePayload
             yield return 0.04f;
             MouseSimulator.LeftDown();
             yield return 0.12f;
-            AppendActionTrace("PLAY(mouse) drag_start entity=" + entityId + " pos=(" + sourceX + "," + sourceY + ")");
+            AppendActionTrace("PLAY(mouse) drag_start entity=" + entityId + " pos=(" + sourceX + "," + sourceY + ") " + GameObjectFinder._lastHandPosDebug);
 
             bool targetConfirmationPending = false;
             bool targetConfirmationBusyObserved = false;

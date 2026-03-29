@@ -14,6 +14,9 @@ namespace HearthstonePayload
         private static Assembly _asm;
         private static Type _gameStateType;
 
+        /// <summary>上次手牌偏移计算的调试信息，供 ActionExecutor 日志输出</summary>
+        public static string _lastHandPosDebug = string.Empty;
+
         private static bool EnsureTypes()
         {
             if (_asm != null) return true;
@@ -153,17 +156,18 @@ namespace HearthstonePayload
                     float gap = nextX - myX;
                     if (gap > 0 && gap < 1.5f)
                     {
-                        // 尝试用 Renderer bounds 获取卡牌半宽，乘 0.5 修正装饰溢出后计算暴露区域中心
-                        float offset = gap * 0.2f; // 默认兜底
-                        float halfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
-                        if (halfWidth > 0 && halfWidth > gap * 0.5f)
+                        float offset = gap * 0.3f; // 默认兜底
+                        float rawHalfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
+                        if (rawHalfWidth > 0)
                         {
-                            // Renderer 包含光效/阴影，实际可点击半宽约为 extents 的一半
-                            float effectiveHalfWidth = halfWidth * 0.5f;
+                            // Renderer 包含装饰溢出，乘 0.35 近似实际可点击半宽
+                            float effectiveHalfWidth = rawHalfWidth * 0.35f;
+                            // 暴露区域中心偏移 = 有效半宽 - 间距/2（间距不够时偏左，间距够时几乎不偏）
                             offset = effectiveHalfWidth - gap * 0.5f;
-                            if (offset < gap * 0.05f) offset = gap * 0.05f;
-                            if (offset > gap * 0.45f) offset = gap * 0.45f;
+                            if (offset < 0) offset = 0; // 不需要偏移（卡牌不重叠）
+                            if (offset > gap * 0.4f) offset = gap * 0.4f;
                         }
+                        _lastHandPosDebug = $"idx={targetIdx}/{cardList.Count} gap={gap:F3} rawHW={rawHalfWidth:F3} offset={offset:F3}";
 
                         worldPos = MakeVector3(myX - offset,
                             GetFloat(worldPos, "y"),
