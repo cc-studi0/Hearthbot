@@ -8600,6 +8600,10 @@ namespace BotMain
             }
             catch (Exception ex)
             {
+                _profiles = new List<Profile>();
+                ProfileNames = new List<string>();
+                _selectedProfile = null;
+
                 try
                 {
                     var detailPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profile_compile_error.log");
@@ -8613,6 +8617,7 @@ namespace BotMain
                 var brief = ex.Message ?? "unknown";
                 if (brief.Length > 400) brief = brief.Substring(0, 400) + "...";
                 Log($"Load profiles failed: {brief}");
+                OnProfilesLoaded?.Invoke(ProfileNames);
             }
         }
 
@@ -8677,7 +8682,10 @@ namespace BotMain
             {
                 if (!Directory.Exists(discoverDir))
                 {
+                    _discoverProfileTypes = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+                    DiscoverProfileNames = new List<string>();
                     Log("DiscoverCC directory not found, skipping.");
+                    OnDiscoverProfilesLoaded?.Invoke(DiscoverProfileNames);
                     return;
                 }
 
@@ -8703,6 +8711,7 @@ namespace BotMain
             catch (Exception ex)
             {
                 _discoverProfileTypes = new Dictionary<string, Type>(StringComparer.OrdinalIgnoreCase);
+                DiscoverProfileNames = new List<string>();
                 Log($"Load discover profiles failed: {ex.Message}");
                 OnDiscoverProfilesLoaded?.Invoke(DiscoverProfileNames);
             }
