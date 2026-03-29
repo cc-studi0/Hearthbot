@@ -49,6 +49,55 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 获取手牌卡牌左边缘的屏幕坐标（通过 Renderer.bounds）。
+        /// 如果 Renderer 不可用则降级到 GetEntityScreenPos。
+        /// </summary>
+        public static bool GetHandCardLeftEdgeScreenPos(int entityId, out int x, out int y)
+        {
+            x = y = 0;
+            if (!EnsureTypes()) return false;
+
+            try
+            {
+                var gs = InvokeStatic(_gameStateType, "Get");
+                if (gs == null) return GetEntityScreenPos(entityId, out x, out y);
+
+                var entity = GetEntity(gs, entityId);
+                if (entity == null) return GetEntityScreenPos(entityId, out x, out y);
+
+                var card = Invoke(entity, "GetCard");
+                if (card == null) return GetEntityScreenPos(entityId, out x, out y);
+
+                var actor = Invoke(card, "GetActor");
+                object go = actor != null ? GetProp(actor, "gameObject") : GetProp(card, "gameObject");
+                if (go == null) go = GetProp(card, "gameObject");
+                if (go == null) return GetEntityScreenPos(entityId, out x, out y);
+
+                // 尝试从 Renderer.bounds 获取左边缘
+                var rendererType = typeof(UnityEngine.Renderer);
+                var getComp = go.GetType().GetMethod("GetComponentInChildren", new[] { typeof(Type) });
+                if (getComp != null)
+                {
+                    var renderer = getComp.Invoke(go, new object[] { rendererType });
+                    if (renderer != null)
+                    {
+                        var boundsProp = renderer.GetType().GetProperty("bounds");
+                        if (boundsProp != null)
+                        {
+                            var bounds = (UnityEngine.Bounds)boundsProp.GetValue(renderer);
+                            // 左边缘X + 中心Y/Z
+                            return MouseSimulator.WorldToScreen(bounds.min.x, bounds.center.y, bounds.center.z, out x, out y);
+                        }
+                    }
+                }
+            }
+            catch { }
+
+            // Renderer 获取失败，降级
+            return GetEntityScreenPos(entityId, out x, out y);
+        }
+
+        /// <summary>
         /// 获取Entity的世界坐标（反射链）
         /// </summary>
         public static bool GetObjectScreenPos(object obj, out int x, out int y)

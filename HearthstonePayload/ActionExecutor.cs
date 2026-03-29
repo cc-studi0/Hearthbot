@@ -2195,13 +2195,13 @@ namespace HearthstonePayload
             var sourceZonePosition = ResolveEntityZonePosition(gsBeforePlay, entityId);
             var guardRecentDrawCard = ShouldUseRecentDrawPlayGuard(entityId);
 
-            // 等待手牌位置稳定（抽牌动画完成）
+            // 等待手牌位置稳定（抽牌动画完成），使用左边缘坐标
             int sourceX = 0, sourceY = 0;
             bool positionStable = false;
             var sourcePosRetryLimit = guardRecentDrawCard ? 12 : 8;
             for (int retry = 0; retry < sourcePosRetryLimit && !positionStable; retry++)
             {
-                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
+                if (!GameObjectFinder.GetHandCardLeftEdgeScreenPos(entityId, out var cx, out var cy))
                 {
                     yield return 0.05f;
                     continue;
@@ -2239,53 +2239,67 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            bool grabbedViaAPI = false;
-            string apiGrabMethod = "none";
-            string apiGrabDetail = string.Empty;
-            int apiHeldEntityId = 0;
-
-            for (int attempt = 1; attempt <= 3; attempt++)
+            // 纯鼠标抓牌：移动到左边缘坐标，按下鼠标，等待卡牌被抬起
+            bool grabbed = false;
+            var inputMgr = GetSingleton(_inputMgrType);
+            for (int attempt = 1; attempt <= 3 && !grabbed; attempt++)
             {
-                if (TryGrabCardViaAPI(
-                        entityId,
-                        sourceZonePosition,
-                        out apiGrabMethod,
-                        out apiHeldEntityId,
-                        out apiGrabDetail))
+                foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
+                yield return 0.04f;
+                MouseSimulator.LeftDown();
+                yield return 0.12f;
+
+                // 检测卡牌是否被游戏抬起
+                for (int poll = 0; poll < 8; poll++)
                 {
-                    grabbedViaAPI = true;
-                    break;
+                    if (inputMgr != null && TryGetHeldCardEntityId(inputMgr, out var heldId) && heldId > 0)
+                    {
+                        if (heldId == entityId)
+                        {
+                            grabbed = true;
+                            AppendActionTrace("PLAY(mouse) grabbed via left_edge attempt=" + attempt + " entity=" + entityId);
+                        }
+                        else
+                        {
+                            AppendActionTrace("PLAY(mouse) grabbed wrong card expected=" + entityId + " held=" + heldId + " attempt=" + attempt);
+                            MouseSimulator.LeftUp();
+                            yield return 0.06f;
+                            TryResetHeldCard();
+                            yield return 0.06f;
+                            // 重新获取左边缘坐标（手牌可能位移了）
+                            if (GameObjectFinder.GetHandCardLeftEdgeScreenPos(entityId, out var rx, out var ry))
+                            {
+                                sourceX = rx;
+                                sourceY = ry;
+                            }
+                        }
+                        break;
+                    }
+                    yield return 0.04f;
                 }
 
-                TryResetHeldCard();
-                yield return 0.06f;
+                if (!grabbed)
+                {
+                    MouseSimulator.LeftUp();
+                    yield return 0.06f;
+                    TryResetHeldCard();
+                    yield return 0.06f;
+                    // 重新获取坐标
+                    if (GameObjectFinder.GetHandCardLeftEdgeScreenPos(entityId, out var nx, out var ny))
+                    {
+                        sourceX = nx;
+                        sourceY = ny;
+                    }
+                }
             }
 
-            if (grabbedViaAPI)
+            if (!grabbed)
             {
-                AppendActionTrace(
-                    "PLAY(mouse) API grabbed card expected=" + entityId
-                    + " held=" + apiHeldEntityId
-                    + " zonePos=" + sourceZonePosition
-                    + " cardId=" + sourceCardId
-                    + " via=" + apiGrabMethod);
-            }
-            else
-            {
-                AppendActionTrace(
-                    "PLAY(mouse) API grab failed expected=" + entityId
-                    + " zonePos=" + sourceZonePosition
-                    + " cardId=" + sourceCardId
-                    + " detail=" + apiGrabDetail);
+                AppendActionTrace("PLAY(mouse) grab failed after 3 attempts entity=" + entityId + " cardId=" + sourceCardId);
                 TryResetHeldCard();
-                _coroutine.SetResult("FAIL:PLAY:grab_api_failed:" + entityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
+                _coroutine.SetResult("FAIL:PLAY:mouse_grab_failed:" + entityId);
                 yield break;
             }
-
-            foreach (var wait in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, false)) yield return wait;
-            yield return 0.03f;
-            MouseSimulator.LeftDown();
-            yield return 0.08f;
 
             bool targetConfirmationPending = false;
             bool targetConfirmationBusyObserved = false;
@@ -2628,7 +2642,7 @@ namespace HearthstonePayload
             }
 
             yield return 0.2f;
-            _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab_mouse");
+            _coroutine.SetResult("OK:PLAY:" + entityId + ":mouse_left_edge");
         }
 
         /// <summary>
