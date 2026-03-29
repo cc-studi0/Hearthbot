@@ -2578,7 +2578,8 @@ namespace BotMain
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
                             var sendSw = Stopwatch.StartNew();
-                            var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
+                            var outboundAction = AttachHandSourceMetadata(action, planningBoard);
+                            var result = SendActionCommand(pipe, outboundAction, 5000) ?? "NO_RESPONSE";
                             sendSw.Stop();
                             sendMs = sendSw.ElapsedMilliseconds;
                             actionOutcome = result;
@@ -4146,6 +4147,42 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        private static string AttachHandSourceMetadata(string action, Board planningBoard)
+        {
+            if (string.IsNullOrWhiteSpace(action) || planningBoard == null)
+                return action;
+
+            if (!HandActionCommandMetadata.TryParse(action, out var parsed))
+                return action;
+
+            if (!string.Equals(parsed.ActionType, "PLAY", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parsed.ActionType, "TRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                return action;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parsed.SourceCardId) && parsed.SourceZonePosition > 0)
+                return action;
+
+            var source = planningBoard.Hand?.FirstOrDefault(card => card != null && card.Id == parsed.SourceEntityId);
+            if (source?.Template == null)
+                return action;
+
+            var sourceCardId = source.Template.Id.ToString();
+            var sourceZonePosition = planningBoard.Hand.IndexOf(source) + 1;
+            if (sourceZonePosition <= 0)
+                return action;
+
+            return string.Equals(parsed.ActionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+                ? HandActionCommandMetadata.AppendTrade(action, sourceCardId, sourceZonePosition)
+                : HandActionCommandMetadata.AppendPlay(action, sourceCardId, sourceZonePosition);
+        }
+
+        internal static string AttachHandSourceMetadataForTests(string action, Board planningBoard)
+        {
+            return AttachHandSourceMetadata(action, planningBoard);
         }
 
         private List<string> NormalizeRecommendedActions(List<string> actions)

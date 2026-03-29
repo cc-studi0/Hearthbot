@@ -1371,7 +1371,10 @@ namespace BotMain
                     // 磁力的“贴到目标左侧”最终落点由 payload 执行层按运行时坐标再解析。
                     var dropPositionReference = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
                     if (cardEntityId > 0)
-                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}";
+                    {
+                        var command = $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}";
+                        return HandActionCommandMetadata.AppendPlay(command, card?.CardId ?? string.Empty, pos);
+                    }
                     return null;
                 }
                 case "hero_skill":
