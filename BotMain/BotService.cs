@@ -2587,6 +2587,19 @@ namespace BotMain
 
                             if (IsActionFailure(result))
                             {
+                                if (IsRecoverableHandSourceFailure(action, result))
+                                {
+                                    RefreshHsBoxActionMinimumUpdatedAtNow();
+                                    requestResimulation = true;
+                                    resimulationReason = "hand_source_identity_mismatch";
+                                    resimulationRequestedThisAction = true;
+                                    resimulationReasonThisAction = resimulationReason;
+                                    actionOutcome = result;
+                                    if (choiceWatchArmed)
+                                        ClearChoiceStateWatch("hand_source_identity_mismatch");
+                                    break;
+                                }
+
                                 if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                     || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                                     || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
@@ -4147,6 +4160,24 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        internal static bool IsRecoverableHandSourceFailure(string action, string result)
+        {
+            if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(result))
+                return false;
+
+            if (!result.Contains("source_identity_mismatch", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsRecoverableHandSourceFailureForTests(string action, string result)
+        {
+            return IsRecoverableHandSourceFailure(action, result);
         }
 
         private static string AttachHandSourceMetadata(string action, Board planningBoard)
