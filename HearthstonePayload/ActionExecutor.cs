@@ -98,29 +98,12 @@ namespace HearthstonePayload
             public int RecentReleasedUntilTick;
         }
 
-        private sealed class HeroEnchantmentBusyObservationState
-        {
-            public string Signature = string.Empty;
-            public int FirstSeenTick;
-        }
-
-        private sealed class HeroEnchantmentBusySnapshot
-        {
-            public string Signature = string.Empty;
-            public string Detail = string.Empty;
-            public int PlayerEnchantmentCount;
-            public int HeroEnchantmentCount;
-        }
-
         private const int FriendlyDrawFallbackDelayMs = 420;
         private const int FriendlyDrawRecentGuardWindowMs = 2500;
-        private const int HeroEnchantmentBusyStableDelayMs = 180;
         private const int ChoiceDecisionTraceDedupWindowMs = 1200;
         private const int PendingOptionTargetSourceWindowMs = 5000;
         private static readonly object _friendlyDrawGateSync = new object();
         private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
-        private static readonly object _heroEnchantmentBusySync = new object();
-        private static readonly HeroEnchantmentBusyObservationState _heroEnchantmentBusy = new HeroEnchantmentBusyObservationState();
         private static readonly object _choiceDecisionTraceSync = new object();
         private static readonly object _pendingOptionTargetSourceSync = new object();
         private static readonly object _humanizerConfigSync = new object();
@@ -7724,9 +7707,13 @@ namespace HearthstonePayload
 
             if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
             {
-                if (TryTreatFriendlyHeroEnchantmentBusyAsReady(gs, out var bypassDetail, out var heroEnchantmentBusyState))
+                // 所有真实动画检查（PowerProcessor、网络包、输入权限、抽牌、手牌布局）
+                // 已在上方完成。走到这里说明没有实际动画/处理在运行。
+                // 若任一方英雄存在常驻光环(Enchantment)，IsBusy 极大概率仅因光环视觉效果为 true，
+                // 直接绕过，不再等待签名稳定。
+                if (HasAnyHeroEnchantments(gs, out var enchantmentDetail))
                 {
-                    AppendActionTrace("WAIT_READY bypass game_busy due to hero_enchantment_busy " + bypassDetail);
+                    AppendActionTrace("WAIT_READY bypass game_busy due to persistent_enchantments " + enchantmentDetail);
                     return new ReadyWaitDiagnosticState
                     {
                         IsReady = true,
@@ -7735,13 +7722,8 @@ namespace HearthstonePayload
                     };
                 }
 
-                if (heroEnchantmentBusyState != null)
-                    return heroEnchantmentBusyState;
-
                 return CreateBusyReadyState("game_busy");
             }
-
-            ResetFriendlyHeroEnchantmentBusyObservation();
             return new ReadyWaitDiagnosticState
             {
                 IsReady = true,
@@ -7750,225 +7732,79 @@ namespace HearthstonePayload
             };
         }
 
-        private static bool TryTreatFriendlyHeroEnchantmentBusyAsReady(
-            object gameState,
-            out string detail,
-            out ReadyWaitDiagnosticState busyState)
+        /// <summary>
+        /// 检查任一方英雄是否存在光环(Enchantment)。
+        /// 若存在，IsBusy 大概率仅因常驻光环视觉效果，可安全绕过。
+        /// </summary>
+        private static bool HasAnyHeroEnchantments(object gameState, out string detail)
         {
-            detail = "unavailable";
-            busyState = null;
-            if (gameState == null)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "game_state_null";
-                return false;
-            }
-
-            if (IsChoiceModeActive(gameState))
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "choice_mode_active";
-                return false;
-            }
-
-            if (IsSubOptionUiReady())
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "suboption_ui_ready";
-                return false;
-            }
-
-            if (TryInvokeMethod(gameState, "GetResponseMode", Array.Empty<object>(), out var responseModeObj)
-                && IsTargetSelectionResponseMode(responseModeObj))
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "target_selection_mode";
-                return false;
-            }
-
-            GameStateData state = null;
-            try
-            {
-                state = new GameReader().ReadGameState();
-            }
-            catch (Exception ex)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "read_state_exception:" + SimplifyException(ex);
-                return false;
-            }
-
-            if (state == null)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "state_null";
-                return false;
-            }
-
-            if (!state.IsOurTurn)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "not_our_turn";
-                return false;
-            }
-
-            if (!TryBuildFriendlyHeroEnchantmentBusySnapshot(gameState, out var snapshot) || snapshot == null)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = "snapshot_unavailable";
-                return false;
-            }
-
-            if (snapshot.PlayerEnchantmentCount <= 0 && snapshot.HeroEnchantmentCount <= 0)
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                detail = snapshot.Detail ?? "no_enchantments";
-                return false;
-            }
-
-            var stable = ObserveFriendlyHeroEnchantmentBusySignature(snapshot.Signature, out var stableMs, out var isNewSignature);
-            detail =
-                (snapshot.Detail ?? "hero_enchantment_busy")
-                + " stableMs=" + stableMs
-                + " thresholdMs=" + HeroEnchantmentBusyStableDelayMs;
-
-            busyState = CreateBusyReadyState(
-                "hero_enchantment_busy",
-                BuildFriendlyHeroEnchantmentBusyFlags(snapshot));
-
-            if (!stable)
-            {
-                if (isNewSignature)
-                    AppendActionTrace("WAIT_READY hold game_busy due to hero_enchantment_busy " + detail);
-                return false;
-            }
-
-            return true;
-        }
-
-        private static bool TryBuildFriendlyHeroEnchantmentBusySnapshot(object gameState, out HeroEnchantmentBusySnapshot snapshot)
-        {
-            snapshot = null;
+            detail = "no_enchantments";
             if (gameState == null)
                 return false;
 
             try
             {
+                int totalCount = 0;
+                var parts = new List<string>();
+
+                // 友方
                 var friendlyPlayer = Invoke(gameState, "GetFriendlySidePlayer")
                     ?? Invoke(gameState, "GetFriendlyPlayer")
                     ?? Invoke(gameState, "GetLocalPlayer");
-                if (friendlyPlayer == null)
-                    return false;
-
-                var hero = Invoke(friendlyPlayer, "GetHero");
-                var heroEntity = Invoke(hero, "GetEntity")
-                    ?? GetFieldOrProp(hero, "Entity")
-                    ?? GetFieldOrProp(hero, "m_entity")
-                    ?? hero;
-
-                ReadEnchantmentSnapshotParts(friendlyPlayer, preferDisplayed: false, out var playerSignatureParts, out var playerPreviewParts);
-                ReadEnchantmentSnapshotParts(heroEntity, preferDisplayed: true, out var heroSignatureParts, out var heroPreviewParts);
-
-                snapshot = new HeroEnchantmentBusySnapshot
+                if (friendlyPlayer != null)
                 {
-                    PlayerEnchantmentCount = playerSignatureParts.Count,
-                    HeroEnchantmentCount = heroSignatureParts.Count
-                };
-
-                if (snapshot.PlayerEnchantmentCount <= 0 && snapshot.HeroEnchantmentCount <= 0)
-                {
-                    snapshot.Detail = "playerCount=0 heroCount=0";
-                    return true;
+                    var fHero = Invoke(friendlyPlayer, "GetHero");
+                    var fEntity = Invoke(fHero, "GetEntity")
+                        ?? GetFieldOrProp(fHero, "Entity")
+                        ?? GetFieldOrProp(fHero, "m_entity")
+                        ?? fHero;
+                    var fPlayerCount = CountEnchantments(friendlyPlayer, preferDisplayed: false);
+                    var fHeroCount = CountEnchantments(fEntity, preferDisplayed: true);
+                    totalCount += fPlayerCount + fHeroCount;
+                    if (fPlayerCount > 0 || fHeroCount > 0)
+                        parts.Add("friendly_player=" + fPlayerCount + " friendly_hero=" + fHeroCount);
                 }
 
-                var signatureParts = new List<string>();
-                signatureParts.AddRange(playerSignatureParts.Select(part => "player:" + part));
-                signatureParts.AddRange(heroSignatureParts.Select(part => "hero:" + part));
-                signatureParts.Sort(StringComparer.Ordinal);
+                // 敌方
+                var enemyPlayer = Invoke(gameState, "GetOpposingSidePlayer")
+                    ?? Invoke(gameState, "GetOpposingPlayer")
+                    ?? Invoke(gameState, "GetRemotePlayer");
+                if (enemyPlayer != null)
+                {
+                    var eHero = Invoke(enemyPlayer, "GetHero");
+                    var eEntity = Invoke(eHero, "GetEntity")
+                        ?? GetFieldOrProp(eHero, "Entity")
+                        ?? GetFieldOrProp(eHero, "m_entity")
+                        ?? eHero;
+                    var ePlayerCount = CountEnchantments(enemyPlayer, preferDisplayed: false);
+                    var eHeroCount = CountEnchantments(eEntity, preferDisplayed: true);
+                    totalCount += ePlayerCount + eHeroCount;
+                    if (ePlayerCount > 0 || eHeroCount > 0)
+                        parts.Add("enemy_player=" + ePlayerCount + " enemy_hero=" + eHeroCount);
+                }
 
-                snapshot.Signature = string.Join(";", signatureParts);
-                snapshot.Detail =
-                    "playerCount=" + snapshot.PlayerEnchantmentCount
-                    + " heroCount=" + snapshot.HeroEnchantmentCount
-                    + " player=[" + FormatEnchantmentPreview(playerPreviewParts) + "]"
-                    + " hero=[" + FormatEnchantmentPreview(heroPreviewParts) + "]";
+                if (totalCount <= 0)
+                    return false;
+
+                detail = string.Join(" | ", parts);
                 return true;
             }
             catch (Exception ex)
             {
-                snapshot = new HeroEnchantmentBusySnapshot
-                {
-                    Detail = "snapshot_exception:" + SimplifyException(ex)
-                };
+                detail = "exception:" + SimplifyException(ex);
                 return false;
             }
         }
 
-        private static void ReadEnchantmentSnapshotParts(
-            object source,
-            bool preferDisplayed,
-            out List<string> signatureParts,
-            out List<string> previewParts)
+        private static int CountEnchantments(object source, bool preferDisplayed)
         {
-            signatureParts = new List<string>();
-            previewParts = new List<string>();
-
             if (!TryEnumerateEnchantments(source, preferDisplayed, out var enchantments) || enchantments == null)
-                return;
+                return 0;
 
-            ReflectionContext ctx = null;
-            var hasCtx = false;
-            try
-            {
-                ctx = ReflectionContext.Instance;
-                hasCtx = ctx != null && ctx.Init();
-            }
-            catch
-            {
-                hasCtx = false;
-            }
-
-            foreach (var rawEnchantment in enchantments)
-            {
-                var enchantment = Invoke(rawEnchantment, "GetEntity")
-                    ?? GetFieldOrProp(rawEnchantment, "Entity")
-                    ?? GetFieldOrProp(rawEnchantment, "m_entity")
-                    ?? rawEnchantment;
-                if (enchantment == null)
-                    continue;
-
-                var cardId = ResolveCardIdFromObject(enchantment);
-                if (string.IsNullOrWhiteSpace(cardId))
-                {
-                    var enchantCard = GetFieldOrProp(enchantment, "EnchantCard")
-                        ?? GetFieldOrProp(enchantment, "m_enchantCard")
-                        ?? Invoke(enchantment, "GetEnchantCard");
-                    var enchantCardEntity = Invoke(enchantCard, "GetEntity")
-                        ?? GetFieldOrProp(enchantCard, "Entity")
-                        ?? GetFieldOrProp(enchantCard, "m_entity")
-                        ?? enchantCard;
-                    cardId = ResolveCardIdFromObject(enchantCardEntity);
-                }
-
-                if (string.IsNullOrWhiteSpace(cardId))
-                    cardId = "unknown";
-
-                var data1 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_1") : 0;
-                var data2 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_2") : 0;
-                var data3 = hasCtx ? SafeGetTagValue(ctx, enchantment, "TAG_SCRIPT_DATA_NUM_3") : 0;
-
-                var signature = cardId;
-                if (data1 != 0 || data2 != 0 || data3 != 0)
-                    signature += "[" + data1 + "/" + data2 + "/" + data3 + "]";
-
-                signatureParts.Add(signature);
-
-                var entityId = ResolveEntityId(enchantment);
-                previewParts.Add(entityId > 0 ? signature + "#" + entityId : signature);
-            }
-
-            signatureParts.Sort(StringComparer.Ordinal);
-            previewParts.Sort(StringComparer.Ordinal);
+            int count = 0;
+            foreach (var _ in enchantments)
+                count++;
+            return count;
         }
 
         private static bool TryEnumerateEnchantments(object source, bool preferDisplayed, out IEnumerable enchantments)
@@ -7989,71 +7825,6 @@ namespace HearthstonePayload
                 ?? Invoke(source, "GetAttachments") as IEnumerable
                 ?? GetFieldOrProp(source, "m_attachments") as IEnumerable;
             return enchantments != null;
-        }
-
-        private static bool ObserveFriendlyHeroEnchantmentBusySignature(string signature, out int stableMs, out bool isNewSignature)
-        {
-            stableMs = 0;
-            isNewSignature = false;
-            if (string.IsNullOrWhiteSpace(signature))
-            {
-                ResetFriendlyHeroEnchantmentBusyObservation();
-                return false;
-            }
-
-            var nowTick = Environment.TickCount;
-            lock (_heroEnchantmentBusySync)
-            {
-                if (!string.Equals(_heroEnchantmentBusy.Signature, signature, StringComparison.Ordinal))
-                {
-                    _heroEnchantmentBusy.Signature = signature;
-                    _heroEnchantmentBusy.FirstSeenTick = nowTick;
-                    isNewSignature = true;
-                    return false;
-                }
-
-                stableMs = Math.Max(0, unchecked(nowTick - _heroEnchantmentBusy.FirstSeenTick));
-                return stableMs >= HeroEnchantmentBusyStableDelayMs;
-            }
-        }
-
-        private static void ResetFriendlyHeroEnchantmentBusyObservation()
-        {
-            lock (_heroEnchantmentBusySync)
-            {
-                _heroEnchantmentBusy.Signature = string.Empty;
-                _heroEnchantmentBusy.FirstSeenTick = 0;
-            }
-        }
-
-        private static IEnumerable<string> BuildFriendlyHeroEnchantmentBusyFlags(HeroEnchantmentBusySnapshot snapshot)
-        {
-            var flags = new List<string> { "hero_enchantment_busy" };
-            if (snapshot != null)
-            {
-                if (snapshot.PlayerEnchantmentCount > 0)
-                    flags.Add("player_enchantments");
-                if (snapshot.HeroEnchantmentCount > 0)
-                    flags.Add("hero_enchantments");
-            }
-
-            return flags;
-        }
-
-        private static string FormatEnchantmentPreview(IEnumerable<string> parts)
-        {
-            if (parts == null)
-                return "-";
-
-            var materialized = parts
-                .Where(part => !string.IsNullOrWhiteSpace(part))
-                .Take(5)
-                .ToList();
-            if (materialized.Count == 0)
-                return "-";
-
-            var joined = string.Join(",", materialized.Take(4));
-            return materialized.Count > 4 ? joined + ",..." : joined;
         }
 
         private static int SafeGetTagValue(ReflectionContext ctx, object source, string tagName)
