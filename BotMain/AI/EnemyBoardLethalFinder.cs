@@ -98,7 +98,96 @@ namespace BotMain.AI
                 minion.IsTired = false;
             }
 
+            // 预计算敌方英雄技能对脸的伤害并应用
+            // 在所有攻击之前使用技能是最优的（猎人直伤、法师/牧师打脸、恶魔猎手/德鲁伊增加英雄攻击力）
+            ApplyEnemyHeroPowerDamage(clone);
+
             return clone;
+        }
+
+        /// <summary>
+        /// 根据敌方职业，预先将英雄技能的伤害/增益应用到棋盘上。
+        /// 只处理能直接增加斩杀能力的技能。
+        /// </summary>
+        private static void ApplyEnemyHeroPowerDamage(SimBoard board)
+        {
+            if (board.FriendHero == null || board.EnemyHero == null)
+                return;
+
+            switch (board.EnemyClass)
+            {
+                case Card.CClass.HUNTER:
+                    // 稳固射击：对敌方英雄2点伤害
+                    DealHeroPowerDamageToFace(board, 2);
+                    break;
+
+                case Card.CClass.MAGE:
+                    // 火焰冲击：1点伤害（可打脸）
+                    DealHeroPowerDamageToFace(board, 1 + GetEnemySpellPower(board));
+                    break;
+
+                case Card.CClass.PRIEST:
+                    // 暗影形态/心灵尖刺：2点伤害（假设最坏情况）
+                    // 普通牧师技能是治疗，但暗影形态很常见，保守估计按2点算
+                    DealHeroPowerDamageToFace(board, 2);
+                    break;
+
+                case Card.CClass.DEMONHUNTER:
+                    // 眼刺：英雄攻击力+1
+                    if (board.EnemyHero != null)
+                        board.EnemyHero.Atk += 1;
+                    break;
+
+                case Card.CClass.DRUID:
+                    // 变形：英雄攻击力+1，+1护甲（护甲对斩杀无影响，只加攻击力）
+                    if (board.EnemyHero != null)
+                        board.EnemyHero.Atk += 1;
+                    break;
+
+                case Card.CClass.ROGUE:
+                    // 匕首精通：装备1/2武器，只在没有武器时有意义
+                    if (board.EnemyWeapon == null || board.EnemyWeapon.Health <= 0)
+                    {
+                        if (board.EnemyHero != null)
+                            board.EnemyHero.Atk = Math.Max(board.EnemyHero.Atk, 1);
+                    }
+                    break;
+
+                // WARLOCK: 生命分流（自伤），不增加斩杀
+                // WARRIOR: 全副武装（+2甲），不增加斩杀
+                // PALADIN: 援军（1/1），来不及攻击
+                // SHAMAN: 图腾召唤，来不及攻击
+            }
+        }
+
+        private static void DealHeroPowerDamageToFace(SimBoard board, int damage)
+        {
+            if (damage <= 0 || board.FriendHero == null)
+                return;
+
+            if (board.FriendHero.IsImmune)
+                return;
+
+            // 护甲先抵挡
+            if (board.FriendHero.Armor > 0)
+            {
+                var absorbed = Math.Min(board.FriendHero.Armor, damage);
+                board.FriendHero.Armor -= absorbed;
+                damage -= absorbed;
+            }
+
+            board.FriendHero.Health -= damage;
+        }
+
+        private static int GetEnemySpellPower(SimBoard board)
+        {
+            var sp = 0;
+            foreach (var m in board.EnemyMinions)
+            {
+                if (m != null && m.Health > 0)
+                    sp += Math.Max(0, m.SpellPower);
+            }
+            return sp;
         }
 
         private static bool Search(SimBoard board, SearchContext context)
@@ -137,6 +226,7 @@ namespace BotMain.AI
                 return false;
             }
 
+            // 潜行覆盖嘲讽：有潜行的嘲讽不能被选为攻击目标
             var taunts = GetTauntTargets(board);
             if (taunts.Count > 0)
             {
@@ -228,34 +318,61 @@ namespace BotMain.AI
             return total;
         }
 
+        /// <summary>
+        /// 估算嘲讽屏障值（用于剪枝，允许偏低但不能偏高）。
+        /// 圣盾需要额外一次完整攻击来消耗，用敌方最大单次攻击力近似。
+        /// </summary>
         private static int CalculateTauntBarrier(SimBoard board)
         {
+            var maxEnemyAtk = GetMaxEnemyAttack(board);
             var total = 0;
-            foreach (var minion in board.FriendMinions.Where(m => m != null && m.Health > 0 && m.IsTaunt))
+            foreach (var minion in board.FriendMinions.Where(m =>
+                m != null && m.Health > 0 && m.IsTaunt && !m.IsStealth))
             {
                 var barrier = Math.Max(0, minion.Health);
-                if (minion.IsDivineShield) barrier += 1;
-                if (minion.HasReborn) barrier += 1;
+                // 圣盾吸收一次完整攻击：至少需要额外消耗一个攻击者的伤害量
+                if (minion.IsDivineShield)
+                    barrier += Math.Max(1, maxEnemyAtk);
+                // 重生：死后以1血复活，嘲讽保留，需要额外一击
+                if (minion.HasReborn)
+                    barrier += 1;
                 total += barrier;
             }
 
             return total;
         }
 
+        private static int GetMaxEnemyAttack(SimBoard board)
+        {
+            var max = 0;
+            if (board.EnemyHero != null && board.EnemyHero.Atk > 0)
+                max = board.EnemyHero.Atk;
+
+            foreach (var m in board.EnemyMinions)
+            {
+                if (m != null && m.Atk > max && m.Health > 0)
+                    max = m.Atk;
+            }
+            return max;
+        }
+
+        /// <summary>
+        /// 获取有效嘲讽目标（排除潜行覆盖嘲讽的随从）。
+        /// </summary>
         private static List<int> GetTauntTargets(SimBoard board)
         {
             return board.FriendMinions
                 .Select((minion, index) => new { minion, index })
-                .Where(x => x.minion != null && x.minion.Health > 0 && x.minion.IsTaunt)
-                .OrderBy(x => GetTauntPriority(x.minion))
+                .Where(x => x.minion != null && x.minion.Health > 0 && x.minion.IsTaunt && !x.minion.IsStealth)
+                .OrderBy(x => GetTauntPriority(x.minion, GetMaxEnemyAttack(board)))
                 .Select(x => x.index)
                 .ToList();
         }
 
-        private static int GetTauntPriority(SimEntity minion)
+        private static int GetTauntPriority(SimEntity minion, int maxEnemyAtk)
         {
             var barrier = Math.Max(0, minion?.Health ?? 0);
-            if (minion?.IsDivineShield == true) barrier += 1;
+            if (minion?.IsDivineShield == true) barrier += Math.Max(1, maxEnemyAtk);
             if (minion?.HasReborn == true) barrier += 1;
             return barrier;
         }
