@@ -7734,31 +7734,28 @@ namespace HearthstonePayload
 
             if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
             {
-                // 所有真实动画/处理检查已在上方完成。
-                // 若任一方英雄存在常驻光环，IsBusy 可能仅因光环视觉效果为 true。
-                // 但攻击/法术的视觉动画在 PowerProcessor 结束后仍会持续数百毫秒，
-                // 此时实体位置尚未稳定，过早绕过会导致攻击定位重试、效率下降。
-                // 策略：在最后一次真实 busy 原因之后保留宽限期，等视觉动画基本结束后再绕过。
-                if (HasAnyHeroEnchantments(gs, out var enchantmentDetail))
+                // 所有真实动画/处理检查（PowerProcessor、网络包、输入权限、抽牌、手牌布局）
+                // 已在上方完成。走到这里时，具体的处理器/动画队列都已结束。
+                // IsBusy 仍为 true 的常见原因：场上存在持续效果（英雄光环、光环随从等），
+                // 或攻击/法术视觉动画在 PowerProcessor 结束后仍在播放。
+                //
+                // 策略：在最后一次真实 busy 原因之后保留宽限期（500ms），
+                // 让视觉动画和实体位置充分稳定后再绕过 IsBusy。
+                // 无近期真实 busy（如回合规划阶段）则直接绕过。
+                var msSinceRealBusy = GetMsSinceLastRealBusy();
+                if (msSinceRealBusy >= EnchantmentBypassGraceAfterRealBusyMs)
                 {
-                    var msSinceRealBusy = GetMsSinceLastRealBusy();
-                    if (msSinceRealBusy >= EnchantmentBypassGraceAfterRealBusyMs)
+                    AppendActionTrace("WAIT_READY bypass game_busy persistent_effect msSinceRealBusy=" + msSinceRealBusy);
+                    return new ReadyWaitDiagnosticState
                     {
-                        AppendActionTrace("WAIT_READY bypass game_busy persistent_enchantments " + enchantmentDetail
-                            + " msSinceRealBusy=" + msSinceRealBusy);
-                        return new ReadyWaitDiagnosticState
-                        {
-                            IsReady = true,
-                            PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
-                            Flags = Array.Empty<string>()
-                        };
-                    }
-
-                    // 宽限期内：返回专用原因，不被 BotService PostReady 绕过
-                    return CreateBusyReadyState("enchantment_post_animation_grace");
+                        IsReady = true,
+                        PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
+                        Flags = Array.Empty<string>()
+                    };
                 }
 
-                return CreateBusyReadyState("game_busy");
+                // 宽限期内：视觉动画可能仍在播放，返回专用原因（不被 PostReady 绕过列表吞掉）
+                return CreateBusyReadyState("post_animation_grace");
             }
             return new ReadyWaitDiagnosticState
             {
@@ -7766,81 +7763,6 @@ namespace HearthstonePayload
                 PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
                 Flags = Array.Empty<string>()
             };
-        }
-
-        /// <summary>
-        /// 检查任一方英雄是否存在光环(Enchantment)。
-        /// 若存在，IsBusy 大概率仅因常驻光环视觉效果，可安全绕过。
-        /// </summary>
-        private static bool HasAnyHeroEnchantments(object gameState, out string detail)
-        {
-            detail = "no_enchantments";
-            if (gameState == null)
-                return false;
-
-            try
-            {
-                int totalCount = 0;
-                var parts = new List<string>();
-
-                // 友方
-                var friendlyPlayer = Invoke(gameState, "GetFriendlySidePlayer")
-                    ?? Invoke(gameState, "GetFriendlyPlayer")
-                    ?? Invoke(gameState, "GetLocalPlayer");
-                if (friendlyPlayer != null)
-                {
-                    var fHero = Invoke(friendlyPlayer, "GetHero");
-                    var fEntity = Invoke(fHero, "GetEntity")
-                        ?? GetFieldOrProp(fHero, "Entity")
-                        ?? GetFieldOrProp(fHero, "m_entity")
-                        ?? fHero;
-                    var fPlayerCount = CountEnchantments(friendlyPlayer, preferDisplayed: false);
-                    var fHeroCount = CountEnchantments(fEntity, preferDisplayed: true);
-                    totalCount += fPlayerCount + fHeroCount;
-                    if (fPlayerCount > 0 || fHeroCount > 0)
-                        parts.Add("friendly_player=" + fPlayerCount + " friendly_hero=" + fHeroCount);
-                }
-
-                // 敌方
-                var enemyPlayer = Invoke(gameState, "GetOpposingSidePlayer")
-                    ?? Invoke(gameState, "GetOpposingPlayer")
-                    ?? Invoke(gameState, "GetRemotePlayer");
-                if (enemyPlayer != null)
-                {
-                    var eHero = Invoke(enemyPlayer, "GetHero");
-                    var eEntity = Invoke(eHero, "GetEntity")
-                        ?? GetFieldOrProp(eHero, "Entity")
-                        ?? GetFieldOrProp(eHero, "m_entity")
-                        ?? eHero;
-                    var ePlayerCount = CountEnchantments(enemyPlayer, preferDisplayed: false);
-                    var eHeroCount = CountEnchantments(eEntity, preferDisplayed: true);
-                    totalCount += ePlayerCount + eHeroCount;
-                    if (ePlayerCount > 0 || eHeroCount > 0)
-                        parts.Add("enemy_player=" + ePlayerCount + " enemy_hero=" + eHeroCount);
-                }
-
-                if (totalCount <= 0)
-                    return false;
-
-                detail = string.Join(" | ", parts);
-                return true;
-            }
-            catch (Exception ex)
-            {
-                detail = "exception:" + SimplifyException(ex);
-                return false;
-            }
-        }
-
-        private static int CountEnchantments(object source, bool preferDisplayed)
-        {
-            if (!TryEnumerateEnchantments(source, preferDisplayed, out var enchantments) || enchantments == null)
-                return 0;
-
-            int count = 0;
-            foreach (var _ in enchantments)
-                count++;
-            return count;
         }
 
         private static void TouchLastRealBusyReasonTick()
@@ -7859,26 +7781,6 @@ namespace HearthstonePayload
                     return int.MaxValue;
                 return Math.Max(0, unchecked(Environment.TickCount - _lastRealBusyReasonTick));
             }
-        }
-
-        private static bool TryEnumerateEnchantments(object source, bool preferDisplayed, out IEnumerable enchantments)
-        {
-            enchantments = null;
-            if (source == null)
-                return false;
-
-            if (preferDisplayed
-                && TryInvokeMethod(source, "GetDisplayedEnchantments", new object[] { false }, out var displayedEnchantments, out _)
-                && displayedEnchantments is IEnumerable displayedEnumerable)
-            {
-                enchantments = displayedEnumerable;
-                return true;
-            }
-
-            enchantments = Invoke(source, "GetEnchantments") as IEnumerable
-                ?? Invoke(source, "GetAttachments") as IEnumerable
-                ?? GetFieldOrProp(source, "m_attachments") as IEnumerable;
-            return enchantments != null;
         }
 
         private static int SafeGetTagValue(ReflectionContext ctx, object source, string tagName)
