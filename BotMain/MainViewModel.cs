@@ -446,6 +446,24 @@ namespace BotMain
 
                 _learnFromHsBox = value;
                 _bot.SetLearnFromHsBoxRecommendations(value);
+                // 学习模式自动联动 UI 状态
+                if (value)
+                {
+                    if (!_followHsBoxOperation)
+                    {
+                        _followHsBoxOperation = true;
+                        _bot.SetFollowHsBoxRecommendations(true);
+                        Notify(nameof(FollowHsBoxOperation));
+                        Notify(nameof(LocalRecommendationControlsEnabled));
+                        Notify(nameof(TopStatusText));
+                    }
+                    if (!_useLearnedLocalStrategy)
+                    {
+                        _useLearnedLocalStrategy = true;
+                        _bot.SetUseLearnedLocalStrategy(true);
+                        Notify(nameof(UseLearnedLocalStrategy));
+                    }
+                }
                 Notify();
                 AutoSave();
             }
