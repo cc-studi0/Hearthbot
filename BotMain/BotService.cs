@@ -520,6 +520,34 @@ namespace BotMain
             Log($"[Settings] UseLearnedLocalStrategy={value}");
         }
 
+        public Learning.ReadinessStatus GetLearningReadiness()
+        {
+            var snapshot = _learnedStrategyCoordinator.Consistency.GetSnapshot();
+            var store = _learnedStrategyCoordinator.ConsistencyStore;
+            var totalMatches = 0;
+            double recentWinRate = 0, learningWinRate = 0;
+            try
+            {
+                if (store != null)
+                {
+                    totalMatches = store.GetTotalMatchCount();
+                    recentWinRate = store.GetRecentWinRate(30);
+                    learningWinRate = store.GetLearningPhaseWinRate(30);
+                }
+            }
+            catch { }
+
+            return Learning.ReadinessMonitor.Evaluate(new Learning.ReadinessInput
+            {
+                ActionRate = snapshot.ActionRate,
+                MulliganRate = snapshot.MulliganRate,
+                ChoiceRate = snapshot.ChoiceRate,
+                TotalMatches = totalMatches,
+                RecentWinRate = recentWinRate,
+                LearningPhaseWinRate = learningWinRate
+            });
+        }
+
         public void SetHumanizeActionsEnabled(bool value)
         {
             _humanizeActionsEnabled = value;
@@ -1530,6 +1558,39 @@ namespace BotMain
             {
                 _teacherDatasetRecorder.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
                 _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
+
+                // 一致率摘要 + 胜负记录
+                if (_learnFromHsBoxRecommendations)
+                {
+                    var snap = _learnedStrategyCoordinator.Consistency.GetSnapshot();
+                    Log($"[Learning] 对局结束一致率摘要: 动作={snap.ActionRate:0.0}%({snap.ActionCount}/{snap.TotalActions}) 留牌={snap.MulliganRate:0.0}%({snap.MulliganCount}) 选择={snap.ChoiceRate:0.0}%({snap.ChoiceCount})");
+                }
+                try
+                {
+                    _learnedStrategyCoordinator.ConsistencyStore?.RecordMatchOutcome(
+                        _currentLearningMatchId,
+                        decision.LearnedOutcome == LearnedMatchOutcome.Win,
+                        _learnFromHsBoxRecommendations);
+                }
+                catch { }
+
+                // P4: 独立运行安全监控
+                if (_useLearnedLocalStrategy && !_followHsBoxRecommendations)
+                {
+                    try
+                    {
+                        var store = _learnedStrategyCoordinator.ConsistencyStore;
+                        if (store != null)
+                        {
+                            var recentWinRate = store.GetRecentWinRate(10);
+                            var baselineWinRate = store.GetLearningPhaseWinRate(30);
+                            if (baselineWinRate - recentWinRate > 15.0)
+                                Log($"[Learning] ⚠ 胜率骤降警告: 最近10局胜率 {recentWinRate:0.0}% vs 学习期基线 {baselineWinRate:0.0}%，建议重新开启盒子学习");
+                        }
+                    }
+                    catch { }
+                }
+
                 _currentLearningMatchId = string.Empty;
             }
 
@@ -6037,6 +6098,27 @@ namespace BotMain
             Action<Board, SimBoard, ProfileParameters> parameterMutator = null;
             if (_useLearnedLocalStrategy)
             {
+                // P2: 评估权重注入 BoardEvaluator
+                var planBoard = request.PlanningBoard;
+                if (planBoard != null && _ai.Evaluator != null)
+                {
+                    var evalWeights = _learnedStrategyCoordinator.EvalWeights;
+                    var bucketKey = Learning.EvalBucketKey.FromBoardState(
+                        planBoard.TurnCount,
+                        (planBoard.HeroFriend?.CurrentHealth ?? 30) + (planBoard.HeroFriend?.CurrentArmor ?? 0),
+                        (planBoard.HeroEnemy?.CurrentHealth ?? 30) + (planBoard.HeroEnemy?.CurrentArmor ?? 0),
+                        planBoard.MinionFriend?.Count ?? 0,
+                        planBoard.MinionEnemy?.Count ?? 0);
+                    if (evalWeights.TryGet(bucketKey, out var learnedSet) && learnedSet.SampleCount >= 20)
+                    {
+                        _ai.Evaluator.LearnedScales = (learnedSet.FaceBiasScale, learnedSet.BoardControlScale, learnedSet.TempoPenaltyScale, learnedSet.HandValueScale);
+                    }
+                    else
+                    {
+                        _ai.Evaluator.LearnedScales = null;
+                    }
+                }
+
                 parameterMutator = (board, simBoard, parameters) =>
                 {
                     if (_learnedStrategyCoordinator.Runtime.TryApplyActionPatch(request, board, simBoard, parameters, out var learnedDetail))
@@ -6054,6 +6136,27 @@ namespace BotMain
 
             if (TryInjectLocalTitanAction(actions, request?.PlanningBoard, out var titanDetail))
                 detail += $", titan={titanDetail}";
+
+            // P3: 特征评分日志
+            if (_useLearnedLocalStrategy && _learnedStrategyCoordinator.ScoringModel != null && request?.PlanningBoard != null)
+            {
+                try
+                {
+                    var model = _learnedStrategyCoordinator.ScoringModel;
+                    var planBoard = request.PlanningBoard;
+                    var boardFeatures = Learning.FeatureVectorExtractor.ExtractBoardFeatures(planBoard);
+                    var enemyHeroId = planBoard.HeroEnemy?.Id ?? 0;
+                    var firstAction = actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase));
+                    if (firstAction != null)
+                    {
+                        var actionFeatures = Learning.FeatureVectorExtractor.ExtractActionFeatures(firstAction, planBoard, enemyHeroId);
+                        var combined = Learning.FeatureVectorExtractor.Combine(boardFeatures, actionFeatures);
+                        var score = model.Score(combined);
+                        Log($"[Learned] feature_score={score:0.###} for {firstAction.Substring(0, Math.Min(firstAction.Length, 30))}");
+                    }
+                }
+                catch { }
+            }
 
             return new ActionRecommendationResult(decision, actions, $"local_ai profile={detail}, actions={actions.Count}");
         }

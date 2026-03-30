@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 
 namespace BotMain.Learning
@@ -13,6 +14,11 @@ namespace BotMain.Learning
         private readonly ILearnedStrategyStore _store;
         private readonly ILearnedStrategyTrainer _trainer;
         private readonly ILearnedStrategyRuntime _runtime;
+        private readonly ConsistencyTracker _consistencyTracker;
+        private readonly SqliteConsistencyStore _consistencyStore;
+        private readonly LearnedEvalWeights _evalWeights = new LearnedEvalWeights();
+        private LinearScoringModel _scoringModel;
+        private int _periodicSaveCounter;
         private volatile bool _disposed;
 
         public LearnedStrategyCoordinator(
@@ -24,6 +30,13 @@ namespace BotMain.Learning
             _trainer = trainer ?? new LearnedStrategyTrainer();
             _runtime = runtime ?? new LearnedStrategyRuntime();
             SafeReloadRuntime("startup");
+
+            _consistencyTracker = new ConsistencyTracker(windowSize: 200);
+            try { _consistencyStore = new SqliteConsistencyStore(); }
+            catch { _consistencyStore = null; }
+            LoadConsistencyHistory();
+            LoadEvalWeights();
+            LoadScoringModel();
 
             _worker = new Thread(WorkerLoop)
             {
@@ -37,10 +50,32 @@ namespace BotMain.Learning
 
         public ILearnedStrategyRuntime Runtime => _runtime;
 
+        public ConsistencyTracker Consistency => _consistencyTracker;
+
+        public SqliteConsistencyStore ConsistencyStore => _consistencyStore;
+
+        public LearnedEvalWeights EvalWeights => _evalWeights;
+
+        public LinearScoringModel ScoringModel => _scoringModel;
+
         public void EnqueueActionSample(ActionLearningSample sample)
         {
             if (sample == null)
                 return;
+
+            // 一致率跟踪（主线程，不入队）
+            var isMatch = !string.IsNullOrEmpty(sample.TeacherAction)
+                && !string.IsNullOrEmpty(sample.LocalAction)
+                && string.Equals(
+                    NormalizeActionForComparison(sample.TeacherAction),
+                    NormalizeActionForComparison(sample.LocalAction),
+                    StringComparison.OrdinalIgnoreCase);
+            _consistencyTracker.Record(ConsistencyDimension.Action, isMatch);
+            try { _consistencyStore?.RecordConsistency("Action", isMatch); } catch { }
+
+            var rate = _consistencyTracker.GetRate(ConsistencyDimension.Action);
+            var turn = sample.PlanningBoard?.TurnCount ?? 0;
+            Log($"[Learning] T{turn} 动作{(isMatch ? "一致 ✓" : "不一致 ✗")} (盒子:{Truncate(sample.TeacherAction, 40)} 本地:{Truncate(sample.LocalAction, 40)}) 滑动一致率:{rate:0.0}%");
 
             Enqueue(() =>
             {
@@ -58,6 +93,55 @@ namespace BotMain.Learning
 
                 SafeReloadRuntime("action");
                 Log($"[Learning] action stored: {detail}; {storeDetail}");
+
+                // P2: 评估信号提取
+                try
+                {
+                    if (sample.PlanningBoard != null && !string.IsNullOrEmpty(sample.TeacherAction))
+                    {
+                        var board = sample.PlanningBoard;
+                        var enemyHeroId = board.HeroEnemy?.Id ?? 0;
+                        var signals = ActionPatternClassifier.Classify(
+                            new[] { sample.TeacherAction },
+                            enemyHeroId,
+                            board.ManaAvailable,
+                            board.MaxMana,
+                            board.Hand?.Count ?? 0);
+                        var bucketKey = EvalBucketKey.FromBoardState(
+                            board.TurnCount,
+                            (board.HeroFriend?.CurrentHealth ?? 30) + (board.HeroFriend?.CurrentArmor ?? 0),
+                            (board.HeroEnemy?.CurrentHealth ?? 30) + (board.HeroEnemy?.CurrentArmor ?? 0),
+                            board.MinionFriend?.Count ?? 0,
+                            board.MinionEnemy?.Count ?? 0);
+                        _evalWeights.Update(bucketKey, signals);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Learning] eval signal error: {ex.Message}");
+                }
+
+                // P3: 特征模型在线训练
+                try
+                {
+                    if (_scoringModel != null && sample.PlanningBoard != null
+                        && !string.IsNullOrEmpty(sample.TeacherAction)
+                        && !string.IsNullOrEmpty(sample.LocalAction)
+                        && !string.Equals(sample.TeacherAction, sample.LocalAction, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var boardFeatures = FeatureVectorExtractor.ExtractBoardFeatures(sample.PlanningBoard);
+                        var enemyHeroId = sample.PlanningBoard.HeroEnemy?.Id ?? 0;
+                        var teacherActionFeatures = FeatureVectorExtractor.ExtractActionFeatures(sample.TeacherAction, sample.PlanningBoard, enemyHeroId);
+                        var localActionFeatures = FeatureVectorExtractor.ExtractActionFeatures(sample.LocalAction, sample.PlanningBoard, enemyHeroId);
+                        var teacherCombined = FeatureVectorExtractor.Combine(boardFeatures, teacherActionFeatures);
+                        var localCombined = FeatureVectorExtractor.Combine(boardFeatures, localActionFeatures);
+                        _scoringModel.UpdatePairwise(teacherCombined, localCombined);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"[Learning] scoring model update error: {ex.Message}");
+                }
             });
         }
 
@@ -65,6 +149,14 @@ namespace BotMain.Learning
         {
             if (sample == null)
                 return;
+
+            // 留牌一致率
+            var isMatch = AreEntityIdSetsEqual(sample.TeacherReplaceEntityIds, sample.LocalReplaceEntityIds);
+            _consistencyTracker.Record(ConsistencyDimension.Mulligan, isMatch);
+            try { _consistencyStore?.RecordConsistency("Mulligan", isMatch); } catch { }
+
+            var rate = _consistencyTracker.GetRate(ConsistencyDimension.Mulligan);
+            Log($"[Learning] 留牌{(isMatch ? "一致 ✓" : "不一致 ✗")} 滑动一致率:{rate:0.0}%");
 
             Enqueue(() =>
             {
@@ -89,6 +181,14 @@ namespace BotMain.Learning
         {
             if (sample == null)
                 return;
+
+            // 选择一致率
+            var isMatch = AreEntityIdSetsEqual(sample.TeacherSelectedEntityIds, sample.LocalSelectedEntityIds);
+            _consistencyTracker.Record(ConsistencyDimension.Choice, isMatch);
+            try { _consistencyStore?.RecordConsistency("Choice", isMatch); } catch { }
+
+            var rate = _consistencyTracker.GetRate(ConsistencyDimension.Choice);
+            Log($"[Learning] 选择{(isMatch ? "一致 ✓" : "不一致 ✗")} 滑动一致率:{rate:0.0}%");
 
             Enqueue(() =>
             {
@@ -133,6 +233,7 @@ namespace BotMain.Learning
             _queueSignal.Set();
             try { _worker.Join(1000); } catch { }
             _queueSignal.Dispose();
+            _consistencyStore?.Dispose();
         }
 
         private void Enqueue(Action work)
@@ -179,6 +280,16 @@ namespace BotMain.Learning
                 {
                     Log($"[Learning] worker error: {ex.Message}");
                 }
+
+                _periodicSaveCounter++;
+                if (_periodicSaveCounter >= 50)
+                {
+                    _periodicSaveCounter = 0;
+                    try { _store.SaveEvalWeights(_evalWeights.GetAll()); }
+                    catch (Exception ex) { Log($"[Learning] eval weights save error: {ex.Message}"); }
+                    try { if (_scoringModel != null) _store.SaveScoringModel("action_v1", _scoringModel.Serialize()); }
+                    catch (Exception ex) { Log($"[Learning] scoring model save error: {ex.Message}"); }
+                }
             }
         }
 
@@ -192,6 +303,84 @@ namespace BotMain.Learning
             {
                 Log($"[Learning] reload failed ({reason}): {ex.Message}");
             }
+        }
+
+        private void LoadScoringModel()
+        {
+            try
+            {
+                var serialized = _store.LoadScoringModel("action_v1");
+                _scoringModel = !string.IsNullOrEmpty(serialized)
+                    ? LinearScoringModel.Deserialize(serialized)
+                    : new LinearScoringModel(FeatureVectorExtractor.TotalFeatureCount);
+                Log($"[Learning] 评分模型已加载 ({_scoringModel.FeatureCount} 维)");
+            }
+            catch (Exception ex)
+            {
+                _scoringModel = new LinearScoringModel(FeatureVectorExtractor.TotalFeatureCount);
+                Log($"[Learning] 评分模型加载失败，使用初始模型: {ex.Message}");
+            }
+        }
+
+        private void LoadEvalWeights()
+        {
+            try
+            {
+                var data = _store.LoadEvalWeights();
+                if (data.Count > 0)
+                {
+                    _evalWeights.Load(data);
+                    Log($"[Learning] 评估权重已加载: {data.Count} 个桶");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log($"[Learning] 评估权重加载失败: {ex.Message}");
+            }
+        }
+
+        private void LoadConsistencyHistory()
+        {
+            try
+            {
+                foreach (ConsistencyDimension dim in Enum.GetValues(typeof(ConsistencyDimension)))
+                {
+                    var records = _consistencyStore?.LoadRecentRecords(dim.ToString(), 200);
+                    if (records == null) continue;
+                    foreach (var r in records)
+                        _consistencyTracker.Record(dim, r);
+                }
+                var snapshot = _consistencyTracker.GetSnapshot();
+                Log($"[Learning] 一致率历史已加载: 动作={snapshot.ActionRate:0.0}%({snapshot.ActionCount}), 留牌={snapshot.MulliganRate:0.0}%({snapshot.MulliganCount}), 选择={snapshot.ChoiceRate:0.0}%({snapshot.ChoiceCount})");
+            }
+            catch (Exception ex)
+            {
+                Log($"[Learning] 一致率历史加载失败: {ex.Message}");
+            }
+        }
+
+        private static string NormalizeActionForComparison(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action)) return string.Empty;
+            var parts = action.Split('|');
+            if (parts.Length >= 3) return $"{parts[0]}|{parts[1]}|{parts[2]}";
+            if (parts.Length >= 2) return $"{parts[0]}|{parts[1]}";
+            return parts[0];
+        }
+
+        private static bool AreEntityIdSetsEqual(IReadOnlyList<int> a, IReadOnlyList<int> b)
+        {
+            if (a == null && b == null) return true;
+            if (a == null || b == null) return false;
+            if (a.Count != b.Count) return false;
+            var setA = new HashSet<int>(a);
+            return b.All(id => setA.Contains(id));
+        }
+
+        private static string Truncate(string s, int maxLen)
+        {
+            if (string.IsNullOrEmpty(s) || s.Length <= maxLen) return s ?? "";
+            return s.Substring(0, maxLen) + "...";
         }
 
         private void Log(string message)

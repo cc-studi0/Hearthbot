@@ -351,6 +351,19 @@ namespace BotMain.Learning
                         weight REAL NOT NULL,
                         sample_count INTEGER NOT NULL,
                         updated_at_ms INTEGER NOT NULL
+                    );
+                    CREATE TABLE IF NOT EXISTS eval_weights (
+                        bucket_key TEXT PRIMARY KEY,
+                        face_bias_scale REAL NOT NULL DEFAULT 1.0,
+                        board_control_scale REAL NOT NULL DEFAULT 1.0,
+                        tempo_penalty_scale REAL NOT NULL DEFAULT 1.0,
+                        hand_value_scale REAL NOT NULL DEFAULT 1.0,
+                        hero_power_bonus_scale REAL NOT NULL DEFAULT 1.0,
+                        sample_count INTEGER NOT NULL DEFAULT 0
+                    );
+                    CREATE TABLE IF NOT EXISTS scoring_model (
+                        key TEXT PRIMARY KEY,
+                        serialized_weights TEXT NOT NULL
                     );";
                 command.ExecuteNonQuery();
             }
@@ -856,6 +869,107 @@ namespace BotMain.Learning
                 command.Parameters.AddWithValue("$updatedAtMs", updatedAtMs);
                 command.Parameters.AddWithValue("$ruleKey", ruleKey);
                 command.ExecuteNonQuery();
+            }
+        }
+
+        public void SaveEvalWeights(Dictionary<string, EvalWeightSet> weights)
+        {
+            if (weights == null || weights.Count == 0) return;
+            lock (_sync)
+            {
+                EnsureSchema();
+                using (var connection = OpenConnection())
+                using (var tx = connection.BeginTransaction())
+                {
+                    try
+                    {
+                        foreach (var kv in weights)
+                        {
+                            using (var cmd = connection.CreateCommand())
+                            {
+                                cmd.Transaction = tx;
+                                cmd.CommandText = @"
+                                    INSERT INTO eval_weights(bucket_key, face_bias_scale, board_control_scale, tempo_penalty_scale, hand_value_scale, hero_power_bonus_scale, sample_count)
+                                    VALUES($k, $fb, $bc, $tp, $hv, $hp, $sc)
+                                    ON CONFLICT(bucket_key) DO UPDATE SET
+                                        face_bias_scale = $fb, board_control_scale = $bc, tempo_penalty_scale = $tp,
+                                        hand_value_scale = $hv, hero_power_bonus_scale = $hp, sample_count = $sc";
+                                cmd.Parameters.AddWithValue("$k", kv.Key);
+                                cmd.Parameters.AddWithValue("$fb", kv.Value.FaceBiasScale);
+                                cmd.Parameters.AddWithValue("$bc", kv.Value.BoardControlScale);
+                                cmd.Parameters.AddWithValue("$tp", kv.Value.TempoPenaltyScale);
+                                cmd.Parameters.AddWithValue("$hv", kv.Value.HandValueScale);
+                                cmd.Parameters.AddWithValue("$hp", kv.Value.HeroPowerBonusScale);
+                                cmd.Parameters.AddWithValue("$sc", kv.Value.SampleCount);
+                                cmd.ExecuteNonQuery();
+                            }
+                        }
+                        tx.Commit();
+                    }
+                    catch { tx.Rollback(); throw; }
+                }
+            }
+        }
+
+        public Dictionary<string, EvalWeightSet> LoadEvalWeights()
+        {
+            var result = new Dictionary<string, EvalWeightSet>(StringComparer.Ordinal);
+            lock (_sync)
+            {
+                EnsureSchema();
+                using (var connection = OpenConnection())
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT bucket_key, face_bias_scale, board_control_scale, tempo_penalty_scale, hand_value_scale, hero_power_bonus_scale, sample_count FROM eval_weights";
+                    using (var reader = cmd.ExecuteReader())
+                    {
+                        while (reader.Read())
+                        {
+                            result[reader.GetString(0)] = new EvalWeightSet
+                            {
+                                FaceBiasScale = (float)reader.GetDouble(1),
+                                BoardControlScale = (float)reader.GetDouble(2),
+                                TempoPenaltyScale = (float)reader.GetDouble(3),
+                                HandValueScale = (float)reader.GetDouble(4),
+                                HeroPowerBonusScale = (float)reader.GetDouble(5),
+                                SampleCount = reader.GetInt32(6)
+                            };
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
+        public void SaveScoringModel(string key, string serialized)
+        {
+            lock (_sync)
+            {
+                EnsureSchema();
+                using (var connection = OpenConnection())
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = @"INSERT INTO scoring_model(key, serialized_weights) VALUES($k, $s)
+                                        ON CONFLICT(key) DO UPDATE SET serialized_weights = $s";
+                    cmd.Parameters.AddWithValue("$k", key);
+                    cmd.Parameters.AddWithValue("$s", serialized);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public string LoadScoringModel(string key)
+        {
+            lock (_sync)
+            {
+                EnsureSchema();
+                using (var connection = OpenConnection())
+                using (var cmd = connection.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT serialized_weights FROM scoring_model WHERE key = $k";
+                    cmd.Parameters.AddWithValue("$k", key);
+                    return cmd.ExecuteScalar() as string;
+                }
             }
         }
     }

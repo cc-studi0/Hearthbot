@@ -19,8 +19,11 @@ namespace BotMain
     {
         private readonly SearchEngine _engine;
         private readonly LethalFinder _lethalFinder;
+        private readonly BoardEvaluator _evaluator;
         private readonly SimpleAI _fallbackAi = new SimpleAI();
         public event Action<string> OnLog;
+
+        public BoardEvaluator Evaluator => _evaluator;
 
         /// <summary>是否启用斩杀搜索（默认 true）</summary>
         public bool LethalSearchEnabled { get; set; } = true;
@@ -37,10 +40,10 @@ namespace BotMain
             var db = CardEffectDB.BuildDefault();
             var sim = new BoardSimulator(db);
             var aggroModel = new DefaultAggroInteractionModel();
-            var eval = new BoardEvaluator(db, aggroModel);
+            _evaluator = new BoardEvaluator(db, aggroModel);
             var gen = new ActionGenerator();
             gen.SetEffectDB(db);
-            _engine = new SearchEngine(sim, eval, gen, db, aggroModel, legacyBehaviorCompat: false);
+            _engine = new SearchEngine(sim, _evaluator, gen, db, aggroModel, legacyBehaviorCompat: false);
             _engine.OnLog += msg => OnLog?.Invoke(msg);
 
             _lethalFinder = new LethalFinder(sim, db);

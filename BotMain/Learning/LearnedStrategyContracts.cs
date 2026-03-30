@@ -255,6 +255,10 @@ namespace BotMain.Learning
         bool TryStoreMulliganTraining(MulliganTrainingRecord record, out string detail);
         bool TryStoreChoiceTraining(ChoiceTrainingRecord record, out string detail);
         bool TryApplyMatchOutcome(string matchId, LearnedMatchOutcome outcome, out string detail);
+        void SaveEvalWeights(Dictionary<string, EvalWeightSet> weights);
+        Dictionary<string, EvalWeightSet> LoadEvalWeights();
+        void SaveScoringModel(string key, string serialized);
+        string LoadScoringModel(string key);
     }
 
     internal interface ILearnedStrategyTrainer

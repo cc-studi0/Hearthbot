@@ -134,7 +134,22 @@ namespace BotMain
             });
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
-            _timer.Tick += (_, _) => Notify(nameof(RuntimeText));
+            _timer.Tick += (_, _) =>
+            {
+                Notify(nameof(RuntimeText));
+                // P4: 每 10 秒刷新学习就绪状态
+                if (_bot.State == BotState.Running && _learnFromHsBox && DateTime.Now.Second % 10 == 0)
+                {
+                    try
+                    {
+                        var readiness = _bot.GetLearningReadiness();
+                        LearningStatusText = readiness.IsReady
+                            ? $"[学习] 独立运行就绪 ✓ {readiness.Summary}"
+                            : $"[学习] 学习中... {readiness.Summary}";
+                    }
+                    catch { }
+                }
+            };
             _prepareTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _prepareTimer.Tick += (_, _) =>
             {
@@ -449,6 +464,13 @@ namespace BotMain
                 AutoSave();
             }
         }
+        private string _learningStatusText = "";
+        public string LearningStatusText
+        {
+            get => _learningStatusText;
+            set { if (_learningStatusText != value) { _learningStatusText = value; Notify(); } }
+        }
+
         public bool HumanizeActionsEnabled
         {
             get => _humanizeActionsEnabled;

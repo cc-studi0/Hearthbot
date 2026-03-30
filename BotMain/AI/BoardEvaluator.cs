@@ -19,6 +19,12 @@ namespace BotMain.AI
         public bool EnableTradePenaltyDebug { get; set; }
         public Action<string> OnDebugLog { get; set; }
 
+        /// <summary>
+        /// 由外部在每次搜索前设置的学到评估权重缩放因子。
+        /// null 表示不应用。
+        /// </summary>
+        public (float faceBias, float boardControl, float tempo, float handValue)? LearnedScales { get; set; }
+
         public BoardEvaluator(CardEffectDB db = null, IAggroInteractionModel aggroModel = null)
         {
             _db = db;
@@ -70,6 +76,17 @@ namespace BotMain.AI
                 return -100000f;
 
             float score = 0;
+
+            // 学到的评估权重（P2）
+            float learnedFaceBias = 1f, learnedBoardControl = 1f, learnedTempo = 1f, learnedHandValue = 1f;
+            if (LearnedScales.HasValue)
+            {
+                learnedFaceBias = LearnedScales.Value.faceBias;
+                learnedBoardControl = LearnedScales.Value.boardControl;
+                learnedTempo = LearnedScales.Value.tempo;
+                learnedHandValue = LearnedScales.Value.handValue;
+            }
+
             var aggroCtx = _aggroModel.Build(board, param);
             var aggroCoef = aggroCtx.AggroCoef;
             var friendBoardScale = Clamp(0.85f + 0.22f * aggroCtx.SurvivalBias, 0.7f, 1.4f);
@@ -112,7 +129,7 @@ namespace BotMain.AI
 
             // ── 2. 场面控制评判 ──
             if (friendMinionCount > 0 && enemyMinionCount == 0)
-                score += W_BoardControlBonus;    // 完全控场
+                score += W_BoardControlBonus * learnedBoardControl;    // 完全控场
             else if (friendMinionCount == 0 && enemyMinionCount > 0)
                 score += W_EmptyBoardPenalty;     // 没有随从很危险
             else if (friendMinionCount > enemyMinionCount)
@@ -147,8 +164,8 @@ namespace BotMain.AI
                 int enemyArmor = board.EnemyHero.Armor;
                 int enemyEhp = enemyHp + enemyArmor;
 
-                score -= enemyHp * W_EnemyHeroHp * aggroCoef * aggroCtx.FaceBias;
-                score -= enemyArmor * W_EnemyHeroArmor * aggroCoef * aggroCtx.FaceBias;
+                score -= enemyHp * W_EnemyHeroHp * aggroCoef * aggroCtx.FaceBias * learnedFaceBias;
+                score -= enemyArmor * W_EnemyHeroArmor * aggroCoef * aggroCtx.FaceBias * learnedFaceBias;
 
                 // 接近斩杀连续奖励
                 if (enemyEhp < 30)
@@ -171,15 +188,15 @@ namespace BotMain.AI
             if (handCount == 0)
                 score += W_EmptyHandPenalty * drawCoef;
             else if (handCount <= 7)
-                score += handCount * W_HandCard * drawCoef;
+                score += handCount * W_HandCard * drawCoef * learnedHandValue;
             else
-                score += (7 * W_HandCard + (handCount - 7) * W_HandOverflow) * drawCoef;
+                score += (7 * W_HandCard + (handCount - 7) * W_HandOverflow) * drawCoef * learnedHandValue;
 
             // 抽牌价值
             score += board.FriendCardDraw * W_FriendCardDraw * drawCoef;
 
             // ── 5. 法力效率 ──
-            score += board.Mana * W_WastedMana;
+            score += board.Mana * W_WastedMana * learnedTempo;
 
             // ── 5.5 节奏奖励（鼓励出牌，即使效果未注册也给予正向反馈） ──
             if (board.CardsPlayedThisTurn > 0)
