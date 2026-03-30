@@ -151,20 +151,20 @@ namespace BotMain
                                 }
                                 else
                                 {
-                                    if (minimumUpdatedAtMs <= 0)
+                                    // 同一 payload（updatedAt+signature 不变）但首条动作不同，
+                                    // 说明盒子更新了推荐内容但未刷新时间戳。
+                                    // 与"相同动作重复释放"对齐，不受 minimumUpdatedAtMs 限制。
+                                    var repeatCount = AdvanceRepeatCount(
+                                        ref samePayloadDifferentActionRepeatKey,
+                                        ref samePayloadDifferentActionRepeatCount,
+                                        repeatKey);
+                                    if (repeatCount >= ConstructedRecommendationConsumptionTracker.ReleaseThreshold)
                                     {
-                                        var repeatCount = AdvanceRepeatCount(
-                                            ref samePayloadDifferentActionRepeatKey,
-                                            ref samePayloadDifferentActionRepeatCount,
-                                            repeatKey);
-                                        if (repeatCount >= ConstructedRecommendationConsumptionTracker.ReleaseThreshold)
-                                        {
-                                            releasedDueToSamePayloadReuse = true;
-                                            selectedState = currentState;
-                                            selectedEvaluation = evaluation;
-                                            waitDetail = $"same_payload_reuse:{repeatCount}";
-                                            break;
-                                        }
+                                        releasedDueToSamePayloadReuse = true;
+                                        selectedState = currentState;
+                                        selectedEvaluation = evaluation;
+                                        waitDetail = $"same_payload_reuse:{repeatCount}";
+                                        break;
                                     }
                                 }
                             }
