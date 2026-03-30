@@ -127,9 +127,10 @@ namespace BotMain.AI
                     break;
 
                 case Card.CClass.PRIEST:
-                    // 暗影形态/心灵尖刺：2点伤害（假设最坏情况）
-                    // 普通牧师技能是治疗，但暗影形态很常见，保守估计按2点算
-                    DealHeroPowerDamageToFace(board, 2);
+                    // 只有伤害型技能（心灵尖刺/心灵破碎等）才计入斩杀
+                    // 默认的次级治疗术是治疗，不能打脸
+                    if (IsEnemyPriestDamageHeroPower(board))
+                        DealHeroPowerDamageToFace(board, 2);
                     break;
 
                 case Card.CClass.DEMONHUNTER:
@@ -158,6 +159,22 @@ namespace BotMain.AI
                 // PALADIN: 援军（1/1），来不及攻击
                 // SHAMAN: 图腾召唤，来不及攻击
             }
+        }
+
+        /// <summary>
+        /// 判断敌方牧师的英雄技能是否为伤害型（心灵尖刺/心灵破碎等）。
+        /// 默认的次级治疗术(CS1_112bp)是治疗，不算伤害。
+        /// </summary>
+        private static bool IsEnemyPriestDamageHeroPower(SimBoard board)
+        {
+            if (board.EnemyHeroPower == null)
+                return false;
+
+            var name = board.EnemyHeroPower.CardId.ToString();
+            return name == "EX1_625t"   // 心灵尖刺 Mind Spike (暗影形态第一阶段)
+                || name == "EX1_625t2"  // 心灵破碎 Mind Shatter (暗影形态第二阶段)
+                || name.Contains("MindSpike")
+                || name.Contains("MindShatter");
         }
 
         private static void DealHeroPowerDamageToFace(SimBoard board, int damage)

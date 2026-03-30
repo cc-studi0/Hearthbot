@@ -13,6 +13,7 @@ namespace BotMain.AI
         public SimEntity FriendHero, EnemyHero;
         public SimEntity FriendWeapon, EnemyWeapon;
         public SimEntity HeroPower;
+        public SimEntity EnemyHeroPower;
         public List<SimEntity> Hand = new();
         public List<SimEntity> EnemyHand = new();
         public int Mana, MaxMana;
@@ -45,6 +46,7 @@ namespace BotMain.AI
                 FriendWeapon = FriendWeapon?.Clone(),
                 EnemyWeapon = EnemyWeapon?.Clone(),
                 HeroPower = HeroPower?.Clone(),
+                EnemyHeroPower = EnemyHeroPower?.Clone(),
                 Hand = Hand.Select(c => c.Clone()).ToList(),
                 EnemyHand = EnemyHand.Select(c => c.Clone()).ToList(),
                 Mana = Mana,
@@ -78,6 +80,7 @@ namespace BotMain.AI
             sb.FriendHero = ConvertCard(board.HeroFriend, true);
             sb.EnemyHero = ConvertCard(board.HeroEnemy, false);
             sb.HeroPower = board.Ability != null ? ConvertCard(board.Ability, true) : null;
+            sb.EnemyHeroPower = board.EnemyAbility != null ? ConvertCard(board.EnemyAbility, false) : null;
             sb.FriendWeapon = board.WeaponFriend != null ? ConvertCard(board.WeaponFriend, true) : null;
             sb.EnemyWeapon = board.WeaponEnemy != null ? ConvertCard(board.WeaponEnemy, false) : null;
 
