@@ -511,20 +511,7 @@ namespace BotMain
             _learnFromHsBoxRecommendations = value;
             Log($"[Settings] LearnFromHsBoxRecommendations={value}");
             if (value)
-            {
-                // 学习模式自动联动：跟随盒子执行 + 启用学习策略降级
-                if (!_followHsBoxRecommendations)
-                {
-                    _followHsBoxRecommendations = true;
-                    Log("[Settings] 学习模式已自动启用跟随盒子");
-                }
-                if (!_useLearnedLocalStrategy)
-                {
-                    _useLearnedLocalStrategy = true;
-                    Log("[Settings] 学习模式已自动启用学习策略降级");
-                }
                 ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
-            }
         }
 
         public void SetUseLearnedLocalStrategy(bool value)
