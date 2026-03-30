@@ -1234,6 +1234,44 @@ namespace HearthstonePayload
                     {
                         int attackerId = int.Parse(parts[1]);
                         int targetId = int.Parse(parts[2]);
+                        bool isChainAttack = parts.Length > 3
+                            && string.Equals(parts[3], "CHAIN", StringComparison.OrdinalIgnoreCase);
+
+                        // ── 连续攻击快速路径 ──
+                        // 跳过完整 ReadGameState（打脸时反射调用被动画主线程阻塞约 570ms×2），
+                        // 仅用轻量反射判断英雄身份后直接执行鼠标操作。
+                        // MouseAttack 内部已有目标位置稳定性校验（随从位移安全）。
+                        if (isChainAttack)
+                        {
+                            var chainHero = IsFriendlyHeroEntityId(attackerId);
+                            var chainEnemyHero = IsEnemyHeroEntityId(targetId);
+
+                            var chainMouseSw = Stopwatch.StartNew();
+                            var chainResult = _coroutine.RunAndWait(
+                                MouseAttack(attackerId, targetId, chainHero, chainEnemyHero));
+                            chainMouseSw.Stop();
+                            var chainMouseMs = chainMouseSw.ElapsedMilliseconds;
+
+                            if (!chainResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                AppendActionTrace(
+                                    "ATTACK chain_mouse_fail attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " mouseMs=" + chainMouseMs
+                                    + " result=" + chainResult);
+                                return AppendAttackTimingToResult(
+                                    chainResult, 1, chainMouseMs, 0, 0, "chain_mouse_failed");
+                            }
+
+                            AppendActionTrace(
+                                "ATTACK chain_ok attacker=" + attackerId
+                                + " target=" + targetId
+                                + " mouseMs=" + chainMouseMs);
+                            return AppendAttackTimingToResult(
+                                chainResult, 1, chainMouseMs, 0, 0, "chain_no_confirm");
+                        }
+
+                        // ── 标准路径（首次攻击 / 非连续攻击） ──
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
                         const int attackConfirmPollCount = 1;

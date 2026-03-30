@@ -2582,8 +2582,20 @@ namespace BotMain
 
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
+
+                            // 连续攻击快速路径：向 Payload 传递 CHAIN 标记，
+                            // 跳过慢速 ReadGameState 和确认轮询（节省 ~1100ms）。
+                            var commandToSend = action;
+                            if (isAttack)
+                            {
+                                bool prevInBatchIsAttack = ai > 0
+                                    && actions[ai - 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+                                if (prevInBatchIsAttack || lastRecommendationWasAttackOnly)
+                                    commandToSend = action + "|CHAIN";
+                            }
+
                             var sendSw = Stopwatch.StartNew();
-                            var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
+                            var result = SendActionCommand(pipe, commandToSend, 5000) ?? "NO_RESPONSE";
                             sendSw.Stop();
                             sendMs = sendSw.ElapsedMilliseconds;
                             actionOutcome = result;
