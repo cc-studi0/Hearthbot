@@ -105,6 +105,9 @@ namespace HearthstonePayload
         private static readonly object _friendlyDrawGateSync = new object();
         private static readonly FriendlyDrawGateState _friendlyDrawGate = new FriendlyDrawGateState();
         private static readonly object _choiceDecisionTraceSync = new object();
+        private static readonly object _lastRealBusySync = new object();
+        private static int _lastRealBusyReasonTick;
+        private const int EnchantmentBypassGraceAfterRealBusyMs = 500;
         private static readonly object _pendingOptionTargetSourceSync = new object();
         private static readonly object _humanizerConfigSync = new object();
         private static readonly object _humanizeRandomSync = new object();
@@ -7655,32 +7658,47 @@ namespace HearthstonePayload
 
             // 网络包阻塞检查
             if (TryInvokeBoolMethod(gs, "IsResponsePacketBlocked", out var blocked) && blocked)
+            {
+                TouchLastRealBusyReasonTick();
                 return CreateBusyReadyState("response_packet_blocked");
+            }
 
             // 输入权限检查
             var inputMgr = GetSingleton(_inputMgrType);
             if (inputMgr != null
                 && TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permit)
                 && !permit)
+            {
+                TouchLastRealBusyReasonTick();
                 return CreateBusyReadyState("input_denied");
+            }
 
             // 战吼/动画处理中检查（PowerProcessor 正在运行时游戏状态尚未稳定）
             if (TryInvokeBoolMethod(gs, "IsBlockingPowerProcessor", out var bpp) && bpp)
+            {
+                TouchLastRealBusyReasonTick();
                 return CreateBusyReadyState("blocking_power_processor");
+            }
 
             var ppType = _asm?.GetType("PowerProcessor");
             if (ppType != null)
             {
                 var pp = GetSingleton(ppType);
                 if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var ppRunning) && ppRunning)
+                {
+                    TouchLastRealBusyReasonTick();
                     return CreateBusyReadyState("power_processor_running");
+                }
 
                 // 精准抽牌检测：检查任务列表中是否有未完成的抽牌任务
                 if (pp != null)
                 {
                     var pendingDrawTaskCount = CountPendingDrawTasks(pp);
                     if (pendingDrawTaskCount > 0)
+                    {
+                        TouchLastRealBusyReasonTick();
                         return CreateBusyReadyState("pending_draw_task", drawCount: pendingDrawTaskCount);
+                    }
                 }
             }
 
@@ -7693,33 +7711,51 @@ namespace HearthstonePayload
                 {
                     if (TryInvokeMethod(tsm, "GetCardDrawCount", Array.Empty<object>(), out var countObj)
                         && countObj is int count && count > 0)
+                    {
+                        TouchLastRealBusyReasonTick();
                         return CreateBusyReadyState("turn_start_draw_count", drawCount: count);
+                    }
                 }
             }
 
             // 手牌区域布局检查（抽牌动画、卡牌移动等）
             var handZoneBlockingReason = GetHandZoneBlockingReason(gs);
             if (!string.IsNullOrWhiteSpace(handZoneBlockingReason))
+            {
+                TouchLastRealBusyReasonTick();
                 return CreateBusyReadyState(handZoneBlockingReason);
+            }
 
             if (IsFriendlyDrawGateBlocking(gs, observedFriendlyDraw))
+            {
+                TouchLastRealBusyReasonTick();
                 return CreateBusyReadyState("friendly_draw", GetFriendlyDrawGateEntityId());
+            }
 
             if (TryInvokeBoolMethod(gs, "IsBusy", out var busy) && busy)
             {
-                // 所有真实动画检查（PowerProcessor、网络包、输入权限、抽牌、手牌布局）
-                // 已在上方完成。走到这里说明没有实际动画/处理在运行。
-                // 若任一方英雄存在常驻光环(Enchantment)，IsBusy 极大概率仅因光环视觉效果为 true，
-                // 直接绕过，不再等待签名稳定。
+                // 所有真实动画/处理检查已在上方完成。
+                // 若任一方英雄存在常驻光环，IsBusy 可能仅因光环视觉效果为 true。
+                // 但攻击/法术的视觉动画在 PowerProcessor 结束后仍会持续数百毫秒，
+                // 此时实体位置尚未稳定，过早绕过会导致攻击定位重试、效率下降。
+                // 策略：在最后一次真实 busy 原因之后保留宽限期，等视觉动画基本结束后再绕过。
                 if (HasAnyHeroEnchantments(gs, out var enchantmentDetail))
                 {
-                    AppendActionTrace("WAIT_READY bypass game_busy due to persistent_enchantments " + enchantmentDetail);
-                    return new ReadyWaitDiagnosticState
+                    var msSinceRealBusy = GetMsSinceLastRealBusy();
+                    if (msSinceRealBusy >= EnchantmentBypassGraceAfterRealBusyMs)
                     {
-                        IsReady = true,
-                        PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
-                        Flags = Array.Empty<string>()
-                    };
+                        AppendActionTrace("WAIT_READY bypass game_busy persistent_enchantments " + enchantmentDetail
+                            + " msSinceRealBusy=" + msSinceRealBusy);
+                        return new ReadyWaitDiagnosticState
+                        {
+                            IsReady = true,
+                            PrimaryReason = ReadyWaitDiagnostics.ReadyReason,
+                            Flags = Array.Empty<string>()
+                        };
+                    }
+
+                    // 宽限期内：返回专用原因，不被 BotService PostReady 绕过
+                    return CreateBusyReadyState("enchantment_post_animation_grace");
                 }
 
                 return CreateBusyReadyState("game_busy");
@@ -7805,6 +7841,24 @@ namespace HearthstonePayload
             foreach (var _ in enchantments)
                 count++;
             return count;
+        }
+
+        private static void TouchLastRealBusyReasonTick()
+        {
+            lock (_lastRealBusySync)
+            {
+                _lastRealBusyReasonTick = Environment.TickCount;
+            }
+        }
+
+        private static int GetMsSinceLastRealBusy()
+        {
+            lock (_lastRealBusySync)
+            {
+                if (_lastRealBusyReasonTick == 0)
+                    return int.MaxValue;
+                return Math.Max(0, unchecked(Environment.TickCount - _lastRealBusyReasonTick));
+            }
         }
 
         private static bool TryEnumerateEnchantments(object source, bool preferDisplayed, out IEnumerable enchantments)
