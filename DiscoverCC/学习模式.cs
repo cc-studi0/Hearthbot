@@ -16,7 +16,7 @@ namespace Discover
         public Card.Cards HandlePickDecision(Card.Cards originCard, List<Card.Cards> choices, Board board)
         {
             if (choices == null || choices.Count == 0)
-                return Card.Cards.INVALID;
+                return choices[0];
 
             Card.Cards best = choices[0];
             double bestScore = double.MinValue;
@@ -66,9 +66,7 @@ namespace Discover
             if (card.Poison) score += 4;
             if (card.HasDeathrattle) score += 2;
             if (card.HasBattlecry) score += 2;
-            if (card.Rush) score += 3;
             if (card.Charge) score += 4;
-            if (card.Lifesteal) score += 3;
             if (card.Windfury) score += 2;
             if (card.Stealth) score += 1;
 
