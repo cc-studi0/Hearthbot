@@ -66,12 +66,7 @@ namespace BotMain.Learning
                 return;
 
             // 一致率跟踪（主线程，不入队）
-            var isMatch = !string.IsNullOrEmpty(sample.TeacherAction)
-                && !string.IsNullOrEmpty(sample.LocalAction)
-                && string.Equals(
-                    NormalizeActionForComparison(sample.TeacherAction),
-                    NormalizeActionForComparison(sample.LocalAction),
-                    StringComparison.OrdinalIgnoreCase);
+            var isMatch = CompareActions(sample);
             _consistencyTracker.Record(ConsistencyDimension.Action, isMatch);
             try { _consistencyStore?.RecordConsistency("Action", isMatch); } catch { }
 
@@ -361,6 +356,65 @@ namespace BotMain.Learning
             {
                 Log($"[Learning] 一致率历史加载失败: {ex.Message}");
             }
+        }
+
+        private static bool CompareActions(ActionLearningSample sample)
+        {
+            if (string.IsNullOrEmpty(sample.TeacherAction) || string.IsNullOrEmpty(sample.LocalAction))
+                return false;
+
+            var teacherNorm = NormalizeActionForComparison(sample.TeacherAction);
+            var localNorm = NormalizeActionForComparison(sample.LocalAction);
+
+            // 首选动作完全一致
+            if (string.Equals(teacherNorm, localNorm, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            // 都是 ATTACK 时，比较整个回合的攻击集合（忽略顺序）
+            if (IsAttackAction(sample.TeacherAction) && IsAttackAction(sample.LocalAction)
+                && sample.TeacherActions != null && sample.LocalActions != null
+                && sample.TeacherActions.Count > 0 && sample.LocalActions.Count > 0)
+            {
+                return AreAttackSetsEqual(sample.TeacherActions, sample.LocalActions);
+            }
+
+            return false;
+        }
+
+        private static bool IsAttackAction(string action)
+        {
+            return !string.IsNullOrWhiteSpace(action)
+                && action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool AreAttackSetsEqual(IReadOnlyList<string> teacherActions, IReadOnlyList<string> localActions)
+        {
+            var teacherAttacks = ExtractNormalizedAttacks(teacherActions);
+            var localAttacks = ExtractNormalizedAttacks(localActions);
+
+            if (teacherAttacks.Count != localAttacks.Count)
+                return false;
+
+            // 排序后逐一比较
+            teacherAttacks.Sort(StringComparer.OrdinalIgnoreCase);
+            localAttacks.Sort(StringComparer.OrdinalIgnoreCase);
+            for (var i = 0; i < teacherAttacks.Count; i++)
+            {
+                if (!string.Equals(teacherAttacks[i], localAttacks[i], StringComparison.OrdinalIgnoreCase))
+                    return false;
+            }
+            return true;
+        }
+
+        private static List<string> ExtractNormalizedAttacks(IReadOnlyList<string> actions)
+        {
+            var attacks = new List<string>();
+            foreach (var action in actions)
+            {
+                if (IsAttackAction(action))
+                    attacks.Add(NormalizeActionForComparison(action));
+            }
+            return attacks;
         }
 
         private static string NormalizeActionForComparison(string action)

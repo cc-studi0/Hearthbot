@@ -59,6 +59,8 @@ namespace BotMain.Learning
         public MatchContextSnapshot MatchContext { get; set; } = new MatchContextSnapshot();
         public string TeacherAction { get; set; } = string.Empty;
         public string LocalAction { get; set; } = string.Empty;
+        public IReadOnlyList<string> TeacherActions { get; set; } = Array.Empty<string>();
+        public IReadOnlyList<string> LocalActions { get; set; } = Array.Empty<string>();
     }
 
     internal sealed class MulliganLearningChoice

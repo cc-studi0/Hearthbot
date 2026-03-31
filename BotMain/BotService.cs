@@ -972,7 +972,9 @@ namespace BotMain
                 FriendlyEntities = request.FriendlyEntities ?? Array.Empty<EntityContextSnapshot>(),
                 MatchContext = request.MatchContext ?? new MatchContextSnapshot(),
                 TeacherAction = teacherAction,
-                LocalAction = localAction ?? string.Empty
+                LocalAction = localAction ?? string.Empty,
+                TeacherActions = teacherRecommendation?.Actions ?? Array.Empty<string>(),
+                LocalActions = localRecommendation?.Actions ?? Array.Empty<string>()
             });
         }
 
