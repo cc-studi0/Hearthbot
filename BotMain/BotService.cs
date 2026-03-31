@@ -134,6 +134,7 @@ namespace BotMain
         private const int PostGameResultDrainWindowMs = 900;
         private const int PostGameResultPollIntervalMs = 150;
         private const int PostGameResultResyncAutoQueueDelayMs = 300;
+        private const int PostConcedeExtraCooldownMs = 5000;
         private const int ConsumedBattlegroundRecommendationRepeatThreshold = BattlegroundRecommendationConsumptionTracker.ReleaseThreshold;
         /// <summary>
         /// 匹配结束（找到对手）的时间戳，用于加载保护期判断。
@@ -7778,6 +7779,7 @@ namespace BotMain
             string clearChoiceReason)
         {
             BotProtocol.PostGameResultResolution resultResolution = null;
+            var wasConcede = false;
             if (wasInGame && _postGameSinceUtc == null)
             {
                 _postGameSinceUtc = DateTime.UtcNow;
@@ -7792,6 +7794,7 @@ namespace BotMain
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
 
+                wasConcede = _pendingConcedeLoss;
                 resultResolution = ResolvePostGameResultWithWindow(pipe);
                 HandleGameResult(resultResolution.ResultResponse);
                 ClearEarlyGameResultCache();
@@ -7830,6 +7833,11 @@ namespace BotMain
             {
                 Log($"[AutoQueue] 结果解析刚完成 resync，延后 {PostGameResultResyncAutoQueueDelayMs}ms 再进入首轮探测。");
                 SleepOrCancelled(PostGameResultResyncAutoQueueDelayMs);
+            }
+            if (wasConcede)
+            {
+                Log($"[AutoQueue] 投降对局结束，额外等待 {PostConcedeExtraCooldownMs}ms 让游戏服务器完成清理...");
+                SleepOrCancelled(PostConcedeExtraCooldownMs);
             }
             AutoQueue(pipe);
         }
