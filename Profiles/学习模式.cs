@@ -44,5 +44,15 @@ namespace SmartBotProfiles
 
             return p;
         }
+
+        public Card.Cards SirFinleyChoice(List<Card.Cards> choices)
+        {
+            return choices[0];
+        }
+
+        public Card.Cards KazakusChoice(List<Card.Cards> choices)
+        {
+            return choices[0];
+        }
     }
 }
