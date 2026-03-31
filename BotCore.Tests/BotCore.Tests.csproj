@@ -4,6 +4,7 @@
     <IsPackable>false</IsPackable>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
+    <NoWarn>CA1416</NoWarn>
     <DefaultItemExcludes>$(DefaultItemExcludes);_tmp_*\**</DefaultItemExcludes>
   </PropertyGroup>
 
