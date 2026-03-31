@@ -64,6 +64,16 @@ namespace HearthstonePayload
                 AntiCheatPatches.Apply(harmony);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
+                LogStartupInfo("awake", "MedalSpoof.Apply starting...");
+                try
+                {
+                    MedalSpoof.Apply(harmony, Logger);
+                    LogStartupInfo("awake", "MedalSpoof.Apply finished.");
+                }
+                catch (Exception msEx)
+                {
+                    LogStartupInfo("awake", $"MedalSpoof.Apply FAILED: {msEx}");
+                }
                 Logger.LogInfo("Harmony patches applied.");
                 LogStartupInfo("awake", "Harmony patches applied.");
 
