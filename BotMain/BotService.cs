@@ -127,8 +127,8 @@ namespace BotMain
         private bool _wasMatchmaking;
         private const int DefaultMatchmakingTimeoutSeconds = 60;
         private int _matchmakingTimeoutSeconds = DefaultMatchmakingTimeoutSeconds;
-        private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(2);
-        private const int PostGameLobbyConfirmationsRequired = 2;
+        private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(5);
+        private const int PostGameLobbyConfirmationsRequired = 3;
         private const int PostGameDismissCommandTimeoutMs = 12000;
         private const int PostGameResultWindowMs = 1800;
         private const int PostGameResultDrainWindowMs = 900;
@@ -8182,6 +8182,10 @@ namespace BotMain
                     SleepOrCancelled(800);
                     return;
                 }
+
+                // 结算动画跳过后重置计时，让大厅冷却延迟从到达大厅时开始
+                _postGameSinceUtc = DateTime.UtcNow;
+                _postGameLobbyConfirmCount = 0;
             }
 
             if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
