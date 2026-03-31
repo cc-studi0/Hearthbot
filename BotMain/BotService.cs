@@ -8244,6 +8244,30 @@ namespace BotMain
                     return;
                 }
 
+                // 匹配等待期间检测阻塞弹窗（如"开始游戏时出现错误"）
+                if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, "AutoQueueFinding")
+                    && !string.IsNullOrWhiteSpace(findingDialogType))
+                {
+                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(findingDialogButton))
+                    {
+                        if (TryDismissBlockingDialog(pipe, 2000, out var findingDismissResp, "AutoQueueFinding")
+                            && !string.IsNullOrWhiteSpace(findingDismissResp)
+                            && findingDismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        {
+                            Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton}) -> {findingDismissResp}，重置匹配状态并准备重新排队。");
+                            ResetMatchmakingTracking();
+                            SleepOrCancelled(1000);
+                            return;
+                        }
+
+                        Log($"[AutoQueue] 匹配期间弹窗 {findingDialogType}({findingDialogButton}) 点击失败 -> {findingDismissResp ?? "NO_RESPONSE"}，继续等待。");
+                    }
+                    else
+                    {
+                        Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                    }
+                }
+
                 if ((int)elapsed % 10 < 3)
                     Log($"[AutoQueue] 匹配中... 已等待 {elapsed:F0}s");
                 SleepOrCancelled(2000);
