@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using SmartBot.Plugins.API;
 
 namespace BotMain.Learning
 {
@@ -75,7 +76,9 @@ namespace BotMain.Learning
 
             var rate = _consistencyTracker.GetRate(ConsistencyDimension.Action);
             var turn = sample.PlanningBoard?.TurnCount ?? 0;
-            Log($"[Learning] T{turn} 动作{(isMatch ? "一致 ✓" : "不一致 ✗")} (盒子:{Truncate(sample.TeacherAction, 40)} 本地:{Truncate(sample.LocalAction, 40)}) 滑动一致率:{rate:0.0}%");
+            var teacherDisplay = AnnotateAction(sample.TeacherAction, sample.PlanningBoard);
+            var localDisplay = AnnotateAction(sample.LocalAction, sample.PlanningBoard);
+            Log($"[Learning] T{turn} 动作{(isMatch ? "一致 ✓" : "不一致 ✗")} (盒子:{Truncate(teacherDisplay, 60)} 本地:{Truncate(localDisplay, 60)}) 滑动一致率:{rate:0.0}%");
 
             Enqueue(() =>
             {
@@ -375,6 +378,66 @@ namespace BotMain.Learning
             if (a.Count != b.Count) return false;
             var setA = new HashSet<int>(a);
             return b.All(id => setA.Contains(id));
+        }
+
+        private static string AnnotateAction(string action, Board board)
+        {
+            if (string.IsNullOrWhiteSpace(action) || board == null)
+                return action ?? "";
+
+            var parts = action.Split('|');
+            // parts[0] = ACTION_TYPE, parts[1..] = entity IDs (or position)
+            for (var i = 1; i < parts.Length; i++)
+            {
+                if (!int.TryParse(parts[i], out var entityId) || entityId <= 0)
+                    continue;
+                var name = ResolveEntityName(board, entityId);
+                if (!string.IsNullOrEmpty(name))
+                    parts[i] = entityId + "(" + name + ")";
+            }
+            return string.Join("|", parts);
+        }
+
+        private static string ResolveEntityName(Board board, int entityId)
+        {
+            var card = FindEntityOnBoard(board, entityId);
+            if (card?.Template == null)
+                return null;
+            var tmpl = card.Template;
+            var nameCN = ReadStringProp(tmpl, "NameCN");
+            if (!string.IsNullOrWhiteSpace(nameCN))
+                return nameCN;
+            var name = ReadStringProp(tmpl, "Name");
+            if (!string.IsNullOrWhiteSpace(name))
+                return name;
+            return tmpl.Id.ToString();
+        }
+
+        private static Card FindEntityOnBoard(Board board, int entityId)
+        {
+            if (board.HeroFriend != null && board.HeroFriend.Id == entityId) return board.HeroFriend;
+            if (board.HeroEnemy != null && board.HeroEnemy.Id == entityId) return board.HeroEnemy;
+            if (board.Ability != null && board.Ability.Id == entityId) return board.Ability;
+            if (board.WeaponFriend != null && board.WeaponFriend.Id == entityId) return board.WeaponFriend;
+            if (board.WeaponEnemy != null && board.WeaponEnemy.Id == entityId) return board.WeaponEnemy;
+            if (board.Hand != null)
+                foreach (var c in board.Hand) { if (c != null && c.Id == entityId) return c; }
+            if (board.MinionFriend != null)
+                foreach (var c in board.MinionFriend) { if (c != null && c.Id == entityId) return c; }
+            if (board.MinionEnemy != null)
+                foreach (var c in board.MinionEnemy) { if (c != null && c.Id == entityId) return c; }
+            return null;
+        }
+
+        private static string ReadStringProp(object obj, string propName)
+        {
+            if (obj == null) return null;
+            try
+            {
+                var prop = obj.GetType().GetProperty(propName);
+                return prop?.GetValue(obj)?.ToString();
+            }
+            catch { return null; }
         }
 
         private static string Truncate(string s, int maxLen)
