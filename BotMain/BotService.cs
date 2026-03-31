@@ -8604,8 +8604,22 @@ namespace BotMain
 
         private BattleNetLaunchResult LaunchFromBoundBattleNet(string reason)
         {
+            var binding = _battleNetRestartBinding;
+
+            // 未绑定时自动检测运行中的战网进程
+            if (!binding.ProcessId.HasValue || binding.ProcessId.Value <= 0)
+            {
+                var instances = BattleNetWindowManager.EnumerateInstances();
+                if (instances.Count > 0)
+                {
+                    var inst = instances[0];
+                    binding = new BattleNetRestartBinding(inst.ProcessId, inst.WindowTitle);
+                    Log($"[Restart] 自动检测到战网实例 PID={inst.ProcessId} 窗口=\"{inst.WindowTitle}\"");
+                }
+            }
+
             var bindingResult = BattleNetRestartBindingValidator.Validate(
-                _battleNetRestartBinding,
+                binding,
                 BattleNetWindowManager.IsProcessAlive);
             if (!bindingResult.Success)
                 return bindingResult;
