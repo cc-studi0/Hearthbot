@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using SmartBot.Database;
 using SmartBot.Plugins.API;
 
 namespace BotMain.Learning
@@ -386,14 +387,13 @@ namespace BotMain.Learning
                 return action ?? "";
 
             var parts = action.Split('|');
-            // parts[0] = ACTION_TYPE, parts[1..] = entity IDs (or position)
             for (var i = 1; i < parts.Length; i++)
             {
                 if (!int.TryParse(parts[i], out var entityId) || entityId <= 0)
                     continue;
                 var name = ResolveEntityName(board, entityId);
                 if (!string.IsNullOrEmpty(name))
-                    parts[i] = entityId + "(" + name + ")";
+                    parts[i] = name;
             }
             return string.Join("|", parts);
         }
@@ -403,14 +403,21 @@ namespace BotMain.Learning
             var card = FindEntityOnBoard(board, entityId);
             if (card?.Template == null)
                 return null;
-            var tmpl = card.Template;
-            var nameCN = ReadStringProp(tmpl, "NameCN");
-            if (!string.IsNullOrWhiteSpace(nameCN))
-                return nameCN;
-            var name = ReadStringProp(tmpl, "Name");
-            if (!string.IsNullOrWhiteSpace(name))
-                return name;
-            return tmpl.Id.ToString();
+
+            try
+            {
+                var fullTemplate = CardTemplate.LoadFromId(card.Template.Id);
+                if (fullTemplate != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(fullTemplate.NameCN))
+                        return fullTemplate.NameCN;
+                    if (!string.IsNullOrWhiteSpace(fullTemplate.Name))
+                        return fullTemplate.Name;
+                }
+            }
+            catch { }
+
+            return card.Template.Id.ToString();
         }
 
         private static Card FindEntityOnBoard(Board board, int entityId)
@@ -427,17 +434,6 @@ namespace BotMain.Learning
             if (board.MinionEnemy != null)
                 foreach (var c in board.MinionEnemy) { if (c != null && c.Id == entityId) return c; }
             return null;
-        }
-
-        private static string ReadStringProp(object obj, string propName)
-        {
-            if (obj == null) return null;
-            try
-            {
-                var prop = obj.GetType().GetProperty(propName);
-                return prop?.GetValue(obj)?.ToString();
-            }
-            catch { return null; }
         }
 
         private static string Truncate(string s, int maxLen)
