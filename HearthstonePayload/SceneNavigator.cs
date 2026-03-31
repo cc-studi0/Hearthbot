@@ -662,6 +662,8 @@ namespace HearthstonePayload
 
         public string ClickPlay()
         {
+            // 1. 在主线程获取按钮坐标和按钮对象引用
+            object capturedBtn = null;
             var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
@@ -669,10 +671,19 @@ namespace HearthstonePayload
                 try
                 {
                     var scene = GetSceneInternal();
+                    object btn;
                     if (string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
-                        return ClickTournamentPlayInternal();
+                    {
+                        var r = GetPlayButtonInfo(GetDeckPickerTray(), out btn);
+                        capturedBtn = btn;
+                        return r;
+                    }
                     if (string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
-                        return ClickBattlegroundsPlayInternal();
+                    {
+                        var r = GetPlayButtonInfo(GetBaconDisplay(), out btn);
+                        capturedBtn = btn;
+                        return r;
+                    }
                     return "ERROR:scene:" + scene;
                 }
                 catch (Exception ex)
@@ -684,7 +695,10 @@ namespace HearthstonePayload
             if (string.IsNullOrWhiteSpace(result))
                 return "ERROR:unknown";
 
-            // 模拟鼠标点击开始游戏按钮
+            if (result.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                return result;
+
+            // 2. 尝试鼠标点击
             if (result.StartsWith("MOUSE_CLICK:", StringComparison.Ordinal))
             {
                 var coords = result.Substring("MOUSE_CLICK:".Length).Split(',');
@@ -692,12 +706,7 @@ namespace HearthstonePayload
                     && int.TryParse(coords[0], out var clickX)
                     && int.TryParse(coords[1], out var clickY))
                 {
-                    var clickResult = ClickAt(clickX, clickY, 0.3f);
-                    if (string.IsNullOrWhiteSpace(clickResult)
-                        || !clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return "ERROR:mouse_click_failed:" + (clickResult ?? "null");
-                    }
+                    ClickAt(clickX, clickY, 0.3f);
 
                     for (var i = 0; i < 6; i++)
                     {
@@ -705,52 +714,51 @@ namespace HearthstonePayload
                         if (IsFindingGame())
                             return "OK:playButton:finding";
                     }
-
-                    return "OK:playButton";
                 }
-
-                return "ERROR:bad_coords:" + result;
             }
 
-            if (result.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
-                return result;
+            // 3. 鼠标没触发匹配，回退到 API 直接触发按钮
+            if (capturedBtn != null)
+            {
+                var apiResult = OnMain(() =>
+                {
+                    try
+                    {
+                        CallMethod(capturedBtn, "TriggerPress");
+                        CallMethod(capturedBtn, "TriggerRelease");
+                        return "PENDING:playButton_api";
+                    }
+                    catch { return null; }
+                });
 
-            return result;
+                if (!string.IsNullOrWhiteSpace(apiResult))
+                {
+                    for (var i = 0; i < 6; i++)
+                    {
+                        Thread.Sleep(150);
+                        if (IsFindingGame())
+                            return "OK:playButton_api:finding";
+                    }
+                    return "OK:playButton_api";
+                }
+            }
+
+            return "OK:playButton";
         }
 
-        private string ClickTournamentPlayInternal()
+        private string GetPlayButtonInfo(object container, out object playBtn)
         {
-            var dpt = GetDeckPickerTray();
-            if (dpt == null) return "ERROR:no_dpt";
+            playBtn = null;
+            if (container == null) return "ERROR:no_container";
 
-            var playBtn = GetProp(dpt, "m_playButton");
+            playBtn = GetProp(container, "m_playButton");
             if (playBtn == null) return "ERROR:no_play_button";
             if (!IsButtonEnabled(playBtn))
             {
                 var buttonText = TryExtractButtonLabel(playBtn);
                 if (string.IsNullOrWhiteSpace(buttonText))
                     buttonText = "UNKNOWN";
-                return "ERROR:play_disabled:" + buttonText;
-            }
-
-            if (!TryGetScreenPos(playBtn, out var btnX, out var btnY))
-                return "ERROR:no_button_pos";
-
-            return "MOUSE_CLICK:" + btnX + "," + btnY;
-        }
-
-        private string ClickBattlegroundsPlayInternal()
-        {
-            var baconDisplay = GetBaconDisplay();
-            if (baconDisplay == null) return "ERROR:no_bacon_display";
-
-            var playBtn = GetProp(baconDisplay, "m_playButton");
-            if (playBtn == null) return "ERROR:no_play_button";
-            if (!IsButtonEnabled(playBtn))
-            {
-                var buttonText = TryExtractButtonLabel(playBtn);
-                if (string.IsNullOrWhiteSpace(buttonText))
-                    buttonText = "UNKNOWN";
+                playBtn = null;
                 return "ERROR:play_disabled:" + buttonText;
             }
 
