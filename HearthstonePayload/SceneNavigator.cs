@@ -681,20 +681,41 @@ namespace HearthstonePayload
                 }
             });
 
-            if (string.IsNullOrWhiteSpace(result)
-                || !result.StartsWith("PENDING:", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(result))
+                return "ERROR:unknown";
+
+            // 模拟鼠标点击开始游戏按钮
+            if (result.StartsWith("MOUSE_CLICK:", StringComparison.Ordinal))
             {
-                return result ?? "ERROR:unknown";
+                var coords = result.Substring("MOUSE_CLICK:".Length).Split(',');
+                if (coords.Length == 2
+                    && int.TryParse(coords[0], out var clickX)
+                    && int.TryParse(coords[1], out var clickY))
+                {
+                    var clickResult = ClickAt(clickX, clickY, 0.3f);
+                    if (string.IsNullOrWhiteSpace(clickResult)
+                        || !clickResult.StartsWith("OK", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return "ERROR:mouse_click_failed:" + (clickResult ?? "null");
+                    }
+
+                    for (var i = 0; i < 6; i++)
+                    {
+                        Thread.Sleep(150);
+                        if (IsFindingGame())
+                            return "OK:playButton:finding";
+                    }
+
+                    return "OK:playButton";
+                }
+
+                return "ERROR:bad_coords:" + result;
             }
 
-            for (var i = 0; i < 6; i++)
-            {
-                Thread.Sleep(150);
-                if (IsFindingGame())
-                    return "OK:" + result.Substring("PENDING:".Length) + ":finding";
-            }
+            if (result.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
+                return result;
 
-            return "OK:" + result.Substring("PENDING:".Length);
+            return result;
         }
 
         private string ClickTournamentPlayInternal()
@@ -712,28 +733,10 @@ namespace HearthstonePayload
                 return "ERROR:play_disabled:" + buttonText;
             }
 
-            var rPress = CallMethod(playBtn, "TriggerPress");
-            var rRelease = CallMethod(playBtn, "TriggerRelease");
-            if (rPress != null || rRelease != null) return "PENDING:playButton";
+            if (!TryGetScreenPos(playBtn, out var btnX, out var btnY))
+                return "ERROR:no_button_pos";
 
-            foreach (var name in new[] { "OnPlayButtonPressed", "PlayButtonPress", "Play" })
-            {
-                var r = CallMethod(dpt, name);
-                if (r != null) return "PENDING:api:" + name;
-            }
-
-            if (_gameMgrType != null)
-            {
-                var gameMgr = CallStatic(_gameMgrType, "Get");
-                if (gameMgr != null)
-                {
-                    var r = CallMethod(gameMgr, "FindGame",
-                        (int)1 /*GameType.GT_RANKED*/, (int)2 /*FormatType*/, (long)0, (long)0);
-                    if (r != null) return "PENDING:findgame";
-                }
-            }
-
-            return "ERROR:no_play_method";
+            return "MOUSE_CLICK:" + btnX + "," + btnY;
         }
 
         private string ClickBattlegroundsPlayInternal()
@@ -751,14 +754,10 @@ namespace HearthstonePayload
                 return "ERROR:play_disabled:" + buttonText;
             }
 
-            var rPress = CallMethod(playBtn, "TriggerPress");
-            var rRelease = CallMethod(playBtn, "TriggerRelease");
-            if (rPress != null || rRelease != null) return "PENDING:api:bacon_play_button";
+            if (!TryGetScreenPos(playBtn, out var btnX, out var btnY))
+                return "ERROR:no_button_pos";
 
-            var direct = CallMethod(baconDisplay, "PlayButtonRelease", new object[] { null });
-            if (direct != null) return "PENDING:api:bacon_play_button";
-
-            return "ERROR:no_play_method";
+            return "MOUSE_CLICK:" + btnX + "," + btnY;
         }
 
         /// <summary>
