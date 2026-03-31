@@ -127,7 +127,7 @@ namespace BotMain
         private bool _wasMatchmaking;
         private const int DefaultMatchmakingTimeoutSeconds = 60;
         private int _matchmakingTimeoutSeconds = DefaultMatchmakingTimeoutSeconds;
-        private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(5);
+        private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(0);
         private const int PostGameLobbyConfirmationsRequired = 3;
         private const int PostGameDismissCommandTimeoutMs = 12000;
         private const int PostGameResultWindowMs = 1800;
