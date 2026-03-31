@@ -29,17 +29,18 @@ namespace SmartBotProfiles
             // 将手牌（除幸运币）加入重新思考队列，每打出一张牌后重算，减少顺序错误
             if (board?.Hand != null && board.Hand.Count > 0)
             {
-                var resimCards = board.Hand
-                    .Where(c => c.CurrentCard != null && c.CurrentCard.Id != TheCoin)
-                    .Select(c => c.CurrentCard.Id)
-                    .Distinct()
-                    .ToList();
-
-                if (resimCards.Count > 0)
+                var unique = new HashSet<Card.Cards>();
+                foreach (var c in board.Hand)
                 {
-                    p.ForcedResimulationCardList = resimCards;
-                    p.ForceResimulation = true;
+                    if (c?.Template == null) continue;
+                    var id = c.Template.Id;
+                    if (id == TheCoin) continue;
+                    if (!unique.Add(id)) continue;
+                    p.ForcedResimulationCardList.Add(id);
                 }
+
+                if (unique.Count > 0)
+                    p.ForceResimulation = true;
             }
 
             return p;
