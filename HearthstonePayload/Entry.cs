@@ -64,6 +64,7 @@ namespace HearthstonePayload
                 AntiCheatPatches.Apply(harmony);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
+                IpcSniffer.Apply(harmony, Logger);
                 Logger.LogInfo("Harmony patches applied.");
                 LogStartupInfo("awake", "Harmony patches applied.");
 
