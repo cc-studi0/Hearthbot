@@ -41,6 +41,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<DeviceManager>();
+builder.Services.AddSingleton<AlertService>();
+builder.Services.AddHostedService<DeviceWatchdog>();
 
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
