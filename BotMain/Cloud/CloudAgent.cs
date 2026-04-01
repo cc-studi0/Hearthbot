@@ -1,0 +1,198 @@
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.SignalR.Client;
+
+namespace BotMain.Cloud
+{
+    public class CloudAgent : IDisposable
+    {
+        private readonly CloudConfig _config;
+        private readonly Action<string> _log;
+        private HubConnection? _hub;
+        private CancellationTokenSource? _cts;
+        private Timer? _heartbeatTimer;
+        private bool _disposed;
+
+        public bool IsConnected => _hub?.State == HubConnectionState.Connected;
+
+        // 收到指令时触发
+        public event Action<int, string, string>? OnCommandReceived; // commandId, type, payloadJson
+
+        // 状态采集委托，由外部设置
+        public Func<HeartbeatData>? CollectStatus { get; set; }
+
+        // 可用卡组和策略列表，由外部设置
+        public Func<string[]>? GetAvailableDecks { get; set; }
+        public Func<string[]>? GetAvailableProfiles { get; set; }
+
+        public CloudAgent(CloudConfig config, Action<string> log)
+        {
+            _config = config;
+            _log = log;
+        }
+
+        public async Task StartAsync()
+        {
+            if (!_config.IsEnabled)
+            {
+                _log("[云控] 未配置服务器地址，跳过");
+                return;
+            }
+
+            _config.EnsureDeviceId();
+            _cts = new CancellationTokenSource();
+
+            _hub = new HubConnectionBuilder()
+                .WithUrl($"{_config.ServerUrl.TrimEnd('/')}/hub/bot", options =>
+                {
+                    if (!string.IsNullOrEmpty(_config.DeviceToken))
+                        options.AccessTokenProvider = () => Task.FromResult<string?>(_config.DeviceToken);
+                })
+                .WithAutomaticReconnect(new[] { TimeSpan.Zero, TimeSpan.FromSeconds(2),
+                    TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60) })
+                .Build();
+
+            _hub.On<int, string, string>("ExecuteCommand", (cmdId, cmdType, payload) =>
+            {
+                _log($"[云控] 收到指令: {cmdType} (id={cmdId})");
+                OnCommandReceived?.Invoke(cmdId, cmdType, payload);
+            });
+
+            _hub.Reconnecting += _ =>
+            {
+                _log("[云控] 连接断开，正在重连...");
+                return Task.CompletedTask;
+            };
+
+            _hub.Reconnected += _ =>
+            {
+                _log("[云控] 重连成功，重新注册...");
+                return RegisterAsync();
+            };
+
+            _hub.Closed += ex =>
+            {
+                _log($"[云控] 连接关闭: {ex?.Message ?? "正常关闭"}");
+                return Task.CompletedTask;
+            };
+
+            await ConnectWithRetry();
+        }
+
+        private async Task ConnectWithRetry()
+        {
+            var ct = _cts?.Token ?? CancellationToken.None;
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    await _hub!.StartAsync(ct);
+                    _log($"[云控] 已连接到 {_config.ServerUrl}");
+                    await RegisterAsync();
+
+                    _heartbeatTimer?.Dispose();
+                    _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
+                        null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    _log($"[云控] 连接失败: {ex.Message}，30秒后重试...");
+                    try { await Task.Delay(30000, ct); } catch { return; }
+                }
+            }
+        }
+
+        private async Task RegisterAsync()
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            try
+            {
+                var decks = GetAvailableDecks?.Invoke() ?? Array.Empty<string>();
+                var profiles = GetAvailableProfiles?.Invoke() ?? Array.Empty<string>();
+                await _hub.InvokeAsync("Register",
+                    _config.DeviceId,
+                    _config.DisplayName,
+                    decks,
+                    profiles);
+            }
+            catch (Exception ex)
+            {
+                _log($"[云控] 注册失败: {ex.Message}");
+            }
+        }
+
+        private async Task SendHeartbeatAsync()
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            if (CollectStatus == null) return;
+
+            try
+            {
+                var s = CollectStatus();
+                await _hub.InvokeAsync("Heartbeat",
+                    _config.DeviceId, s.Status, s.CurrentAccount, s.CurrentRank,
+                    s.CurrentDeck, s.CurrentProfile, s.GameMode, s.SessionWins, s.SessionLosses);
+            }
+            catch (Exception ex)
+            {
+                _log($"[云控] 心跳发送失败: {ex.Message}");
+            }
+        }
+
+        public async Task ReportGameAsync(string accountName, string result,
+            string myClass, string opponentClass, string deckName, string profileName,
+            int durationSeconds, string rankBefore, string rankAfter, string gameMode)
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            try
+            {
+                await _hub.InvokeCoreAsync("ReportGame", new object[]
+                {
+                    _config.DeviceId, accountName, result, myClass, opponentClass,
+                    deckName, profileName, durationSeconds, rankBefore, rankAfter, gameMode
+                });
+            }
+            catch (Exception ex)
+            {
+                _log($"[云控] 对局上报失败: {ex.Message}");
+            }
+        }
+
+        public async Task AckCommandAsync(int commandId, bool success, string? message = null)
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            try
+            {
+                await _hub.InvokeAsync("CommandAck", commandId, success, message);
+            }
+            catch (Exception ex)
+            {
+                _log($"[云控] 指令回报失败: {ex.Message}");
+            }
+        }
+
+        public void Dispose()
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _cts?.Cancel();
+            _heartbeatTimer?.Dispose();
+            try { _hub?.DisposeAsync().AsTask().Wait(3000); } catch { }
+            _cts?.Dispose();
+        }
+    }
+
+    public struct HeartbeatData
+    {
+        public string Status;
+        public string CurrentAccount;
+        public string CurrentRank;
+        public string CurrentDeck;
+        public string CurrentProfile;
+        public string GameMode;
+        public int SessionWins;
+        public int SessionLosses;
+    }
+}
