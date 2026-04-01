@@ -128,8 +128,8 @@ namespace BotMain
         private const int DefaultMatchmakingTimeoutSeconds = 60;
         private int _matchmakingTimeoutSeconds = DefaultMatchmakingTimeoutSeconds;
         private static readonly TimeSpan PostGameNavigationMinDelay = TimeSpan.FromSeconds(0);
-        private const int PostGameLobbyConfirmationsRequired = 3;
-        private const int PostGameDismissCommandTimeoutMs = 12000;
+        private const int PostGameLobbyConfirmationsRequired = 2;
+        private const int PostGameDismissCommandTimeoutMs = 5000;
         private const int PostGameResultWindowMs = 1800;
         private const int PostGameResultDrainWindowMs = 900;
         private const int PostGameResultPollIntervalMs = 150;
@@ -7594,7 +7594,7 @@ namespace BotMain
                         var extraInfo = extraClickResp == null ? string.Empty : $", extra={extraClickResp}";
                         Log($"[{scope}] CLICK_DISMISS[{clickCount}] -> {dismissResp}{extraInfo}, scene_probe=timeout");
                     }
-                    if (SleepOrCancelled(250)) break;
+                    if (SleepOrCancelled(100)) break;
                     continue;
                 }
 
@@ -7621,7 +7621,7 @@ namespace BotMain
                     return true;
                 }
 
-                if (SleepOrCancelled(250)) break;
+                if (SleepOrCancelled(100)) break;
             }
 
             if (string.Equals(sceneAfter, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
@@ -8215,102 +8215,108 @@ namespace BotMain
                 _postGameLobbyConfirmCount = 0;
             }
 
-            if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+            // 结算保护期内跳过弹窗和匹配检查，直接进入稳定确认（刚结算完不可能在匹配中）
+            if (_postGameSinceUtc != null && !string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
             {
-                if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, "AutoQueueDialog"))
+                // 快速路径：跳过 GET_BLOCKING_DIALOG / IS_FINDING，直奔稳定确认
+            }
+            else
+            {
+                if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 {
-                    Log("[AutoQueue] GET_BLOCKING_DIALOG 超时/串包，等待重试...");
-                    SleepOrCancelled(1000);
-                    return;
-                }
-
-                if (!string.IsNullOrWhiteSpace(lobbyDialogType))
-                {
-                    if (!BotProtocol.IsSafeBlockingDialogButtonLabel(lobbyDialogButton))
+                    if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, "AutoQueueDialog"))
                     {
-                        Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton})，按钮不在安全白名单内，等待后续超时/重试处理。");
-                        SleepOrCancelled(2000);
+                        Log("[AutoQueue] GET_BLOCKING_DIALOG 超时/串包，等待重试...");
+                        SleepOrCancelled(1000);
                         return;
                     }
 
-                    if (!TryDismissBlockingDialog(pipe, 2500, out var dismissDialogResp, "AutoQueueDialog"))
+                    if (!string.IsNullOrWhiteSpace(lobbyDialogType))
                     {
-                        Log($"[AutoQueue] 大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) 点击超时，等待重试。");
-                    }
-                    else
-                    {
-                        Log($"[AutoQueue] 关闭大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) -> {dismissDialogResp}");
-                        if (!string.IsNullOrWhiteSpace(dismissDialogResp)
-                            && dismissDialogResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        if (!BotProtocol.IsSafeBlockingDialogButtonLabel(lobbyDialogButton))
                         {
-                            ResetMatchmakingTracking();
-                        }
-                    }
-
-                    SleepOrCancelled(1000);
-                    return;
-                }
-            }
-
-
-
-            // 检查是否已在匹配中
-            if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))
-            {
-                Log("[AutoQueue] IS_FINDING 超时（payload 无响应），等待重试...");
-                SleepOrCancelled(2000);
-                return;
-            }
-
-            if (finding == "YES")
-            {
-                _wasMatchmaking = true;
-                _postGameSinceUtc = null;
-                _postGameLobbyConfirmCount = 0;
-                if (_findingGameSince == null)
-                {
-                    _findingGameSince = DateTime.UtcNow;
-                    Log("[AutoQueue] 开始匹配，等待进入游戏...");
-                }
-
-                var elapsed = (DateTime.UtcNow - _findingGameSince.Value).TotalSeconds;
-                if (elapsed >= _matchmakingTimeoutSeconds)
-                {
-                    Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {_matchmakingTimeoutSeconds}s)，重启游戏...");
-                    _wasMatchmaking = false;
-                    _matchEndedUtc = null;
-                    RestartHearthstone();
-                    return;
-                }
-
-                // 匹配等待期间检测阻塞弹窗（如"开始游戏时出现错误"）
-                if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, "AutoQueueFinding")
-                    && !string.IsNullOrWhiteSpace(findingDialogType))
-                {
-                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(findingDialogButton))
-                    {
-                        if (TryDismissBlockingDialog(pipe, 2000, out var findingDismissResp, "AutoQueueFinding")
-                            && !string.IsNullOrWhiteSpace(findingDismissResp)
-                            && findingDismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
-                        {
-                            Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton}) -> {findingDismissResp}，重置匹配状态并准备重新排队。");
-                            ResetMatchmakingTracking();
-                            SleepOrCancelled(1000);
+                            Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton})，按钮不在安全白名单内，等待后续超时/重试处理。");
+                            SleepOrCancelled(2000);
                             return;
                         }
 
-                        Log($"[AutoQueue] 匹配期间弹窗 {findingDialogType}({findingDialogButton}) 点击失败 -> {findingDismissResp ?? "NO_RESPONSE"}，继续等待。");
-                    }
-                    else
-                    {
-                        Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                        if (!TryDismissBlockingDialog(pipe, 2500, out var dismissDialogResp, "AutoQueueDialog"))
+                        {
+                            Log($"[AutoQueue] 大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) 点击超时，等待重试。");
+                        }
+                        else
+                        {
+                            Log($"[AutoQueue] 关闭大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) -> {dismissDialogResp}");
+                            if (!string.IsNullOrWhiteSpace(dismissDialogResp)
+                                && dismissDialogResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                ResetMatchmakingTracking();
+                            }
+                        }
+
+                        SleepOrCancelled(1000);
+                        return;
                     }
                 }
 
-                if ((int)elapsed % 10 < 3)
-                    Log($"[AutoQueue] 匹配中... 已等待 {elapsed:F0}s");
-                SleepOrCancelled(2000);
-                return;
+                // 检查是否已在匹配中
+                if (!TryGetYesNoResponse(pipe, "IS_FINDING", 5000, out var finding, "AutoQueue"))
+                {
+                    Log("[AutoQueue] IS_FINDING 超时（payload 无响应），等待重试...");
+                    SleepOrCancelled(2000);
+                    return;
+                }
+
+                if (finding == "YES")
+                {
+                    _wasMatchmaking = true;
+                    _postGameSinceUtc = null;
+                    _postGameLobbyConfirmCount = 0;
+                    if (_findingGameSince == null)
+                    {
+                        _findingGameSince = DateTime.UtcNow;
+                        Log("[AutoQueue] 开始匹配，等待进入游戏...");
+                    }
+
+                    var elapsed = (DateTime.UtcNow - _findingGameSince.Value).TotalSeconds;
+                    if (elapsed >= _matchmakingTimeoutSeconds)
+                    {
+                        Log($"[AutoQueue] 匹配超时 ({elapsed:F0}s >= {_matchmakingTimeoutSeconds}s)，重启游戏...");
+                        _wasMatchmaking = false;
+                        _matchEndedUtc = null;
+                        RestartHearthstone();
+                        return;
+                    }
+
+                    // 匹配等待期间检测阻塞弹窗（如"开始游戏时出现错误"）
+                    if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, "AutoQueueFinding")
+                        && !string.IsNullOrWhiteSpace(findingDialogType))
+                    {
+                        if (BotProtocol.IsSafeBlockingDialogButtonLabel(findingDialogButton))
+                        {
+                            if (TryDismissBlockingDialog(pipe, 2000, out var findingDismissResp, "AutoQueueFinding")
+                                && !string.IsNullOrWhiteSpace(findingDismissResp)
+                                && findingDismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton}) -> {findingDismissResp}，重置匹配状态并准备重新排队。");
+                                ResetMatchmakingTracking();
+                                SleepOrCancelled(1000);
+                                return;
+                            }
+
+                            Log($"[AutoQueue] 匹配期间弹窗 {findingDialogType}({findingDialogButton}) 点击失败 -> {findingDismissResp ?? "NO_RESPONSE"}，继续等待。");
+                        }
+                        else
+                        {
+                            Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                        }
+                    }
+
+                    if ((int)elapsed % 10 < 3)
+                        Log($"[AutoQueue] 匹配中... 已等待 {elapsed:F0}s");
+                    SleepOrCancelled(2000);
+                    return;
+                }
             }
 
             // 匹配刚结束（找到对手），记录结束时间并轮询等待游戏加载
@@ -8467,7 +8473,7 @@ namespace BotMain
                 if (_postGameLobbyConfirmCount < PostGameLobbyConfirmationsRequired)
                 {
                     Log($"[AutoQueue] 等待大厅稳定确认 {_postGameLobbyConfirmCount}/{PostGameLobbyConfirmationsRequired}：scene={scene}, endgame={(postGameEndgameShown ? "1" : "0")}({postGameEndgameClass})");
-                    SleepOrCancelled(1000);
+                    SleepOrCancelled(500);
                     return;
                 }
             }
@@ -8507,7 +8513,7 @@ namespace BotMain
             int vft = _modeIndex == 0 ? 2 : 1;
             var fmtResp = pipe.SendAndReceive("SET_FORMAT:" + vft, 5000);
             Log($"[AutoQueue] 设置模式: vft={vft} -> {fmtResp}");
-            SleepOrCancelled(1000);
+            SleepOrCancelled(300);
 
             var deckName = StripClassSuffix(_selectedDeck);
             var idResp = pipe.SendAndReceive("GET_DECK_ID:" + deckName, 5000);
@@ -8521,7 +8527,7 @@ namespace BotMain
             // 5. 尝试在 UI 中选择卡组
             var selResp = pipe.SendAndReceive("SELECT_DECK:" + deckId, 5000);
             Log($"[AutoQueue] 选择卡组: {deckName}(id={deckId}) -> {selResp}");
-            SleepOrCancelled(1000);
+            SleepOrCancelled(300);
 
             var playResp = pipe.SendAndReceive("CLICK_PLAY", 5000);
             if (string.IsNullOrWhiteSpace(playResp)

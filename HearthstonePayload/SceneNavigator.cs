@@ -13,7 +13,7 @@ namespace HearthstonePayload
     /// </summary>
     public class SceneNavigator
     {
-        private const int DismissClickTimeoutMs = 4000;
+        private const int DismissClickTimeoutMs = 2000;
         private const string StartupRatingsDialogType = "StartupRatings";
         private const string StartupRatingsButtonLabel = "\u70b9\u51fb\u5f00\u59cb";
         private const string StartupRatingsStartPressedEvent = "USER_START_PRESSED";
@@ -2286,11 +2286,11 @@ namespace HearthstonePayload
             foreach (var point in BuildDismissPoints(w, h, isBattlegroundsEndGame))
             {
                 MouseSimulator.MoveTo(point.X, point.Y);
-                yield return 0.05f;
+                yield return 0.03f;
                 MouseSimulator.LeftDown();
-                yield return 0.05f;
+                yield return 0.02f;
                 MouseSimulator.LeftUp();
-                yield return 0.12f;
+                yield return 0.06f;
             }
 
             _coroutine.SetResult("OK:bg_dismiss:screen_sequence");
