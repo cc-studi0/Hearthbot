@@ -84,9 +84,9 @@ namespace BotMain
 
                     if (Process.GetProcessesByName("Hearthstone").Length > 0)
                     {
-                        var msg = "旧炉石进程未能退出，无法启动新实例";
-                        log?.Invoke($"[Restart] {msg}");
-                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, msg);
+                        var exitFailMsg = "旧炉石进程未能退出，无法启动新实例";
+                        log?.Invoke($"[Restart] {exitFailMsg}");
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, exitFailMsg);
                     }
 
                     log?.Invoke("[Restart] 旧炉石进程已退出");
