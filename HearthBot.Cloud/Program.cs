@@ -58,10 +58,13 @@ using (var scope = app.Services.CreateScope())
 }
 
 app.UseCors();
+app.UseDefaultFiles();
+app.UseStaticFiles();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<BotHub>("/hub/bot");
 app.MapHub<DashboardHub>("/hub/dashboard");
+app.MapFallbackToFile("index.html");
 
 app.Run();
