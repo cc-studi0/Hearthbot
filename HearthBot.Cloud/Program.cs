@@ -1,5 +1,6 @@
 using System.Text;
 using HearthBot.Cloud.Data;
+using HearthBot.Cloud.Hubs;
 using HearthBot.Cloud.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
+builder.Services.AddSingleton<DeviceManager>();
+
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
@@ -56,5 +59,7 @@ app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<BotHub>("/hub/bot");
+app.MapHub<DashboardHub>("/hub/dashboard");
 
 app.Run();
