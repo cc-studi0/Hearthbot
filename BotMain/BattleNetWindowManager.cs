@@ -54,13 +54,42 @@ namespace BotMain
         {
             try
             {
-                // 如果炉石已经在运行，直接返回成功
+                // 等待旧的炉石进程完全退出，否则战网不会启动新实例
                 var existing = Process.GetProcessesByName("Hearthstone");
                 if (existing.Length > 0)
                 {
-                    var pid = existing[0].Id;
-                    log?.Invoke($"[Restart] 炉石已在运行 PID={pid}，跳过启动");
-                    return BattleNetLaunchResult.Succeeded(0, pid, "炉石已在运行");
+                    log?.Invoke($"[Restart] 等待旧炉石进程退出...");
+                    foreach (var proc in existing)
+                    {
+                        try
+                        {
+                            if (!proc.HasExited)
+                            {
+                                log?.Invoke($"[Restart] 关闭炉石进程 PID={proc.Id}");
+                                proc.Kill();
+                                proc.WaitForExit(15000);
+                            }
+                        }
+                        catch { }
+                    }
+
+                    // 确认进程已完全退出
+                    var exitDeadline = DateTime.UtcNow.AddSeconds(20);
+                    while (DateTime.UtcNow < exitDeadline && !ct.IsCancellationRequested)
+                    {
+                        if (Process.GetProcessesByName("Hearthstone").Length == 0)
+                            break;
+                        await Task.Delay(1000, ct);
+                    }
+
+                    if (Process.GetProcessesByName("Hearthstone").Length > 0)
+                    {
+                        var msg = "旧炉石进程未能退出，无法启动新实例";
+                        log?.Invoke($"[Restart] {msg}");
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, msg);
+                    }
+
+                    log?.Invoke("[Restart] 旧炉石进程已退出");
                 }
 
                 log?.Invoke($"[Restart] 通过战网协议启动炉石: {HearthstoneProtocolUri}");
