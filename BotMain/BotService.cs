@@ -1684,8 +1684,29 @@ namespace BotMain
             {
                 if (!EnsurePreparedAndConnected())
                 {
-                    Log("Payload not ready. Start canceled.");
-                    return;
+                    // 首次连接失败：炉石可能未运行，尝试通过战网协议启动
+                    var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
+                    if (!hearthstoneAlive)
+                    {
+                        Log("[Restart] 炉石未运行，尝试通过战网协议启动...");
+                        var launchResult = BattleNetWindowManager
+                            .LaunchHearthstoneViaProtocol(Log, _cts?.Token ?? CancellationToken.None)
+                            .GetAwaiter().GetResult();
+                        if (!launchResult.Success)
+                        {
+                            FailRestartAndStop(launchResult.Message);
+                            return;
+                        }
+
+                        Log($"[Restart] 炉石已启动 PID={launchResult.HearthstoneProcessId}，等待 Payload 连接...");
+                    }
+
+                    // 启动后等待 Payload 连接（BepInEx 注入需要时间）
+                    if (!TryReconnectLoop("启动后等待连接"))
+                    {
+                        Log("Payload not ready after launch. Start canceled.");
+                        return;
+                    }
                 }
 
                 var profileName = _selectedProfile?.GetType().Name ?? "None";
@@ -7844,6 +7865,7 @@ namespace BotMain
                 Log($"[AutoQueue] 投降对局结束，额外等待 {PostConcedeExtraCooldownMs}ms 让游戏服务器完成清理...");
                 SleepOrCancelled(PostConcedeExtraCooldownMs);
             }
+            ResetMatchmakingTracking();
             AutoQueue(pipe);
         }
 
@@ -8621,30 +8643,9 @@ namespace BotMain
 
         private BattleNetLaunchResult LaunchFromBoundBattleNet(string reason)
         {
-            var binding = _battleNetRestartBinding;
-
-            // 未绑定时自动检测运行中的战网进程
-            if (!binding.ProcessId.HasValue || binding.ProcessId.Value <= 0)
-            {
-                var instances = BattleNetWindowManager.EnumerateInstances();
-                if (instances.Count > 0)
-                {
-                    var inst = instances[0];
-                    binding = new BattleNetRestartBinding(inst.ProcessId, inst.WindowTitle);
-                    Log($"[Restart] 自动检测到战网实例 PID={inst.ProcessId} 窗口=\"{inst.WindowTitle}\"");
-                }
-            }
-
-            var bindingResult = BattleNetRestartBindingValidator.Validate(
-                binding,
-                BattleNetWindowManager.IsProcessAlive);
-            if (!bindingResult.Success)
-                return bindingResult;
-
-            Log($"[Restart] {reason}: 使用战网实例 PID={bindingResult.BattleNetProcessId} 启动炉石");
+            Log($"[Restart] {reason}: 通过战网协议启动炉石");
             return BattleNetWindowManager
-                .LaunchHearthstoneFromDetailed(
-                    bindingResult.BattleNetProcessId.Value,
+                .LaunchHearthstoneViaProtocol(
                     Log,
                     _cts?.Token ?? CancellationToken.None)
                 .GetAwaiter()

@@ -24,16 +24,26 @@ namespace BotMain
             return true;
         }
 
+        public static Task<BattleNetLaunchResult> LaunchHearthstoneViaProtocol(
+            Action<string> log,
+            CancellationToken ct,
+            int timeoutSeconds = 120)
+        {
+            return Task.FromResult(BattleNetLaunchResult.Succeeded(
+                battleNetProcessId: 0,
+                hearthstoneProcessId: 1,
+                message: "test shim"));
+        }
+
         public static Task<BattleNetLaunchResult> LaunchHearthstoneFromDetailed(
             int processId,
             Action<string> log,
             CancellationToken ct,
-            int timeoutSeconds = 90)
+            int timeoutSeconds = 120)
         {
-            return Task.FromResult(BattleNetLaunchResult.Succeeded(
-                processId,
-                hearthstoneProcessId: 1,
-                message: "test shim"));
+            return LaunchHearthstoneViaProtocol(log, ct, timeoutSeconds);
         }
+
+        public static void KillHearthstone(Action<string> log) { }
     }
 }
