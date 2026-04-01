@@ -19,6 +19,12 @@ namespace BotMain
             e.Handled = true;
         }
 
+        protected override void OnExit(ExitEventArgs e)
+        {
+            (MainWindow?.DataContext as IDisposable)?.Dispose();
+            base.OnExit(e);
+        }
+
         private void OnDomainException(object sender, UnhandledExceptionEventArgs e)
         {
             MessageBox.Show(e.ExceptionObject.ToString(), "致命错误", MessageBoxButton.OK, MessageBoxImage.Error);

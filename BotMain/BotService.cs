@@ -190,6 +190,7 @@ namespace BotMain
         public event Action<string> OnRankUpdated;
         public event Action<string> OnRestartFailed;
         public event Action OnBotStopped;
+        public event Action<bool> OnGameEnded; // true=win, false=loss
 
         public BotState State { get; private set; } = BotState.Idle;
         public bool IsPrepared => _prepared;
@@ -1509,6 +1510,7 @@ namespace BotMain
                 _pluginSystem?.FireOnVictory();
                 Log("[Game] Victory");
                 PublishStatsChanged();
+                try { OnGameEnded?.Invoke(true); } catch { }
             }
             else if (decision.LossDelta > 0)
             {
@@ -1522,6 +1524,7 @@ namespace BotMain
                 _pluginSystem?.FireOnDefeat();
                 Log("[Game] Defeat");
                 PublishStatsChanged();
+                try { OnGameEnded?.Invoke(false); } catch { }
             }
             else if (decision.Result == "TIE")
             {

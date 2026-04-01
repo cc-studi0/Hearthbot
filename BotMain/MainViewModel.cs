@@ -13,11 +13,12 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using SmartBot.Plugins.API;
+using BotMain.Cloud;
 using BotMain.Notification;
 
 namespace BotMain
 {
-    public class MainViewModel : INotifyPropertyChanged
+    public class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         private const int UiModeBattlegrounds = 2;
         private const int UiModeTest = 3;
@@ -27,6 +28,8 @@ namespace BotMain
         private readonly BotService _bot = new();
         private readonly NotificationService _notify = new();
         private readonly AccountController _accountController;
+        private CloudAgent? _cloudAgent;
+        private CommandExecutor? _commandExecutor;
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _prepareTimer;
@@ -179,6 +182,26 @@ namespace BotMain
             LoadSettings();
             _settingsLoaded = true;
             _bot.Prepare();
+
+            // 云控初始化
+            var cloudConfig = CloudConfig.Load();
+            if (cloudConfig.IsEnabled)
+            {
+                _cloudAgent = new CloudAgent(cloudConfig, EnqueueLog);
+                var collector = new DeviceStatusCollector(_bot, _accountController);
+                _cloudAgent.CollectStatus = collector.Collect;
+                _commandExecutor = new CommandExecutor(_bot, _accountController, _cloudAgent, EnqueueLog);
+                _bot.OnGameEnded += _ =>
+                {
+                    _commandExecutor?.ProcessPendingCommands();
+                };
+                _ = _cloudAgent.StartAsync();
+            }
+        }
+
+        public void Dispose()
+        {
+            _cloudAgent?.Dispose();
         }
 
         // 状态
