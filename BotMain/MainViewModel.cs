@@ -30,6 +30,7 @@ namespace BotMain
         private readonly AccountController _accountController;
         private CloudAgent? _cloudAgent;
         private CommandExecutor? _commandExecutor;
+        private AutoUpdater? _autoUpdater;
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _prepareTimer;
@@ -198,11 +199,40 @@ namespace BotMain
                     _commandExecutor?.ProcessPendingCommands();
                 };
                 _ = _cloudAgent.StartAsync();
+
+                // 自动更新
+                _autoUpdater = new AutoUpdater(cloudConfig.ServerUrl, EnqueueLog);
+                _autoUpdater.OnUpdateAvailable += version => _dispatcher.BeginInvoke(() =>
+                {
+                    var result = MessageBox.Show(
+                        "检测到新版本，是否更新？\n\n如正在对局中，将在本局结束后自动更新并重启。",
+                        "自动更新",
+                        MessageBoxButton.YesNo,
+                        MessageBoxImage.Information);
+                    if (result == MessageBoxResult.Yes)
+                    {
+                        var inGame = _bot.State == BotState.Running;
+                        if (inGame)
+                            _bot.FinishAfterGame();
+                        _autoUpdater.AcceptUpdate(inGame);
+                    }
+                    else
+                    {
+                        _autoUpdater.DismissUpdate();
+                    }
+                });
+                _autoUpdater.OnRestarting += () => _dispatcher.BeginInvoke(() =>
+                {
+                    _cloudAgent?.Dispose();
+                });
+                _bot.OnGameEnded += _ => _autoUpdater?.OnGameEnded();
+                _autoUpdater.Start();
             }
         }
 
         public void Dispose()
         {
+            _autoUpdater?.Dispose();
             _cloudAgent?.Dispose();
         }
 
