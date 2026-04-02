@@ -10,7 +10,7 @@ param(
     [string]$RemoteHost = "70.39.201.9",
     [string]$User = "root",
     [int]$Port = 22,
-    [string]$RemotePath = "/opt/hearthbot-cloud",
+    [string]$RemotePath = "/mnt/cloud-server",
     [string]$ServiceName = "hearthbot-cloud"
 )
 
@@ -45,10 +45,22 @@ if ($LASTEXITCODE -ne 0) { throw "SSH 连接失败，请检查 SSH 密钥配置"
 $rsyncAvailable = $false
 try { rsync --version 2>$null | Out-Null; $rsyncAvailable = $true } catch {}
 
+# 上传前删掉本地构建产物中的 appsettings.json，避免覆盖服务器配置
+$localAppSettings = Join-Path $PublishDir "appsettings.json"
+if (Test-Path $localAppSettings) {
+    Remove-Item $localAppSettings -Force
+    Write-Host "  已排除 appsettings.json（保留服务器配置）"
+}
+# 同样排除 cloud.db 数据库
+$localDb = Join-Path $PublishDir "cloud.db"
+if (Test-Path $localDb) {
+    Remove-Item $localDb -Force
+    Write-Host "  已排除 cloud.db（保留服务器数据）"
+}
+
 if ($rsyncAvailable) {
-    # Windows 上 rsync 路径需要转换
     $unixPublish = ($PublishDir -replace '\\','/') -replace '^(.):','/$1'
-    rsync -avz --delete -e "ssh -p $Port" "${unixPublish}/" "${User}@${RemoteHost}:${RemotePath}/"
+    rsync -avz --delete --exclude='appsettings.json' --exclude='cloud.db' -e "ssh -p $Port" "${unixPublish}/" "${User}@${RemoteHost}:${RemotePath}/"
 } else {
     scp -P $Port -r "$PublishDir\*" "${User}@${RemoteHost}:${RemotePath}/"
 }

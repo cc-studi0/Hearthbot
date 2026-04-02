@@ -14,7 +14,7 @@ param(
     [string]$RemoteHost = "70.39.201.9",
     [string]$User = "root",
     [int]$Port = 22,
-    [string]$RemotePath = "/opt/hearthbot-cloud/wwwroot/bot",
+    [string]$RemotePath = "/mnt/cloud-server/wwwroot/bot",
     [switch]$SkipObfuscation,
     [switch]$BuildOnly
 )
