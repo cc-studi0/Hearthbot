@@ -51,7 +51,14 @@ scp -P $Port "$ZipPath" "${User}@${RemoteHost}:${RemotePath}/Hearthbot.zip"
 
 if ($LASTEXITCODE -ne 0) { throw "上传失败" }
 
-Write-Host "  上传完成" -ForegroundColor Green
+# 生成版本文件（zip 的 MD5），bot 机器用它判断是否有更新
+$hash = (Get-FileHash $ZipPath -Algorithm MD5).Hash.ToLower()
+$versionContent = $hash
+$versionFile = Join-Path $RepoRoot "publish\version.txt"
+Set-Content -Path $versionFile -Value $versionContent -NoNewline
+scp -P $Port "$versionFile" "${User}@${RemoteHost}:${RemotePath}/version.txt"
+
+Write-Host "  上传完成 (version: $hash)" -ForegroundColor Green
 
 Write-Host "`n=== 分发就绪 ===" -ForegroundColor Cyan
 Write-Host "下载地址: http://${RemoteHost}:5000/bot/Hearthbot.zip"
