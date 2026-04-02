@@ -200,6 +200,20 @@ namespace BotMain
         public List<string> MulliganProfileNames { get; private set; } = new();
         public List<string> DiscoverProfileNames { get; private set; } = new();
 
+        // 云控用：暴露当前选择的卡组名、策略名、段位、卡组列表
+        public string SelectedDeckName => _selectedDeck;
+        public string SelectedProfileName => _selectedProfile?.GetType().Assembly.GetName().Name ?? "None";
+        public string CurrentRankText => RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex);
+        public int ModeIndex => _modeIndex;
+        public List<string> DeckNames
+        {
+            get
+            {
+                lock (_deckDefinitionsByDisplayName)
+                    return _deckDefinitionsByDisplayName.Keys.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+            }
+        }
+
         private List<Profile> _profiles = new();
         private Dictionary<string, Type> _mulliganProfileTypes = new(StringComparer.OrdinalIgnoreCase);
         private Dictionary<string, Type> _discoverProfileTypes = new(StringComparer.OrdinalIgnoreCase);

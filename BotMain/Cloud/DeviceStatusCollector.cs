@@ -23,14 +23,15 @@ namespace BotMain.Cloud
                 _ => "Idle"
             };
 
+            // 优先从多账号控制器获取，否则从 BotService 获取
             return new HeartbeatData
             {
                 Status = status,
                 CurrentAccount = account?.DisplayName ?? "",
-                CurrentRank = account?.CurrentRankText ?? "",
-                CurrentDeck = account?.DeckName ?? "",
-                CurrentProfile = account?.ProfileName ?? "",
-                GameMode = account?.ModeIndex == 1 ? "Wild" : "Standard",
+                CurrentRank = account?.CurrentRankText ?? _bot.CurrentRankText ?? "",
+                CurrentDeck = account?.DeckName ?? _bot.SelectedDeckName ?? "",
+                CurrentProfile = account?.ProfileName ?? _bot.SelectedProfileName ?? "",
+                GameMode = (account?.ModeIndex ?? _bot.ModeIndex) == 1 ? "Wild" : "Standard",
                 SessionWins = account?.Wins ?? stats.Wins,
                 SessionLosses = account?.Losses ?? stats.Losses
             };

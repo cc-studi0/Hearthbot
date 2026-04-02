@@ -71,6 +71,7 @@ const columns = [
     }
   },
   { title: '卡组', key: 'currentDeck', width: 100 },
+  { title: '策略', key: 'currentProfile', width: 100 },
   {
     title: '操作', key: 'actions', width: 80,
     render: (row: Device) =>

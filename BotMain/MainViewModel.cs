@@ -190,6 +190,8 @@ namespace BotMain
                 _cloudAgent = new CloudAgent(cloudConfig, EnqueueLog);
                 var collector = new DeviceStatusCollector(_bot, _accountController);
                 _cloudAgent.CollectStatus = collector.Collect;
+                _cloudAgent.GetAvailableDecks = () => _bot.DeckNames.ToArray();
+                _cloudAgent.GetAvailableProfiles = () => _bot.ProfileNames.ToArray();
                 _commandExecutor = new CommandExecutor(_bot, _accountController, _cloudAgent, EnqueueLog);
                 _bot.OnGameEnded += _ =>
                 {
