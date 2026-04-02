@@ -18,7 +18,8 @@ echo  ║   0. 退出                         ║
 echo  ║                                   ║
 echo  ╚═══════════════════════════════════╝
 echo.
-set /p choice=  请选择 [0-4]:
+set "choice="
+set /p "choice=请选择 [0-4]: "
 
 if "%choice%"=="1" goto CLOUD
 if "%choice%"=="2" goto BOT
