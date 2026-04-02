@@ -200,11 +200,12 @@ namespace BotMain
         public List<string> MulliganProfileNames { get; private set; } = new();
         public List<string> DiscoverProfileNames { get; private set; } = new();
 
-        // 云控用：暴露当前选择的卡组名、策略名、段位、卡组列表
+        // 云控用：暴露当前选择的卡组名、策略名、段位、玩家昵称、卡组列表
         public string SelectedDeckName => _selectedDeck;
         public string SelectedProfileName => _selectedProfile?.GetType().Assembly.GetName().Name ?? "None";
         public string CurrentRankText => RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex);
         public int ModeIndex => _modeIndex;
+        public string PlayerName { get; private set; } = "";
         public List<string> DeckNames
         {
             get
@@ -1729,6 +1730,7 @@ namespace BotMain
                 _pluginSystem?.FireOnStarted();
                 StatusChanged("Running");
                 TryQueryCurrentRank(_pipe, force: true);
+                TryQueryPlayerName(_pipe);
                 if (CheckRankStopLimit(_pipe, force: true))
                     return;
                 MainLoop();
@@ -7842,6 +7844,7 @@ namespace BotMain
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
                 TryQueryCurrentRank(pipe, force: true);
+                TryQueryPlayerName(pipe);
                 if (CheckRankStopLimit(pipe, force: true))
                     return;
                 if (_finishAfterGame)
@@ -7922,6 +7925,26 @@ namespace BotMain
         private int _lastQueriedStarLevel;
         private int _lastQueriedEarnedStars;
         private int _lastQueriedLegendIndex;
+
+        private void TryQueryPlayerName(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected || !string.IsNullOrEmpty(PlayerName))
+                return;
+            try
+            {
+                var resp = pipe.SendAndReceive("GET_PLAYER_NAME", 2000);
+                if (resp != null && resp.StartsWith("PLAYER_NAME:", StringComparison.Ordinal))
+                {
+                    var name = resp.Substring("PLAYER_NAME:".Length);
+                    if (!string.IsNullOrWhiteSpace(name))
+                    {
+                        PlayerName = name;
+                        Log($"[云控] 玩家昵称: {name}");
+                    }
+                }
+            }
+            catch { }
+        }
 
         private bool CheckRankStopLimit(PipeServer pipe, bool force = false)
         {

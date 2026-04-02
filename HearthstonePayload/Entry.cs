@@ -39,6 +39,8 @@ namespace HearthstonePayload
         private static Func<object> _pendingAction;
         private static object _pendingResult;
 
+        private static bool _memoryCleanupRequested;
+
         private static bool _clickOverlayEnabled;
         private static UnityEngine.Texture2D _overlayDot;
         private static bool _wasPipeConnected;
@@ -94,6 +96,21 @@ namespace HearthstonePayload
             if (deltaTime <= 0f)
                 deltaTime = 0.016f;
             _coroutine?.Tick(deltaTime);
+
+            if (_memoryCleanupRequested)
+            {
+                _memoryCleanupRequested = false;
+                try
+                {
+                    UnityEngine.Resources.UnloadUnusedAssets();
+                    System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
+                    _logSource?.LogInfo("[MemoryCleanup] UnloadUnusedAssets + incremental GC triggered.");
+                }
+                catch (Exception ex)
+                {
+                    _logSource?.LogWarning("[MemoryCleanup] failed: " + ex.Message);
+                }
+            }
 
             if (!_actionReady.IsSet)
                 return;
@@ -219,6 +236,11 @@ namespace HearthstonePayload
                 _lastGameConceded = false;
                 _lastGameResultConfidence = PostGameResultConfidence.Unknown;
             }
+        }
+
+        private static void RequestMemoryCleanup()
+        {
+            _memoryCleanupRequested = true;
         }
 
         private static bool TryCacheLastGameResult(string result, bool conceded, PostGameResultConfidence confidence)
@@ -546,6 +568,7 @@ namespace HearthstonePayload
                     TryRefreshLastGameResult(reader, nav, GetResultRefreshAttempts, GetResultRefreshDelayMs);
 
                 WriteCachedGameResult();
+                RequestMemoryCleanup();
             }
             else if (cmd == "GET_BG_STATE")
             {
@@ -683,6 +706,11 @@ namespace HearthstonePayload
                     (object)(ChoiceController.GetChoiceState() ?? string.Empty));
                 var state = stateResult as string ?? string.Empty;
                 _pipe.Write(string.IsNullOrWhiteSpace(state) ? "NO_CHOICE" : "CHOICE:" + state);
+            }
+            else if (cmd == "GET_PLAYER_NAME")
+            {
+                var name = reader.ReadPlayerName();
+                _pipe.Write(string.IsNullOrEmpty(name) ? "PLAYER_NAME:" : "PLAYER_NAME:" + name);
             }
             else if (cmd == "GET_FRIENDLY_ENTITY_CONTEXT")
             {

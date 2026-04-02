@@ -100,6 +100,24 @@ namespace HearthstonePayload
             }
         }
 
+        public string ReadPlayerName()
+        {
+            if (!Init()) return null;
+            try
+            {
+                var gameState = _ctx.CallStaticAny(_ctx.GameStateType, "Get");
+                if (gameState == null) return null;
+                var friendly = GetFriendlyPlayer(gameState);
+                if (friendly == null) return null;
+                var name = _ctx.CallAny(friendly, "GetName", "GetDisplayName", "GetPlayerName") as string;
+                if (!string.IsNullOrEmpty(name)) return name;
+                // 尝试字段
+                var nameField = _ctx.GetFieldOrPropertyAny(friendly, "m_name", "m_playerName", "Name");
+                return nameField as string;
+            }
+            catch { return null; }
+        }
+
         public List<FriendlyEntityContextEntry> ReadFriendlyEntityContext()
         {
             if (!Init()) return new List<FriendlyEntityContextEntry>();

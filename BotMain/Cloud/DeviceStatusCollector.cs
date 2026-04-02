@@ -27,7 +27,7 @@ namespace BotMain.Cloud
             return new HeartbeatData
             {
                 Status = status,
-                CurrentAccount = account?.DisplayName ?? "",
+                CurrentAccount = account?.DisplayName ?? _bot.PlayerName ?? "",
                 CurrentRank = account?.CurrentRankText ?? _bot.CurrentRankText ?? "",
                 CurrentDeck = account?.DeckName ?? _bot.SelectedDeckName ?? "",
                 CurrentProfile = account?.ProfileName ?? _bot.SelectedProfileName ?? "",
