@@ -97,6 +97,18 @@ if (Test-Path $cardsJson) {
     Write-Host "  cards.json -> OK"
 }
 
+# HearthstonePayload.dll（BepInEx 插件，net472 独立项目）
+Write-Host "  Building HearthstonePayload..." -ForegroundColor Yellow
+dotnet build "$RepoRoot\HearthstonePayload\HearthstonePayload.csproj" -c Release -v q
+if ($LASTEXITCODE -ne 0) { throw "HearthstonePayload build failed" }
+$payloadDll = Join-Path $RepoRoot "HearthstonePayload\bin\Release\net472\HearthstonePayload.dll"
+if (Test-Path $payloadDll) {
+    Copy-Item $payloadDll $PackageDir -Force
+    Write-Host "  HearthstonePayload.dll -> OK"
+} else {
+    Write-Host "  HearthstonePayload.dll -> BUILD OUTPUT NOT FOUND" -ForegroundColor Red
+}
+
 # -- Step 5: Trim --
 Write-Host "`n[5/6] Trimming package..." -ForegroundColor Yellow
 
@@ -134,6 +146,7 @@ $checks = @(
     @{ Name = "DiscoverCC/";     Path = Join-Path $PackageDir "DiscoverCC" }
     @{ Name = "Libs/SBAPI.dll";  Path = Join-Path $PackageDir "Libs\SBAPI.dll" }
     @{ Name = "Data/teacher.db"; Path = Join-Path $PackageDir "Data\HsBoxTeacher\teacher.db" }
+    @{ Name = "HearthstonePayload.dll"; Path = Join-Path $PackageDir "HearthstonePayload.dll" }
 )
 
 $allOk = $true
