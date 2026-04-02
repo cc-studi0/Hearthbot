@@ -2,7 +2,7 @@
 import { ref, onMounted, computed, h } from 'vue'
 import {
   NLayout, NLayoutHeader, NLayoutContent, NSpace, NCard, NStatistic,
-  NDataTable, NTag, NButton, NModal, NSelect, NGrid, NGi, NMenu
+  NDataTable, NTag, NButton, NModal, NSelect, NGrid, NGi, NMenu, NInput
 } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { deviceApi, commandApi } from '../api'
@@ -23,6 +23,7 @@ interface Device {
   lastHeartbeat: string
   availableDecksJson: string
   availableProfilesJson: string
+  orderNumber: string
 }
 
 interface Stats {
@@ -41,6 +42,7 @@ const stats = ref<Stats>({ onlineCount: 0, totalCount: 0, todayGames: 0, todayWi
 const showManage = ref(false)
 const selectedDevice = ref<Device | null>(null)
 const selectedDeck = ref('')
+const editingOrderNumber = ref('')
 
 const todayWinRate = computed(() => {
   const total = stats.value.todayWins + stats.value.todayLosses
@@ -57,7 +59,8 @@ const columns = [
       return h(NTag, { type: map[row.status] || 'default', size: 'small' }, () => label[row.status] || row.status)
     }
   },
-  { title: '当前账号', key: 'currentAccount', width: 120 },
+  { title: '订单号', key: 'orderNumber', width: 120 },
+  { title: '昵称', key: 'currentAccount', width: 100 },
   { title: '段位', key: 'currentRank', width: 100 },
   {
     title: '胜/负', key: 'stats', width: 80,
@@ -84,6 +87,7 @@ const columns = [
 function openManage(device: Device) {
   selectedDevice.value = device
   selectedDeck.value = device.currentDeck
+  editingOrderNumber.value = device.orderNumber || ''
   showManage.value = true
 }
 
@@ -94,6 +98,14 @@ async function sendCommand(type: string, payload: Record<string, any> = {}) {
 
 async function changeDeck() {
   await sendCommand('ChangeDeck', { DeckName: selectedDeck.value })
+}
+
+async function saveOrderNumber() {
+  if (!selectedDevice.value) return
+  const res = await deviceApi.setOrderNumber(selectedDevice.value.deviceId, editingOrderNumber.value)
+  const idx = devices.value.findIndex(d => d.deviceId === selectedDevice.value!.deviceId)
+  if (idx >= 0) devices.value[idx] = res.data
+  selectedDevice.value = res.data
 }
 
 function getAvailableDecks(device: Device) {
@@ -174,7 +186,7 @@ const menuOptions = [
         <NGi>
           <h4>当前状态</h4>
           <p>状态: {{ selectedDevice.status }}</p>
-          <p>账号: {{ selectedDevice.currentAccount }}</p>
+          <p>昵称: {{ selectedDevice.currentAccount }}</p>
           <p>段位: {{ selectedDevice.currentRank }}</p>
           <p>卡组: {{ selectedDevice.currentDeck }}</p>
           <p>策略: {{ selectedDevice.currentProfile }}</p>
@@ -183,6 +195,13 @@ const menuOptions = [
         </NGi>
         <NGi>
           <h4>远程操作</h4>
+          <div style="margin-bottom:12px">
+            <label>订单号</label>
+            <NSpace>
+              <NInput v-model:value="editingOrderNumber" placeholder="输入订单号" style="width:200px" />
+              <NButton type="primary" size="small" @click="saveOrderNumber">保存</NButton>
+            </NSpace>
+          </div>
           <div style="margin-bottom:12px">
             <label>切换卡组</label>
             <NSpace>

@@ -16,4 +16,5 @@ public class Device
     public DateTime RegisteredAt { get; set; }
     public string AvailableDecksJson { get; set; } = "[]";
     public string AvailableProfilesJson { get; set; } = "[]";
+    public string OrderNumber { get; set; } = string.Empty;
 }

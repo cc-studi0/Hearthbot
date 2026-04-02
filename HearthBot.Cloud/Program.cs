@@ -55,6 +55,8 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
     db.Database.EnsureCreated();
+    // 兼容已有数据库：尝试添加新列
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN OrderNumber TEXT NOT NULL DEFAULT ''"); } catch { }
 }
 
 app.UseCors();

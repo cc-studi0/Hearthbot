@@ -28,6 +28,16 @@ public class DeviceController : ControllerBase
         return device == null ? NotFound() : Ok(device);
     }
 
+    [HttpPut("{deviceId}/order-number")]
+    public async Task<IActionResult> SetOrderNumber(string deviceId, [FromBody] SetOrderNumberRequest request)
+    {
+        var device = await _db.Devices.FindAsync(deviceId);
+        if (device == null) return NotFound();
+        device.OrderNumber = request.OrderNumber ?? string.Empty;
+        await _db.SaveChangesAsync();
+        return Ok(device);
+    }
+
     [HttpGet("stats")]
     public async Task<IActionResult> GetStats()
     {
@@ -47,4 +57,9 @@ public class DeviceController : ControllerBase
                 d.LastHeartbeat < DateTime.UtcNow.AddSeconds(-90))
         });
     }
+}
+
+public class SetOrderNumberRequest
+{
+    public string? OrderNumber { get; set; }
 }
