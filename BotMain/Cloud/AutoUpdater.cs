@@ -132,7 +132,9 @@ namespace BotMain.Cloud
                 var script = $@"@echo off
 chcp 65001 >nul
 title HearthBot 正在更新...
-echo 等待旧进程退出...
+echo 关闭炉石...
+taskkill /F /IM Hearthstone.exe >nul 2>&1
+echo 等待脚本进程退出...
 :WAIT
 tasklist /FI ""PID eq {pid}"" 2>NUL | find ""{pid}"" >NUL
 if not errorlevel 1 (
@@ -149,7 +151,7 @@ if errorlevel 1 (
 echo {versionContent}> ""{Path.Combine(_appDir, "version.txt")}""
 del ""{zipPath}"" 2>nul
 echo 启动新版本...
-start """" ""{exePath}""
+start """" ""{exePath}"" --post-update
 del ""%~f0"" 2>nul
 exit
 ";

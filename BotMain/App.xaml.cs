@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Windows;
 using System.Windows.Threading;
 
@@ -6,9 +7,12 @@ namespace BotMain
 {
     public partial class App : Application
     {
+        public static bool IsPostUpdate { get; private set; }
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
+            IsPostUpdate = e.Args.Contains("--post-update", StringComparer.OrdinalIgnoreCase);
             DispatcherUnhandledException += OnDispatcherException;
             AppDomain.CurrentDomain.UnhandledException += OnDomainException;
         }

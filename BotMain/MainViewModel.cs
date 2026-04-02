@@ -7,6 +7,8 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Text.Json;
 using System.Windows;
@@ -228,6 +230,41 @@ namespace BotMain
                 _bot.OnGameEnded += _ => _autoUpdater?.OnGameEnded();
                 _autoUpdater.Start();
             }
+
+            // 更新后自动恢复：部署 payload → 启动炉石 → 开始挂机
+            if (App.IsPostUpdate)
+            {
+                EnqueueLog("[自动更新] 更新完成，准备自动恢复...");
+                TryDeployPayloadDll();
+                _ = PostUpdateResumeAsync();
+            }
+        }
+
+        private async Task PostUpdateResumeAsync()
+        {
+            EnqueueLog("[自动更新] 正在启动炉石...");
+            var result = await BattleNetWindowManager.LaunchHearthstoneViaProtocol(EnqueueLog, CancellationToken.None);
+            if (!result.Success)
+            {
+                EnqueueLog($"[自动更新] 启动炉石失败: {result.Message}");
+                return;
+            }
+            EnqueueLog("[自动更新] 炉石已启动，等待准备就绪后自动开始...");
+            // 等 bot prepare 完成后自动点开始
+            _dispatcher.BeginInvoke(() =>
+            {
+                var autoStartTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+                autoStartTimer.Tick += (_, _) =>
+                {
+                    if (_bot.IsPrepared && _bot.State == BotState.Idle)
+                    {
+                        autoStartTimer.Stop();
+                        EnqueueLog("[自动更新] 自动开始挂机");
+                        OnMainButton();
+                    }
+                };
+                autoStartTimer.Start();
+            });
         }
 
         public void Dispose()
