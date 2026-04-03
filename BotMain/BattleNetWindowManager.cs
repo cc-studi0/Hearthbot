@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 
 namespace BotMain
 {
@@ -51,47 +51,28 @@ namespace BotMain
         /// </summary>
         public static string FindBattleNetExePath()
         {
-            // 1. 从注册表查找安装路径
+            // 1. 从运行中的 Battle.net 进程获取路径（最快最可靠）
             try
             {
-                using var key = Registry.LocalMachine.OpenSubKey(
-                    @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Battle.net");
-                if (key != null)
+                foreach (var name in new[] { "Battle.net", "Battle.net.beta" })
                 {
-                    var installDir = key.GetValue("InstallLocation") as string;
-                    if (!string.IsNullOrWhiteSpace(installDir))
+                    var procs = Process.GetProcessesByName(name);
+                    foreach (var proc in procs)
                     {
-                        var exePath = Path.Combine(installDir, "Battle.net.exe");
-                        if (File.Exists(exePath))
-                            return exePath;
+                        try
+                        {
+                            var path = proc.MainModule?.FileName;
+                            if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                                return path;
+                        }
+                        catch { }
+                        finally { proc.Dispose(); }
                     }
-
-                    // 备选：从 DisplayIcon 获取
-                    var icon = key.GetValue("DisplayIcon") as string;
-                    if (!string.IsNullOrWhiteSpace(icon) && File.Exists(icon))
-                        return icon;
                 }
             }
             catch { }
 
-            // 2. 从运行中的 Battle.net 进程获取路径
-            try
-            {
-                var procs = Process.GetProcessesByName("Battle.net");
-                foreach (var proc in procs)
-                {
-                    try
-                    {
-                        var path = proc.MainModule?.FileName;
-                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
-                            return path;
-                    }
-                    catch { }
-                }
-            }
-            catch { }
-
-            // 3. 常见安装路径
+            // 2. 常见安装路径
             var commonPaths = new[]
             {
                 @"C:\Program Files (x86)\Battle.net\Battle.net.exe",
@@ -108,91 +89,110 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 通过 Battle.net.exe --exec="launch WTCG" 启动炉石传说，等待炉石进程出现。
+        /// 启动炉石传说。通过 Battle.net 命令行 --exec="launch WTCG" 启动。
         /// </summary>
         public static async Task<BattleNetLaunchResult> LaunchHearthstoneViaProtocol(
             Action<string> log, CancellationToken ct, int timeoutSeconds = 120)
         {
+            return await LaunchHearthstoneCmd(log, ct, timeoutSeconds);
+        }
+
+        /// <summary>
+        /// 通过 Battle.net 命令行启动炉石（SmartBot 方式）。
+        /// 使用 --exec="launch WTCG" 参数直接启动，无需窗口交互。
+        /// </summary>
+        public static async Task<BattleNetLaunchResult> LaunchHearthstoneCmd(
+            Action<string> log, CancellationToken ct, int timeoutSeconds = 120)
+        {
             try
             {
-                // 等待旧的炉石进程完全退出，否则战网不会启动新实例
+                // 杀掉旧炉石进程
                 var existing = Process.GetProcessesByName("Hearthstone");
                 if (existing.Length > 0)
                 {
-                    log?.Invoke("[Restart] 等待旧炉石进程退出...");
+                    log?.Invoke("[Watchdog] 等待旧炉石进程退出...");
                     foreach (var proc in existing)
                     {
-                        try
-                        {
-                            if (!proc.HasExited)
-                            {
-                                log?.Invoke($"[Restart] 关闭炉石进程 PID={proc.Id}");
-                                proc.Kill();
-                                proc.WaitForExit(15000);
-                            }
-                        }
+                        try { if (!proc.HasExited) { proc.Kill(); proc.WaitForExit(15000); } }
                         catch { }
+                        finally { proc.Dispose(); }
                     }
 
                     var exitDeadline = DateTime.UtcNow.AddSeconds(20);
                     while (DateTime.UtcNow < exitDeadline && !ct.IsCancellationRequested)
                     {
-                        if (Process.GetProcessesByName("Hearthstone").Length == 0)
-                            break;
+                        if (Process.GetProcessesByName("Hearthstone").Length == 0) break;
                         await Task.Delay(1000, ct);
                     }
 
                     if (Process.GetProcessesByName("Hearthstone").Length > 0)
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, "旧炉石进程未能退出");
+
+                    log?.Invoke("[Watchdog] 旧炉石进程已退出");
+                }
+
+                // 查找 Battle.net 可执行文件路径
+                string bnetExePath = FindBattleNetExeFromProcess();
+                if (bnetExePath == null)
+                    bnetExePath = FindBattleNetExePath();
+
+                if (string.IsNullOrWhiteSpace(bnetExePath))
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, "未找到 Battle.net 路径");
+
+                // 确保 Battle.net 正在运行
+                if (!IsBattleNetRunning())
+                {
+                    log?.Invoke($"[Watchdog] 启动 Battle.net: {bnetExePath}");
+                    Process.Start(new ProcessStartInfo { FileName = bnetExePath, UseShellExecute = true });
+
+                    var bnetDeadline = DateTime.UtcNow.AddSeconds(30);
+                    while (DateTime.UtcNow < bnetDeadline && !ct.IsCancellationRequested)
                     {
-                        var exitFailMsg = "旧炉石进程未能退出，无法启动新实例";
-                        log?.Invoke($"[Restart] {exitFailMsg}");
-                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, exitFailMsg);
+                        await Task.Delay(2000, ct);
+                        if (IsBattleNetRunning()) break;
                     }
 
-                    log?.Invoke("[Restart] 旧炉石进程已退出");
+                    if (!IsBattleNetRunning())
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, "Battle.net 启动超时");
+
+                    await Task.Delay(5000, ct);
+
+                    // 重新获取路径
+                    var freshPath = FindBattleNetExeFromProcess();
+                    if (freshPath != null) bnetExePath = freshPath;
                 }
 
-                // 查找 Battle.net.exe
-                var battleNetExe = FindBattleNetExePath();
-                if (string.IsNullOrWhiteSpace(battleNetExe))
+                // 通过命令行启动炉石
+                log?.Invoke($"[Watchdog] 执行: \"{bnetExePath}\" --exec=\"launch {HearthstoneProductCode}\"");
+                Process.Start(new ProcessStartInfo
                 {
-                    var notFoundMsg = "未找到 Battle.net.exe，请确认战网已安装";
-                    log?.Invoke($"[Restart] {notFoundMsg}");
-                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, notFoundMsg);
-                }
-
-                // 用命令行参数启动炉石
-                var launchArg = $"--exec=\"launch {HearthstoneProductCode}\"";
-                log?.Invoke($"[Restart] 启动炉石: \"{battleNetExe}\" {launchArg}");
-                var psi = new ProcessStartInfo
-                {
-                    FileName = battleNetExe,
-                    Arguments = launchArg,
+                    FileName = bnetExePath,
+                    Arguments = $"--exec=\"launch {HearthstoneProductCode}\"",
                     UseShellExecute = true
-                };
-                Process.Start(psi);
+                });
 
                 // 等待炉石进程出现
-                log?.Invoke("[Restart] 等待炉石进程启动...");
+                log?.Invoke("[Watchdog] 等待炉石进程启动...");
                 var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
                 while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
                 {
                     await Task.Delay(2000, ct);
+
+                    KillWerFault(null);
+
                     var hsProcs = Process.GetProcessesByName("Hearthstone");
                     if (hsProcs.Length > 0)
                     {
                         var hsPid = hsProcs[0].Id;
-                        log?.Invoke($"[Restart] 炉石进程已启动 PID={hsPid}");
-                        return BattleNetLaunchResult.Succeeded(0, hsPid, $"炉石进程已启动 PID={hsPid}");
+                        log?.Invoke($"[Watchdog] 炉石进程已启动 PID={hsPid}");
+                        return BattleNetLaunchResult.Succeeded(0, hsPid, $"炉石已启动 PID={hsPid}");
                     }
                 }
 
                 if (ct.IsCancellationRequested)
                     return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.Cancelled, "启动取消");
 
-                var msg = $"启动炉石超时 ({timeoutSeconds}s)";
-                log?.Invoke($"[Restart] {msg}");
-                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, msg);
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, $"启动炉石超时 ({timeoutSeconds}s)");
             }
             catch (OperationCanceledException)
             {
@@ -200,10 +200,86 @@ namespace BotMain
             }
             catch (Exception ex)
             {
-                var msg = $"启动失败: {ex.Message}";
-                log?.Invoke($"[Restart] {msg}");
-                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, msg);
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, $"启动失败: {ex.Message}");
             }
+        }
+
+        /// <summary>
+        /// 杀掉所有 Battle.net 进程
+        /// </summary>
+        public static void KillBattleNet(Action<string> log)
+        {
+            foreach (var name in new[] { "Battle.net", "Battle.net.beta" })
+            {
+                var procs = Process.GetProcessesByName(name);
+                foreach (var proc in procs)
+                {
+                    try
+                    {
+                        log?.Invoke($"[Watchdog] 关闭 {name} PID={proc.Id}");
+                        proc.Kill();
+                        proc.WaitForExit(10000);
+                    }
+                    catch { }
+                    finally { proc.Dispose(); }
+                }
+            }
+        }
+
+        /// <summary>
+        /// 杀掉所有 WerFault 崩溃弹窗进程
+        /// </summary>
+        public static void KillWerFault(Action<string> log)
+        {
+            var procs = Process.GetProcessesByName("WerFault");
+            foreach (var proc in procs)
+            {
+                try
+                {
+                    log?.Invoke("[Watchdog] 关闭 WerFault 崩溃弹窗");
+                    proc.Kill();
+                }
+                catch { }
+                finally { proc.Dispose(); }
+            }
+        }
+
+        /// <summary>
+        /// 检查 Hearthstone 进程是否正在响应
+        /// </summary>
+        public static bool IsHearthstoneResponding()
+        {
+            var procs = Process.GetProcessesByName("Hearthstone");
+            if (procs.Length == 0) return false;
+            try { return procs[0].Responding; }
+            catch { return false; }
+            finally { foreach (var p in procs) p.Dispose(); }
+        }
+
+        private static bool IsBattleNetRunning()
+        {
+            return Process.GetProcessesByName("Battle.net").Length > 0
+                || Process.GetProcessesByName("Battle.net.beta").Length > 0;
+        }
+
+        private static string FindBattleNetExeFromProcess()
+        {
+            foreach (var name in new[] { "Battle.net", "Battle.net.beta" })
+            {
+                var procs = Process.GetProcessesByName(name);
+                foreach (var proc in procs)
+                {
+                    try
+                    {
+                        var path = proc.MainModule?.FileName;
+                        if (!string.IsNullOrWhiteSpace(path) && File.Exists(path))
+                            return path;
+                    }
+                    catch { }
+                    finally { proc.Dispose(); }
+                }
+            }
+            return null;
         }
 
         /// <summary>
@@ -258,5 +334,197 @@ namespace BotMain
                 return false;
             }
         }
+
+        #region SendMessage 后台点击启动炉石
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct RECT { public int Left, Top, Right, Bottom; }
+
+        private const uint WM_LBUTTONDOWN = 0x0201;
+        private const uint WM_LBUTTONUP = 0x0202;
+
+        // 战网窗口 1600x1000 下的基准坐标
+        private const int BnetRefWidth = 1600;
+        private const int BnetRefHeight = 1000;
+        private const int HsTabX = 113;
+        private const int HsTabY = 114;
+        private const int PlayBtnX = 160;
+        private const int PlayBtnY = 890;
+
+        private static IntPtr MakeLParam(int x, int y) => (IntPtr)((y << 16) | (x & 0xFFFF));
+
+        private static void SendClick(IntPtr hwnd, int x, int y)
+        {
+            var lParam = MakeLParam(x, y);
+            SendMessage(hwnd, WM_LBUTTONDOWN, (IntPtr)1, lParam);
+            Thread.Sleep(80);
+            SendMessage(hwnd, WM_LBUTTONUP, IntPtr.Zero, lParam);
+        }
+
+        /// <summary>
+        /// 根据战网窗口实际大小，按比例缩放基准坐标
+        /// </summary>
+        private static (int x, int y) ScaleCoord(IntPtr hwnd, int refX, int refY)
+        {
+            if (GetWindowRect(hwnd, out var rect))
+            {
+                int w = rect.Right - rect.Left;
+                int h = rect.Bottom - rect.Top;
+                if (w > 0 && h > 0)
+                    return (refX * w / BnetRefWidth, refY * h / BnetRefHeight);
+            }
+            return (refX, refY);
+        }
+
+        /// <summary>
+        /// 找到战网主窗口句柄
+        /// </summary>
+        private static IntPtr FindBattleNetMainWindow()
+        {
+            var procs = Process.GetProcessesByName("Battle.net");
+            foreach (var proc in procs)
+            {
+                try
+                {
+                    if (proc.MainWindowHandle != IntPtr.Zero)
+                        return proc.MainWindowHandle;
+                }
+                catch { }
+            }
+            return IntPtr.Zero;
+        }
+
+        /// <summary>
+        /// 通过后台点击战网窗口启动炉石：先点击炉石 Tab，再点击"开始游戏"按钮。
+        /// </summary>
+        public static async Task<BattleNetLaunchResult> LaunchHearthstoneViaClick(
+            Action<string> log, CancellationToken ct, int timeoutSeconds = 120)
+        {
+            try
+            {
+                // 等待旧炉石进程退出
+                var existing = Process.GetProcessesByName("Hearthstone");
+                if (existing.Length > 0)
+                {
+                    log?.Invoke("[Restart] 等待旧炉石进程退出...");
+                    foreach (var proc in existing)
+                    {
+                        try { if (!proc.HasExited) { proc.Kill(); proc.WaitForExit(15000); } }
+                        catch { }
+                    }
+
+                    var exitDeadline = DateTime.UtcNow.AddSeconds(20);
+                    while (DateTime.UtcNow < exitDeadline && !ct.IsCancellationRequested)
+                    {
+                        if (Process.GetProcessesByName("Hearthstone").Length == 0) break;
+                        await Task.Delay(1000, ct);
+                    }
+
+                    if (Process.GetProcessesByName("Hearthstone").Length > 0)
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, "旧炉石进程未能退出");
+
+                    log?.Invoke("[Restart] 旧炉石进程已退出");
+                }
+
+                // 找到战网窗口
+                var hwnd = FindBattleNetMainWindow();
+                if (hwnd == IntPtr.Zero)
+                {
+                    log?.Invoke("[Restart] 未找到战网窗口，尝试启动战网...");
+                    var bnetExe = FindBattleNetExePath();
+                    if (string.IsNullOrWhiteSpace(bnetExe))
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, "未找到战网");
+
+                    Process.Start(new ProcessStartInfo { FileName = bnetExe, UseShellExecute = true });
+                    // 等待战网窗口出现
+                    var bnetDeadline = DateTime.UtcNow.AddSeconds(30);
+                    while (DateTime.UtcNow < bnetDeadline && !ct.IsCancellationRequested)
+                    {
+                        await Task.Delay(2000, ct);
+                        hwnd = FindBattleNetMainWindow();
+                        if (hwnd != IntPtr.Zero) break;
+                    }
+
+                    if (hwnd == IntPtr.Zero)
+                        return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.WindowNotFound, "战网启动超时");
+
+                    // 等战网完全加载
+                    await Task.Delay(5000, ct);
+                }
+
+                // 步骤1：点击炉石 Tab
+                var (tabX, tabY) = ScaleCoord(hwnd, HsTabX, HsTabY);
+                log?.Invoke($"[Restart] 点击炉石 Tab ({tabX}, {tabY})...");
+                SendClick(hwnd, tabX, tabY);
+                await Task.Delay(2000, ct);
+
+                // 步骤2：点击"开始游戏"按钮
+                var (btnX, btnY) = ScaleCoord(hwnd, PlayBtnX, PlayBtnY);
+                log?.Invoke($"[Restart] 点击开始游戏 ({btnX}, {btnY})...");
+                SendClick(hwnd, btnX, btnY);
+
+                // 等待炉石进程出现
+                log?.Invoke("[Restart] 等待炉石进程启动...");
+                var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+                var retryUtc = DateTime.UtcNow.AddSeconds(15);
+                while (DateTime.UtcNow < deadline && !ct.IsCancellationRequested)
+                {
+                    await Task.Delay(2000, ct);
+
+                    // 清理崩溃弹窗
+                    try
+                    {
+                        foreach (var wf in Process.GetProcessesByName("WerFault"))
+                        {
+                            try { wf.Kill(); } catch { }
+                            finally { wf.Dispose(); }
+                        }
+                    }
+                    catch { }
+
+                    var hsProcs = Process.GetProcessesByName("Hearthstone");
+                    if (hsProcs.Length > 0)
+                    {
+                        var hsPid = hsProcs[0].Id;
+                        log?.Invoke($"[Restart] 炉石进程已启动 PID={hsPid}");
+                        return BattleNetLaunchResult.Succeeded(0, hsPid, $"炉石已启动 PID={hsPid}");
+                    }
+
+                    // 定时重试点击（战网可能有弹窗遮挡）
+                    if (DateTime.UtcNow >= retryUtc)
+                    {
+                        hwnd = FindBattleNetMainWindow();
+                        if (hwnd != IntPtr.Zero)
+                        {
+                            var (rx, ry) = ScaleCoord(hwnd, PlayBtnX, PlayBtnY);
+                            log?.Invoke("[Restart] 重试点击开始游戏...");
+                            SendClick(hwnd, rx, ry);
+                        }
+                        retryUtc = DateTime.UtcNow.AddSeconds(15);
+                    }
+                }
+
+                if (ct.IsCancellationRequested)
+                    return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.Cancelled, "启动取消");
+
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, $"启动炉石超时 ({timeoutSeconds}s)");
+            }
+            catch (OperationCanceledException)
+            {
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.Cancelled, "启动取消");
+            }
+            catch (Exception ex)
+            {
+                return BattleNetLaunchResult.Failed(BattleNetRestartFailureKind.LaunchTimedOut, $"启动失败: {ex.Message}");
+            }
+        }
+
+        #endregion
     }
 }
