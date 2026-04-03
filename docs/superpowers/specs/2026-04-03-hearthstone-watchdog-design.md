@@ -61,10 +61,50 @@ NotRunning → Launching → WaitingPayload → Connected → Running
    b. 等待 10s
    c. 重新启动 Battle.net
    d. 等待 15s
-8. 通过 BattleNetWindowManager.LaunchHearthstoneViaClick() 启动炉石
+8. 通过命令行启动炉石（SmartBot 方式，见下方）
 9. 状态 → Launching
 10. 如果启动成功，重置连续失败计数器
 ```
+
+### 炉石启动方式（借鉴 SmartBot）
+
+SmartBot 不模拟点击，而是通过 Battle.net 命令行直接启动：
+
+```csharp
+// SmartBot: ReloggerImproved.StartHSCmd()
+Process[] procs = Process.GetProcessesByName("Battle.net");
+if (procs.Length > 0)
+{
+    string bnetExePath = procs[0].MainModule.FileName;
+    Process.Start(bnetExePath, "--exec=\"launch WTCG\"");
+}
+```
+
+- `WTCG` 是炉石传说在 Battle.net 中的产品代号
+- `--exec="launch WTCG"` 让 Battle.net 直接启动炉石，无需窗口交互
+- 比模拟点击可靠：不依赖窗口坐标、分辨率、前台状态
+
+**启动流程：**
+```
+1. 检查 Battle.net 进程是否存在
+2. 如果不存在：
+   a. 从注册表或已知路径找到 Battle.net.exe
+   b. Process.Start(bnetPath) 启动战网
+   c. 等待 Battle.net 进程出现（最多 30s）
+3. 获取 Battle.net 进程的 MainModule.FileName
+4. Process.Start(bnetExePath, "--exec=\"launch WTCG\"")
+5. 等待 Hearthstone 进程出现（最多 120s）
+```
+
+**Battle.net 路径查找优先级：**
+1. 已运行的 Battle.net 进程 → `process.MainModule.FileName`
+2. 注册表 `HKLM\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Battle.net` → `InstallLocation`
+3. 用户手动配置的路径（设置界面）
+
+**替换现有代码：**
+- `BattleNetWindowManager.LaunchHearthstoneViaClick()` 中的核心启动逻辑改为命令行方式
+- 保留原有的杀旧进程、等待进程出现、WerFault 清理等辅助逻辑
+- 移除坐标计算和 PostMessage 点击相关代码
 
 ### 新建文件：`BotMain/HearthstoneWatchdog.cs`
 
@@ -100,7 +140,7 @@ public class HearthstoneWatchdog : IDisposable
     public Action RequestBotStop { get; set; }
     public Action RequestBotRestart { get; set; }
 
-    // 启动炉石
+    // 启动炉石（命令行方式：Battle.net --exec="launch WTCG"）
     public Func<Task<bool>> LaunchHearthstone { get; set; }
 
     // 日志
@@ -216,7 +256,7 @@ private void StartBot()
         GetLastEffectiveAction = () => _botService?.LastEffectiveActionUtc,
         RequestBotStop = () => _botService?.Stop(),
         RequestBotRestart = () => _botService?.RequestRestart(),
-        LaunchHearthstone = () => BattleNetWindowManager.LaunchHearthstoneViaClick(...),
+        LaunchHearthstone = () => BattleNetWindowManager.LaunchHearthstoneCmd(...),
         Log = msg => AddLog(msg)
     };
     _watchdog.StateChanged += state => StatusText = $"Watchdog: {state}";
