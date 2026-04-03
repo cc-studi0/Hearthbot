@@ -30,9 +30,12 @@ namespace BotMain
         private readonly BotService _bot = new();
         private readonly NotificationService _notify = new();
         private readonly AccountController _accountController;
+#nullable enable
         private CloudAgent? _cloudAgent;
         private CommandExecutor? _commandExecutor;
         private AutoUpdater? _autoUpdater;
+        private HearthstoneWatchdog? _watchdog;
+#nullable restore
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
         private readonly DispatcherTimer _prepareTimer;
@@ -181,6 +184,7 @@ namespace BotMain
             BrowseGameDirectoryCmd = new RelayCommand(_ => BrowseGameDirectory());
             TestNotifyCmd = new RelayCommand(_ => TestNotify());
             OpenAccountControllerCmd = new RelayCommand(_ => OpenAccountControllerWindow());
+            CheckUpdateCmd = new RelayCommand(_ => CheckUpdate(), _ => !(_autoUpdater?.IsUpdating ?? false));
 
             LoadSettings();
             _settingsLoaded = true;
@@ -202,33 +206,12 @@ namespace BotMain
                 };
                 _ = _cloudAgent.StartAsync();
 
-                // 自动更新
+                // 手动更新（不再自动检测）
                 _autoUpdater = new AutoUpdater(cloudConfig.ServerUrl, EnqueueLog);
-                _autoUpdater.OnUpdateAvailable += version => _dispatcher.BeginInvoke(() =>
-                {
-                    var result = MessageBox.Show(
-                        "检测到新版本，是否更新？\n\n如正在对局中，将在本局结束后自动更新并重启。",
-                        "自动更新",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Information);
-                    if (result == MessageBoxResult.Yes)
-                    {
-                        var inGame = _bot.State == BotState.Running;
-                        if (inGame)
-                            _bot.FinishAfterGame();
-                        _autoUpdater.AcceptUpdate(inGame);
-                    }
-                    else
-                    {
-                        _autoUpdater.DismissUpdate();
-                    }
-                });
                 _autoUpdater.OnRestarting += () => _dispatcher.BeginInvoke(() =>
                 {
                     _cloudAgent?.Dispose();
                 });
-                _bot.OnGameEnded += _ => _autoUpdater?.OnGameEnded();
-                _autoUpdater.Start();
             }
 
             // 更新后自动恢复：部署 payload → 启动炉石 → 开始挂机
@@ -251,7 +234,7 @@ namespace BotMain
             }
             EnqueueLog("[自动更新] 炉石已启动，等待准备就绪后自动开始...");
             // 等 bot prepare 完成后自动点开始
-            _dispatcher.BeginInvoke(() =>
+            _ = _dispatcher.BeginInvoke(() =>
             {
                 var autoStartTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
                 autoStartTimer.Tick += (_, _) =>
@@ -269,6 +252,7 @@ namespace BotMain
 
         public void Dispose()
         {
+            _watchdog?.Dispose();
             _autoUpdater?.Dispose();
             _cloudAgent?.Dispose();
         }
@@ -669,6 +653,7 @@ namespace BotMain
         public ICommand RefreshMulliganCmd { get; }
         public ICommand RefreshDiscoverCmd { get; }
         public ICommand OpenAccountControllerCmd { get; }
+        public ICommand CheckUpdateCmd { get; }
 
         private SettingsWindow _settingsWindow;
 
@@ -686,6 +671,62 @@ namespace BotMain
             };
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
+        }
+
+        private void CheckUpdate()
+        {
+            if (_autoUpdater == null)
+            {
+                EnqueueLog("[更新] 未配置云控服务器，无法检查更新");
+                return;
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    // 用 TaskCompletionSource 等待检查结果
+                    var tcs = new TaskCompletionSource<(bool hasUpdate, string version, int changedCount)>();
+                    void handler(bool hasUpdate, string version, int changedCount)
+                    {
+                        _autoUpdater.OnCheckCompleted -= handler;
+                        tcs.TrySetResult((hasUpdate, version, changedCount));
+                    }
+                    _autoUpdater.OnCheckCompleted += handler;
+
+                    await _autoUpdater.CheckForUpdateAsync();
+                    var result = await tcs.Task;
+
+                    if (!result.hasUpdate)
+                        return;
+
+                    // 有更新，在 UI 线程弹窗确认
+                    _dispatcher.Invoke(() =>
+                    {
+                        var detail = result.changedCount > 0 ? $"({result.changedCount} 个文件变更)" : "(全量更新)";
+                        var inGame = _bot.State == BotState.Running;
+                        var gameWarning = inGame ? "\n\n当前正在对局中，更新将关闭炉石并重启程序。" : "";
+
+                        var msgResult = MessageBox.Show(
+                            $"检测到新版本 {detail}，是否立即更新？{gameWarning}",
+                            "检查更新",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Information);
+
+                        if (msgResult == MessageBoxResult.Yes)
+                        {
+                            _ = Task.Run(async () =>
+                            {
+                                await _autoUpdater.ExecuteUpdateAsync();
+                            });
+                        }
+                    });
+                }
+                catch (Exception ex)
+                {
+                    EnqueueLog($"[更新] 检查失败: {ex.Message}");
+                }
+            });
         }
 
         private void OpenAccountControllerWindow()
@@ -773,9 +814,25 @@ namespace BotMain
                 _timer.Start();
                 _bot.ClearBattleNetRestartBinding();
                 _bot.Start();
+
+                // 启动看门狗
+                _watchdog?.Stop();
+                _watchdog = new HearthstoneWatchdog
+                {
+                    IsBotRunning = () => _bot.State == BotState.Running || _bot.State == BotState.Finishing,
+                    IsPipeConnected = () => _bot.IsPipeConnected,
+                    GetLastEffectiveAction = () => _bot.LastEffectiveActionUtc,
+                    RequestBotStop = () => _bot.Stop(),
+                    Log = EnqueueLog,
+                    GameTimeoutSeconds = _matchmakingTimeoutSeconds * 5
+                };
+                _watchdog.StateChanged += state =>
+                    _dispatcher.BeginInvoke(() => AppendLocalLog($"[Watchdog] 状态: {state}"));
+                _watchdog.Start();
             }
             else
             {
+                _watchdog?.Stop();
                 _timer.Stop();
                 _bot.Stop();
             }
