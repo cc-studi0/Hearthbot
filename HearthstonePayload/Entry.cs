@@ -107,9 +107,10 @@ namespace HearthstonePayload
                     _memoryCleanupCountdown = -1f;
                     try
                     {
+                        // UnloadUnusedAssets 返回 AsyncOperation，Unity 异步执行，不阻塞当前帧
+                        // 它内部已包含 GC，无需再手动调用 GC.Collect()
                         UnityEngine.Resources.UnloadUnusedAssets();
-                        System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
-                        _logSource?.LogInfo("[MemoryCleanup] UnloadUnusedAssets + incremental GC triggered.");
+                        _logSource?.LogInfo("[MemoryCleanup] UnloadUnusedAssets triggered (async).");
                     }
                     catch (Exception ex)
                     {
