@@ -806,8 +806,6 @@ namespace HearthstonePayload
             return OnMain(() =>
             {
                 if (!Init()) return "NO_DIALOG";
-                if (string.Equals(GetSceneInternal(), "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                    return "NO_DIALOG";
 
                 var hit = FindBlockingDialogHit();
                 return hit == null
@@ -821,8 +819,6 @@ namespace HearthstonePayload
             var hit = OnMain(() =>
             {
                 if (!Init()) return null;
-                if (string.Equals(GetSceneInternal(), "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                    return null;
                 return FindBlockingDialogHit();
             });
 

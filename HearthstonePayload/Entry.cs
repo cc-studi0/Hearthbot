@@ -39,7 +39,7 @@ namespace HearthstonePayload
         private static Func<object> _pendingAction;
         private static object _pendingResult;
 
-        private static bool _memoryCleanupRequested;
+        private static float _memoryCleanupCountdown = -1f;
 
         private static bool _clickOverlayEnabled;
         private static UnityEngine.Texture2D _overlayDot;
@@ -66,6 +66,7 @@ namespace HearthstonePayload
                 AntiCheatPatches.Apply(harmony);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
+                DialogAutoDismissPatch.Apply(harmony, msg => _logSource?.LogInfo(msg));
 
                 Logger.LogInfo("Harmony patches applied.");
                 LogStartupInfo("awake", "Harmony patches applied.");
@@ -96,19 +97,24 @@ namespace HearthstonePayload
             if (deltaTime <= 0f)
                 deltaTime = 0.016f;
             _coroutine?.Tick(deltaTime);
+            DialogAutoDismissPatch.Tick();
 
-            if (_memoryCleanupRequested)
+            if (_memoryCleanupCountdown > 0f)
             {
-                _memoryCleanupRequested = false;
-                try
+                _memoryCleanupCountdown -= deltaTime;
+                if (_memoryCleanupCountdown <= 0f)
                 {
-                    UnityEngine.Resources.UnloadUnusedAssets();
-                    System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
-                    _logSource?.LogInfo("[MemoryCleanup] UnloadUnusedAssets + incremental GC triggered.");
-                }
-                catch (Exception ex)
-                {
-                    _logSource?.LogWarning("[MemoryCleanup] failed: " + ex.Message);
+                    _memoryCleanupCountdown = -1f;
+                    try
+                    {
+                        UnityEngine.Resources.UnloadUnusedAssets();
+                        System.GC.Collect(0, System.GCCollectionMode.Optimized, false);
+                        _logSource?.LogInfo("[MemoryCleanup] UnloadUnusedAssets + incremental GC triggered.");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logSource?.LogWarning("[MemoryCleanup] failed: " + ex.Message);
+                    }
                 }
             }
 
@@ -240,7 +246,8 @@ namespace HearthstonePayload
 
         private static void RequestMemoryCleanup()
         {
-            _memoryCleanupRequested = true;
+            if (_memoryCleanupCountdown < 0f)
+                _memoryCleanupCountdown = 5f;
         }
 
         private static bool TryCacheLastGameResult(string result, bool conceded, PostGameResultConfidence confidence)
@@ -663,6 +670,11 @@ namespace HearthstonePayload
             else if (cmd == "DISMISS_BLOCKING_DIALOG")
             {
                 _pipe.Write(nav.DismissBlockingDialog());
+            }
+            else if (cmd == "TOGGLE_AUTO_DISMISS")
+            {
+                DialogAutoDismissPatch.Enabled = !DialogAutoDismissPatch.Enabled;
+                _pipe.Write("AUTO_DISMISS:" + (DialogAutoDismissPatch.Enabled ? "ON" : "OFF"));
             }
             else if (cmd.StartsWith("NAV_TO:", StringComparison.Ordinal))
             {
