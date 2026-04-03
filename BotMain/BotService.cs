@@ -146,6 +146,7 @@ namespace BotMain
         private const int MatchLoadGracePeriodSeconds = 30;
         private static readonly TimeSpan RankLimitCheckInterval = TimeSpan.FromSeconds(5);
         private DateTime _lastActionCommandUtc = DateTime.UtcNow;
+        private DateTime _lastEffectiveActionUtc = DateTime.UtcNow;
         private string _lastObservedSeedResponse = string.Empty;
         private long _lastConsumedHsBoxActionUpdatedAtMs;
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
@@ -195,6 +196,15 @@ namespace BotMain
         public BotState State { get; private set; } = BotState.Idle;
         public bool IsPrepared => _prepared;
         public long AvgCalcTime { get; private set; }
+
+        /// <summary>上次有效操作的时间戳，供 Watchdog 判断游戏是否卡死。</summary>
+        public DateTime LastEffectiveActionUtc => _lastEffectiveActionUtc;
+
+        /// <summary>Pipe 是否已连接，供 Watchdog 查询。</summary>
+        public bool IsPipeConnected
+        {
+            get { lock (_sync) { return _pipe != null && _pipe.IsConnected; } }
+        }
         public StatsBridge Stats => _stats;
         public List<string> ProfileNames { get; private set; } = new();
         public List<string> MulliganProfileNames { get; private set; } = new();
@@ -508,6 +518,7 @@ namespace BotMain
             Log("[Restart] 已清空战网实例绑定");
         }
 
+
         public void SetMatchmakingTimeoutSeconds(int seconds)
         {
             var normalized = Math.Max(10, seconds);
@@ -670,6 +681,14 @@ namespace BotMain
             try { _cts?.Cancel(); } catch { }
             try { _cts?.Dispose(); } catch { }
             _cts = null;
+        }
+
+        /// <summary>
+        /// 更新有效操作时间戳，让 Watchdog 知道 Bot 仍在正常工作。
+        /// </summary>
+        private void TouchEffectiveAction()
+        {
+            _lastEffectiveActionUtc = DateTime.UtcNow;
         }
 
         public void FinishAfterGame()
@@ -1703,10 +1722,8 @@ namespace BotMain
                     var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
                     if (!hearthstoneAlive)
                     {
-                        Log("[Restart] 炉石未运行，尝试通过战网协议启动...");
-                        var launchResult = BattleNetWindowManager
-                            .LaunchHearthstoneViaProtocol(Log, _cts?.Token ?? CancellationToken.None)
-                            .GetAwaiter().GetResult();
+                        Log("[Restart] 炉石未运行，尝试启动...");
+                        var launchResult = LaunchFromBoundBattleNet("首次启动");
                         if (!launchResult.Success)
                         {
                             FailRestartAndStop(launchResult.Message);
@@ -7928,7 +7945,7 @@ namespace BotMain
 
         private void TryQueryPlayerName(PipeServer pipe)
         {
-            if (pipe == null || !pipe.IsConnected || !string.IsNullOrEmpty(PlayerName))
+            if (pipe == null || !pipe.IsConnected)
                 return;
             try
             {
@@ -7936,7 +7953,7 @@ namespace BotMain
                 if (resp != null && resp.StartsWith("PLAYER_NAME:", StringComparison.Ordinal))
                 {
                     var name = resp.Substring("PLAYER_NAME:".Length);
-                    if (!string.IsNullOrWhiteSpace(name))
+                    if (!string.IsNullOrWhiteSpace(name) && name != PlayerName)
                     {
                         PlayerName = name;
                         Log($"[云控] 玩家昵称: {name}");
@@ -8686,13 +8703,10 @@ namespace BotMain
 
         private BattleNetLaunchResult LaunchFromBoundBattleNet(string reason)
         {
-            Log($"[Restart] {reason}: 通过战网协议启动炉石");
+            Log($"[Restart] {reason}: 通过战网后台点击启动炉石");
             return BattleNetWindowManager
-                .LaunchHearthstoneViaProtocol(
-                    Log,
-                    _cts?.Token ?? CancellationToken.None)
-                .GetAwaiter()
-                .GetResult();
+                .LaunchHearthstoneViaProtocol(Log, _cts?.Token ?? CancellationToken.None)
+                .GetAwaiter().GetResult();
         }
 
         private void FailRestartAndStop(string reason)
