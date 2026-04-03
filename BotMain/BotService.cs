@@ -658,6 +658,7 @@ namespace BotMain
             State = BotState.Running;
             _terminalStatusOverride = null;
             _running = true;
+            TouchEffectiveAction();
             _finishAfterGame = false;
             _nextRankLimitCheckUtc = DateTime.MinValue;
             ClearPendingConcedeLoss();
@@ -1746,6 +1747,7 @@ namespace BotMain
 
                 _pluginSystem?.FireOnStarted();
                 StatusChanged("Running");
+                TouchEffectiveAction();
                 TryQueryCurrentRank(_pipe, force: true);
                 TryQueryPlayerName(_pipe);
                 if (CheckRankStopLimit(_pipe, force: true))
@@ -2128,6 +2130,7 @@ namespace BotMain
                 }
 
                 seedNullStreak = 0;
+                TouchEffectiveAction();
 
                 if (resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
                     || resp.StartsWith("SCENE:", StringComparison.Ordinal)
@@ -6782,6 +6785,7 @@ namespace BotMain
                 return null;
 
             _lastActionCommandUtc = DateTime.UtcNow;
+            TouchEffectiveAction();
             return pipe.SendAndReceive("ACTION:" + action, timeoutMs);
         }
 
@@ -8656,6 +8660,7 @@ namespace BotMain
                 {
                     Log($"[Restart] 重连成功（第 {attempt} 次）。");
                     StatusChanged("Running");
+                    TouchEffectiveAction();
                     return true;
                 }
                 if (_running)
