@@ -837,6 +837,14 @@ namespace BotMain
                     IsPipeConnected = () => _bot.IsPipeConnected,
                     GetLastEffectiveAction = () => _bot.LastEffectiveActionUtc,
                     RequestBotStop = () => _bot.Stop(),
+                    RequestBotStart = () => _dispatcher.BeginInvoke(() =>
+                    {
+                        if (_bot.State == BotState.Idle)
+                        {
+                            AppendLocalLog("[Watchdog] 自动恢复对局");
+                            _bot.Start();
+                        }
+                    }),
                     Log = EnqueueLog,
                     GameTimeoutSeconds = _matchmakingTimeoutSeconds * 5
                 };

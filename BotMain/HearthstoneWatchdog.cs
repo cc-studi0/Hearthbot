@@ -32,6 +32,7 @@ namespace BotMain
         public Func<bool> IsPipeConnected { get; set; }
         public Func<DateTime?> GetLastEffectiveAction { get; set; }
         public Action RequestBotStop { get; set; }
+        public Action RequestBotStart { get; set; }
         public Action<string> Log { get; set; }
 
         // ── 事件 ──
@@ -44,6 +45,7 @@ namespace BotMain
         private DateTime _stateEnteredUtc;
         private DateTime? _notRespondingSinceUtc;
         private int _consecutiveFailures;
+        private bool _wasRunningBeforeRecovery;
 
         public WatchdogState CurrentState => _state;
 
@@ -186,6 +188,12 @@ namespace BotMain
                     break;
 
                 case WatchdogState.Connected:
+                    if (_wasRunningBeforeRecovery)
+                    {
+                        _wasRunningBeforeRecovery = false;
+                        Log?.Invoke("[Watchdog] 恢复完成，自动重启 Bot");
+                        try { RequestBotStart?.Invoke(); } catch { }
+                    }
                     if (IsBotRunning?.Invoke() == true)
                     {
                         _consecutiveFailures = 0;
@@ -228,7 +236,8 @@ namespace BotMain
                 return;
             }
 
-            // 1. 通知 BotService 停止
+            // 1. 记录恢复前 Bot 是否在运行，恢复后自动重启
+            _wasRunningBeforeRecovery = IsBotRunning?.Invoke() == true;
             try { RequestBotStop?.Invoke(); } catch { }
 
             // 2. 杀 WerFault
