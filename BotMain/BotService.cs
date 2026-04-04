@@ -155,6 +155,8 @@ namespace BotMain
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
+        private readonly RecommendationDeduplicator _actionDedup = new();
+        private readonly RecommendationDeduplicator _choiceDedup = new();
         private DateTime _nextRankLimitCheckUtc = DateTime.MinValue;
 
         // 运行限制设置
@@ -659,6 +661,8 @@ namespace BotMain
             _terminalStatusOverride = null;
             _running = true;
             TouchEffectiveAction();
+            _actionDedup.Clear();
+            _choiceDedup.Clear();
             _finishAfterGame = false;
             _nextRankLimitCheckUtc = DateTime.MinValue;
             ClearPendingConcedeLoss();
@@ -7851,6 +7855,8 @@ namespace BotMain
 
             ClearChoiceStateWatch(clearChoiceReason);
             ResetHsBoxActionRecommendationTracking();
+            _actionDedup.Clear();
+            _choiceDedup.Clear();
             if (wasInGame)
             {
                 wasInGame = false;
