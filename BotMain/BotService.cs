@@ -2584,6 +2584,17 @@ namespace BotMain
                 }
 
                 staleFreshSourceRetryCount = 0;
+
+                // key-based 去重：跳过已成功执行的推荐
+                var actionDedupKey = RecommendationDeduplicator.BuildKey(
+                    recommendation.SourcePayloadSignature, actions);
+                if (_actionDedup.IsKnown(actionDedupKey))
+                {
+                    Log($"[Action] 跳过已成功执行的推荐 (knownKeys={_actionDedup.Count})");
+                    Thread.Sleep(120);
+                    continue;
+                }
+
                 actions = NormalizeRecommendedActions(actions);
 
                 // 一次性探测手牌卡牌的 Renderer/Collider/Bounds 信息
@@ -2776,6 +2787,7 @@ namespace BotMain
                             }
 
                             RememberConsumedHsBoxActionRecommendation(recommendation, action);
+                            _actionDedup.MarkConsumed(actionDedupKey);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
