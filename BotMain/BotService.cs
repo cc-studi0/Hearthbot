@@ -5399,6 +5399,18 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
                     Log($"[Choice] {recommendation.Detail}");
 
+                // key-based 去重：跳过已成功执行的选择推荐
+                var choiceDedupKey = RecommendationDeduplicator.BuildKey(
+                    recommendation?.SourcePayloadSignature,
+                    string.Join(",", recommendation?.SelectedEntityIds ?? Array.Empty<int>()));
+                if (recommendation != null && !recommendation.ShouldRetryWithoutAction
+                    && _choiceDedup.IsKnown(choiceDedupKey))
+                {
+                    Log($"[Choice] 跳过已成功执行的推荐 (knownKeys={_choiceDedup.Count})");
+                    Thread.Sleep(120);
+                    continue;
+                }
+
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     var consumed = ChoiceRecommendationConsumptionTracker.ShouldTreatAsConsumed(
@@ -5441,6 +5453,7 @@ namespace BotMain
                     wasApplied: true,
                     ref _lastConsumedHsBoxChoiceUpdatedAtMs,
                     ref _lastConsumedHsBoxChoicePayloadSignature);
+                _choiceDedup.MarkConsumed(choiceDedupKey);
                 Log($"[Choice] apply_result snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
                 RememberPendingAcquisition(currentState.Mode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, currentState.Options
                     .Where(option => option != null && selectedEntityIds.Contains(option.EntityId))
