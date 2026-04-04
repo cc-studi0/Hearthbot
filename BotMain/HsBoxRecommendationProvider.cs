@@ -29,8 +29,6 @@ namespace BotMain
 
     internal sealed class HsBoxGameRecommendationProvider : IGameRecommendationProvider
     {
-        private const int FreshnessSlackMs = 3000;
-
         private sealed class EvaluatedActionState
         {
             public IReadOnlyList<string> FinalActions { get; set; } = Array.Empty<string>();
@@ -366,10 +364,9 @@ namespace BotMain
 
         private static bool IsFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs)
         {
-            if (state == null || minimumUpdatedAtMs <= 0)
-                return true;
-
-            return state.UpdatedAtMs > 0 && state.UpdatedAtMs + FreshnessSlackMs >= minimumUpdatedAtMs;
+            if (state == null)
+                return false;
+            return state.UpdatedAtMs > 0;
         }
 
         private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
@@ -421,17 +418,8 @@ namespace BotMain
                 return false;
             }
 
-            if (minimumUpdatedAtMs > 0
-                && state.UpdatedAtMs + FreshnessSlackMs < minimumUpdatedAtMs)
-            {
-                // 普通动作以“是否已消费”作为主判据；动画期间的旧时间戳不应拦截尚未消费的最新一步。
-                reason = "minimum_updated_at_ignored_for_unconsumed_action";
-                return true;
-            }
-
-            reason = minimumUpdatedAtMs > 0
-                ? "within_minimum_updated_at_slack"
-                : "no_consumed_payload";
+            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
+            reason = “no_freshness_filter”;
             return true;
         }
 
@@ -484,20 +472,8 @@ namespace BotMain
                 return false;
             }
 
-            // 发现/选择推荐通常会在打牌瞬间就由盒子更新，而真正的 Choice UI
-            // 可能要等较长动画后才出现。未消费时以“当前可映射的最新 payload”
-            // 为准，不因为绝对时间戳偏早而拒绝它。
-            const int ChoiceFreshnessSlackMs = 8000;
-            if (minimumUpdatedAtMs > 0
-                && state.UpdatedAtMs + ChoiceFreshnessSlackMs < minimumUpdatedAtMs)
-            {
-                reason = "minimum_updated_at_ignored_for_unconsumed_choice";
-                return true;
-            }
-
-            reason = minimumUpdatedAtMs > 0
-                ? "within_minimum_updated_at_slack"
-                : "no_consumed_payload";
+            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
+            reason = “no_freshness_filter”;
             return true;
         }
 
@@ -2875,14 +2851,9 @@ namespace BotMain
                 return false;
             }
 
-            const int ChoiceFreshnessSlackMs = 8000;
+            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
             if (updatedAtMs > 0)
-            {
-                if (minimumUpdatedAtMs <= 0)
-                    return true;
-
-                return updatedAtMs + ChoiceFreshnessSlackMs >= minimumUpdatedAtMs;
-            }
+                return true;
 
             return !string.IsNullOrWhiteSpace(payloadSignature);
         }
