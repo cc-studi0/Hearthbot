@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR.Client;
 
+#nullable enable
+
 namespace BotMain.Cloud
 {
     public class CloudAgent : IDisposable
@@ -12,6 +14,7 @@ namespace BotMain.Cloud
         private HubConnection? _hub;
         private CancellationTokenSource? _cts;
         private Timer? _heartbeatTimer;
+        private readonly object _timerLock = new();
         private bool _disposed;
 
         public bool IsConnected => _hub?.State == HubConnectionState.Connected;
@@ -68,6 +71,13 @@ namespace BotMain.Cloud
             _hub.Reconnected += _ =>
             {
                 _log("[云控] 重连成功，重新注册...");
+                // 重建心跳定时器，否则重连后心跳永远发不出去
+                lock (_timerLock)
+                {
+                    _heartbeatTimer?.Dispose();
+                    _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
+                        null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                }
                 return RegisterAsync();
             };
 
@@ -91,9 +101,12 @@ namespace BotMain.Cloud
                     _log($"[云控] 已连接到 {_config.ServerUrl}");
                     await RegisterAsync();
 
-                    _heartbeatTimer?.Dispose();
-                    _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
-                        null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                    lock (_timerLock)
+                    {
+                        _heartbeatTimer?.Dispose();
+                        _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
+                            null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                    }
                     return;
                 }
                 catch (Exception ex)
@@ -178,7 +191,11 @@ namespace BotMain.Cloud
             if (_disposed) return;
             _disposed = true;
             _cts?.Cancel();
-            _heartbeatTimer?.Dispose();
+            lock (_timerLock)
+            {
+                _heartbeatTimer?.Dispose();
+                _heartbeatTimer = null;
+            }
             try { _hub?.DisposeAsync().AsTask().Wait(3000); } catch { }
             _cts?.Dispose();
         }
