@@ -419,7 +419,7 @@ namespace BotMain
             }
 
             // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
-            reason = “no_freshness_filter”;
+            reason = "no_freshness_filter";
             return true;
         }
 
@@ -473,7 +473,7 @@ namespace BotMain
             }
 
             // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
-            reason = “no_freshness_filter”;
+            reason = "no_freshness_filter";
             return true;
         }
 
@@ -883,22 +883,22 @@ namespace BotMain
         private static string DescribeFreshness(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs)
         {
             if (state == null)
-                return $"state=null,minUpdatedAt={minimumUpdatedAtMs},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},slack={FreshnessSlackMs}";
+                return $"state=null,minUpdatedAt={minimumUpdatedAtMs},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs}";
 
             var updatedAt = state.UpdatedAtMs;
             if (lastConsumedUpdatedAtMs > 0)
             {
                 var freshByConsumption = state.UpdatedAtMs > lastConsumedUpdatedAtMs;
                 var consumedDeltaMs = updatedAt - lastConsumedUpdatedAtMs;
-                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs},slack={FreshnessSlackMs}";
+                return $"fresh={freshByConsumption},lastConsumedUpdatedAt={lastConsumedUpdatedAtMs},updatedAt={updatedAt},deltaMs={consumedDeltaMs}";
             }
 
             var fresh = IsFreshEnough(state, minimumUpdatedAtMs);
             if (minimumUpdatedAtMs <= 0)
-                return $"fresh={fresh},minUpdatedAt={minimumUpdatedAtMs},updatedAt={updatedAt},slack={FreshnessSlackMs}";
+                return $"fresh={fresh},minUpdatedAt={minimumUpdatedAtMs},updatedAt={updatedAt}";
 
             var deltaMs = updatedAt - minimumUpdatedAtMs;
-            return $"fresh={fresh},minUpdatedAt={minimumUpdatedAtMs},updatedAt={updatedAt},deltaMs={deltaMs},slack={FreshnessSlackMs}";
+            return $"fresh={fresh},minUpdatedAt={minimumUpdatedAtMs},updatedAt={updatedAt},deltaMs={deltaMs}";
         }
 
         private HsBoxRecommendationState WaitForState(
@@ -1344,7 +1344,7 @@ namespace BotMain
                     }
 
                     // BG_PLAY 第 4 段仅保留普通 board-drop 参考位。
-                    // 磁力的“贴到目标左侧”最终落点由 payload 执行层按运行时坐标再解析。
+                    // 磁力的"贴到目标左侧"最终落点由 payload 执行层按运行时坐标再解析。
                     var dropPositionReference = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
                     if (cardEntityId > 0)
                         return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}";
@@ -1421,7 +1421,7 @@ namespace BotMain
             if (position > 0)
                 return position;
 
-            // 战旗桥接层只负责给 BG_PLAY 提供一个“普通落位参考位”。
+            // 战旗桥接层只负责给 BG_PLAY 提供一个"普通落位参考位"。
             // 若来源明确在 hand，且 fallback 看起来像手牌槽位，则回退成目标当前位次，
             // 让执行层至少拿到与目标相关的 board-drop 参考值。
             // 真正的磁力贴合坐标由 payload 执行层在运行时按目标左侧解析，不在这里编码。
@@ -5173,7 +5173,7 @@ namespace BotMain
             var target = ResolveTargetEntityId(board, step);
             var position = step.Position > 0 ? step.Position : 0;
 
-            // 普通模式里只有当 payload 明确标出“手牌 -> 场上”时，
+            // 普通模式里只有当 payload 明确标出"手牌 -> 场上"时，
             // 才把目标随从位置当作落位兜底，避免把普通指向性法术
             // 的目标位次误写进 PLAY 的落位参数。
             if (position <= 0
@@ -5550,7 +5550,7 @@ namespace BotMain
             if (steps == null || steps.Count == 0)
                 return steps;
 
-            // 构筑模式的 Envelope.Data 会把“打法参考 A/B/C”拍平到同一个数组里。
+            // 构筑模式的 Envelope.Data 会把"打法参考 A/B/C"拍平到同一个数组里。
             // 在这种 payload 中，每个顶层 actionName 都是一套独立推荐。
             // 因此只取第一个非空步骤作为参考 A，后面的所有步骤一律视为 B/C 并忽略。
             for (var stepIndex = 0; stepIndex < steps.Count; stepIndex++)
