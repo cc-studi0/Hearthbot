@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, h } from 'vue'
+import { ref, onMounted, onUnmounted, computed, h } from 'vue'
 import {
   NLayout, NLayoutHeader, NLayoutContent, NSpace, NCard, NStatistic,
   NDataTable, NTag, NButton, NModal, NSelect, NGrid, NGi, NMenu, NInput
@@ -43,6 +43,8 @@ const showManage = ref(false)
 const selectedDevice = ref<Device | null>(null)
 const selectedDeck = ref('')
 const editingOrderNumber = ref('')
+const isLoading = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const todayWinRate = computed(() => {
   const total = stats.value.todayWins + stats.value.todayLosses
@@ -113,9 +115,15 @@ function getAvailableDecks(device: Device) {
 }
 
 async function loadData() {
-  const [devRes, statRes] = await Promise.all([deviceApi.getAll(), deviceApi.getStats()])
-  devices.value = devRes.data
-  stats.value = statRes.data
+  if (isLoading.value) return
+  isLoading.value = true
+  try {
+    const [devRes, statRes] = await Promise.all([deviceApi.getAll(), deviceApi.getStats()])
+    devices.value = devRes.data
+    stats.value = statRes.data
+  } finally {
+    isLoading.value = false
+  }
 }
 
 onMounted(async () => {
@@ -132,8 +140,27 @@ onMounted(async () => {
       selectedDevice.value = device
   })
 
-  hub.on('DeviceOnline', () => loadData())
-  hub.on('DeviceOffline', () => loadData())
+  hub.on('DeviceOnline', (deviceId: string, displayName: string) => {
+    const idx = devices.value.findIndex(d => d.deviceId === deviceId)
+    if (idx < 0) {
+      devices.value.push({ deviceId, displayName, status: 'Idle' } as Device)
+    }
+  })
+
+  hub.on('DeviceOffline', (deviceId: string) => {
+    const idx = devices.value.findIndex(d => d.deviceId === deviceId)
+    if (idx >= 0) devices.value[idx] = { ...devices.value[idx], status: 'Offline' }
+  })
+
+  // 每 60 秒全量同步兜底，确保漏消息时也能自愈
+  pollTimer = setInterval(() => loadData(), 60000)
+})
+
+onUnmounted(() => {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
 })
 
 const menuOptions = [
