@@ -42,6 +42,16 @@
                     <CheckBox Content="一胜一输（赢后下局投降）" FontSize="11" IsChecked="{Binding AutoConcedeAlternativeMode}" Margin="0,0,0,4"
                               ToolTip="上一局赢了，则下一局留牌处理完成后立即投降；输了则取消待投降状态"/>
                     <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="超过段位自动投降:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <ComboBox Width="140" Height="22"
+                                  ItemsSource="{Binding AutoConcedeRankOptions}"
+                                  DisplayMemberPath="Label"
+                                  SelectedValuePath="StarLevel"
+                                  SelectedValue="{Binding AutoConcedeMaxRank}"
+                                  FontSize="11"
+                                  ToolTip="当前星级超过此段位时，对局开始自动投降。选择'关闭'禁用。"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                         <CheckBox Content="FPS lock:" FontSize="11" IsChecked="{Binding FpsLock}" Margin="0,0,3,0"/>
                         <TextBox Width="30" Height="20" Text="{Binding FpsValue}" FontSize="11"
                                  VerticalContentAlignment="Center"/>

@@ -47,6 +47,16 @@ namespace BotMain
             return list;
         }
 
+        public static IReadOnlyList<RankTargetOption> BuildTargetOptionsWithDisabled()
+        {
+            var list = new List<RankTargetOption>
+            {
+                new RankTargetOption(0, "关闭")
+            };
+            list.AddRange(BuildTargetOptions());
+            return list;
+        }
+
         public static string FormatRank(int starLevel, int earnedStars = 0, int legendIndex = 0)
         {
             if (starLevel >= LegendStarLevel)

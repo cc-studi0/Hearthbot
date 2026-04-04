@@ -447,6 +447,7 @@ namespace BotMain
         public bool StopAfterReachRankSupportedMode => ModeIndex == 0 || ModeIndex == 1;
         public bool StopAfterReachRankTargetEnabled => StopAfterReachRankEnabled && StopAfterReachRankSupportedMode;
         public ObservableCollection<RankTargetOption> RankStopOptions { get; } = new ObservableCollection<RankTargetOption>(RankHelper.BuildTargetOptions());
+        public ObservableCollection<RankTargetOption> AutoConcedeRankOptions { get; } = new ObservableCollection<RankTargetOption>(RankHelper.BuildTargetOptionsWithDisabled());
 
         // ---- 通知设置 ----
         public bool NotifyOnRankReached
