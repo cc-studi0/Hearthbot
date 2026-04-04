@@ -3754,11 +3754,17 @@ namespace BotMain
                     var recommendationExecutionKey = BuildBattlegroundRecommendationExecutionKey(recommendation);
                     // 即使推荐 key 相同，当映射结果变化（例如 handMap 波动导致命令从 1→0）时也需更新 pending 队列，
                     // 否则旧的失败命令会被无限重试。
+                    // 但当正在执行多条命令序列的中间（index > 0）且盒子推荐未变（key 相同）时，
+                    // 不因 actionsChanged 重置——出牌后 handMap 变化会导致重新映射结果不同，
+                    // 但后续的 OPTION 命令（subOption / target）仍需按原队列继续执行。
+                    var sameRecommendation = string.Equals(pendingBattlegroundRecommendationKey, recommendationExecutionKey, StringComparison.Ordinal);
+                    var isMidSequence = pendingBattlegroundActionIndex > 0
+                        && pendingBattlegroundActionIndex < pendingBattlegroundActions.Count;
                     var actionsChanged = !AreBattlegroundActionsEqual(currentActions, pendingBattlegroundActions);
-                    if (!string.Equals(pendingBattlegroundRecommendationKey, recommendationExecutionKey, StringComparison.Ordinal)
+                    if (!sameRecommendation
                         || pendingBattlegroundActionIndex >= pendingBattlegroundActions.Count
                         || pendingBattlegroundActions.Count == 0
-                        || actionsChanged)
+                        || (actionsChanged && !isMidSequence))
                     {
                         pendingBattlegroundRecommendationKey = recommendationExecutionKey;
                         pendingBattlegroundActionIndex = 0;
@@ -9205,10 +9211,7 @@ namespace BotMain
 
             var dataRoot = ResourceSync.ResolveSmartBotDataRoot(candidate);
             if (string.IsNullOrWhiteSpace(dataRoot))
-            {
-                Log($"SmartBotRoot invalid (Profiles not found): {candidate}");
                 return null;
-            }
 
             return candidate;
         }
