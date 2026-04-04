@@ -200,9 +200,20 @@ namespace BotMain
                 _cloudAgent.GetAvailableDecks = () => _bot.DeckNames.ToArray();
                 _cloudAgent.GetAvailableProfiles = () => _bot.ProfileNames.ToArray();
                 _commandExecutor = new CommandExecutor(_bot, _accountController, _cloudAgent, EnqueueLog);
-                _bot.OnGameEnded += _ =>
+                _bot.OnGameEnded += win =>
                 {
                     _commandExecutor?.ProcessPendingCommands();
+                    _ = _cloudAgent.ReportGameAsync(
+                        _bot.PlayerName ?? "",
+                        win ? "Win" : "Loss",
+                        _bot.CurrentOwnClassName,
+                        _bot.CurrentEnemyClassName,
+                        _bot.SelectedDeckName ?? "",
+                        _bot.SelectedProfileName ?? "",
+                        _bot.CurrentMatchDurationSeconds,
+                        "",
+                        _bot.CurrentRankText ?? "",
+                        _bot.ModeIndex == 1 ? "Wild" : "Standard");
                 };
                 _ = _cloudAgent.StartAsync();
 

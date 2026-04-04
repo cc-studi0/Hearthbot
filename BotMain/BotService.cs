@@ -155,9 +155,18 @@ namespace BotMain
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
-        private readonly RecommendationDeduplicator _actionDedup = new();
         private readonly RecommendationDeduplicator _choiceDedup = new();
         private DateTime _nextRankLimitCheckUtc = DateTime.MinValue;
+
+        // 当前对局职业信息（用于云控上报）
+        private int _currentOwnClass;
+        private int _currentEnemyClass;
+        private DateTime _currentMatchStartUtc;
+        private string _rankBeforeMatch = "";
+
+        public string CurrentOwnClassName => ToCardClass(_currentOwnClass).ToString();
+        public string CurrentEnemyClassName => ToCardClass(_currentEnemyClass).ToString();
+        public int CurrentMatchDurationSeconds => _currentMatchStartUtc == default ? 0 : (int)(DateTime.UtcNow - _currentMatchStartUtc).TotalSeconds;
 
         // 运行限制设置
         private int _maxWins;
@@ -661,7 +670,6 @@ namespace BotMain
             _terminalStatusOverride = null;
             _running = true;
             TouchEffectiveAction();
-            _actionDedup.Clear();
             _choiceDedup.Clear();
             _finishAfterGame = false;
             _nextRankLimitCheckUtc = DateTime.MinValue;
@@ -2596,16 +2604,6 @@ namespace BotMain
 
                 staleFreshSourceRetryCount = 0;
 
-                // key-based 去重：跳过已成功执行的推荐
-                var actionDedupKey = RecommendationDeduplicator.BuildKey(
-                    recommendation.SourcePayloadSignature, actions);
-                if (_actionDedup.IsKnown(actionDedupKey))
-                {
-                    Log($"[Action] 跳过已成功执行的推荐 (knownKeys={_actionDedup.Count})");
-                    Thread.Sleep(120);
-                    continue;
-                }
-
                 actions = NormalizeRecommendedActions(actions);
 
                 // 一次性探测手牌卡牌的 Renderer/Collider/Bounds 信息
@@ -2798,7 +2796,6 @@ namespace BotMain
                             }
 
                             RememberConsumedHsBoxActionRecommendation(recommendation, action);
-                            _actionDedup.MarkConsumed(actionDedupKey);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
@@ -2996,7 +2993,7 @@ namespace BotMain
                 {
                     actionFailStreak = 0;
                     if (!lastRecommendationWasAttackOnly)
-                        Thread.Sleep(120);
+                        Thread.Sleep(200);
                     continue;
                 }
 
@@ -7891,7 +7888,6 @@ namespace BotMain
 
             ClearChoiceStateWatch(clearChoiceReason);
             ResetHsBoxActionRecommendationTracking();
-            _actionDedup.Clear();
             _choiceDedup.Clear();
             if (wasInGame)
             {
@@ -8096,6 +8092,10 @@ namespace BotMain
                 }
 
                 _currentDeckContext = ResolveDeckContext(null) ?? _currentDeckContext;
+                _currentOwnClass = snapshot.OwnClass;
+                _currentEnemyClass = snapshot.EnemyClass;
+                _currentMatchStartUtc = DateTime.UtcNow;
+                _rankBeforeMatch = CurrentRankText;
                 var recommendation = RecommendMulliganWithLearning(
                     new MulliganRecommendationRequest(
                         snapshot.OwnClass,
