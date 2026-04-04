@@ -2251,6 +2251,17 @@ namespace BotMain
                             mulliganPhaseStartedUtc = DateTime.UtcNow;
                             Log("[MainLoop] mulligan phase detected; waiting mulligan ui ready...");
                             nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
+
+                            // 段位自动投降：当前星级超过目标时直接投降
+                            if (_autoConcedeMaxRank > 0 && _lastQueriedStarLevel > 0
+                                && _lastQueriedStarLevel > _autoConcedeMaxRank)
+                            {
+                                Log($"[AutoConcede] 当前星级 {_lastQueriedStarLevel} > 目标 {_autoConcedeMaxRank}，自动投降");
+                                if (SleepOrCancelled(1500)) break; // 等待留牌界面加载
+                                var concedeResp = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
+                                Log($"[AutoConcede] CONCEDE -> {concedeResp}");
+                                continue;
+                            }
                         }
 
                         if (mulliganHandled && mulliganStreak > 15 && mulliganStreak % 10 == 0)

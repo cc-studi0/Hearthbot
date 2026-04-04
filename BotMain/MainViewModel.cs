@@ -327,6 +327,19 @@ namespace BotMain
                 AutoSave();
             }
         }
+        private int _autoConcedeMaxRank;
+        public int AutoConcedeMaxRank
+        {
+            get => _autoConcedeMaxRank;
+            set
+            {
+                if (_autoConcedeMaxRank == value) return;
+                _autoConcedeMaxRank = value;
+                _bot.SetAutoConcedeMaxRank(value);
+                Notify();
+                AutoSave();
+            }
+        }
         public bool FpsLock { get => _fpsLock; set { _fpsLock = value; AutoSave(); } }
         public int FpsValue { get => _fpsValue; set { _fpsValue = value; AutoSave(); } }
         public int ModeIndex
@@ -1085,6 +1098,7 @@ namespace BotMain
                 dict["OverlayMode"] = JsonSerializer.SerializeToElement(OverlayMode);
                 dict["ConcedeWhenLethal"] = JsonSerializer.SerializeToElement(ConcedeWhenLethal);
                 dict["AutoConcedeAlternativeMode"] = JsonSerializer.SerializeToElement(AutoConcedeAlternativeMode);
+                dict["AutoConcedeMaxRank"] = JsonSerializer.SerializeToElement(AutoConcedeMaxRank);
                 dict.Remove("AutoConcede");
                 dict["FpsLock"] = JsonSerializer.SerializeToElement(FpsLock);
                 dict["FpsValue"] = JsonSerializer.SerializeToElement(FpsValue);
@@ -1151,6 +1165,8 @@ namespace BotMain
                             ConcedeWhenLethal = autoConcede || concedeWhenLethal;
                         if (dict.TryGetValue("AutoConcedeAlternativeMode", out v))
                             AutoConcedeAlternativeMode = v.GetBoolean();
+                        if (dict.TryGetValue("AutoConcedeMaxRank", out v))
+                            AutoConcedeMaxRank = v.GetInt32();
                         if (dict.TryGetValue("FpsLock", out v)) FpsLock = v.GetBoolean();
                         if (dict.TryGetValue("FpsValue", out v)) FpsValue = v.GetInt32();
                         if (dict.TryGetValue("ModeIndex", out v))
