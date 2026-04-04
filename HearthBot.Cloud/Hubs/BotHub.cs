@@ -66,11 +66,16 @@ public class BotHub : Hub
     public override async Task OnDisconnectedAsync(Exception? exception)
     {
         var deviceId = _devices.GetDeviceIdByConnection(Context.ConnectionId);
+        _devices.RemoveConnection(Context.ConnectionId);
+
+        // 推送当前设备状态给仪表板，防止前端出现幽灵条目
         if (deviceId != null)
         {
-            await _devices.MarkDeviceOffline(deviceId);
-            await _dashboard.Clients.All.SendAsync("DeviceOffline", deviceId);
+            var device = await _devices.GetDevice(deviceId);
+            if (device != null)
+                await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
         }
+
         await base.OnDisconnectedAsync(exception);
     }
 }

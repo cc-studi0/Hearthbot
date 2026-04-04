@@ -46,7 +46,7 @@ public class DeviceManager
             device.DisplayName = displayName;
         }
 
-        device.Status = "Online";
+        device.Status = "Idle";
         device.LastHeartbeat = DateTime.UtcNow;
         device.AvailableDecksJson = System.Text.Json.JsonSerializer.Serialize(availableDecks);
         device.AvailableProfilesJson = System.Text.Json.JsonSerializer.Serialize(availableProfiles);
@@ -121,6 +121,13 @@ public class DeviceManager
         }
 
         _logger.LogInformation("Device {DeviceId} marked offline", deviceId);
+    }
+
+    public async Task<Device?> GetDevice(string deviceId)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
+        return await db.Devices.FindAsync(deviceId);
     }
 
     public void RemoveConnection(string connectionId)
