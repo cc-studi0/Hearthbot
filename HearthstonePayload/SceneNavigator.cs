@@ -1414,84 +1414,110 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 领取竞技场奖励 — 通过鼠标点击完成整个奖励交互流程：
-        ///   1. 点击宝箱（屏幕中央偏下区域，可能有多个）
-        ///   2. 点击弹出的奖励拆开
-        ///   3. 点击完成按钮
+        /// 领取竞技场奖励 — 精确点击 UI 元素：
+        ///   DraftDisplay.m_rewardBoxesDisplay (RewardBoxesDisplay) 包含：
+        ///     - 宝箱(RewardPackage): 通过 m_activeBoxes 列表获取每个宝箱位置点击
+        ///     - 完成按钮(m_DoneButton): 所有宝箱打开后出现
         /// </summary>
         public string ArenaClaimRewards()
         {
-            int clickCount = 0;
-
-            // 阶段1: 反复点击屏幕中央区域打开宝箱和拆奖励
-            // 宝箱通常在屏幕中央，奖励弹出后也在中央区域
-            for (int i = 0; i < 12; i++)
-            {
-                // 点击中央区域（宝箱和奖励的位置）
-                ClickAtRatio(0.5f, 0.5f, 0.4f);
-                clickCount++;
-
-                // 也点击偏左和偏右（多个宝箱可能并排）
-                if (i < 6)
-                {
-                    ClickAtRatio(0.35f, 0.5f, 0.3f);
-                    ClickAtRatio(0.65f, 0.5f, 0.3f);
-                    clickCount += 2;
-                }
-            }
-
-            // 阶段2: 点击"完成"按钮（通常在屏幕底部中央）
-            ClickAtRatio(0.5f, 0.8f, 0.5f);
-            clickCount++;
-
-            // 阶段3: 调用 ClickPlay 点击 DraftDisplay 的 PlayButton（作为备选关闭方式）
-            var playResult = ClickPlay();
-            clickCount++;
-
-            // 阶段4: API 兜底 — 如果鼠标点击没完全关闭，确保网络层确认
-            OnMain(() =>
+            var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    var dm = GetDraftManager();
-                    if (dm == null) return "SKIP";
-                    var networkType = _asm?.GetType("Network");
-                    if (networkType == null) return "SKIP";
-                    var network = CallStatic(networkType, "Get");
-                    if (network == null) return "SKIP";
+                    var dd = GetDraftDisplay();
+                    if (dd == null) return "ERROR:no_draft_display";
 
-                    var deck = CallMethod(dm, "GetDraftDeck");
-                    if (deck == null) return "SKIP";
-                    var deckId = TryGetFirstProp(deck, "ID");
-                    if (deckId == null) return "SKIP";
+                    // 获取 RewardBoxesDisplay
+                    var rewardBoxes = TryGetFirstProp(dd, "m_rewardBoxesDisplay");
+                    if (rewardBoxes == null) return "NO_REWARD_BOXES";
 
-                    var slot = CallMethod(dm, "GetSlot");
-                    int slotVal = slot != null ? Convert.ToInt32(slot) : 0;
-                    var isUg = CallMethod(dm, "IsUnderground");
-                    bool isUnderground = isUg != null && Convert.ToBoolean(isUg);
+                    // 尝试获取宝箱列表位置
+                    // RewardBoxesDisplay 的宝箱通过 m_InstancedObjects 或 m_RewardObjects 存储
+                    var boxes = TryGetFirstProp(rewardBoxes, "m_InstancedObjects")
+                             ?? TryGetFirstProp(rewardBoxes, "m_RewardObjects")
+                             ?? TryGetFirstProp(rewardBoxes, "m_activeBoxes");
 
-                    var ackMethod = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                        .FirstOrDefault(m => m.Name == "AckDraftRewards");
-                    if (ackMethod != null)
+                    var positions = new List<int[]>();
+                    if (boxes != null)
                     {
-                        var p = ackMethod.GetParameters();
-                        if (p.Length == 3)
-                            ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUnderground });
-                        else if (p.Length == 2)
-                            ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal });
+                        foreach (var box in AsEnumerable(boxes))
+                        {
+                            if (box == null) continue;
+                            if (TryGetScreenPos(box, out var bx, out var by))
+                                positions.Add(new[] { bx, by });
+                        }
                     }
 
-                    var dd = GetDraftDisplay();
-                    if (dd != null)
-                        CallMethod(dd, "OnOpenRewardsComplete");
+                    // 获取 DoneButton 位置
+                    var doneBtn = TryGetFirstProp(rewardBoxes, "m_DoneButton");
+                    int doneBtnX = 0, doneBtnY = 0;
+                    bool hasDoneBtn = doneBtn != null && TryGetScreenPos(doneBtn, out doneBtnX, out doneBtnY);
 
-                    return "OK";
+                    return "POSITIONS:" + positions.Count + "|" +
+                           string.Join(";", positions.Select(p => p[0] + "," + p[1])) + "|" +
+                           (hasDoneBtn ? $"DONE:{doneBtnX},{doneBtnY}" : "NO_DONE");
                 }
-                catch { return "SKIP"; }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
             });
 
-            return $"OK:CLAIMED:clicks={clickCount}:play={playResult}";
+            // 解析结果
+            if (result != null && result.StartsWith("POSITIONS:", StringComparison.Ordinal))
+            {
+                // 点击每个宝箱
+                var parts = result.Substring(10).Split('|');
+                if (parts.Length >= 2 && !string.IsNullOrWhiteSpace(parts[1]))
+                {
+                    var boxPositions = parts[1].Split(';');
+                    foreach (var pos in boxPositions)
+                    {
+                        var coords = pos.Split(',');
+                        if (coords.Length == 2 && int.TryParse(coords[0], out var x) && int.TryParse(coords[1], out var y))
+                        {
+                            ClickAt(x, y, 1.0f); // 点击宝箱，等 1 秒看动画
+                        }
+                    }
+                }
+
+                // 等奖励展示完
+                Thread.Sleep(2000);
+
+                // 重新获取 DoneButton 位置（动画完成后才出现）
+                var doneResult = OnMain(() =>
+                {
+                    if (!Init()) return "NO_DONE";
+                    var dd2 = GetDraftDisplay();
+                    if (dd2 == null) return "NO_DONE";
+                    var rb = TryGetFirstProp(dd2, "m_rewardBoxesDisplay");
+                    if (rb == null) return "NO_DONE";
+                    var btn = TryGetFirstProp(rb, "m_DoneButton");
+                    if (btn == null) return "NO_DONE";
+                    if (!TryGetScreenPos(btn, out var dx, out var dy)) return "NO_DONE";
+                    return $"DONE:{dx},{dy}";
+                });
+
+                if (doneResult != null && doneResult.StartsWith("DONE:", StringComparison.Ordinal))
+                {
+                    var doneCoords = doneResult.Substring(5).Split(',');
+                    if (doneCoords.Length == 2 && int.TryParse(doneCoords[0], out var dx) && int.TryParse(doneCoords[1], out var dy))
+                    {
+                        ClickAt(dx, dy, 0.5f); // 点击完成按钮
+                        return "OK:CLAIMED:done_button";
+                    }
+                }
+
+                // DoneButton 未找到，可能有多页奖励，继续点击
+                return "OK:CLAIMED:boxes_clicked";
+            }
+
+            if (result == "NO_REWARD_BOXES")
+            {
+                // 奖励界面还没加载，或者已经关闭了
+                return "OK:CLAIMED:no_boxes";
+            }
+
+            return "ERROR:claim:" + result;
         }
 
         /// <summary>
