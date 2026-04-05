@@ -3597,16 +3597,25 @@ namespace BotMain
 
                     RememberConsumedHsBoxActionRecommendation(recommendation, action);
 
-                    // 非最后动作时等待就绪
-                    if (ai < actions.Count - 1)
+                    // 检查动作后是否触发了发现/选择界面
+                    bool nextIsOption = ai < actions.Count - 1
+                        && actions[ai + 1].StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                    if (!nextIsOption)
                     {
-                        var nextAction = actions[ai + 1];
-                        bool nextIsOption = nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
-                        if (!nextIsOption)
+                        SleepOrCancelled(150);
+                        if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimReason))
                         {
-                            SleepOrCancelled(80);
-                            WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PostReady", action: action);
+                            Log($"[Arena] 动作后检测到发现/选择: {choiceResimReason}");
+                            RefreshHsBoxActionMinimumUpdatedAtNow();
+                            break; // 跳出动作循环，回到主循环重新获取推荐
                         }
+                    }
+
+                    // 非最后动作时等待就绪
+                    if (ai < actions.Count - 1 && !nextIsOption)
+                    {
+                        SleepOrCancelled(80);
+                        WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PostReady", action: action);
                     }
                 }
 
