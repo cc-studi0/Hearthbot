@@ -3121,6 +3121,7 @@ namespace BotMain
             }
             finally
             {
+                _hsBoxArenaDraftBridge = null;
                 _hsBoxRecommendationProvider?.SetArenaMode(false);
                 Log($"[Arena] ── 竞技场模式结束，共完成 {runCount} 轮 ──");
             }
@@ -3134,7 +3135,7 @@ namespace BotMain
                 || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 return true;
             Log($"[Arena] 当前场景: {scene}，导航到竞技场...");
-            TrySendStatusCommand(pipe, "NAVIGATE_TO_ARENA", 10000, out _, "Arena.Nav");
+            TrySendStatusCommand(pipe, "CLICK_HUB_BUTTON:arena", 10000, out _, "Arena.Nav");
             SleepOrCancelled(3000);
             return TryGetSceneValue(pipe, 3000, out var newScene, "Arena.NavCheck")
                    && (string.Equals(newScene, "DRAFT", StringComparison.OrdinalIgnoreCase)
@@ -3252,11 +3253,19 @@ namespace BotMain
             // 等待进入对局
             var matchStart = DateTime.UtcNow;
             bool enteredGame = false;
+            int queueRetries = 0;
+            const int maxQueueRetries = 3;
             while (_running && !_finishAfterGame)
             {
                 if ((DateTime.UtcNow - matchStart).TotalSeconds > _matchmakingTimeoutSeconds)
                 {
-                    Log("[Arena] 排队超时，重试...");
+                    queueRetries++;
+                    if (queueRetries > maxQueueRetries)
+                    {
+                        Log($"[Arena] 排队超时已达最大重试次数 ({maxQueueRetries})，跳出重新检查状态");
+                        break;
+                    }
+                    Log($"[Arena] 排队超时，重试 ({queueRetries}/{maxQueueRetries})...");
                     TrySendStatusCommand(pipe, "CLICK_PLAY", 5000, out _, "Arena.RetryPlay");
                     matchStart = DateTime.UtcNow;
                     SleepOrCancelled(2000);

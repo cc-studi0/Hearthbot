@@ -285,8 +285,8 @@ namespace BotMain
         public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode || IsArenaMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
         public bool IsBattlegroundsMode => ModeIndex == UiModeBattlegrounds;
         public bool IsArenaMode => ModeIndex == UiModeArena;
-        public bool ArenaUseGold { get => _arenaUseGold; set { _arenaUseGold = value; Notify(); AutoSave(); } }
-        public int ArenaGoldReserve { get => _arenaGoldReserve; set { _arenaGoldReserve = Math.Max(0, value); Notify(); AutoSave(); } }
+        public bool ArenaUseGold { get => _arenaUseGold; set { _arenaUseGold = value; _bot.SetArenaUseGold(value); Notify(); AutoSave(); } }
+        public int ArenaGoldReserve { get => _arenaGoldReserve; set { _arenaGoldReserve = Math.Max(0, value); _bot.SetArenaGoldReserve(_arenaGoldReserve); Notify(); AutoSave(); } }
         private string CurrentModeName => ModeIndex switch
         {
             0 => "Standard",
@@ -1269,6 +1269,8 @@ namespace BotMain
             _bot.SetHumanizeActionsEnabled(HumanizeActionsEnabled);
             _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
+            _bot.SetArenaUseGold(ArenaUseGold);
+            _bot.SetArenaGoldReserve(ArenaGoldReserve);
             ApplyRankStopSettings();
             ApplyNotifyToken();
             TryDeployPayloadDll();
