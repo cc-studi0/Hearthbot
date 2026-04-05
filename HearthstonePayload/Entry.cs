@@ -816,6 +816,10 @@ namespace HearthstonePayload
             {
                 _pipe.Write(nav.ArenaClaimRewards());
             }
+            else if (cmd == "ARENA_FIND_GAME")
+            {
+                _pipe.Write(nav.ArenaFindGame());
+            }
             else if (cmd == "ARENA_DUMP_DRAFT_MANAGER")
             {
                 _pipe.Write(nav.DumpDraftManager());

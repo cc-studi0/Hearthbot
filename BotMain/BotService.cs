@@ -3295,8 +3295,9 @@ namespace BotMain
         {
             Log("[Arena] 选牌完成，开始排队...");
 
-            // 点击开始排队
-            TrySendStatusCommand(pipe, "CLICK_PLAY", 5000, out _, "Arena.Play");
+            // 竞技场开始匹配（不能用 CLICK_PLAY，那是构筑模式的）
+            TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
+            Log($"[Arena] 开始匹配: {findResp}");
             SleepOrCancelled(2000);
 
             // 等待进入对局
@@ -3315,7 +3316,7 @@ namespace BotMain
                         break;
                     }
                     Log($"[Arena] 排队超时，重试 ({queueRetries}/{maxQueueRetries})...");
-                    TrySendStatusCommand(pipe, "CLICK_PLAY", 5000, out _, "Arena.RetryPlay");
+                    TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out _, "Arena.RetryFindGame");
                     matchStart = DateTime.UtcNow;
                     SleepOrCancelled(2000);
                     continue;

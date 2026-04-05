@@ -1398,6 +1398,45 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 竞技场开始匹配 — 通过 ArenaLandingPageManager 广播 CODE_FIND_GAME
+        /// </summary>
+        public string ArenaFindGame()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    // 方式1：通过 DraftDisplay 广播事件
+                    var dd = GetDraftDisplay();
+                    if (dd != null)
+                    {
+                        CallMethod(dd, "BroadcastArenaLandingPageManagerEvent", "CODE_FIND_GAME");
+                        return "OK:FIND_GAME";
+                    }
+
+                    // 方式2：通过 ArenaLandingPageManager
+                    var almType = _asm?.GetType("ArenaLandingPageManager");
+                    if (almType != null)
+                    {
+                        var alm = CallStatic(almType, "Get") ?? GetStaticValue(almType, "s_instance");
+                        if (alm != null)
+                        {
+                            CallMethod(alm, "BroadcastArenaLandingPageManagerEvent", "CODE_FIND_GAME");
+                            return "OK:FIND_GAME";
+                        }
+                    }
+
+                    return "ERROR:find_game_not_available";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
         /// 领取竞技场奖励 — 通过 Network.RetireDraftDeck 退役当前卡组
         /// </summary>
         public string ArenaClaimRewards()
