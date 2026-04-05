@@ -5833,11 +5833,10 @@ namespace BotMain
             IReadOnlyList<EntityContextSnapshot> friendlyEntities,
             HsBoxCardRef card)
         {
-            if (board?.Ability != null
-                && (card == null || string.IsNullOrWhiteSpace(card.CardId) || MatchesCardId(board.Ability, card.CardId)))
-            {
+            // 英雄技能只有一个，优先直接返回 board.Ability
+            // 盒子可能发带皮肤后缀的 cardId（如 CS2_034_H1），棋盘上是 CS2_034，严格匹配会失败
+            if (board?.Ability != null)
                 return board.Ability.Id;
-            }
 
             return ResolveFriendlyEntityIdFromSnapshots(friendlyEntities, "PLAY", card, allowPureSlotFallback: true);
         }
