@@ -938,6 +938,104 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 调试：枚举 NetCache 中所有与 Arena/Draft/Ticket/Gold 相关的类型和字段值
+        /// </summary>
+        public string DumpNetCacheArenaTypes()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var cache = GetNetCache();
+                    if (cache == null) return "ERROR:no_netcache";
+
+                    var sb = new System.Text.StringBuilder();
+                    var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+                    // 列出 NetCache 所有字段，找到存储网络对象的 dictionary/map
+                    sb.AppendLine("=== NetCache fields ===");
+                    foreach (var f in cache.GetType().GetFields(flags))
+                    {
+                        var val = f.GetValue(cache);
+                        if (val is System.Collections.IDictionary dict)
+                        {
+                            sb.AppendLine($"Dict: {f.Name} ({dict.Count} entries)");
+                            foreach (System.Collections.DictionaryEntry entry in dict)
+                            {
+                                var keyStr = entry.Key?.ToString() ?? "null";
+                                // 只打印跟 Arena/Draft/Ticket/Gold/Currency 相关的
+                                if (keyStr.IndexOf("Arena", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Draft", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Ticket", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Gold", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Currency", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Balance", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Forge", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Store", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Shop", StringComparison.OrdinalIgnoreCase) >= 0
+                                    || keyStr.IndexOf("Booster", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    sb.AppendLine($"  Key={keyStr}");
+                                    if (entry.Value != null)
+                                    {
+                                        foreach (var vf in entry.Value.GetType().GetFields(flags))
+                                        {
+                                            try { sb.AppendLine($"    F:{vf.Name}={vf.GetValue(entry.Value)}"); }
+                                            catch { sb.AppendLine($"    F:{vf.Name}=<err>"); }
+                                        }
+                                        foreach (var vp in entry.Value.GetType().GetProperties(BindingFlags.Public | BindingFlags.Instance))
+                                        {
+                                            if (vp.GetIndexParameters().Length > 0) continue;
+                                            try { sb.AppendLine($"    P:{vp.Name}={vp.GetValue(entry.Value)}"); }
+                                            catch { sb.AppendLine($"    P:{vp.Name}=<err>"); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 也尝试直接查找已知类型
+                    sb.AppendLine("=== Direct type lookup ===");
+                    var candidates = new[] {
+                        "NetCacheArenaTickets", "NetCache+NetCacheArenaTickets",
+                        "NetCacheGoldBalance", "NetCache+NetCacheGoldBalance",
+                        "NetCacheBuySellData", "NetCache+NetCacheBuySellData",
+                        "NetCacheFeatures", "NetCache+NetCacheFeatures",
+                        "NetCacheProfileProgress", "NetCache+NetCacheProfileProgress",
+                        "NetCacheCurrencyBalance", "NetCache+NetCacheCurrencyBalance",
+                        "NetCacheArenaSession", "NetCache+NetCacheArenaSession"
+                    };
+                    foreach (var name in candidates)
+                    {
+                        var t = _asm?.GetType(name);
+                        sb.AppendLine($"  {name}: {(t != null ? "FOUND" : "NOT_FOUND")}");
+                        if (t != null)
+                        {
+                            var obj = GetNetObject(name);
+                            sb.AppendLine($"    instance: {(obj != null ? "YES" : "NULL")}");
+                            if (obj != null)
+                            {
+                                foreach (var vf in obj.GetType().GetFields(flags))
+                                {
+                                    try { sb.AppendLine($"    F:{vf.Name}={vf.GetValue(obj)}"); }
+                                    catch { sb.AppendLine($"    F:{vf.Name}=<err>"); }
+                                }
+                            }
+                        }
+                    }
+
+                    return sb.ToString();
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
         /// 从DraftManager读取竞技场当前状态
         /// </summary>
         public string GetArenaStatus()

@@ -820,6 +820,10 @@ namespace HearthstonePayload
             {
                 _pipe.Write(nav.DumpDraftManager());
             }
+            else if (cmd == "ARENA_DUMP_NETCACHE")
+            {
+                _pipe.Write(nav.DumpNetCacheArenaTypes());
+            }
             else if (cmd == "PING")
             {
                 _pipe.Write("PONG");

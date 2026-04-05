@@ -3178,35 +3178,53 @@ namespace BotMain
                 r => true, out var infoResp, "Arena.TicketInfo");
 
             int tickets = 0, gold = 0;
-            if (infoResp != null)
+            bool ticketInfoParsed = false;
+            if (infoResp != null && !infoResp.StartsWith("ERROR", StringComparison.Ordinal))
             {
                 foreach (var part in infoResp.Split('|'))
                 {
                     if (part.StartsWith("TICKETS:", StringComparison.Ordinal))
-                        int.TryParse(part.Substring(8), out tickets);
+                    {
+                        if (int.TryParse(part.Substring(8), out var t)) tickets = t;
+                    }
                     else if (part.StartsWith("GOLD:", StringComparison.Ordinal))
-                        int.TryParse(part.Substring(5), out gold);
+                    {
+                        if (int.TryParse(part.Substring(5), out var g)) gold = g;
+                    }
                 }
+                ticketInfoParsed = true;
             }
+            Log($"[Arena] raw ticket response: {infoResp}");
 
             Log($"[Arena] 票: {tickets}, 金币: {gold}");
 
-            if (tickets > 0)
-                Log("[Arena] 使用门票购买。");
+            // tickets=0 & gold=0 & parsed=true 可能是反射读取失败，不要因此停止
+            bool infoReliable = ticketInfoParsed && (tickets > 0 || gold > 0);
+
+            if (!infoReliable && tickets == 0 && gold == 0)
+                Log("[Arena] ticket info unreliable (both 0), will attempt purchase anyway...");
+            else if (tickets > 0)
+                Log("[Arena] Using ticket.");
             else if (_arenaUseGold && gold >= 150 + _arenaGoldReserve)
                 Log($"[Arena] 使用金币购买（金币 {gold} >= {150 + _arenaGoldReserve}）。");
-            else
+            else if (infoReliable)
             {
+                // 数据可靠且确认没票没钱，才真正停止
                 Log(_arenaUseGold
-                    ? $"[Arena] 金币不足（{gold} < {150 + _arenaGoldReserve}），停止。"
-                    : "[Arena] 票已用完且金币开关关闭，停止���");
+                    ? $"[Arena] gold insufficient ({gold} < {150 + _arenaGoldReserve}), stopping."
+                    : "[Arena] no tickets and gold disabled, stopping.");
                 return false;
             }
 
             TrySendAndReceiveExpected(pipe, "ARENA_BUY_TICKET", 10000,
                 r => true, out var buyResp, "Arena.Buy");
-            Log($"[Arena] 购票结果: {buyResp}");
-            return buyResp != null && buyResp.StartsWith("OK", StringComparison.Ordinal);
+            Log($"[Arena] buy result: {buyResp}");
+
+            if (buyResp != null && buyResp.StartsWith("OK", StringComparison.Ordinal))
+                return true;
+
+            Log($"[Arena] buy failed: {buyResp}");
+            return false;
         }
 
         private void ArenaPickHero(PipeServer pipe)
