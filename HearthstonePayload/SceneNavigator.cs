@@ -1208,17 +1208,19 @@ namespace HearthstonePayload
             });
         }
 
+        // ════════════════════════════════════════════════════════════════
+        //  以下所有竞技场操作基于反编译 Assembly-CSharp.dll 的真实调用链
+        //  关键类: DraftManager, DraftDisplay, ArenaLandingPageManager, Network
+        // ════════════════════════════════════════════════════════════════
+
         /// <summary>
-        /// 购买竞技场门票 / 开始新轮次 — 复用 ClickPlay（已支持 DRAFT 场景）
-        /// PlayButton 在 NO_RUN 状态下点击会花票开始新竞技场
+        /// 购票/开始新轮次
+        /// 反编译路径: ArenaLandingPageManager.SpendTicket()
+        ///   → m_widget.TriggerEvent("MOVETO_DRAFTING") + ("DRAFTING")
+        ///   → DraftManager.RequestDraftBegin()
+        ///   → Network.DraftBegin(isUnderground)
         /// </summary>
         public string ArenaBuyTicket()
-        {
-            return ClickPlay(); // ClickPlay 已支持 DRAFT 场景的 m_playButton
-        }
-
-        // 保留兼容签名
-        private string _ArenaBuyTicketLegacy()
         {
             return OnMain(() =>
             {
@@ -1226,12 +1228,16 @@ namespace HearthstonePayload
                 try
                 {
                     var dm = GetDraftManager();
-                    if (dm != null)
-                    {
-                        CallMethod(dm, "RequestDraftBegin");
-                        return "OK:BUY:api_fallback";
-                    }
-                    return "ERROR:buy_method_not_found";
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    // 检查票数
+                    var ticketCount = CallMethod(dm, "GetNumTicketsOwned");
+                    int tickets = ticketCount != null ? Convert.ToInt32(ticketCount) : 0;
+                    if (tickets <= 0) return "ERROR:no_tickets";
+
+                    // 直接调用 RequestDraftBegin (SpendTicket 的核心)
+                    CallMethod(dm, "RequestDraftBegin");
+                    return "OK:BUY";
                 }
                 catch (Exception ex)
                 {
@@ -1241,8 +1247,8 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 获取当前选项列表（英雄或卡牌），从 DraftDisplay.m_choices 读取
-        /// 每个 DraftChoice 有 m_cardID 字段
+        /// 获取当前选项 (英雄或卡牌)
+        /// 从 DraftDisplay.m_choices 读取, 每个 DraftChoice 有 m_cardID
         /// </summary>
         private string GetDraftDisplayChoices()
         {
@@ -1256,16 +1262,13 @@ namespace HearthstonePayload
             foreach (var c in AsEnumerable(choices))
             {
                 if (c == null) continue;
-                var cardId = TryGetFirstProp(c, "m_cardID", "m_cardId", "CardID", "CardId");
+                var cardId = TryGetFirstProp(c, "m_cardID");
                 ids.Add(cardId?.ToString() ?? "unknown");
             }
 
             return ids.Count > 0 ? string.Join(",", ids) : null;
         }
 
-        /// <summary>
-        /// 获取可选英雄列表：HEROES:HERO_01,HERO_02,HERO_03
-        /// </summary>
         public string GetArenaHeroChoices()
         {
             return OnMain(() =>
@@ -1274,86 +1277,12 @@ namespace HearthstonePayload
                 try
                 {
                     var choiceStr = GetDraftDisplayChoices();
-                    if (choiceStr != null)
-                        return "HEROES:" + choiceStr;
-                    return "ERROR:no_hero_choices";
+                    return choiceStr != null ? "HEROES:" + choiceStr : "ERROR:no_hero_choices";
                 }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
             });
         }
 
-        /// <summary>
-        /// 选择英雄或卡牌（统一接口）
-        /// DraftManager.MakeChoice(choiceNum, TAG_PREMIUM.NORMAL)
-        /// 注意：choiceNum 是 1-based！传入的 index 是 0-based，需要 +1
-        /// </summary>
-        private string MakeDraftChoice(int zeroBasedIndex)
-        {
-            var dm = GetDraftManager();
-            if (dm == null) return "ERROR:no_draft_manager";
-
-            int choiceNum = zeroBasedIndex + 1; // MakeChoice 是 1-based
-
-            // TAG_PREMIUM 枚举
-            var premiumType = _asm?.GetType("TAG_PREMIUM");
-            object normalPremium = null;
-            if (premiumType != null)
-            {
-                try { normalPremium = Enum.Parse(premiumType, "NORMAL"); } catch { }
-                if (normalPremium == null)
-                    try { normalPremium = Enum.ToObject(premiumType, 0); } catch { }
-            }
-
-            // DraftManager.MakeChoice(int choiceNum, TAG_PREMIUM choicePremium, ...)
-            var makeChoiceMethod = dm.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                .FirstOrDefault(m => m.Name == "MakeChoice" && m.GetParameters().Length >= 2);
-
-            if (makeChoiceMethod != null && normalPremium != null)
-            {
-                var parms = makeChoiceMethod.GetParameters();
-                var args = new object[parms.Length];
-                args[0] = choiceNum;
-                args[1] = normalPremium;
-                // 其余参数用默认值
-                for (int i = 2; i < parms.Length; i++)
-                {
-                    if (parms[i].HasDefaultValue)
-                        args[i] = parms[i].DefaultValue;
-                    else if (parms[i].ParameterType == typeof(bool))
-                        args[i] = false;
-                    else
-                        args[i] = null;
-                }
-                makeChoiceMethod.Invoke(dm, args);
-                return "OK";
-            }
-
-            return "ERROR:MakeChoice_not_found";
-        }
-
-        public string ArenaPickHero(int index)
-        {
-            return OnMain(() =>
-            {
-                if (!Init()) return "ERROR:not_initialized";
-                try
-                {
-                    var result = MakeDraftChoice(index);
-                    return result == "OK" ? "OK:HERO_PICKED" : result;
-                }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
-            });
-        }
-
-        /// <summary>
-        /// 获取当前可选卡牌：CHOICES:cardId1,cardId2,cardId3
-        /// </summary>
         public string GetArenaDraftChoices()
         {
             return OnMain(() =>
@@ -1362,17 +1291,52 @@ namespace HearthstonePayload
                 try
                 {
                     var choiceStr = GetDraftDisplayChoices();
-                    if (choiceStr != null)
-                        return "CHOICES:" + choiceStr;
-                    return "ERROR:no_draft_choices";
+                    return choiceStr != null ? "CHOICES:" + choiceStr : "ERROR:no_draft_choices";
                 }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
             });
         }
 
+        /// <summary>
+        /// 选择英雄 (0-based index)
+        /// 反编译路径: DraftDisplay.OnHeroClicked(choiceNum) → ZoomHeroCard → OnConfirmButtonClicked
+        ///   → DoHeroSelectAnimation → DraftManager.MakeChoice(choiceNum, premium)
+        /// 英雄选择需要两步: 先点击英雄放大, 再确认
+        /// 但 DraftDisplay.ClickConfirmButton() 可以直接跳过动画确认
+        /// </summary>
+        public string ArenaPickHero(int index)
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    int choiceNum = index + 1; // 1-based
+                    var dd = GetDraftDisplay();
+                    if (dd == null) return "ERROR:no_draft_display";
+
+                    // DraftDisplay.OnHeroClicked(choiceNum) — 触发英雄放大+确认按钮显示
+                    CallMethod(dd, "OnHeroClicked", choiceNum);
+
+                    // 短暂等待动画开始
+                    Thread.Sleep(300);
+
+                    // DraftDisplay.ClickConfirmButton() — 直接确认(公开方法,内部调 OnConfirmButtonClicked)
+                    CallMethod(dd, "ClickConfirmButton");
+
+                    return "OK:HERO_PICKED";
+                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
+            });
+        }
+
+        /// <summary>
+        /// 选择卡牌 (0-based index)
+        /// 反编译路径: DraftManager.MakeChoice(choiceNum, TAG_PREMIUM.NORMAL)
+        ///   → Network.MakeDraftChoice(...)
+        ///   → 服务端 DraftChosen → OnChosen() → 下一轮选牌
+        /// 卡牌选择不需要确认按钮,直接 MakeChoice
+        /// </summary>
         public string ArenaPickCard(int index)
         {
             return OnMain(() =>
@@ -1380,25 +1344,52 @@ namespace HearthstonePayload
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    var result = MakeDraftChoice(index);
-                    return result == "OK" ? "OK:CARD_PICKED" : result;
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    int choiceNum = index + 1; // 1-based
+
+                    // 获取 TAG_PREMIUM.NORMAL
+                    var premiumType = _asm?.GetType("TAG_PREMIUM");
+                    object normalPremium = null;
+                    if (premiumType != null)
+                    {
+                        try { normalPremium = Enum.Parse(premiumType, "NORMAL"); } catch { }
+                        if (normalPremium == null)
+                            try { normalPremium = Enum.ToObject(premiumType, 0); } catch { }
+                    }
+
+                    // DraftManager.MakeChoice(choiceNum, premium, packagePremiums=null, isConfirming=false)
+                    var method = dm.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                        .FirstOrDefault(m => m.Name == "MakeChoice" && m.GetParameters().Length >= 2);
+
+                    if (method != null && normalPremium != null)
+                    {
+                        var parms = method.GetParameters();
+                        var args = new object[parms.Length];
+                        args[0] = choiceNum;
+                        args[1] = normalPremium;
+                        for (int i = 2; i < parms.Length; i++)
+                            args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
+                                    : parms[i].ParameterType == typeof(bool) ? (object)false : null;
+                        method.Invoke(dm, args);
+                        return "OK:CARD_PICKED";
+                    }
+
+                    return "ERROR:MakeChoice_not_found";
                 }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
             });
         }
 
         /// <summary>
-        /// 竞技场开始匹配 — 复用 ClickPlay（同一个 PlayButton）
+        /// 开始匹配
+        /// 反编译路径: DraftManager.FindGame()
+        ///   → GameMgr.FindGame(GameType.GT_ARENA, ...)
+        /// 注意: ArenaLandingPageManager.StartMatchmaking() 也是调这个,
+        ///   但会额外 SetUIButtonsEnabled(false) 和设置 PresenceStatus
         /// </summary>
         public string ArenaFindGame()
-        {
-            return ClickPlay(); // ClickPlay 已支持 DRAFT 场景
-        }
-
-        private string _ArenaFindGameLegacy()
         {
             return OnMain(() =>
             {
@@ -1406,41 +1397,69 @@ namespace HearthstonePayload
                 try
                 {
                     var dm = GetDraftManager();
-                    if (dm != null)
-                    {
-                        CallMethod(dm, "FindGame");
-                        return "OK:FIND_GAME:api_fallback";
-                    }
-                    return "ERROR:find_game_not_available";
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    CallMethod(dm, "FindGame");
+                    return "OK:FIND_GAME";
                 }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
             });
         }
 
         /// <summary>
-        /// 领取竞技场奖励 — 多次点击 PlayButton 通过奖励动画和确认
-        /// 奖励界面有动画，需要等动画结束后按钮才可点击
+        /// 领取奖励
+        /// 反编译路径 (ArenaTrayDisplay + DraftDisplay):
+        ///   Network.AckDraftRewards(deckId, slot, isUnderground)
+        ///   DraftDisplay.OnOpenRewardsComplete()
+        ///   → 服务端 DraftRewardsAcked → OnAckRewards() → 状态变 NO_RUN
         /// </summary>
         public string ArenaClaimRewards()
         {
-            // 多次尝试点击，因为奖励界面有动画过程
-            for (int i = 0; i < 5; i++)
+            return OnMain(() =>
             {
-                var result = ClickPlay();
-                if (result != null && !result.StartsWith("ERROR"))
-                    return "OK:CLAIMED:" + result;
-                Thread.Sleep(1000);
-            }
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
 
-            // 备选：点击屏幕中央（奖励弹窗可能挡住了按钮）
-            ClickAtRatio(0.5f, 0.5f, 0.5f);
-            Thread.Sleep(500);
-            return ClickPlay().StartsWith("ERROR")
-                ? "ERROR:claim_failed"
-                : "OK:CLAIMED:after_center_click";
+                    var networkType = _asm?.GetType("Network");
+                    if (networkType == null) return "ERROR:no_network_type";
+                    var network = CallStatic(networkType, "Get");
+                    if (network == null) return "ERROR:no_network";
+
+                    // 获取 deckId
+                    var deck = CallMethod(dm, "GetDraftDeck");
+                    if (deck == null) return "ERROR:no_draft_deck";
+                    var deckId = TryGetFirstProp(deck, "ID");
+                    if (deckId == null) return "ERROR:no_deck_id";
+
+                    var slot = CallMethod(dm, "GetSlot");
+                    int slotVal = slot != null ? Convert.ToInt32(slot) : 0;
+                    var isUg = CallMethod(dm, "IsUnderground");
+                    bool isUnderground = isUg != null && Convert.ToBoolean(isUg);
+
+                    // Network.AckDraftRewards(long deckId, int slot, bool isUnderground)
+                    var ackMethod = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                        .FirstOrDefault(m => m.Name == "AckDraftRewards");
+                    if (ackMethod != null)
+                    {
+                        var p = ackMethod.GetParameters();
+                        if (p.Length == 3)
+                            ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUnderground });
+                        else if (p.Length == 2)
+                            ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal });
+                    }
+
+                    // DraftDisplay.OnOpenRewardsComplete()
+                    var dd = GetDraftDisplay();
+                    if (dd != null)
+                        CallMethod(dd, "OnOpenRewardsComplete");
+
+                    return "OK:CLAIMED";
+                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
+            });
         }
 
         /// <summary>

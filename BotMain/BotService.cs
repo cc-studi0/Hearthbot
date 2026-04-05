@@ -3335,14 +3335,7 @@ namespace BotMain
         {
             Log("[Arena] 准备排队...");
 
-            // 打完一局后的竞技场 UI 和首次进入不同（赛后页面），PlayButton 位置/对象可能不一致。
-            // 最可靠的方案：先回大厅，再重新进入竞技场，确保 UI 状态干净。
-            if (!ArenaReenterForCleanState(pipe))
-            {
-                Log("[Arena] 重进竞技场失败，直接尝试匹配...");
-            }
-
-            // 点击开始匹配
+            // 直接调 DraftManager.FindGame() API，不依赖 UI 按钮状态
             TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
             Log($"[Arena] 开始匹配: {findResp}");
             SleepOrCancelled(2000);
@@ -3350,8 +3343,8 @@ namespace BotMain
             // 验证是否真的在匹配
             if (!IsFindingGameViaCommand(pipe))
             {
-                Log("[Arena] 匹配未启动，再试一次...");
-                SleepOrCancelled(1000);
+                Log("[Arena] 匹配未启动，等待后重试...");
+                SleepOrCancelled(2000);
                 TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var retryResp, "Arena.RetryFindGame");
                 Log($"[Arena] 重试匹配: {retryResp}");
                 SleepOrCancelled(2000);
