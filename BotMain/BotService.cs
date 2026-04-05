@@ -190,6 +190,11 @@ namespace BotMain
         private DateTime _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
         private bool _currentMatchResultHandled;
 
+        // 竞技场配置
+        private bool _arenaUseGold;
+        private int _arenaGoldReserve;
+        private HsBoxArenaDraftBridge _hsBoxArenaDraftBridge;
+
         public event Action<string> OnLog;
         public event Action<Board> OnBoardUpdated;
         public event Action<string> OnStatusChanged;
@@ -811,6 +816,9 @@ namespace BotMain
                 _ => 0
             };
         }
+
+        public void SetArenaUseGold(bool value) { _arenaUseGold = value; Log($"[Settings] ArenaUseGold={value}"); }
+        public void SetArenaGoldReserve(int value) { _arenaGoldReserve = value; Log($"[Settings] ArenaGoldReserve={value}"); }
 
         public void SetMaxWins(int v) { _maxWins = v; Log($"[Settings] MaxWins={v}"); }
         public void SetMaxLosses(int v) { _maxLosses = v; Log($"[Settings] MaxLosses={v}"); }
@@ -1902,6 +1910,12 @@ namespace BotMain
 
         private void MainLoop()
         {
+            if (_modeIndex == 2) // Arena
+            {
+                ArenaLoop();
+                return;
+            }
+
             if (_modeIndex == 100)
             {
                 // 战旗 AutoQueue 循环：每局结束后自动开始下一局
@@ -3036,8 +3050,589 @@ namespace BotMain
             }
         }
 
+        // ────────────────────────────────────────────────────────────────────────
+        //  竞技场主循环
+        // ─────��────────────────────────────���─────────────────────────────────────
+
+        private void ArenaLoop()
+        {
+            var pipe = _pipe;
+            Log("[Arena] ── 竞技场模式启动 ──");
+            _hsBoxArenaDraftBridge = new HsBoxArenaDraftBridge { OnLog = msg => Log(msg) };
+            _hsBoxRecommendationProvider?.SetArenaMode(true);
+
+            int runCount = 0;
+            try
+            {
+                while (_running && !_finishAfterGame)
+                {
+                    if (pipe == null || !pipe.IsConnected)
+                    {
+                        _restartPending = false;
+                        if (!TryReconnectLoop("[Arena] ���戏闪退"))
+                            break;
+                        pipe = _pipe;
+                        continue;
+                    }
+
+                    // 1. 导航到 DRAFT 场景
+                    if (!ArenaEnsureDraftScene(pipe)) { SleepOrCancelled(2000); continue; }
+
+                    // 2. 查询竞技场状态
+                    if (!TrySendAndReceiveExpected(pipe, "ARENA_GET_STATUS", 5000,
+                            r => true, out var statusResp, "Arena.Check"))
+                    { SleepOrCancelled(1000); continue; }
+
+                    Log($"[Arena] 状态: {statusResp}");
+
+                    // 根据状态路由
+                    if (statusResp != null && statusResp.StartsWith("NO_DRAFT", StringComparison.Ordinal))
+                    {
+                        if (!ArenaTryBuyTicket(pipe)) break;
+                        SleepOrCancelled(3000);
+                    }
+                    else if (statusResp != null && statusResp.StartsWith("HERO_PICK", StringComparison.Ordinal))
+                    {
+                        ArenaPickHero(pipe);
+                        SleepOrCancelled(2000);
+                    }
+                    else if (statusResp != null && statusResp.StartsWith("CARD_DRAFT", StringComparison.Ordinal))
+                    {
+                        ArenaPickCard(pipe);
+                        SleepOrCancelled(1500);
+                    }
+                    else if (statusResp != null && statusResp.StartsWith("DRAFT_COMPLETE", StringComparison.Ordinal))
+                    {
+                        ArenaQueueAndPlay(pipe);
+                    }
+                    else if (statusResp != null && statusResp.StartsWith("REWARDS", StringComparison.Ordinal))
+                    {
+                        ArenaClaimRewards(pipe);
+                        runCount++;
+                        Log($"[Arena] 第 {runCount} 轮竞技场完成。");
+                        SleepOrCancelled(3000);
+                    }
+                    else
+                    {
+                        Log($"[Arena] 未知状态: {statusResp}���等待...");
+                        SleepOrCancelled(2000);
+                    }
+                }
+            }
+            finally
+            {
+                _hsBoxRecommendationProvider?.SetArenaMode(false);
+                Log($"[Arena] ── 竞技场模式结束，共完成 {runCount} 轮 ──");
+            }
+        }
+
+        private bool ArenaEnsureDraftScene(PipeServer pipe)
+        {
+            if (!TryGetSceneValue(pipe, 3000, out var scene, "Arena.Scene"))
+                return false;
+            if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                return true;
+            Log($"[Arena] 当前场景: {scene}，导航到竞技场...");
+            TrySendStatusCommand(pipe, "NAVIGATE_TO_ARENA", 10000, out _, "Arena.Nav");
+            SleepOrCancelled(3000);
+            return TryGetSceneValue(pipe, 3000, out var newScene, "Arena.NavCheck")
+                   && (string.Equals(newScene, "DRAFT", StringComparison.OrdinalIgnoreCase)
+                       || string.Equals(newScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase));
+        }
+
+        private bool ArenaTryBuyTicket(PipeServer pipe)
+        {
+            TrySendAndReceiveExpected(pipe, "ARENA_GET_TICKET_INFO", 5000,
+                r => true, out var infoResp, "Arena.TicketInfo");
+
+            int tickets = 0, gold = 0;
+            if (infoResp != null)
+            {
+                foreach (var part in infoResp.Split('|'))
+                {
+                    if (part.StartsWith("TICKETS:", StringComparison.Ordinal))
+                        int.TryParse(part.Substring(8), out tickets);
+                    else if (part.StartsWith("GOLD:", StringComparison.Ordinal))
+                        int.TryParse(part.Substring(5), out gold);
+                }
+            }
+
+            Log($"[Arena] 票: {tickets}, 金币: {gold}");
+
+            if (tickets > 0)
+                Log("[Arena] 使用门票购买。");
+            else if (_arenaUseGold && gold >= 150 + _arenaGoldReserve)
+                Log($"[Arena] 使用金币购买（金币 {gold} >= {150 + _arenaGoldReserve}）。");
+            else
+            {
+                Log(_arenaUseGold
+                    ? $"[Arena] 金币不足（{gold} < {150 + _arenaGoldReserve}），停止。"
+                    : "[Arena] 票已用完且金币开关关闭，停止���");
+                return false;
+            }
+
+            TrySendAndReceiveExpected(pipe, "ARENA_BUY_TICKET", 10000,
+                r => true, out var buyResp, "Arena.Buy");
+            Log($"[Arena] 购票结果: {buyResp}");
+            return buyResp != null && buyResp.StartsWith("OK", StringComparison.Ordinal);
+        }
+
+        private void ArenaPickHero(PipeServer pipe)
+        {
+            Log("[Arena] 选择职业阶段...");
+            int bestIndex = 0;
+            string detail = null;
+
+            if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
+            {
+                if (rec.GuideList != null && rec.GuideList.Count > 0)
+                {
+                    double bestScore = double.MinValue;
+                    for (int i = 0; i < rec.GuideList.Count; i++)
+                    {
+                        var item = rec.GuideList[i];
+                        double score = item.Value<double?>("score")
+                                       ?? item.Value<double?>("value")
+                                       ?? item.Value<double?>("winRate")
+                                       ?? 0;
+                        if (score > bestScore) { bestScore = score; bestIndex = i; }
+                    }
+                    Log($"[Arena] 盒子推荐职业 index={bestIndex}, score={bestScore:F1}");
+                }
+                else
+                    Log($"[Arena] 盒子无推荐 ({detail})，选第一个。");
+            }
+            else
+                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
+
+            TrySendStatusCommand(pipe, $"ARENA_PICK_HERO:{bestIndex}", 5000, out var resp, "Arena.PickHero");
+            Log($"[Arena] 选职业结果: {resp}");
+        }
+
+        private void ArenaPickCard(PipeServer pipe)
+        {
+            int bestIndex = 0;
+            string detail = null;
+
+            if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
+            {
+                if (rec.GuideList != null && rec.GuideList.Count > 0)
+                {
+                    double bestScore = double.MinValue;
+                    for (int i = 0; i < rec.GuideList.Count; i++)
+                    {
+                        var item = rec.GuideList[i];
+                        double score = item.Value<double?>("score")
+                                       ?? item.Value<double?>("value")
+                                       ?? item.Value<double?>("winRate")
+                                       ?? 0;
+                        if (score > bestScore) { bestScore = score; bestIndex = i; }
+                    }
+                    Log($"[Arena] 盒子推荐卡牌 index={bestIndex}, score={bestScore:F1}, stage={rec.CardStage}");
+                }
+                else
+                    Log($"[Arena] 盒子无选牌推荐 ({detail})，选第一张。");
+            }
+            else
+                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一��。");
+
+            TrySendStatusCommand(pipe, $"ARENA_PICK_CARD:{bestIndex}", 5000, out var resp, "Arena.PickCard");
+            Log($"[Arena] 选牌结果: {resp}");
+        }
+
+        private void ArenaQueueAndPlay(PipeServer pipe)
+        {
+            Log("[Arena] 选牌完成，开始排队...");
+
+            // 点击开始排队
+            TrySendStatusCommand(pipe, "CLICK_PLAY", 5000, out _, "Arena.Play");
+            SleepOrCancelled(2000);
+
+            // 等待进入对局
+            var matchStart = DateTime.UtcNow;
+            bool enteredGame = false;
+            while (_running && !_finishAfterGame)
+            {
+                if ((DateTime.UtcNow - matchStart).TotalSeconds > _matchmakingTimeoutSeconds)
+                {
+                    Log("[Arena] 排队超时，重试...");
+                    TrySendStatusCommand(pipe, "CLICK_PLAY", 5000, out _, "Arena.RetryPlay");
+                    matchStart = DateTime.UtcNow;
+                    SleepOrCancelled(2000);
+                    continue;
+                }
+
+                if (TryGetSceneValue(pipe, 3000, out var scene, "Arena.WaitGame")
+                    && string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("[Arena] 已进入对局！");
+                    enteredGame = true;
+                    break;
+                }
+                SleepOrCancelled(2000);
+            }
+
+            if (!enteredGame || !_running) return;
+
+            // 运行对局
+            ArenaGameLoop(pipe);
+
+            // 对局后结算
+            ArenaPostGameSettle(pipe);
+        }
+
         /// <summary>
-        /// 可取消的 Sleep。返回 true 表示已被取消（Stop 被调用），false 表示正常超时。
+        /// 竞技场对局内主循环。
+        /// 复用已有的 seed 轮询 → 留牌 → 推荐 → 执行 的核心流程。
+        /// </summary>
+        private void ArenaGameLoop(PipeServer pipe)
+        {
+            Log("[Arena] 对局主循环开始...");
+
+            bool wasInGame = false;
+            bool mulliganHandled = false;
+            int mulliganStreak = 0;
+            DateTime mulliganPhaseStartedUtc = DateTime.MinValue;
+            DateTime nextMulliganAttemptUtc = DateTime.MinValue;
+            int lastTurnNumber = -1;
+            DateTime currentTurnStartedUtc = DateTime.MinValue;
+            int actionFailStreak = 0;
+            int seedNullStreak = 0;
+            var playActionFailStreakByEntity = new Dictionary<int, int>();
+
+            while (_running && !_finishAfterGame && pipe != null && pipe.IsConnected)
+            {
+                Thread.Sleep(120);
+
+                // 轮询 seed
+                var gotSeedResp = TrySendAndReceiveExpected(
+                    pipe,
+                    "GET_SEED",
+                    MainLoopGetSeedTimeoutMs,
+                    BotProtocol.IsSeedProbeResponse,
+                    out var resp,
+                    "Arena.Seed");
+
+                if (!gotSeedResp || resp == null)
+                {
+                    seedNullStreak++;
+                    if (wasInGame && seedNullStreak >= 5)
+                    {
+                        Log("[Arena] GET_SEED 连续为 null，判定对局结束。");
+                        break;
+                    }
+                    if (SleepOrCancelled(300)) break;
+                    continue;
+                }
+                seedNullStreak = 0;
+                TouchEffectiveAction();
+
+                // 丢弃错位响应
+                if (resp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal)
+                    || resp.StartsWith("SCENE:", StringComparison.Ordinal)
+                    || resp.StartsWith("DECKS:", StringComparison.Ordinal)
+                    || resp.StartsWith("DECK_STATE:", StringComparison.Ordinal)
+                    || resp.StartsWith("CHOICE:", StringComparison.Ordinal)
+                    || resp == "PONG" || resp == "READY" || resp == "BUSY")
+                {
+                    if (SleepOrCancelled(300)) break;
+                    continue;
+                }
+
+                // Seed Not Ready：对局正在加载
+                if (BotProtocol.IsSeedNotReadyState(resp))
+                {
+                    EnsureGameplaySessionStarted(ref wasInGame);
+                    mulliganStreak = 0;
+                    mulliganHandled = false;
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                // 非 SEED: 前缀的状态处理
+                if (!resp.StartsWith("SEED:", StringComparison.Ordinal))
+                {
+                    if (BotProtocol.IsEndgamePendingState(resp))
+                    {
+                        if (wasInGame)
+                        {
+                            Log("[Arena] ENDGAME_PENDING，等待结算...");
+                            ResolveEndgamePending(pipe, "Arena.Endgame", out _);
+                        }
+                        break;
+                    }
+
+                    if (resp == "NO_GAME")
+                    {
+                        if (wasInGame)
+                        {
+                            Log("[Arena] 对局结束 (NO_GAME)。");
+                            HandleGameResult(null);
+                            _pluginSystem?.FireOnGameEnd();
+                        }
+                        break;
+                    }
+
+                    if (resp == "MULLIGAN")
+                    {
+                        EnsureGameplaySessionStarted(ref wasInGame);
+                        HsBoxCallbackCapture.SetTurnContext(null, isMulligan: true);
+                        mulliganStreak++;
+                        playActionFailStreakByEntity.Clear();
+
+                        if (mulliganStreak == 1)
+                        {
+                            mulliganPhaseStartedUtc = DateTime.UtcNow;
+                            Log("[Arena] 留牌阶段检测到，等待 UI 就绪...");
+                            nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
+                        }
+
+                        if (!mulliganHandled && DateTime.UtcNow >= nextMulliganAttemptUtc)
+                        {
+                            var ok = TryApplyMulligan(pipe, mulliganPhaseStartedUtc, out var mulliganResult);
+                            if (ok)
+                            {
+                                mulliganHandled = true;
+                                Log($"[Arena] 留牌完成: {mulliganResult}");
+                            }
+                            else
+                            {
+                                var retryMs = IsMulliganTransientFailure(mulliganResult) ? 300 : 2000;
+                                nextMulliganAttemptUtc = DateTime.UtcNow.AddMilliseconds(retryMs);
+                                Log($"[Arena] 留牌失败: {mulliganResult}");
+                            }
+                        }
+
+                        if (SleepOrCancelled(1000)) break;
+                        continue;
+                    }
+
+                    if (resp == "NOT_OUR_TURN")
+                    {
+                        mulliganStreak = 0;
+                        mulliganHandled = false;
+                        if (SleepOrCancelled(300)) break;
+                        continue;
+                    }
+
+                    // 其他未知响应
+                    Log($"[Arena] GET_SEED -> {(resp.Length > 60 ? resp.Substring(0, 60) : resp)}");
+                    if (SleepOrCancelled(1000)) break;
+                    continue;
+                }
+
+                // ── 我方回合：SEED: 数据 ──
+                mulliganStreak = 0;
+                mulliganHandled = false;
+                EnsureGameplaySessionStarted(ref wasInGame);
+                _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
+
+                var seed = resp.Substring(5);
+                TryBuildPlanningBoardFromSeed(seed, "Arena.Initial", emitDebugEvents: true,
+                    out var planningBoard, out _);
+
+                if (planningBoard != null)
+                {
+                    int resimCount = 0;
+                    int staleFresh = 0;
+                    ApplyPlanningBoard(planningBoard, ref lastTurnNumber, ref currentTurnStartedUtc,
+                        ref resimCount, ref actionFailStreak, ref staleFresh, playActionFailStreakByEntity);
+                }
+
+                // 等待游戏就绪
+                if (!WaitForGameReady(pipe, 30, waitScope: "Arena.TurnStart"))
+                {
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                // 刷新 board
+                {
+                    var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                    if (planningBoard == null)
+                    {
+                        Thread.Sleep(120);
+                        continue;
+                    }
+                }
+
+                // 获取推荐动作
+                var actionRequest = new ActionRecommendationRequest(
+                    seed,
+                    planningBoard,
+                    _selectedProfile,
+                    null, // deckCards - arena 没有预定义牌组
+                    GetHsBoxActionMinimumUpdatedAtMs(),
+                    null, null, null, null,
+                    BuildMatchContext(planningBoard),
+                    _lastConsumedHsBoxActionUpdatedAtMs,
+                    _lastConsumedHsBoxActionPayloadSignature,
+                    _lastConsumedHsBoxActionCommand);
+
+                ActionRecommendationResult recommendation;
+                try
+                {
+                    recommendation = RecommendActionsWithLearning(actionRequest);
+                }
+                catch (Exception ex)
+                {
+                    Log("[Arena] 推荐异常: " + ex.Message);
+                    if (SleepOrCancelled(300)) break;
+                    continue;
+                }
+
+                var actions = recommendation?.Actions?.ToList();
+                if (!string.IsNullOrWhiteSpace(recommendation?.Detail))
+                    Log($"[Arena.Recommend] {recommendation.Detail}");
+
+                if (recommendation?.ShouldRetryWithoutAction == true)
+                {
+                    if (recommendation.RequireFreshSourcePayload)
+                        RefreshHsBoxActionMinimumUpdatedAtNow();
+                    Thread.Sleep(120);
+                    continue;
+                }
+
+                actions = NormalizeRecommendedActions(actions);
+                if (actions == null || actions.Count == 0)
+                {
+                    if (SleepOrCancelled(500)) break;
+                    continue;
+                }
+
+                // 执行动作
+                var actionFailed = false;
+                for (int ai = 0; ai < actions.Count; ai++)
+                {
+                    var action = actions[ai];
+                    if (!_running) break;
+
+                    bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                    if (!isOption)
+                    {
+                        if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PreReady", action: action))
+                        {
+                            Log($"[Arena] 等待就绪超时: {action}");
+                            actionFailed = true;
+                            break;
+                        }
+                    }
+
+                    var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
+                    Log($"[Arena.Action] {action} -> {result}");
+
+                    if (IsActionFailure(result))
+                    {
+                        if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                            || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                            || action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                            || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                            || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase))
+                        {
+                            SendActionCommand(pipe, "CANCEL", 3000);
+                        }
+                        actionFailed = true;
+                        break;
+                    }
+
+                    RememberConsumedHsBoxActionRecommendation(recommendation, action);
+
+                    // 非最后动作时等待就绪
+                    if (ai < actions.Count - 1)
+                    {
+                        var nextAction = actions[ai + 1];
+                        bool nextIsOption = nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                        if (!nextIsOption)
+                        {
+                            SleepOrCancelled(80);
+                            WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PostReady", action: action);
+                        }
+                    }
+                }
+
+                if (actionFailed)
+                {
+                    actionFailStreak++;
+                    if (actionFailStreak >= 3)
+                    {
+                        if (_followHsBoxRecommendations)
+                            ResetHsBoxActionRecommendationTracking();
+                        else
+                        {
+                            try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
+                        }
+                        actionFailStreak = 0;
+                        if (SleepOrCancelled(2000)) break;
+                    }
+                    else
+                    {
+                        if (SleepOrCancelled(1000)) break;
+                    }
+                    continue;
+                }
+
+                actionFailStreak = 0;
+
+                // END_TURN 后等待回合切换
+                var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
+                if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
+                {
+                    var deadline = DateTime.UtcNow.AddMilliseconds(EndTurnPostWaitMaxMs);
+                    while (_running && DateTime.UtcNow < deadline)
+                    {
+                        Thread.Sleep(EndTurnPostWaitPollIntervalMs);
+                        var probe = pipe.SendAndReceive("GET_SEED", EndTurnPostWaitGetSeedTimeoutMs);
+                        if (string.IsNullOrWhiteSpace(probe)
+                            || !probe.StartsWith("SEED:", StringComparison.Ordinal))
+                            break;
+                    }
+                }
+                else if (_followHsBoxRecommendations
+                         && !string.IsNullOrWhiteSpace(lastAction)
+                         && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
+                {
+                    Thread.Sleep(200);
+                }
+            }
+
+            // 对局结束清理
+            ResetHsBoxActionRecommendationTracking();
+            _choiceDedup.Clear();
+            HsBoxCallbackCapture.EndMatchSession();
+            Log("[Arena] 对局主循环结束。");
+        }
+
+        private void ArenaPostGameSettle(PipeServer pipe)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.Dismiss");
+                SleepOrCancelled(1500);
+                if (TryGetSceneValue(pipe, 3000, out var scene, "Arena.PostGame")
+                    && !string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"[Arena] 已离开对局: {scene}");
+                    break;
+                }
+            }
+            SleepOrCancelled(2000);
+        }
+
+        private void ArenaClaimRewards(PipeServer pipe)
+        {
+            Log("[Arena] 领取奖励...");
+            TrySendStatusCommand(pipe, "ARENA_CLAIM_REWARDS", 10000, out var resp, "Arena.Claim");
+            Log($"[Arena] 领奖结果: {resp}");
+            for (int i = 0; i < 3; i++)
+            {
+                SleepOrCancelled(2000);
+                TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.ClaimDismiss");
+            }
+        }
+
+        /// <summary>
+        /// ���取消的 Sleep。返回 true 表示已被取消（Stop 被调用），false 表示正常超时。
         /// </summary>
         private bool SleepOrCancelled(int ms)
         {
