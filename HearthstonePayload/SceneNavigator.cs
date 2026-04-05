@@ -1132,21 +1132,84 @@ namespace HearthstonePayload
                     int tickets = 0;
                     int gold = 0;
 
-                    // 获取竞技场门票
-                    var ticketObj = GetNetObject("NetCacheArenaTickets");
-                    if (ticketObj == null)
-                        ticketObj = GetNetObject("NetCache+NetCacheArenaTickets");
-                    if (ticketObj != null)
+                    // ── 方式1：从 StoreManager / ShopManager 读取 TavernTicketBalance ──
+                    // 炉石的旅店通票（Arena Ticket）存储在 StoreManager 的 TavernTicketBalance 字段中
+                    foreach (var mgrName in new[] { "StoreManager", "ShopManager", "ArenaStore" })
                     {
-                        var count = TryGetFirstProp(ticketObj, "Count", "m_count", "Tickets",
-                            "m_tickets", "Balance", "m_balance");
-                        if (count != null)
+                        var mgrType = _asm?.GetType(mgrName);
+                        if (mgrType == null) continue;
+                        var mgr = CallStatic(mgrType, "Get") ?? GetStaticValue(mgrType, "s_instance");
+                        if (mgr == null) continue;
+
+                        var tb = TryGetFirstProp(mgr,
+                            "TavernTicketBalance", "m_TavernTicketBalance",
+                            "ArenaTicketBalance", "m_arenaTicketBalance",
+                            "m_tavernTicketCount");
+                        if (tb != null)
                         {
-                            try { tickets = Convert.ToInt32(count); } catch { }
+                            try { tickets = Convert.ToInt32(tb); } catch { }
+                            if (tickets > 0) break;
                         }
                     }
 
-                    // 获取金币
+                    // ── 方式2：从 DraftManager 读取（备选）──
+                    if (tickets == 0)
+                    {
+                        var dm = GetDraftManager();
+                        if (dm != null)
+                        {
+                            var tb = TryGetFirstProp(dm,
+                                "m_arenaTickets", "m_ticketBalance", "m_tavernTicketBalance",
+                                "ArenaTicketBalance", "TavernTicketBalance");
+                            if (tb != null)
+                            {
+                                try { tickets = Convert.ToInt32(tb); } catch { }
+                            }
+                        }
+                    }
+
+                    // ── 方式3：从 ArenaLandingPageManager 读取（备选）──
+                    if (tickets == 0)
+                    {
+                        foreach (var mgrName in new[] { "ArenaLandingPageManager", "ForgePatronage" })
+                        {
+                            var mgrType = _asm?.GetType(mgrName);
+                            if (mgrType == null) continue;
+                            var mgr = CallStatic(mgrType, "Get") ?? GetStaticValue(mgrType, "s_instance");
+                            if (mgr == null) continue;
+
+                            var tb = TryGetFirstProp(mgr,
+                                "TavernTicketBalance", "m_TavernTicketBalance",
+                                "ArenaTicketBalance", "TicketBalance",
+                                "m_ticketCount", "m_arenaTicketCount");
+                            if (tb != null)
+                            {
+                                try { tickets = Convert.ToInt32(tb); } catch { }
+                                if (tickets > 0) break;
+                            }
+                        }
+                    }
+
+                    // ── 方式4：从 NetCache（原方式，保留作为最终备选）──
+                    if (tickets == 0)
+                    {
+                        var ticketObj = GetNetObject("NetCacheArenaTickets");
+                        if (ticketObj == null)
+                            ticketObj = GetNetObject("NetPlayerArenaTickets");
+                        if (ticketObj != null)
+                        {
+                            var count = TryGetFirstProp(ticketObj,
+                                "TavernTicketBalance", "m_TavernTicketBalance",
+                                "Balance", "m_balance", "Count", "m_count",
+                                "Tickets", "m_tickets");
+                            if (count != null)
+                            {
+                                try { tickets = Convert.ToInt32(count); } catch { }
+                            }
+                        }
+                    }
+
+                    // ── 获取金币 ──
                     var goldObj = GetNetObject("NetCacheGoldBalance");
                     if (goldObj == null)
                         goldObj = GetNetObject("NetCache+NetCacheGoldBalance");
@@ -1157,6 +1220,27 @@ namespace HearthstonePayload
                         if (bal != null)
                         {
                             try { gold = Convert.ToInt32(bal); } catch { }
+                        }
+                    }
+
+                    // 金币备选：从 TavernTicketCurrencyBalance 读取
+                    if (gold == 0)
+                    {
+                        foreach (var mgrName in new[] { "StoreManager", "ShopManager" })
+                        {
+                            var mgrType = _asm?.GetType(mgrName);
+                            if (mgrType == null) continue;
+                            var mgr = CallStatic(mgrType, "Get") ?? GetStaticValue(mgrType, "s_instance");
+                            if (mgr == null) continue;
+
+                            var gb = TryGetFirstProp(mgr,
+                                "TavernTicketCurrencyBalance", "m_TavernTicketCurrencyBalance",
+                                "GoldBalance", "m_goldBalance");
+                            if (gb != null)
+                            {
+                                try { gold = Convert.ToInt32(gb); } catch { }
+                                if (gold > 0) break;
+                            }
                         }
                     }
 
