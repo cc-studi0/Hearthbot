@@ -1373,6 +1373,13 @@ namespace HearthstonePayload
                             args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
                                     : parms[i].ParameterType == typeof(bool) ? (object)false : null;
                         method.Invoke(dm, args);
+
+                        // 有些卡牌选择也需要确认（如附带包裹卡的选项）
+                        Thread.Sleep(300);
+                        var dd = GetDraftDisplay();
+                        if (dd != null)
+                            CallMethod(dd, "ClickConfirmButton");
+
                         return "OK:CARD_PICKED";
                     }
 
