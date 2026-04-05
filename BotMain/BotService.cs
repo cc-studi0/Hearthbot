@@ -3132,44 +3132,45 @@ namespace BotMain
             if (pipe == null || !pipe.IsConnected)
                 return false;
 
-            // 先等大厅稳定（关闭弹窗、确认场景加载完成），与构筑/战旗模式一致
-            Log("[Arena] 等待大厅稳定后再导航到竞技场...");
-            if (!WaitForStableLobbyForNavigation(pipe, "Arena.LobbyReady"))
-            {
-                Log("[Arena] 大厅尚未稳定，等待重试...");
-                return false;
-            }
-
-            // 检查当前场景
+            // 先检查当前场景，再决定怎么等待
             if (!TryGetSceneValue(pipe, 3000, out var scene, "Arena.Scene"))
                 return false;
 
             if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
             {
-                // 已在竞技场，等待场景稳定
-                if (!WaitForStableScene(pipe, "DRAFT", "Arena.DraftReady"))
-                {
-                    Log("[Arena] DRAFT 场景尚未稳定，等待重试...");
-                    return false;
-                }
+                // 已在竞技场场景，直接返回（DRAFT 不是 lobby，不能用 WaitForStableLobby）
+                Log("[Arena] 已在 DRAFT 场景。");
+                SleepOrCancelled(500); // 短暂等待确保 UI 加载
                 return true;
             }
 
             if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 return true; // 已在对局中
 
+            // 在 HUB 或其他场景，先等大厅稳定再导航
+            if (BotProtocol.IsStableLobbyScene(scene))
+            {
+                Log("[Arena] 在大厅，等待稳定后导航到竞技场...");
+                WaitForStableLobbyForNavigation(pipe, "Arena.LobbyReady");
+            }
+
             // 导航到竞技场
             Log($"[Arena] 当前场景: {scene}，导航到竞技场...");
             TrySendStatusCommand(pipe, "CLICK_HUB_BUTTON:arena", 10000, out _, "Arena.Nav");
+            SleepOrCancelled(3000);
 
-            // 等待 DRAFT 场景稳定
-            if (!WaitForStableScene(pipe, "DRAFT", "Arena.DraftReady"))
-            {
-                Log("[Arena] 导航后 DRAFT 场景未稳定，等待重试...");
+            // 确认已进入 DRAFT
+            if (!TryGetSceneValue(pipe, 5000, out var newScene, "Arena.NavCheck"))
                 return false;
+
+            if (string.Equals(newScene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            {
+                Log("[Arena] 已进入 DRAFT 场景。");
+                return true;
             }
 
-            return true;
+            Log($"[Arena] 导航后场景: {newScene}，未到达 DRAFT。");
+            return false;
         }
 
         private bool ArenaTryBuyTicket(PipeServer pipe)
@@ -3675,9 +3676,9 @@ namespace BotMain
                 }
             }
 
-            // 等待大厅/竞技场场景稳定后再继续，避免在加载中操作
-            Log("[Arena] 等待结算后场景稳定...");
-            WaitForStableLobbyForNavigation(pipe, "Arena.PostGameLobbyReady", 20);
+            // 等待场景加载完成后再继续
+            Log("[Arena] 等待结算后场景加载...");
+            SleepOrCancelled(3000);
         }
 
         private void ArenaClaimRewards(PipeServer pipe)
