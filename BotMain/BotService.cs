@@ -3103,11 +3103,17 @@ namespace BotMain
                     }
                     else if (statusResp != null && statusResp.StartsWith("HERO_PICK", StringComparison.Ordinal))
                     {
+                        // 确保 UI 从 LandingPage 切换到选牌界面
+                        // （重新进入竞技场时 LandingPage 会覆盖在选牌界面上面）
+                        TrySendStatusCommand(pipe, "ARENA_TRANSITION_TO_DRAFTING", 3000, out _, "Arena.Transition");
+                        SleepOrCancelled(500);
                         ArenaPickHero(pipe);
                         SleepOrCancelled(2000);
                     }
                     else if (statusResp != null && statusResp.StartsWith("CARD_DRAFT", StringComparison.Ordinal))
                     {
+                        TrySendStatusCommand(pipe, "ARENA_TRANSITION_TO_DRAFTING", 3000, out _, "Arena.Transition");
+                        SleepOrCancelled(500);
                         ArenaPickCard(pipe);
                         SleepOrCancelled(1500);
                     }

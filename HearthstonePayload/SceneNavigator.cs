@@ -1214,11 +1214,45 @@ namespace HearthstonePayload
         // ════════════════════════════════════════════════════════════════
 
         /// <summary>
+        /// 获取 ArenaLandingPageManager 的 m_widget，用于 TriggerEvent 切换 UI 层
+        /// </summary>
+        private object GetArenaLandingPageWidget()
+        {
+            var almType = _asm?.GetType("ArenaLandingPageManager");
+            if (almType == null) return null;
+            var alm = CallStatic(almType, "Get") ?? GetStaticValue(almType, "s_instance");
+            if (alm == null) return null;
+            return TryGetFirstProp(alm, "m_widget");
+        }
+
+        /// <summary>
+        /// 触发 ArenaLandingPage 的 widget 事件，确保 UI 层正确切换
+        /// 不调这个会导致 LandingPage 盖在选牌界面上面
+        /// </summary>
+        public string ArenaTransitionToDrafting()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var widget = GetArenaLandingPageWidget();
+                    if (widget != null)
+                    {
+                        CallMethod(widget, "TriggerEvent", "MOVETO_DRAFTING");
+                        return "OK:TRANSITION";
+                    }
+                    return "ERROR:no_widget";
+                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
+            });
+        }
+
+        /// <summary>
         /// 购票/开始新轮次
         /// 反编译路径: ArenaLandingPageManager.SpendTicket()
         ///   → m_widget.TriggerEvent("MOVETO_DRAFTING") + ("DRAFTING")
         ///   → DraftManager.RequestDraftBegin()
-        ///   → Network.DraftBegin(isUnderground)
         /// </summary>
         public string ArenaBuyTicket()
         {
@@ -1230,12 +1264,18 @@ namespace HearthstonePayload
                     var dm = GetDraftManager();
                     if (dm == null) return "ERROR:no_draft_manager";
 
-                    // 检查票数
                     var ticketCount = CallMethod(dm, "GetNumTicketsOwned");
                     int tickets = ticketCount != null ? Convert.ToInt32(ticketCount) : 0;
                     if (tickets <= 0) return "ERROR:no_tickets";
 
-                    // 直接调用 RequestDraftBegin (SpendTicket 的核心)
+                    // 关键：先触发 UI 切换，再发网络请求
+                    var widget = GetArenaLandingPageWidget();
+                    if (widget != null)
+                    {
+                        CallMethod(widget, "TriggerEvent", "MOVETO_DRAFTING");
+                        CallMethod(widget, "TriggerEvent", "DRAFTING");
+                    }
+
                     CallMethod(dm, "RequestDraftBegin");
                     return "OK:BUY";
                 }
