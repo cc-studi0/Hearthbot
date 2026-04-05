@@ -3488,6 +3488,19 @@ namespace BotMain
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
 
                 var seed = resp.Substring(5);
+
+                // ── 在规划前检测 Choice/Discover 界面（和构筑循环一致）──
+                if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoice))
+                {
+                    RefreshHsBoxActionMinimumUpdatedAtNow();
+                    continue; // choice 已处理，重新获取 seed
+                }
+                if (waitingForChoice)
+                {
+                    SleepOrCancelled(200);
+                    continue;
+                }
+
                 TryBuildPlanningBoardFromSeed(seed, "Arena.Initial", emitDebugEvents: true,
                     out var planningBoard, out _);
 
