@@ -3059,7 +3059,8 @@ namespace BotMain
             var pipe = _pipe;
             Log("[Arena] ── 竞技场模式启动 ──");
             _hsBoxArenaDraftBridge = new HsBoxArenaDraftBridge { OnLog = msg => Log(msg) };
-            _hsBoxRecommendationProvider?.SetArenaMode(true);
+            // 竞技场对局内推荐用的是和天梯相同的 /client-jipaiqi/ladder-opp 页面
+            // 和 onUpdateLadderActionRecommend 回调，不需要切换模式
 
             int runCount = 0;
             try
@@ -3122,7 +3123,6 @@ namespace BotMain
             finally
             {
                 _hsBoxArenaDraftBridge = null;
-                _hsBoxRecommendationProvider?.SetArenaMode(false);
                 Log($"[Arena] ── 竞技场模式结束，共完成 {runCount} 轮 ──");
             }
         }
