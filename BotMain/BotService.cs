@@ -3578,6 +3578,9 @@ namespace BotMain
                         }
                     }
 
+                    // 武装 ChoiceStateWatch —— 如果动作可能触发发现/选择
+                    TryArmChoiceStateWatchForAction(action, planningBoard);
+
                     var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
                     Log($"[Arena.Action] {action} -> {result}");
 
@@ -3602,7 +3605,7 @@ namespace BotMain
                         && actions[ai + 1].StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
                     if (!nextIsOption)
                     {
-                        SleepOrCancelled(150);
+                        SleepOrCancelled(300);
                         if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimReason))
                         {
                             Log($"[Arena] 动作后检测到发现/选择: {choiceResimReason}");
