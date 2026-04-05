@@ -418,7 +418,7 @@ namespace BotMain
                 return false;
             }
 
-            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
+            // 无已消费记录，直接放行
             reason = "no_freshness_filter";
             return true;
         }
@@ -472,7 +472,7 @@ namespace BotMain
                 return false;
             }
 
-            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
+            // 无已消费记录，直接放行
             reason = "no_freshness_filter";
             return true;
         }
@@ -2851,7 +2851,7 @@ namespace BotMain
                 return false;
             }
 
-            // key-based 去重已在 BotService 层处理，此处不再按时间戳过滤
+            // 无已消费记录，直接放行
             if (updatedAtMs > 0)
                 return true;
 
@@ -6819,6 +6819,385 @@ namespace BotMain
             if (ZonePosition > 0)
                 return ZonePosition;
             return Position > 0 ? Position : 0;
+        }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    //  竞技场选牌 DTO
+    // ────────────────────────────────────────────────────────────────────────
+
+    internal sealed class ArenaDraftRecommendation
+    {
+        public bool Ok { get; set; }
+        public string Reason { get; set; }
+        public JToken Hero { get; set; }
+        public JArray GuideList { get; set; }
+        public int CardStage { get; set; }
+        public long UpdatedAtMs { get; set; }
+        public long Count { get; set; }
+    }
+
+    // ────────────────────────────────────────────────────────────────────────
+    //  竞技场选牌桥接器
+    //  连接 client-jipaiqi/arena 页面，Hook window.fRecommend 回调，
+    //  读取盒子推送的英雄 / 卡牌选择推荐。
+    // ────────────────────────────────────────────────────────────────────────
+
+    internal sealed class HsBoxArenaDraftBridge
+    {
+        private static readonly HttpClient Http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(2)
+        };
+
+        private readonly object _sync = new object();
+        private string _cachedWsUrl;
+        private DateTime _cachedWsUrlUntilUtc = DateTime.MinValue;
+
+        public Action<string> OnLog { get; set; }
+        private void Log(string msg) => OnLog?.Invoke(msg);
+
+        /// <summary>
+        /// 读取盒子竞技场选牌推荐。
+        /// </summary>
+        public bool TryReadDraft(out ArenaDraftRecommendation recommendation, out string detail)
+        {
+            lock (_sync)
+            {
+                recommendation = null;
+                detail = "arena_unavailable";
+
+                var wsUrl = GetArenaDebuggerUrl(out var urlDetail);
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                {
+                    detail = urlDetail;
+                    return false;
+                }
+
+                if (!TryEvaluateArenaDraft(wsUrl, out var json, out var evalDetail))
+                {
+                    detail = evalDetail;
+                    _cachedWsUrl = null;
+                    _cachedWsUrlUntilUtc = DateTime.MinValue;
+                    return false;
+                }
+
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    detail = "arena_eval_empty";
+                    return false;
+                }
+
+                try
+                {
+                    var dto = JsonConvert.DeserializeObject<JObject>(json);
+                    if (dto == null)
+                    {
+                        detail = "arena_state_null";
+                        return false;
+                    }
+
+                    var ok = dto.Value<bool>("ok");
+                    var reason = dto.Value<string>("reason") ?? string.Empty;
+
+                    recommendation = new ArenaDraftRecommendation
+                    {
+                        Ok = ok,
+                        Reason = reason,
+                        Hero = dto["hero"],
+                        GuideList = dto["guideList"] as JArray,
+                        CardStage = dto.Value<int>("cardStage"),
+                        UpdatedAtMs = dto.Value<long>("updatedAt"),
+                        Count = dto.Value<long>("count")
+                    };
+
+                    detail = ok ? "arena_ready" : $"arena_not_ready:{reason}";
+                    return ok;
+                }
+                catch (Exception ex)
+                {
+                    detail = "arena_state_parse_failed:" + ex.Message;
+                    return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// 清除缓存的 WebSocket URL，下次调用将重新探测。
+        /// </summary>
+        public void InvalidateCache()
+        {
+            lock (_sync)
+            {
+                _cachedWsUrl = null;
+                _cachedWsUrlUntilUtc = DateTime.MinValue;
+            }
+        }
+
+        // ── CDP 页面发现 ──────────────────────────────────────────────────
+
+        private string GetArenaDebuggerUrl(out string detail)
+        {
+            detail = "arena_debugger_missing";
+            if (!string.IsNullOrWhiteSpace(_cachedWsUrl) && _cachedWsUrlUntilUtc > DateTime.UtcNow)
+            {
+                detail = "arena_debugger_cached";
+                return _cachedWsUrl;
+            }
+
+            try
+            {
+                var json = Http.GetStringAsync("http://127.0.0.1:9222/json/list").GetAwaiter().GetResult();
+                var targets = JArray.Parse(json);
+                var target = targets
+                    .OfType<JObject>()
+                    .FirstOrDefault(obj =>
+                    {
+                        var url = obj["url"]?.Value<string>() ?? string.Empty;
+                        return url.IndexOf("/client-jipaiqi/arena", StringComparison.OrdinalIgnoreCase) >= 0;
+                    });
+
+                var wsUrl = target?["webSocketDebuggerUrl"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                {
+                    detail = "arena_target_missing";
+                    return null;
+                }
+
+                _cachedWsUrl = wsUrl;
+                _cachedWsUrlUntilUtc = DateTime.UtcNow.AddSeconds(8);
+                detail = "arena_debugger_ready";
+                return wsUrl;
+            }
+            catch (Exception ex)
+            {
+                detail = "arena_debugger_probe_failed:" + ex.Message;
+                return null;
+            }
+        }
+
+        // ── CDP 执行 ─────────────────────────────────────────────────────
+
+        private static bool TryEvaluateArenaDraft(string webSocketDebuggerUrl, out string json, out string detail)
+        {
+            json = null;
+            detail = "arena_eval_failed";
+
+            using (var socket = new ClientWebSocket())
+            using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+            {
+                try
+                {
+                    socket.ConnectAsync(new Uri(webSocketDebuggerUrl), cts.Token).GetAwaiter().GetResult();
+
+                    // 1) 注册 hook 到新文档（页面刷新后自动重装）
+                    SendCommand(socket, BuildAddScriptOnNewDocumentRequest(1, BuildArenaDraftHookScript()), cts.Token);
+                    var registerResponse = ReceiveResponseById(socket, 1, cts.Token);
+                    if (registerResponse["error"] != null)
+                    {
+                        detail = "arena_hook_register_failed:" + registerResponse["error"]?["message"]?.Value<string>();
+                        return false;
+                    }
+
+                    // 2) 立即执行 hook（当前页面）
+                    SendCommand(socket, BuildEvaluateRequest(2, BuildArenaDraftHookScript()), cts.Token);
+                    var hookResponse = ReceiveResponseById(socket, 2, cts.Token);
+                    if (!TryGetEvaluateStringResult(hookResponse, out _, out var hookError))
+                    {
+                        detail = hookError;
+                        return false;
+                    }
+
+                    // 3) 读取状态
+                    SendCommand(socket, BuildEvaluateRequest(3, BuildArenaDraftStateScript()), cts.Token);
+                    var stateResponse = ReceiveResponseById(socket, 3, cts.Token);
+                    if (!TryGetEvaluateStringResult(stateResponse, out json, out var stateError))
+                    {
+                        detail = stateError;
+                        return false;
+                    }
+
+                    detail = "arena_eval_ok";
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    detail = "arena_eval_failed:" + ex.Message;
+                    return false;
+                }
+            }
+        }
+
+        // ── CDP 辅助方法（与 HsBoxRecommendationBridge 相同模式）────────
+
+        private static JObject BuildAddScriptOnNewDocumentRequest(int id, string source)
+        {
+            return new JObject
+            {
+                ["id"] = id,
+                ["method"] = "Page.addScriptToEvaluateOnNewDocument",
+                ["params"] = new JObject
+                {
+                    ["source"] = source ?? string.Empty
+                }
+            };
+        }
+
+        private static JObject BuildEvaluateRequest(int id, string expression)
+        {
+            return new JObject
+            {
+                ["id"] = id,
+                ["method"] = "Runtime.evaluate",
+                ["params"] = new JObject
+                {
+                    ["expression"] = expression ?? string.Empty,
+                    ["returnByValue"] = true,
+                    ["awaitPromise"] = true
+                }
+            };
+        }
+
+        private static void SendCommand(ClientWebSocket socket, JObject request, CancellationToken cancellationToken)
+        {
+            var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
+            socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken)
+                .GetAwaiter().GetResult();
+        }
+
+        private static JObject ReceiveResponseById(ClientWebSocket socket, int expectedId, CancellationToken cancellationToken)
+        {
+            while (true)
+            {
+                var responseText = ReceiveMessage(socket, cancellationToken);
+                if (string.IsNullOrWhiteSpace(responseText))
+                    continue;
+
+                var response = JObject.Parse(responseText);
+                if (response["id"]?.Value<int>() != expectedId)
+                    continue;
+
+                return response;
+            }
+        }
+
+        private static bool TryGetEvaluateStringResult(JObject response, out string value, out string detail)
+        {
+            value = null;
+            detail = "arena_eval_response_invalid";
+            if (response == null)
+                return false;
+
+            if (response["error"] != null)
+            {
+                detail = "arena_eval_error:" + response["error"]?["message"]?.Value<string>();
+                return false;
+            }
+
+            value = response["result"]?["result"]?["value"]?.Value<string>();
+            if (value == null && response["result"]?["exceptionDetails"] != null)
+            {
+                detail = "arena_eval_exception:" + response["result"]?["exceptionDetails"]?["text"]?.Value<string>();
+                return false;
+            }
+
+            if (value == null)
+            {
+                detail = "arena_eval_value_missing";
+                return false;
+            }
+
+            detail = "arena_eval_ok";
+            return true;
+        }
+
+        private static string ReceiveMessage(ClientWebSocket socket, CancellationToken cancellationToken)
+        {
+            var buffer = new byte[32768];
+            using (var stream = new MemoryStream())
+            {
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = socket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken).GetAwaiter().GetResult();
+                    if (result.Count > 0)
+                        stream.Write(buffer, 0, result.Count);
+                } while (!result.EndOfMessage);
+
+                return Encoding.UTF8.GetString(stream.ToArray());
+            }
+        }
+
+        // ── JS Hook 脚本 ─────────────────────────────────────────────────
+
+        private static string BuildArenaDraftHookScript()
+        {
+            return @"(() => {
+  if (window.__hbArenaDraftInstalled) return JSON.stringify({ ok: true, installed: true, skipped: true });
+
+  window.__hbArenaDraftCount = 0;
+  window.__hbArenaDraftUpdatedAt = 0;
+  window.__hbArenaDraftHero = null;
+  window.__hbArenaDraftGuideList = null;
+  window.__hbArenaDraftCardStage = 0;
+
+  function wrapFRecommend(original) {
+    return function(hero, guideList, cardStage) {
+      try {
+        window.__hbArenaDraftHero = hero;
+        window.__hbArenaDraftGuideList = guideList;
+        window.__hbArenaDraftCardStage = cardStage;
+        window.__hbArenaDraftCount = (window.__hbArenaDraftCount || 0) + 1;
+        window.__hbArenaDraftUpdatedAt = Date.now();
+      } catch(e) {}
+      if (typeof original === 'function') {
+        return original.apply(this, arguments);
+      }
+    };
+  }
+
+  var currentOriginal = typeof window.fRecommend === 'function' ? window.fRecommend : null;
+  window.fRecommend = wrapFRecommend(currentOriginal);
+
+  var _currentWrapped = window.fRecommend;
+  Object.defineProperty(window, 'fRecommend', {
+    configurable: true,
+    enumerable: true,
+    get: function() { return _currentWrapped; },
+    set: function(newVal) {
+      if (newVal && newVal !== _currentWrapped) {
+        _currentWrapped = wrapFRecommend(newVal);
+      }
+    }
+  });
+
+  window.__hbArenaDraftInstalled = true;
+  return JSON.stringify({ ok: true, installed: true });
+})()";
+        }
+
+        // ── JS 状态读取脚本 ──────────────────────────────────────────────
+
+        private static string BuildArenaDraftStateScript()
+        {
+            return @"(() => {
+  if (!window.__hbArenaDraftInstalled) {
+    return JSON.stringify({ ok: false, reason: 'hook_not_installed', count: 0, updatedAt: 0 });
+  }
+  var count = Number(window.__hbArenaDraftCount || 0);
+  if (count === 0) {
+    return JSON.stringify({ ok: false, reason: 'waiting_for_box_push', count: 0, updatedAt: 0 });
+  }
+  return JSON.stringify({
+    ok: true,
+    reason: 'ready',
+    hero: window.__hbArenaDraftHero ?? null,
+    guideList: window.__hbArenaDraftGuideList ?? null,
+    cardStage: window.__hbArenaDraftCardStage ?? 0,
+    updatedAt: Number(window.__hbArenaDraftUpdatedAt || 0),
+    count: count
+  });
+})()";
         }
     }
 }
