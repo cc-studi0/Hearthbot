@@ -1344,40 +1344,145 @@ namespace HearthstonePayload
         /// 英雄选择需要两步: 先点击英雄放大, 再确认
         /// 但 DraftDisplay.ClickConfirmButton() 可以直接跳过动画确认
         /// </summary>
-        public string ArenaPickHero(int index)
+        /// <summary>
+        /// 获取 DraftDisplay.m_choices[index].m_actor 的屏幕坐标
+        /// SmartBot 也是通过 Loader.dll 模拟点击卡牌 Actor，不调 MakeChoice API
+        /// </summary>
+        private bool TryGetDraftChoiceActorPos(int index, out int x, out int y)
         {
-            return OnMain(() =>
+            x = y = 0;
+            var dd = GetDraftDisplay();
+            if (dd == null) return false;
+
+            var choices = TryGetFirstProp(dd, "m_choices");
+            if (choices == null) return false;
+
+            int idx = 0;
+            foreach (var choice in AsEnumerable(choices))
             {
-                if (!Init()) return "ERROR:not_initialized";
-                try
+                if (idx == index && choice != null)
                 {
-                    int choiceNum = index + 1; // 1-based
-                    var dd = GetDraftDisplay();
-                    if (dd == null) return "ERROR:no_draft_display";
-
-                    // DraftDisplay.OnHeroClicked(choiceNum) — 触发英雄放大+确认按钮显示
-                    CallMethod(dd, "OnHeroClicked", choiceNum);
-
-                    // 短暂等待动画开始
-                    Thread.Sleep(300);
-
-                    // DraftDisplay.ClickConfirmButton() — 直接确认(公开方法,内部调 OnConfirmButtonClicked)
-                    CallMethod(dd, "ClickConfirmButton");
-
-                    return "OK:HERO_PICKED";
+                    // DraftChoice.m_actor → Actor (继承自 MonoBehaviour → Component → gameObject)
+                    var actor = TryGetFirstProp(choice, "m_actor");
+                    if (actor != null && TryGetScreenPos(actor, out x, out y))
+                        return true;
+                    break;
                 }
-                catch (Exception ex) { return "ERROR:" + ex.Message; }
-            });
+                idx++;
+            }
+            return false;
         }
 
         /// <summary>
-        /// 选择卡牌 (0-based index)
-        /// 反编译路径: DraftManager.MakeChoice(choiceNum, TAG_PREMIUM.NORMAL)
-        ///   → Network.MakeDraftChoice(...)
-        ///   → 服务端 DraftChosen → OnChosen() → 下一轮选牌
-        /// 卡牌选择不需要确认按钮,直接 MakeChoice
+        /// 选英雄/选卡牌 — 统一用鼠标点击 Actor 的方式
+        /// 点击卡牌 Actor 后游戏自动走完整 UI 流程：
+        ///   英雄: 点击→放大→显示确认按钮 (需要再点确认)
+        ///   卡牌: 点击→直接选中 (普通卡) 或 弹出包裹卡确认 (包裹卡)
         /// </summary>
+        private string ArenaDraftClick(int index, bool isHero)
+        {
+            // 1. 在主线程获取 Actor 屏幕坐标
+            int actorX = 0, actorY = 0;
+            bool found = false;
+            var posResult = OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                found = TryGetDraftChoiceActorPos(index, out actorX, out actorY);
+                return found ? $"POS:{actorX},{actorY}" : "ERROR:actor_pos_not_found";
+            });
+
+            if (!found)
+                return posResult ?? "ERROR:no_pos";
+
+            // 2. 点击卡牌 Actor
+            ClickAt(actorX, actorY, 0.5f);
+
+            if (isHero)
+            {
+                // 英雄需要确认：点击后会放大，再点确认按钮
+                Thread.Sleep(800);
+
+                // 获取确认按钮位置并点击
+                int confirmX = 0, confirmY = 0;
+                bool hasConfirm = false;
+                OnMain(() =>
+                {
+                    if (!Init()) return "NO";
+                    var dd = GetDraftDisplay();
+                    if (dd == null) return "NO";
+                    var btn = TryGetFirstProp(dd, "m_confirmButton");
+                    if (btn != null && TryGetScreenPos(btn, out confirmX, out confirmY))
+                    {
+                        hasConfirm = true;
+                        return "OK";
+                    }
+                    return "NO";
+                });
+
+                if (hasConfirm)
+                {
+                    ClickAt(confirmX, confirmY, 0.5f);
+                    return "OK:HERO_PICKED:click";
+                }
+
+                // 备选：调 ClickConfirmButton API
+                OnMain(() =>
+                {
+                    var dd = GetDraftDisplay();
+                    if (dd != null) CallMethod(dd, "ClickConfirmButton");
+                    return "OK";
+                });
+                return "OK:HERO_PICKED:api_confirm";
+            }
+            else
+            {
+                // 卡牌点击后，游戏会自动处理：
+                // - 普通卡：直接选中
+                // - 包裹卡：弹出 PackageCardsPopup，需要再点确认
+                Thread.Sleep(800);
+
+                // 检查是否弹出了包裹卡确认弹窗
+                int popupBtnX = 0, popupBtnY = 0;
+                bool hasPopup = false;
+                OnMain(() =>
+                {
+                    if (!Init()) return "NO";
+                    var dd = GetDraftDisplay();
+                    if (dd == null) return "NO";
+                    var popup = TryGetFirstProp(dd, "m_packageCardsPopup");
+                    if (popup == null) return "NO";
+                    // PackageCardsPopup 有 m_chooseButton
+                    var chooseBtn = TryGetFirstProp(popup, "m_chooseButton", "m_confirmButton", "m_doneButton");
+                    if (chooseBtn != null && TryGetScreenPos(chooseBtn, out popupBtnX, out popupBtnY))
+                    {
+                        hasPopup = true;
+                        return "OK";
+                    }
+                    return "NO";
+                });
+
+                if (hasPopup)
+                {
+                    ClickAt(popupBtnX, popupBtnY, 0.5f);
+                    return "OK:CARD_PICKED:package_click";
+                }
+
+                return "OK:CARD_PICKED:click";
+            }
+        }
+
+        public string ArenaPickHero(int index)
+        {
+            return ArenaDraftClick(index, isHero: true);
+        }
+
         public string ArenaPickCard(int index)
+        {
+            return ArenaDraftClick(index, isHero: false);
+        }
+
+        // ── API 备选（仅在点击失败时使用）──
+        private string ArenaPickCardViaApi(int index)
         {
             return OnMain(() =>
             {
@@ -1386,10 +1491,7 @@ namespace HearthstonePayload
                 {
                     var dm = GetDraftManager();
                     if (dm == null) return "ERROR:no_draft_manager";
-
-                    int choiceNum = index + 1; // 1-based
-
-                    // 获取 TAG_PREMIUM.NORMAL
+                    int choiceNum = index + 1;
                     var premiumType = _asm?.GetType("TAG_PREMIUM");
                     object normalPremium = null;
                     if (premiumType != null)
@@ -1398,51 +1500,20 @@ namespace HearthstonePayload
                         if (normalPremium == null)
                             try { normalPremium = Enum.ToObject(premiumType, 0); } catch { }
                     }
-
-                    // DraftManager.MakeChoice(choiceNum, premium, packagePremiums=null, isConfirming=false)
                     var method = dm.GetType().GetMethods(BindingFlags.Public | BindingFlags.Instance)
                         .FirstOrDefault(m => m.Name == "MakeChoice" && m.GetParameters().Length >= 2);
-
                     if (method != null && normalPremium != null)
                     {
-                        var dd = GetDraftDisplay();
-
-                        // 先检查这张卡是否有包裹卡（m_packageCardIds）
-                        bool hasPackage = false;
-                        if (dd != null)
-                        {
-                            var hasPackageResult = CallMethod(dd, "DoesChoiceHavePackageCards", index);
-                            hasPackage = hasPackageResult != null && Convert.ToBoolean(hasPackageResult);
-                        }
-
-                        if (hasPackage)
-                        {
-                            // 包裹卡流程：
-                            // 1. 显示包裹卡确认弹窗
-                            CallMethod(dd, "DisplayPackageCardsConfirmation", index);
-                            Thread.Sleep(500);
-
-                            // 2. 直接调用 ConfirmPackageChoice 确认
-                            //    (内部: MakeChoice(index+1, premium, packagePremiums, isConfirming=true))
-                            CallMethod(dd, "ConfirmPackageChoice");
-
-                            return "OK:CARD_PICKED:package";
-                        }
-                        else
-                        {
-                            // 普通卡流程：直接 MakeChoice
-                            var parms = method.GetParameters();
-                            var args = new object[parms.Length];
-                            args[0] = choiceNum;
-                            args[1] = normalPremium;
-                            for (int i = 2; i < parms.Length; i++)
-                                args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
-                                        : parms[i].ParameterType == typeof(bool) ? (object)false : null;
-                            method.Invoke(dm, args);
-                            return "OK:CARD_PICKED";
-                        }
+                        var parms = method.GetParameters();
+                        var args = new object[parms.Length];
+                        args[0] = choiceNum;
+                        args[1] = normalPremium;
+                        for (int i = 2; i < parms.Length; i++)
+                            args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
+                                    : parms[i].ParameterType == typeof(bool) ? (object)false : null;
+                        method.Invoke(dm, args);
+                        return "OK:CARD_PICKED:api";
                     }
-
                     return "ERROR:MakeChoice_not_found";
                 }
                 catch (Exception ex) { return "ERROR:" + ex.Message; }
