@@ -6863,63 +6863,11 @@ namespace BotMain
     {
         public bool Ok { get; set; }
         public string Reason { get; set; }
-        /// <summary>当前3个选项的 CardID 列表, e.g. ["WW_400","GDB_118","CATA_151"]</summary>
-        public JArray Choices { get; set; }
-        /// <summary>选项详细数据, 每个含 CardID/name_cn/score/ac/arena_strength 等</summary>
-        public JArray ChoiceCards { get; set; }
+        /// <summary>盒子推荐选择的 CardID, e.g. "CATA_151"</summary>
+        public string RecommendedCardId { get; set; }
+        /// <summary>盒子推荐选择的卡牌名, e.g. "深渊巨蟒奥佐斯之尾"</summary>
+        public string RecommendedCardName { get; set; }
         public long UpdatedAtMs { get; set; }
-        /// <summary>已选卡牌数</summary>
-        public long Count { get; set; }
-
-        // 兼容旧字段
-        public JToken Hero { get; set; }
-        public JArray GuideList { get; set; }
-        public int CardStage { get; set; }
-
-        /// <summary>返回评分最高的选项 index (0-based), 基于 score 字段</summary>
-        public int GetBestChoiceIndex()
-        {
-            if (ChoiceCards == null || ChoiceCards.Count == 0)
-                return 0;
-
-            int bestIdx = 0;
-            double bestScore = -1;
-            for (int i = 0; i < ChoiceCards.Count; i++)
-            {
-                var card = ChoiceCards[i];
-                double score = 0;
-                var scoreVal = card?["score"];
-                if (scoreVal != null)
-                {
-                    if (scoreVal.Type == JTokenType.String)
-                        double.TryParse(scoreVal.ToString(), out score);
-                    else
-                        score = scoreVal.Value<double?>() ?? 0;
-                }
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestIdx = i;
-                }
-            }
-            return bestIdx;
-        }
-
-        public string GetChoiceName(int index)
-        {
-            if (ChoiceCards != null && index < ChoiceCards.Count)
-                return ChoiceCards[index]?["name_cn"]?.ToString() ?? "?";
-            if (Choices != null && index < Choices.Count)
-                return Choices[index]?.ToString() ?? "?";
-            return "?";
-        }
-
-        public string GetChoiceScore(int index)
-        {
-            if (ChoiceCards != null && index < ChoiceCards.Count)
-                return ChoiceCards[index]?["score"]?.ToString() ?? "?";
-            return "?";
-        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
@@ -6988,14 +6936,9 @@ namespace BotMain
                     {
                         Ok = ok,
                         Reason = reason,
-                        Choices = dto["choices"] as JArray,
-                        ChoiceCards = dto["choiceCards"] as JArray,
+                        RecommendedCardId = dto.Value<string>("recommendedCardId"),
+                        RecommendedCardName = dto.Value<string>("recommendedCardName"),
                         UpdatedAtMs = dto.Value<long>("updatedAt"),
-                        Count = dto.Value<long>("count"),
-                        // 兼容旧字段
-                        Hero = dto["hero"],
-                        GuideList = dto["guideList"] as JArray,
-                        CardStage = dto.Value<int>("cardStage")
                     };
 
                     detail = ok ? "arena_ready" : $"arena_not_ready:{reason}";
@@ -7041,7 +6984,8 @@ namespace BotMain
                     .FirstOrDefault(obj =>
                     {
                         var url = obj["url"]?.Value<string>() ?? string.Empty;
-                        return url.IndexOf("/client-jipaiqi/arena", StringComparison.OrdinalIgnoreCase) >= 0;
+                        // 选牌推荐来自 ai-recommend 页面（actionName:"choose"）
+                        return url.IndexOf("/client-jipaiqi/ai-recommend", StringComparison.OrdinalIgnoreCase) >= 0;
                     });
 
                 var wsUrl = target?["webSocketDebuggerUrl"]?.Value<string>();
@@ -7267,10 +7211,10 @@ namespace BotMain
 
         private static string BuildArenaDraftStateScript()
         {
-            // 直接从 React Fiber 树读取选牌数据（fRecommend 几乎不被调用）
-            // st 组件: hook_9 = CardID[], hook_13 = deckStats, hook_16 = choiceCards[]
+            // 从 ai-recommend 页面的 React state 读取选牌推荐
+            // 数据结构: { data: [{actionName:"choose", card:{cardId:"CATA_151"}}], status: 2 }
             return @"(() => {
-  var r = { ok: false, reason: '', choices: null, choiceCards: null, count: 0, updatedAt: 0 };
+  var r = { ok: false, reason: '', recommendedCardId: null, updatedAt: 0, count: 0 };
 
   var root = document.getElementById('root') || document.body.firstElementChild;
   if (!root) { r.reason = 'no_root'; return JSON.stringify(r); }
@@ -7288,47 +7232,46 @@ namespace BotMain
 
     var ms = node.memoizedState;
     var idx = 0;
-    var hv = [];
-    while (ms && idx < 25) { hv.push(ms.memoizedState); ms = ms.next; idx++; }
-
-    if (hv.length > 13) {
-      var h9 = hv[9], h13 = hv[13], h16 = hv[16];
-      if (Array.isArray(h9) && h9.length > 0 && typeof h9[0] === 'string'
-          && h13 && typeof h13 === 'object' && 'sum' in h13) {
-        r.choices = h9;
-        r.count = h13.sum || 0;
-        r.updatedAt = Date.now();
-
-        // choiceCards: [{CardID, name_cn, score, ac, arena_strength, recommend, ...}]
-        if (Array.isArray(h16) && h16.length > 0 && h16[0] && h16[0].CardID)
-          r.choiceCards = h16.map(function(c) {
-            return { CardID: c.CardID, name_cn: c.name_cn, score: c.score,
-                     ac: c.ac, arena_strength: c.arena_strength, Cost: c.Cost,
-                     arena_win: c.arena_win, arena_count: c.arena_count, recommend: c.recommend };
-          });
-
-        // 从 HSCARDS 补充（如果 choiceCards 缺失）
-        if (!r.choiceCards && window.HSCARDS) {
-          r.choiceCards = h9.map(function(id) {
-            var c = window.HSCARDS[id];
-            return c ? { CardID: id, name_cn: c.name_cn, score: c.score,
-                         ac: c.ac, arena_strength: c.arena_strength, Cost: c.Cost,
-                         arena_win: c.arena_win, arena_count: c.arena_count } : { CardID: id };
-          });
+    while (ms && idx < 15) {
+      var val = ms.memoizedState;
+      // 直接匹配 {data: [{actionName:..., card:...}], status:...}
+      if (val && typeof val === 'object' && Array.isArray(val.data) && val.data.length > 0
+          && val.data[0] && val.data[0].actionName) {
+        var step = val.data[0];
+        if (step.actionName === 'choose' && step.card && step.card.cardId) {
+          r.ok = true;
+          r.reason = 'react_state';
+          r.recommendedCardId = step.card.cardId;
+          r.recommendedCardName = step.card.cardName || '';
+          r.updatedAt = Date.now();
+          r.fullData = val;
+          return JSON.stringify(r);
         }
-
-        r.ok = true;
-        r.reason = 'react_state';
-        break;
       }
+      // 也检查 ref.current
+      if (val && val.current && typeof val.current === 'object'
+          && Array.isArray(val.current.data) && val.current.data.length > 0
+          && val.current.data[0] && val.current.data[0].actionName === 'choose') {
+        var step2 = val.current.data[0];
+        if (step2.card && step2.card.cardId) {
+          r.ok = true;
+          r.reason = 'react_state_ref';
+          r.recommendedCardId = step2.card.cardId;
+          r.recommendedCardName = step2.card.cardName || '';
+          r.updatedAt = Date.now();
+          r.fullData = val.current;
+          return JSON.stringify(r);
+        }
+      }
+      ms = ms.next; idx++;
     }
 
     if (node.child) queue.push(node.child);
     if (node.sibling) queue.push(node.sibling);
-    if (queue.length > 1000) break;
+    if (queue.length > 500) break;
   }
 
-  if (!r.ok) r.reason = 'no_choices';
+  r.reason = 'no_choose_action';
   return JSON.stringify(r);
 })()";
         }

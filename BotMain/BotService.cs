@@ -3268,52 +3268,68 @@ namespace BotMain
             return false;
         }
 
+        /// <summary>
+        /// 从盒子获取推荐的 cardId，然后通过 Payload 查询 DraftDisplay.m_choices 匹配 index
+        /// </summary>
+        private int ArenaGetRecommendedIndex(PipeServer pipe, string phase, out string recommendedId)
+        {
+            recommendedId = null;
+
+            // 1. 从盒子 ai-recommend 页面获取推荐的 cardId
+            if (_hsBoxArenaDraftBridge == null || !_hsBoxArenaDraftBridge.TryReadDraft(out var rec, out var detail))
+            {
+                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
+                return 0;
+            }
+
+            if (!rec.Ok || string.IsNullOrWhiteSpace(rec.RecommendedCardId))
+            {
+                Log($"[Arena] 盒子无推荐 ({rec.Reason})，选第一个。");
+                return 0;
+            }
+
+            recommendedId = rec.RecommendedCardId;
+            Log($"[Arena] 盒子推荐{phase}: {rec.RecommendedCardId} ({rec.RecommendedCardName})");
+
+            // 2. 从 Payload 获取当前可选项列表
+            var choicesCmd = phase == "职业" ? "ARENA_GET_HERO_CHOICES" : "ARENA_GET_DRAFT_CHOICES";
+            if (!TrySendAndReceiveExpected(pipe, choicesCmd, 3000, r => true, out var choicesResp, "Arena.GetChoices"))
+            {
+                Log($"[Arena] 获取选项列表失败，选第一个。");
+                return 0;
+            }
+
+            // 解析 HEROES:id1,id2,id3 或 CHOICES:id1,id2,id3
+            var prefix = phase == "职业" ? "HEROES:" : "CHOICES:";
+            if (choicesResp == null || !choicesResp.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                Log($"[Arena] 选项列表格式错误: {choicesResp}，选第一个。");
+                return 0;
+            }
+
+            var ids = choicesResp.Substring(prefix.Length).Split(',');
+            for (int i = 0; i < ids.Length; i++)
+            {
+                Log($"[Arena]   选项[{i + 1}]: {ids[i]}{(ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase) ? " ★" : "")}");
+                if (ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase))
+                    return i;
+            }
+
+            Log($"[Arena] 推荐的 {recommendedId} 不在选项中，选第一个。");
+            return 0;
+        }
+
         private void ArenaPickHero(PipeServer pipe)
         {
             Log("[Arena] 选择职业阶段...");
-            int bestIndex = 0;
-            string detail = null;
-
-            if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
-            {
-                bestIndex = rec.GetBestChoiceIndex();
-                var name = rec.GetChoiceName(bestIndex);
-                var score = rec.GetChoiceScore(bestIndex);
-                Log($"[Arena] 盒子推荐职业: [{bestIndex + 1}] {name} (score={score})");
-
-                // 日志所有选项
-                if (rec.Choices != null)
-                {
-                    for (int i = 0; i < rec.Choices.Count; i++)
-                    {
-                        var n = rec.GetChoiceName(i);
-                        var s = rec.GetChoiceScore(i);
-                        Log($"[Arena]   选项[{i + 1}]: {n} score={s}{(i == bestIndex ? " ★" : "")}");
-                    }
-                }
-            }
-            else
-                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
-
+            int bestIndex = ArenaGetRecommendedIndex(pipe, "职业", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_HERO:{bestIndex}", 5000, out var resp, "Arena.PickHero");
             Log($"[Arena] 选职业结果: {resp}");
         }
 
         private void ArenaPickCard(PipeServer pipe)
         {
-            int bestIndex = 0;
-            string detail = null;
-
-            if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
-            {
-                bestIndex = rec.GetBestChoiceIndex();
-                var name = rec.GetChoiceName(bestIndex);
-                var score = rec.GetChoiceScore(bestIndex);
-                Log($"[Arena] 盒子推荐卡牌: [{bestIndex + 1}] {name} (score={score}, picked={rec.Count})");
-            }
-            else
-                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一张。");
-
+            int bestIndex = ArenaGetRecommendedIndex(pipe, "卡牌", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_CARD:{bestIndex}", 5000, out var resp, "Arena.PickCard");
             Log($"[Arena] 选牌结果: {resp}");
         }
