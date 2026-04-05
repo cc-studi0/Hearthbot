@@ -684,6 +684,12 @@ namespace HearthstonePayload
                         capturedBtn = btn;
                         return r;
                     }
+                    if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var r = GetPlayButtonInfo(GetDraftDisplay(), out btn);
+                        capturedBtn = btn;
+                        return r;
+                    }
                     return "ERROR:scene:" + scene;
                 }
                 catch (Exception ex)
@@ -1203,43 +1209,17 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 获取 DraftDisplay 上按钮的屏幕坐标
-        /// </summary>
-        private bool TryGetDraftButtonScreenPos(string buttonFieldName, out int x, out int y)
-        {
-            x = y = 0;
-            var dd = GetDraftDisplay();
-            if (dd == null) return false;
-
-            var btn = TryGetFirstProp(dd, buttonFieldName);
-            if (btn == null) return false;
-
-            return TryGetScreenPos(btn, out x, out y);
-        }
-
-        /// <summary>
-        /// 购买竞技场门票 / 开始新轮次 — 点击 DraftDisplay.m_playButton
+        /// 购买竞技场门票 / 开始新轮次 — 复用 ClickPlay（已支持 DRAFT 场景）
         /// PlayButton 在 NO_RUN 状态下点击会花票开始新竞技场
         /// </summary>
         public string ArenaBuyTicket()
         {
-            // 获取按钮坐标（主线程）
-            int bx = 0, by = 0;
-            bool found = false;
-            OnMain(() =>
-            {
-                if (!Init()) return "ERROR:not_initialized";
-                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
-                return found ? "OK" : "ERROR:no_play_button";
-            });
+            return ClickPlay(); // ClickPlay 已支持 DRAFT 场景的 m_playButton
+        }
 
-            if (found)
-            {
-                var result = ClickAt(bx, by, 0.5f);
-                return "OK:BUY:" + result;
-            }
-
-            // 备选：直接调 API（可能导致 UI 异常，但至少不会静默失败）
+        // 保留兼容签名
+        private string _ArenaBuyTicketLegacy()
+        {
             return OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
@@ -1411,27 +1391,15 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 竞技场开始匹配 — 点击 DraftDisplay.m_playButton（和购票是同一个按钮）
-        /// 在 DRAFT_COMPLETE/MIDRUN 状态下点击 = 开始匹配
+        /// 竞技场开始匹配 — 复用 ClickPlay（同一个 PlayButton）
         /// </summary>
         public string ArenaFindGame()
         {
-            int bx = 0, by = 0;
-            bool found = false;
-            OnMain(() =>
-            {
-                if (!Init()) return "ERROR:not_initialized";
-                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
-                return found ? "OK" : "ERROR:no_play_button";
-            });
+            return ClickPlay(); // ClickPlay 已支持 DRAFT 场景
+        }
 
-            if (found)
-            {
-                var result = ClickAt(bx, by, 0.5f);
-                return "OK:FIND_GAME:" + result;
-            }
-
-            // 备选：API 调用
+        private string _ArenaFindGameLegacy()
+        {
             return OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
@@ -1453,42 +1421,26 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 领取竞技场奖励 — 点击 PlayButton 关闭奖励界面
-        /// 在 REWARDS 状态下点击 PlayButton 会走正常的奖励确认流程：
-        ///   PlayButtonPress → AckDraftRewards → OnAckRewards → NO_RUN
-        /// 不能直接调 API，会导致 UI 状态机卡死
+        /// 领取竞技场奖励 — 多次点击 PlayButton 通过奖励动画和确认
+        /// 奖励界面有动画，需要等动画结束后按钮才可点击
         /// </summary>
         public string ArenaClaimRewards()
         {
-            int bx = 0, by = 0;
-            bool found = false;
-            OnMain(() =>
+            // 多次尝试点击，因为奖励界面有动画过程
+            for (int i = 0; i < 5; i++)
             {
-                if (!Init()) return "ERROR:not_initialized";
-                // 尝试 playButton（奖励确认后通常用 play 按钮继续）
-                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
-                if (!found)
-                {
-                    // 备选：doneButton
-                    found = TryGetDraftButtonScreenPos("m_doneButton", out bx, out by);
-                }
-                return found ? "OK" : "ERROR:no_button";
-            });
-
-            if (found)
-            {
-                // 多次点击确保通过奖励动画和确认
-                for (int i = 0; i < 3; i++)
-                {
-                    ClickAt(bx, by, 0.8f);
-                }
-                return "OK:CLAIMED";
+                var result = ClickPlay();
+                if (result != null && !result.StartsWith("ERROR"))
+                    return "OK:CLAIMED:" + result;
+                Thread.Sleep(1000);
             }
 
-            // 备选：点击屏幕中央区域（奖励弹窗通常在中央）
-            return ClickAtRatio(0.5f, 0.5f, 0.5f).StartsWith("OK")
-                ? "OK:CLAIMED:center_click"
-                : "ERROR:claim_button_not_found";
+            // 备选：点击屏幕中央（奖励弹窗可能挡住了按钮）
+            ClickAtRatio(0.5f, 0.5f, 0.5f);
+            Thread.Sleep(500);
+            return ClickPlay().StartsWith("ERROR")
+                ? "ERROR:claim_failed"
+                : "OK:CLAIMED:after_center_click";
         }
 
         /// <summary>
