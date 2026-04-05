@@ -3129,17 +3129,47 @@ namespace BotMain
 
         private bool ArenaEnsureDraftScene(PipeServer pipe)
         {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            // 先等大厅稳定（关闭弹窗、确认场景加载完成），与构筑/战旗模式一致
+            Log("[Arena] 等待大厅稳定后再导航到竞技场...");
+            if (!WaitForStableLobbyForNavigation(pipe, "Arena.LobbyReady"))
+            {
+                Log("[Arena] 大厅尚未稳定，等待重试...");
+                return false;
+            }
+
+            // 检查当前场景
             if (!TryGetSceneValue(pipe, 3000, out var scene, "Arena.Scene"))
                 return false;
-            if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+
+            if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            {
+                // 已在竞技场，等待场景稳定
+                if (!WaitForStableScene(pipe, "DRAFT", "Arena.DraftReady"))
+                {
+                    Log("[Arena] DRAFT 场景尚未稳定，等待重试...");
+                    return false;
+                }
                 return true;
+            }
+
+            if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                return true; // 已在对局中
+
+            // 导航到竞技场
             Log($"[Arena] 当前场景: {scene}，导航到竞技场...");
             TrySendStatusCommand(pipe, "CLICK_HUB_BUTTON:arena", 10000, out _, "Arena.Nav");
-            SleepOrCancelled(3000);
-            return TryGetSceneValue(pipe, 3000, out var newScene, "Arena.NavCheck")
-                   && (string.Equals(newScene, "DRAFT", StringComparison.OrdinalIgnoreCase)
-                       || string.Equals(newScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase));
+
+            // 等待 DRAFT 场景稳定
+            if (!WaitForStableScene(pipe, "DRAFT", "Arena.DraftReady"))
+            {
+                Log("[Arena] 导航后 DRAFT 场景未稳定，等待重试...");
+                return false;
+            }
+
+            return true;
         }
 
         private bool ArenaTryBuyTicket(PipeServer pipe)
@@ -3614,6 +3644,7 @@ namespace BotMain
 
         private void ArenaPostGameSettle(PipeServer pipe)
         {
+            // 尝试关闭结算弹窗
             for (int i = 0; i < 5; i++)
             {
                 TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.Dismiss");
@@ -3625,7 +3656,10 @@ namespace BotMain
                     break;
                 }
             }
-            SleepOrCancelled(2000);
+
+            // 等待大厅/竞技场场景稳定后再继续，避免在加载中操作
+            Log("[Arena] 等待结算后场景稳定...");
+            WaitForStableLobbyForNavigation(pipe, "Arena.PostGameLobbyReady", 20);
         }
 
         private void ArenaClaimRewards(PipeServer pipe)
