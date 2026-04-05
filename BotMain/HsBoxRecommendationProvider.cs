@@ -6863,17 +6863,68 @@ namespace BotMain
     {
         public bool Ok { get; set; }
         public string Reason { get; set; }
+        /// <summary>当前3个选项的 CardID 列表, e.g. ["WW_400","GDB_118","CATA_151"]</summary>
+        public JArray Choices { get; set; }
+        /// <summary>选项详细数据, 每个含 CardID/name_cn/score/ac/arena_strength 等</summary>
+        public JArray ChoiceCards { get; set; }
+        public long UpdatedAtMs { get; set; }
+        /// <summary>已选卡牌数</summary>
+        public long Count { get; set; }
+
+        // 兼容旧字段
         public JToken Hero { get; set; }
         public JArray GuideList { get; set; }
         public int CardStage { get; set; }
-        public long UpdatedAtMs { get; set; }
-        public long Count { get; set; }
+
+        /// <summary>返回评分最高的选项 index (0-based), 基于 score 字段</summary>
+        public int GetBestChoiceIndex()
+        {
+            if (ChoiceCards == null || ChoiceCards.Count == 0)
+                return 0;
+
+            int bestIdx = 0;
+            double bestScore = -1;
+            for (int i = 0; i < ChoiceCards.Count; i++)
+            {
+                var card = ChoiceCards[i];
+                double score = 0;
+                var scoreVal = card?["score"];
+                if (scoreVal != null)
+                {
+                    if (scoreVal.Type == JTokenType.String)
+                        double.TryParse(scoreVal.ToString(), out score);
+                    else
+                        score = scoreVal.Value<double?>() ?? 0;
+                }
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestIdx = i;
+                }
+            }
+            return bestIdx;
+        }
+
+        public string GetChoiceName(int index)
+        {
+            if (ChoiceCards != null && index < ChoiceCards.Count)
+                return ChoiceCards[index]?["name_cn"]?.ToString() ?? "?";
+            if (Choices != null && index < Choices.Count)
+                return Choices[index]?.ToString() ?? "?";
+            return "?";
+        }
+
+        public string GetChoiceScore(int index)
+        {
+            if (ChoiceCards != null && index < ChoiceCards.Count)
+                return ChoiceCards[index]?["score"]?.ToString() ?? "?";
+            return "?";
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────
     //  竞技场选牌桥接器
-    //  连接 client-jipaiqi/arena 页面，Hook window.fRecommend 回调，
-    //  读取盒子推送的英雄 / 卡牌选择推荐。
+    //  连接 client-jipaiqi/arena 页面，从 React state 读取选牌推荐数据
     // ────────────────────────────────────────────────────────────────────────
 
     internal sealed class HsBoxArenaDraftBridge
@@ -6937,11 +6988,14 @@ namespace BotMain
                     {
                         Ok = ok,
                         Reason = reason,
+                        Choices = dto["choices"] as JArray,
+                        ChoiceCards = dto["choiceCards"] as JArray,
+                        UpdatedAtMs = dto.Value<long>("updatedAt"),
+                        Count = dto.Value<long>("count"),
+                        // 兼容旧字段
                         Hero = dto["hero"],
                         GuideList = dto["guideList"] as JArray,
-                        CardStage = dto.Value<int>("cardStage"),
-                        UpdatedAtMs = dto.Value<long>("updatedAt"),
-                        Count = dto.Value<long>("count")
+                        CardStage = dto.Value<int>("cardStage")
                     };
 
                     detail = ok ? "arena_ready" : $"arena_not_ready:{reason}";
@@ -7213,23 +7267,69 @@ namespace BotMain
 
         private static string BuildArenaDraftStateScript()
         {
+            // 直接从 React Fiber 树读取选牌数据（fRecommend 几乎不被调用）
+            // st 组件: hook_9 = CardID[], hook_13 = deckStats, hook_16 = choiceCards[]
             return @"(() => {
-  if (!window.__hbArenaDraftInstalled) {
-    return JSON.stringify({ ok: false, reason: 'hook_not_installed', count: 0, updatedAt: 0 });
+  var r = { ok: false, reason: '', choices: null, choiceCards: null, count: 0, updatedAt: 0 };
+
+  var root = document.getElementById('root') || document.body.firstElementChild;
+  if (!root) { r.reason = 'no_root'; return JSON.stringify(r); }
+  var ck = Object.keys(root).find(function(k) { return k.startsWith('__reactContainer'); });
+  if (!ck) { r.reason = 'no_react'; return JSON.stringify(r); }
+
+  var fiber = root[ck];
+  var visited = new Set();
+  var queue = [fiber];
+
+  while (queue.length > 0) {
+    var node = queue.shift();
+    if (!node || visited.has(node)) continue;
+    visited.add(node);
+
+    var ms = node.memoizedState;
+    var idx = 0;
+    var hv = [];
+    while (ms && idx < 25) { hv.push(ms.memoizedState); ms = ms.next; idx++; }
+
+    if (hv.length > 13) {
+      var h9 = hv[9], h13 = hv[13], h16 = hv[16];
+      if (Array.isArray(h9) && h9.length > 0 && typeof h9[0] === 'string'
+          && h13 && typeof h13 === 'object' && 'sum' in h13) {
+        r.choices = h9;
+        r.count = h13.sum || 0;
+        r.updatedAt = Date.now();
+
+        // choiceCards: [{CardID, name_cn, score, ac, arena_strength, recommend, ...}]
+        if (Array.isArray(h16) && h16.length > 0 && h16[0] && h16[0].CardID)
+          r.choiceCards = h16.map(function(c) {
+            return { CardID: c.CardID, name_cn: c.name_cn, score: c.score,
+                     ac: c.ac, arena_strength: c.arena_strength, Cost: c.Cost,
+                     arena_win: c.arena_win, arena_count: c.arena_count, recommend: c.recommend };
+          });
+
+        // 从 HSCARDS 补充（如果 choiceCards 缺失）
+        if (!r.choiceCards && window.HSCARDS) {
+          r.choiceCards = h9.map(function(id) {
+            var c = window.HSCARDS[id];
+            return c ? { CardID: id, name_cn: c.name_cn, score: c.score,
+                         ac: c.ac, arena_strength: c.arena_strength, Cost: c.Cost,
+                         arena_win: c.arena_win, arena_count: c.arena_count } : { CardID: id };
+          });
+        }
+
+        r.ok = true;
+        r.reason = 'react_state';
+        break;
+      }
+    }
+
+    if (node.child) queue.push(node.child);
+    if (node.sibling) queue.push(node.sibling);
+    if (queue.length > 1000) break;
   }
-  var count = Number(window.__hbArenaDraftCount || 0);
-  if (count === 0) {
-    return JSON.stringify({ ok: false, reason: 'waiting_for_box_push', count: 0, updatedAt: 0 });
-  }
-  return JSON.stringify({
-    ok: true,
-    reason: 'ready',
-    hero: window.__hbArenaDraftHero ?? null,
-    guideList: window.__hbArenaDraftGuideList ?? null,
-    cardStage: window.__hbArenaDraftCardStage ?? 0,
-    updatedAt: Number(window.__hbArenaDraftUpdatedAt || 0),
-    count: count
-  });
+
+  if (!r.ok) r.reason = 'no_choices';
+  return JSON.stringify(r);
 })()";
         }
     }

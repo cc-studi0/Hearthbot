@@ -3276,22 +3276,21 @@ namespace BotMain
 
             if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
             {
-                if (rec.GuideList != null && rec.GuideList.Count > 0)
+                bestIndex = rec.GetBestChoiceIndex();
+                var name = rec.GetChoiceName(bestIndex);
+                var score = rec.GetChoiceScore(bestIndex);
+                Log($"[Arena] 盒子推荐职业: [{bestIndex + 1}] {name} (score={score})");
+
+                // 日志所有选项
+                if (rec.Choices != null)
                 {
-                    double bestScore = double.MinValue;
-                    for (int i = 0; i < rec.GuideList.Count; i++)
+                    for (int i = 0; i < rec.Choices.Count; i++)
                     {
-                        var item = rec.GuideList[i];
-                        double score = item.Value<double?>("score")
-                                       ?? item.Value<double?>("value")
-                                       ?? item.Value<double?>("winRate")
-                                       ?? 0;
-                        if (score > bestScore) { bestScore = score; bestIndex = i; }
+                        var n = rec.GetChoiceName(i);
+                        var s = rec.GetChoiceScore(i);
+                        Log($"[Arena]   选项[{i + 1}]: {n} score={s}{(i == bestIndex ? " ★" : "")}");
                     }
-                    Log($"[Arena] 盒子推荐职业 index={bestIndex}, score={bestScore:F1}");
                 }
-                else
-                    Log($"[Arena] 盒子无推荐 ({detail})，选第一个。");
             }
             else
                 Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
@@ -3307,25 +3306,13 @@ namespace BotMain
 
             if (_hsBoxArenaDraftBridge != null && _hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
             {
-                if (rec.GuideList != null && rec.GuideList.Count > 0)
-                {
-                    double bestScore = double.MinValue;
-                    for (int i = 0; i < rec.GuideList.Count; i++)
-                    {
-                        var item = rec.GuideList[i];
-                        double score = item.Value<double?>("score")
-                                       ?? item.Value<double?>("value")
-                                       ?? item.Value<double?>("winRate")
-                                       ?? 0;
-                        if (score > bestScore) { bestScore = score; bestIndex = i; }
-                    }
-                    Log($"[Arena] 盒子推荐卡牌 index={bestIndex}, score={bestScore:F1}, stage={rec.CardStage}");
-                }
-                else
-                    Log($"[Arena] 盒子无选牌推荐 ({detail})，选第一张。");
+                bestIndex = rec.GetBestChoiceIndex();
+                var name = rec.GetChoiceName(bestIndex);
+                var score = rec.GetChoiceScore(bestIndex);
+                Log($"[Arena] 盒子推荐卡牌: [{bestIndex + 1}] {name} (score={score}, picked={rec.Count})");
             }
             else
-                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一��。");
+                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一张。");
 
             TrySendStatusCommand(pipe, $"ARENA_PICK_CARD:{bestIndex}", 5000, out var resp, "Arena.PickCard");
             Log($"[Arena] 选牌结果: {resp}");
