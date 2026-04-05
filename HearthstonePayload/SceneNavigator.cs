@@ -1204,8 +1204,9 @@ namespace HearthstonePayload
 
         /// <summary>
         /// 购买竞技场门票（触发开始新的竞技场轮次）
-        /// 实际流程：UI 通过 ArenaLandingPageManager 发送 CODE_SPEND_TICKET 事件
-        /// 底层调用 Network.Get().BeginDraft() 或类似方法
+        /// 真实调用路径：DraftManager.RequestDraftBegin()
+        ///   → Network.Get().DraftBegin(isUnderground)
+        ///   → 服务端响应 DraftBeginning → OnBegin() 创建新卡组
         /// </summary>
         public string ArenaBuyTicket()
         {
@@ -1214,26 +1215,22 @@ namespace HearthstonePayload
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    // 方式1：通过 ArenaLandingPageManager 广播开始事件
-                    var almType = _asm?.GetType("ArenaLandingPageManager");
-                    if (almType != null)
+                    // 方式1（正确路径）：DraftManager.RequestDraftBegin()
+                    var dm = GetDraftManager();
+                    if (dm != null)
                     {
-                        var alm = CallStatic(almType, "Get") ?? GetStaticValue(almType, "s_instance");
-                        if (alm != null)
-                        {
-                            // BroadcastArenaLandingPageManagerEvent("CODE_SPEND_TICKET")
-                            CallMethod(alm, "BroadcastArenaLandingPageManagerEvent", "CODE_SPEND_TICKET");
-                        }
+                        CallMethod(dm, "RequestDraftBegin");
+                        return "OK:BUY";
                     }
 
-                    // 方式2：通过 Network.BeginDraft
+                    // 方式2（备选）：直接 Network.DraftBegin(false)
                     var networkType = _asm?.GetType("Network");
                     if (networkType != null)
                     {
                         var network = CallStatic(networkType, "Get");
                         if (network != null)
                         {
-                            CallMethod(network, "BeginDraft");
+                            CallMethod(network, "DraftBegin", false);
                             return "OK:BUY";
                         }
                     }
