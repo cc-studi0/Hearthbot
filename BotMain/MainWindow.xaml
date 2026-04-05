@@ -29,6 +29,7 @@
                     <ComboBoxItem Content="Wild"/>
                     <ComboBoxItem Content="Battlegrounds"/>
                     <ComboBoxItem Content="Test"/>
+                    <ComboBoxItem Content="Arena"/>
                 </ComboBox>
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
@@ -41,6 +42,8 @@
             <StackPanel Grid.Column="3" Orientation="Horizontal">
                 <Button Content="中控" Width="35" Height="23" Command="{Binding OpenAccountControllerCmd}"
                         FontSize="11" ToolTip="多账号中控" Margin="0,0,3,0"/>
+                <Button Content="更新" Width="35" Height="23" Command="{Binding CheckUpdateCmd}"
+                        FontSize="11" ToolTip="检查更新" Margin="0,0,3,0"/>
                 <Button Content="⚙" Width="25" Height="23" Command="{Binding SettingsCmd}"
                         FontSize="13" ToolTip="设置"/>
             </StackPanel>

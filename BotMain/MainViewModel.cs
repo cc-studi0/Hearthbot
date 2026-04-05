@@ -26,6 +26,8 @@ namespace BotMain
         private const int UiModeTest = 3;
         private const int ServiceModeBattlegrounds = 100;
         private const int ServiceModeTest = 99;
+        private const int UiModeArena = 4;
+        private const int ServiceModeArena = 2;
 
         private readonly BotService _bot = new();
         private readonly NotificationService _notify = new();
@@ -64,6 +66,8 @@ namespace BotMain
         private string _gameDirectoryPath;
         private int _matchmakingTimeoutSeconds = 60;
         private bool _clickOverlayEnabled;
+        private bool _arenaUseGold;
+        private int _arenaGoldReserve;
 
         public MainViewModel()
         {
@@ -278,14 +282,18 @@ namespace BotMain
         public string CurrentRankText { get; set; } = "--";
         public string Status { get; set; } = "Idle";
         public bool IsRunning => _bot.State == BotState.Running || _bot.State == BotState.Finishing;
-        public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
+        public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode || IsArenaMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
         public bool IsBattlegroundsMode => ModeIndex == UiModeBattlegrounds;
+        public bool IsArenaMode => ModeIndex == UiModeArena;
+        public bool ArenaUseGold { get => _arenaUseGold; set { _arenaUseGold = value; Notify(); AutoSave(); } }
+        public int ArenaGoldReserve { get => _arenaGoldReserve; set { _arenaGoldReserve = Math.Max(0, value); Notify(); AutoSave(); } }
         private string CurrentModeName => ModeIndex switch
         {
             0 => "Standard",
             1 => "Wild",
             UiModeBattlegrounds => "Battlegrounds",
             UiModeTest => "Test",
+            UiModeArena => "Arena",
             _ => "Unknown"
         };
         public string MainButtonText => _bot.State == BotState.Idle
@@ -361,6 +369,7 @@ namespace BotMain
                 _modeIndex = value;
                 Notify();
                 Notify(nameof(IsBattlegroundsMode));
+                Notify(nameof(IsArenaMode));
                 Notify(nameof(LocalRecommendationControlsEnabled));
                 Notify(nameof(DeckSelectionVisible));
                 Notify(nameof(TopStatusText));
@@ -613,8 +622,8 @@ namespace BotMain
         }
         public bool HumanizeIntensitySelectionEnabled => HumanizeActionsEnabled;
         public HumanizerIntensity SelectedHumanizeIntensity => HumanizeIntensityOptions[HumanizeIntensityIndex].Value;
-        public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation && !IsBattlegroundsMode;
-        public bool DeckSelectionVisible => !IsBattlegroundsMode;
+        public bool LocalRecommendationControlsEnabled => !FollowHsBoxOperation && !IsBattlegroundsMode && !IsArenaMode;
+        public bool DeckSelectionVisible => !IsBattlegroundsMode && !IsArenaMode;
 
         // 策略/卡组
         public ObservableCollection<string> ProfileNames { get; } = new() { "None" };
@@ -728,12 +737,11 @@ namespace BotMain
                     // 有更新，在 UI 线程弹窗确认
                     _dispatcher.Invoke(() =>
                     {
-                        var detail = result.changedCount > 0 ? $"({result.changedCount} 个文件变更)" : "(全量更新)";
                         var inGame = _bot.State == BotState.Running;
                         var gameWarning = inGame ? "\n\n当前正在对局中，更新将关闭炉石并重启程序。" : "";
 
                         var msgResult = MessageBox.Show(
-                            $"检测到新版本 {detail}，是否立即更新？{gameWarning}",
+                            $"检测到新版本，是否立即更新？{gameWarning}",
                             "检查更新",
                             MessageBoxButton.YesNo,
                             MessageBoxImage.Information);
@@ -828,12 +836,15 @@ namespace BotMain
                 {
                     case UiModeTest: serviceMode = ServiceModeTest; break;
                     case UiModeBattlegrounds: serviceMode = ServiceModeBattlegrounds; break;
+                    case UiModeArena: serviceMode = ServiceModeArena; break;
                     default: serviceMode = ModeIndex; break;
                 }
                 _bot.SetRunConfiguration(serviceMode, deckName, mulliganName, discoverName);
                 if (IsBattlegroundsMode)
                     _bot.SetFollowHsBoxRecommendations(true);
-                AppendLocalLog($"Start requested: mode={CurrentModeName}({serviceMode}), deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation || IsBattlegroundsMode ? "hsbox" : "local")}");
+                if (IsArenaMode)
+                    _bot.SetFollowHsBoxRecommendations(true);
+                AppendLocalLog($"Start requested: mode={CurrentModeName}({serviceMode}), deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation || IsBattlegroundsMode || IsArenaMode ? "hsbox" : "local")}");
 
                 _startTime = DateTime.Now;
                 _timer.Start();
@@ -860,7 +871,7 @@ namespace BotMain
                     GameTimeoutSeconds = _matchmakingTimeoutSeconds * 5
                 };
                 _watchdog.StateChanged += state =>
-                    _dispatcher.BeginInvoke(() => AppendLocalLog($"[Watchdog] 状态: {state}"));
+                    _dispatcher.BeginInvoke(() => AppendLocalLog($"[Watchdog] 状态: {WatchdogStateToString(state)}"));
                 _watchdog.Start();
             }
             else
@@ -1009,6 +1020,18 @@ namespace BotMain
             ? DiscoverNames[DiscoverProfileIndex]
             : "None";
 
+        private static string WatchdogStateToString(HearthstoneWatchdog.WatchdogState s) => s switch
+        {
+            HearthstoneWatchdog.WatchdogState.Disabled => "Disabled",
+            HearthstoneWatchdog.WatchdogState.NotRunning => "NotRunning",
+            HearthstoneWatchdog.WatchdogState.Launching => "Launching",
+            HearthstoneWatchdog.WatchdogState.WaitingPayload => "WaitingPayload",
+            HearthstoneWatchdog.WatchdogState.Connected => "Connected",
+            HearthstoneWatchdog.WatchdogState.Running => "Running",
+            HearthstoneWatchdog.WatchdogState.Recovering => "Recovering",
+            _ => "Unknown"
+        };
+
         private void AppendLocalLog(string message)
         {
             EnqueueLog(message);
@@ -1140,6 +1163,8 @@ namespace BotMain
                 dict["NotifyChannelIndex"] = JsonSerializer.SerializeToElement(NotifyChannelIndex);
                 dict["NotifyToken"] = JsonSerializer.SerializeToElement(NotifyToken);
                 dict["DeviceName"] = JsonSerializer.SerializeToElement(DeviceName);
+                dict["ArenaUseGold"] = JsonSerializer.SerializeToElement(ArenaUseGold);
+                dict["ArenaGoldReserve"] = JsonSerializer.SerializeToElement(ArenaGoldReserve);
 
                 if (WindowLeft.HasValue) dict["WindowLeft"] = JsonSerializer.SerializeToElement(WindowLeft.Value);
                 if (WindowTop.HasValue) dict["WindowTop"] = JsonSerializer.SerializeToElement(WindowTop.Value);
@@ -1217,6 +1242,8 @@ namespace BotMain
                         if (dict.TryGetValue("NotifyChannelIndex", out v)) NotifyChannelIndex = ReadOptionalInt32(v, 0);
                         if (dict.TryGetValue("NotifyToken", out v)) NotifyToken = ReadOptionalString(v) ?? string.Empty;
                         if (dict.TryGetValue("DeviceName", out v)) DeviceName = ReadOptionalString(v) ?? string.Empty;
+                        if (dict.TryGetValue("ArenaUseGold", out v)) ArenaUseGold = v.GetBoolean();
+                        if (dict.TryGetValue("ArenaGoldReserve", out v)) ArenaGoldReserve = ReadOptionalInt32(v, 0);
 
                         if (dict.TryGetValue("WindowLeft", out v)) WindowLeft = v.GetDouble();
                         if (dict.TryGetValue("WindowTop", out v)) WindowTop = v.GetDouble();

@@ -75,6 +75,19 @@
                 </StackPanel>
             </GroupBox>
 
+            <!-- 竞技场 -->
+            <GroupBox Header="竞技场" Padding="8,6" Margin="0,0,0,8">
+                <StackPanel>
+                    <CheckBox Content="允许使用金币购买门票" FontSize="11" IsChecked="{Binding ArenaUseGold}" Margin="0,0,0,4"
+                              ToolTip="票用完后用金币继续，否则票用完即停止"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="金币保底:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <TextBox Width="50" Height="20" Text="{Binding ArenaGoldReserve}" FontSize="11"
+                                 VerticalContentAlignment="Center" ToolTip="金币低于此值时停止消耗金币，默认0"/>
+                    </StackPanel>
+                </StackPanel>
+            </GroupBox>
+
             <!-- 通知 -->
             <GroupBox Header="通知" Padding="8,6" Margin="0,0,0,8">
                 <StackPanel>
