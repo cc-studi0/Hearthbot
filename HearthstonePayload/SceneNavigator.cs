@@ -1365,22 +1365,42 @@ namespace HearthstonePayload
 
                     if (method != null && normalPremium != null)
                     {
-                        var parms = method.GetParameters();
-                        var args = new object[parms.Length];
-                        args[0] = choiceNum;
-                        args[1] = normalPremium;
-                        for (int i = 2; i < parms.Length; i++)
-                            args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
-                                    : parms[i].ParameterType == typeof(bool) ? (object)false : null;
-                        method.Invoke(dm, args);
-
-                        // 有些卡牌选择也需要确认（如附带包裹卡的选项）
-                        Thread.Sleep(300);
                         var dd = GetDraftDisplay();
-                        if (dd != null)
-                            CallMethod(dd, "ClickConfirmButton");
 
-                        return "OK:CARD_PICKED";
+                        // 先检查这张卡是否有包裹卡（m_packageCardIds）
+                        bool hasPackage = false;
+                        if (dd != null)
+                        {
+                            var hasPackageResult = CallMethod(dd, "DoesChoiceHavePackageCards", index);
+                            hasPackage = hasPackageResult != null && Convert.ToBoolean(hasPackageResult);
+                        }
+
+                        if (hasPackage)
+                        {
+                            // 包裹卡流程：
+                            // 1. 显示包裹卡确认弹窗
+                            CallMethod(dd, "DisplayPackageCardsConfirmation", index);
+                            Thread.Sleep(500);
+
+                            // 2. 直接调用 ConfirmPackageChoice 确认
+                            //    (内部: MakeChoice(index+1, premium, packagePremiums, isConfirming=true))
+                            CallMethod(dd, "ConfirmPackageChoice");
+
+                            return "OK:CARD_PICKED:package";
+                        }
+                        else
+                        {
+                            // 普通卡流程：直接 MakeChoice
+                            var parms = method.GetParameters();
+                            var args = new object[parms.Length];
+                            args[0] = choiceNum;
+                            args[1] = normalPremium;
+                            for (int i = 2; i < parms.Length; i++)
+                                args[i] = parms[i].HasDefaultValue ? parms[i].DefaultValue
+                                        : parms[i].ParameterType == typeof(bool) ? (object)false : null;
+                            method.Invoke(dm, args);
+                            return "OK:CARD_PICKED";
+                        }
                     }
 
                     return "ERROR:MakeChoice_not_found";
