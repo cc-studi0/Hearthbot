@@ -3276,7 +3276,8 @@ namespace BotMain
             recommendedId = null;
 
             // 1. 从盒子 ai-recommend 页面获取推荐的 cardId
-            if (_hsBoxArenaDraftBridge == null || !_hsBoxArenaDraftBridge.TryReadDraft(out var rec, out var detail))
+            string detail = null;
+            if (_hsBoxArenaDraftBridge == null || !_hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
             {
                 Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
                 return 0;
