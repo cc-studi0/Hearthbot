@@ -887,6 +887,530 @@ namespace HearthstonePayload
             });
         }
 
+        // ────────────────────────────────────────
+        // Arena / Draft 相关命令
+        // ────────────────────────────────────────
+
+        /// <summary>
+        /// 获取DraftManager单例（竞技场选牌管理器）
+        /// </summary>
+        private object GetDraftManager()
+        {
+            var type = _asm?.GetType("DraftManager");
+            return type != null ? (CallStatic(type, "Get") ?? GetStaticValue(type, "s_instance")) : null;
+        }
+
+        /// <summary>
+        /// 获取NetCache单例
+        /// </summary>
+        private object GetNetCache()
+        {
+            var type = _asm?.GetType("NetCache");
+            return type != null ? CallStatic(type, "Get") : null;
+        }
+
+        /// <summary>
+        /// 通过NetCache.GetNetObject泛型方法获取缓存的网络对象
+        /// </summary>
+        private object GetNetObject(string typeName)
+        {
+            var cache = GetNetCache();
+            if (cache == null) return null;
+
+            var targetType = _asm?.GetType(typeName);
+            if (targetType == null) return null;
+
+            // 查找 GetNetObject<T>() 泛型方法
+            var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var methods = cache.GetType().GetMethods(flags)
+                .Where(m => m.Name == "GetNetObject" && m.IsGenericMethod && m.GetParameters().Length == 0)
+                .ToArray();
+            foreach (var mi in methods)
+            {
+                try
+                {
+                    var generic = mi.MakeGenericMethod(targetType);
+                    return generic.Invoke(cache, null);
+                }
+                catch { }
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// 从DraftManager读取竞技场当前状态
+        /// </summary>
+        public string GetArenaStatus()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "NO_DRAFT";
+
+                    // 读取 DraftMode（枚举）: ACTIVE_DRAFT_DECK / IN_REWARDS / NO_ACTIVE_DRAFT 等
+                    var mode = TryGetFirstProp(dm, "m_draftMode", "DraftMode", "m_currentMode");
+                    var modeStr = mode?.ToString() ?? string.Empty;
+
+                    if (modeStr.Contains("NO_ACTIVE") || modeStr.Contains("INVALID"))
+                        return "NO_DRAFT";
+
+                    if (modeStr.Contains("REWARDS"))
+                        return "REWARDS";
+
+                    // 检查是否有待选英雄
+                    var choices = TryGetFirstProp(dm, "m_choices", "m_currentChoices", "Choices", "m_heroChoices");
+                    var choicesList = new List<object>();
+                    if (choices != null)
+                    {
+                        foreach (var c in AsEnumerable(choices))
+                            choicesList.Add(c);
+                    }
+
+                    // 检查是否已选英雄
+                    var hero = TryGetFirstProp(dm, "m_currentHero", "m_heroCardId", "CurrentHero");
+                    var heroStr = hero?.ToString() ?? string.Empty;
+
+                    // 读取已选卡牌数
+                    var draftDeck = TryGetFirstProp(dm, "m_draftDeck", "DraftDeck", "m_currentDeck", "m_deck");
+                    int slotsFilled = 0;
+                    if (draftDeck != null)
+                    {
+                        var slotCount = TryGetFirstProp(draftDeck, "SlotCount", "GetSlotCount", "GetTotalCardCount", "m_slots");
+                        if (slotCount != null)
+                        {
+                            try { slotsFilled = Convert.ToInt32(slotCount); } catch { }
+                        }
+                        if (slotsFilled == 0)
+                        {
+                            // 尝试通过方法获取
+                            var countResult = Call(draftDeck, "GetSlotCount")
+                                ?? Call(draftDeck, "GetTotalCardCount")
+                                ?? Call(draftDeck, "GetCardCount");
+                            if (countResult != null)
+                            {
+                                try { slotsFilled = Convert.ToInt32(countResult); } catch { }
+                            }
+                        }
+                    }
+
+                    // 判断状态
+                    if (string.IsNullOrEmpty(heroStr) && choicesList.Count > 0)
+                        return "HERO_PICK";
+
+                    if (slotsFilled >= 30)
+                        return "DRAFT_COMPLETE";
+
+                    if (choicesList.Count > 0)
+                        return "CARD_DRAFT:" + slotsFilled + "/30";
+
+                    if (!string.IsNullOrEmpty(heroStr) && slotsFilled < 30)
+                        return "CARD_DRAFT:" + slotsFilled + "/30";
+
+                    if (modeStr.Contains("ACTIVE"))
+                        return "DRAFT_COMPLETE";
+
+                    return "NO_DRAFT";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 查询竞技场门票和金币信息
+        /// </summary>
+        public string GetArenaTicketInfo()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    int tickets = 0;
+                    int gold = 0;
+
+                    // 获取竞技场门票
+                    var ticketObj = GetNetObject("NetCacheArenaTickets");
+                    if (ticketObj == null)
+                        ticketObj = GetNetObject("NetCache+NetCacheArenaTickets");
+                    if (ticketObj != null)
+                    {
+                        var count = TryGetFirstProp(ticketObj, "Count", "m_count", "Tickets",
+                            "m_tickets", "Balance", "m_balance");
+                        if (count != null)
+                        {
+                            try { tickets = Convert.ToInt32(count); } catch { }
+                        }
+                    }
+
+                    // 获取金币
+                    var goldObj = GetNetObject("NetCacheGoldBalance");
+                    if (goldObj == null)
+                        goldObj = GetNetObject("NetCache+NetCacheGoldBalance");
+                    if (goldObj != null)
+                    {
+                        var bal = TryGetFirstProp(goldObj, "Balance", "m_balance", "Gold",
+                            "m_gold", "CappedBalance", "m_cappedBalance");
+                        if (bal != null)
+                        {
+                            try { gold = Convert.ToInt32(bal); } catch { }
+                        }
+                    }
+
+                    return "TICKETS:" + tickets + "|GOLD:" + gold;
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 购买竞技场门票
+        /// </summary>
+        public string ArenaBuyTicket()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    // 尝试调用购票方法
+                    var result = CallMethod(dm, "RequestDraftBegin")
+                        ?? CallMethod(dm, "BuyArenaTicket")
+                        ?? CallMethod(dm, "StartDraft")
+                        ?? CallMethod(dm, "BeginDraft");
+
+                    if (result != null)
+                        return "OK:BUY";
+
+                    // 备选：通过Network发送购票请求
+                    var networkType = _asm?.GetType("Network");
+                    if (networkType != null)
+                    {
+                        var network = CallStatic(networkType, "Get");
+                        if (network != null)
+                        {
+                            var buyResult = CallMethod(network, "BeginDraft")
+                                ?? CallMethod(network, "RequestDraftBegin")
+                                ?? CallMethod(network, "DraftBegin");
+                            if (buyResult != null)
+                                return "OK:BUY";
+                        }
+                    }
+
+                    return "ERROR:buy_method_not_found";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 获取可选英雄列表
+        /// </summary>
+        public string GetArenaHeroChoices()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    var choices = TryGetFirstProp(dm, "m_choices", "m_currentChoices", "Choices",
+                        "m_heroChoices");
+                    if (choices == null) return "ERROR:no_choices";
+
+                    var ids = new List<string>();
+                    foreach (var c in AsEnumerable(choices))
+                    {
+                        if (c == null) continue;
+                        // 可能是 CardDef 对象或直接是 string cardId
+                        var cardId = TryGetFirstProp(c, "Name", "m_name", "CardId", "m_cardId",
+                            "m_cardID", "Id", "m_id") ?? c;
+                        ids.Add(cardId.ToString());
+                    }
+
+                    if (ids.Count == 0)
+                        return "ERROR:no_hero_choices";
+
+                    return "HEROES:" + string.Join(",", ids);
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 选择英雄（按索引0-2）
+        /// </summary>
+        public string ArenaPickHero(int index)
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    // 尝试多种选择英雄的方法签名
+                    var result = CallMethod(dm, "OnHeroChosen", index)
+                        ?? CallMethod(dm, "SelectHero", index)
+                        ?? CallMethod(dm, "ChooseHero", index)
+                        ?? CallMethod(dm, "MakeHeroPick", index);
+
+                    if (result != null)
+                        return "OK:HERO_PICKED";
+
+                    // 备选：通过Network直接发送选择
+                    var choices = TryGetFirstProp(dm, "m_choices", "m_currentChoices", "Choices",
+                        "m_heroChoices");
+                    if (choices == null) return "ERROR:no_choices";
+
+                    var choiceList = new List<object>();
+                    foreach (var c in AsEnumerable(choices))
+                        choiceList.Add(c);
+
+                    if (index < 0 || index >= choiceList.Count)
+                        return "ERROR:index_out_of_range:" + index + "/" + choiceList.Count;
+
+                    var networkType = _asm?.GetType("Network");
+                    if (networkType != null)
+                    {
+                        var network = CallStatic(networkType, "Get");
+                        if (network != null)
+                        {
+                            var chosen = choiceList[index];
+                            var pickResult = CallMethod(network, "DraftMakePick", (long)index)
+                                ?? CallMethod(network, "MakeDraftPick", (long)index)
+                                ?? CallMethod(dm, "SendHeroChoice", index);
+                            if (pickResult != null)
+                                return "OK:HERO_PICKED";
+                        }
+                    }
+
+                    return "ERROR:pick_method_not_found";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 获取当前可选的卡牌列表
+        /// </summary>
+        public string GetArenaDraftChoices()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    var choices = TryGetFirstProp(dm, "m_choices", "m_currentChoices", "Choices");
+                    if (choices == null) return "ERROR:no_choices";
+
+                    var ids = new List<string>();
+                    foreach (var c in AsEnumerable(choices))
+                    {
+                        if (c == null) continue;
+                        var cardId = TryGetFirstProp(c, "Name", "m_name", "CardId", "m_cardId",
+                            "m_cardID", "Id", "m_id") ?? c;
+                        ids.Add(cardId.ToString());
+                    }
+
+                    if (ids.Count == 0)
+                        return "ERROR:no_draft_choices";
+
+                    return "CHOICES:" + string.Join(",", ids);
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 选择卡牌（按索引0-2）
+        /// </summary>
+        public string ArenaPickCard(int index)
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    // 尝试多种选卡方法签名
+                    var result = CallMethod(dm, "OnCardChosen", index)
+                        ?? CallMethod(dm, "SelectCard", index)
+                        ?? CallMethod(dm, "ChooseCard", index)
+                        ?? CallMethod(dm, "MakeCardPick", index)
+                        ?? CallMethod(dm, "MakePick", index);
+
+                    if (result != null)
+                        return "OK:CARD_PICKED";
+
+                    // 备选：通过Network
+                    var networkType = _asm?.GetType("Network");
+                    if (networkType != null)
+                    {
+                        var network = CallStatic(networkType, "Get");
+                        if (network != null)
+                        {
+                            var pickResult = CallMethod(network, "DraftMakePick", (long)index)
+                                ?? CallMethod(network, "MakeDraftPick", (long)index);
+                            if (pickResult != null)
+                                return "OK:CARD_PICKED";
+                        }
+                    }
+
+                    return "ERROR:pick_method_not_found";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 领取竞技场奖励
+        /// </summary>
+        public string ArenaClaimRewards()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    var result = CallMethod(dm, "ClaimRewards")
+                        ?? CallMethod(dm, "CollectRewards")
+                        ?? CallMethod(dm, "AcknowledgeRewards")
+                        ?? CallMethod(dm, "Retire");
+
+                    if (result != null)
+                        return "OK:CLAIMED";
+
+                    // 备选：通过Network
+                    var networkType = _asm?.GetType("Network");
+                    if (networkType != null)
+                    {
+                        var network = CallStatic(networkType, "Get");
+                        if (network != null)
+                        {
+                            var claimResult = CallMethod(network, "DraftRetire")
+                                ?? CallMethod(network, "RetireDraft")
+                                ?? CallMethod(network, "AcknowledgeDraftRewards");
+                            if (claimResult != null)
+                                return "OK:CLAIMED";
+                        }
+                    }
+
+                    return "ERROR:claim_method_not_found";
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 调试：枚举DraftManager的所有字段和属性（运行时验证字段名）
+        /// </summary>
+        public string DumpDraftManager()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    var type = dm.GetType();
+                    var flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+
+                    var fields = type.GetFields(flags)
+                        .Select(f =>
+                        {
+                            string val;
+                            try { val = (f.GetValue(f.IsStatic ? null : dm) ?? "null").ToString(); }
+                            catch { val = "<error>"; }
+                            if (val.Length > 60) val = val.Substring(0, 60) + "...";
+                            return "F:" + (f.IsStatic ? "S:" : "") + f.Name + "=" + val;
+                        })
+                        .ToArray();
+
+                    var props = type.GetProperties(flags)
+                        .Where(p => p.GetIndexParameters().Length == 0)
+                        .Select(p =>
+                        {
+                            string val;
+                            try { val = (p.GetValue(dm, null) ?? "null").ToString(); }
+                            catch { val = "<error>"; }
+                            if (val.Length > 60) val = val.Substring(0, 60) + "...";
+                            return "P:" + p.Name + "=" + val;
+                        })
+                        .ToArray();
+
+                    var methods = type.GetMethods(flags)
+                        .Where(m => !m.IsSpecialName)
+                        .Select(m => "M:" + (m.IsStatic ? "S:" : "") + m.Name + "(" +
+                            string.Join(",", m.GetParameters().Select(p => p.ParameterType.Name)) + ")")
+                        .Distinct()
+                        .ToArray();
+
+                    return "DRAFT_DUMP:" + string.Join(";", fields) + "|" + string.Join(";", props) + "|" + string.Join(";", methods);
+                }
+                catch (Exception ex)
+                {
+                    return "ERROR:" + ex.Message;
+                }
+            });
+        }
+
+        /// <summary>
+        /// 尝试从多个候选名称中获取第一个非空属性/字段值
+        /// </summary>
+        private static object TryGetFirstProp(object obj, params string[] candidates)
+        {
+            if (obj == null) return null;
+            foreach (var name in candidates)
+            {
+                var val = GetProp(obj, name);
+                if (val != null) return val;
+            }
+            return null;
+        }
+
         private object GetDeckPickerTray()
         {
             var type = _asm.GetType("DeckPickerTrayDisplay");

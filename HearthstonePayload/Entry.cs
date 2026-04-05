@@ -775,6 +775,51 @@ namespace HearthstonePayload
                 _clickOverlayEnabled = !_clickOverlayEnabled;
                 _pipe.Write(_clickOverlayEnabled ? "OVERLAY:ON" : "OVERLAY:OFF");
             }
+            // ── Arena / Draft 命令 ──
+            else if (cmd == "ARENA_GET_STATUS")
+            {
+                _pipe.Write(nav.GetArenaStatus());
+            }
+            else if (cmd == "ARENA_GET_TICKET_INFO")
+            {
+                _pipe.Write(nav.GetArenaTicketInfo());
+            }
+            else if (cmd == "ARENA_BUY_TICKET")
+            {
+                _pipe.Write(nav.ArenaBuyTicket());
+            }
+            else if (cmd == "ARENA_GET_HERO_CHOICES")
+            {
+                _pipe.Write(nav.GetArenaHeroChoices());
+            }
+            else if (cmd.StartsWith("ARENA_PICK_HERO:", StringComparison.Ordinal))
+            {
+                var idx = cmd.Substring("ARENA_PICK_HERO:".Length);
+                if (int.TryParse(idx, out var heroIdx))
+                    _pipe.Write(nav.ArenaPickHero(heroIdx));
+                else
+                    _pipe.Write("ERROR:bad_index:" + idx);
+            }
+            else if (cmd == "ARENA_GET_DRAFT_CHOICES")
+            {
+                _pipe.Write(nav.GetArenaDraftChoices());
+            }
+            else if (cmd.StartsWith("ARENA_PICK_CARD:", StringComparison.Ordinal))
+            {
+                var idx = cmd.Substring("ARENA_PICK_CARD:".Length);
+                if (int.TryParse(idx, out var cardIdx))
+                    _pipe.Write(nav.ArenaPickCard(cardIdx));
+                else
+                    _pipe.Write("ERROR:bad_index:" + idx);
+            }
+            else if (cmd == "ARENA_CLAIM_REWARDS")
+            {
+                _pipe.Write(nav.ArenaClaimRewards());
+            }
+            else if (cmd == "ARENA_DUMP_DRAFT_MANAGER")
+            {
+                _pipe.Write(nav.DumpDraftManager());
+            }
             else if (cmd == "PING")
             {
                 _pipe.Write("PONG");
