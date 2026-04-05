@@ -51,6 +51,12 @@ namespace BotMain
 
         public void SetBgLog(Action<string> log) => _bgBridge.OnLog = log;
 
+        public void SetArenaMode(bool enabled)
+        {
+            if (_bridge is HsBoxRecommendationBridge concreteBridge)
+                concreteBridge.SetArenaMode(enabled);
+        }
+
         public HsBoxGameRecommendationProvider()
             : this(new HsBoxRecommendationBridge())
         {
@@ -3194,6 +3200,21 @@ namespace BotMain
         private string _cachedDebuggerUrl;
         private DateTime _cachedDebuggerUrlUntilUtc = DateTime.MinValue;
 
+        private bool _arenaMode;
+
+        public void SetArenaMode(bool enabled)
+        {
+            if (_arenaMode == enabled) return;
+            _arenaMode = enabled;
+            // Clear cache to force reconnect to correct page
+            _cachedDebuggerUrl = null;
+            _cachedDebuggerUrlUntilUtc = DateTime.MinValue;
+        }
+
+        private string TargetCallbackName => _arenaMode
+            ? "onUpdateArenaRecommend"
+            : "onUpdateLadderActionRecommend";
+
         public bool TryReadState(out HsBoxRecommendationState state, out string detail)
         {
             lock (_sync)
@@ -3267,16 +3288,28 @@ namespace BotMain
                     })
                     .ToList();
 
-                var target = pages
-                    .OfType<JObject>()
-                    .FirstOrDefault(obj => (obj["url"]?.Value<string>() ?? string.Empty)
-                        .IndexOf("/client-jipaiqi/ladder-opp", StringComparison.OrdinalIgnoreCase) >= 0)
-                    ?? pages.FirstOrDefault(obj =>
-                    {
-                        var url = obj["url"]?.Value<string>() ?? string.Empty;
-                        return url.IndexOf("/analysis", StringComparison.OrdinalIgnoreCase) < 0;
-                    })
-                    ?? pages.FirstOrDefault();
+                JObject target;
+                if (_arenaMode)
+                {
+                    target = pages
+                        .OfType<JObject>()
+                        .FirstOrDefault(obj => (obj["url"]?.Value<string>() ?? string.Empty)
+                            .IndexOf("/client-jipaiqi/ai-recommend", StringComparison.OrdinalIgnoreCase) >= 0)
+                        ?? pages.FirstOrDefault();
+                }
+                else
+                {
+                    target = pages
+                        .OfType<JObject>()
+                        .FirstOrDefault(obj => (obj["url"]?.Value<string>() ?? string.Empty)
+                            .IndexOf("/client-jipaiqi/ladder-opp", StringComparison.OrdinalIgnoreCase) >= 0)
+                        ?? pages.FirstOrDefault(obj =>
+                        {
+                            var url = obj["url"]?.Value<string>() ?? string.Empty;
+                            return url.IndexOf("/analysis", StringComparison.OrdinalIgnoreCase) < 0;
+                        })
+                        ?? pages.FirstOrDefault();
+                }
 
                 var wsUrl = target?["webSocketDebuggerUrl"]?.Value<string>();
                 if (string.IsNullOrWhiteSpace(wsUrl))
@@ -3297,7 +3330,7 @@ namespace BotMain
             }
         }
 
-        private static bool TryEvaluateState(string webSocketDebuggerUrl, out string json, out string detail)
+        private bool TryEvaluateState(string webSocketDebuggerUrl, out string json, out string detail)
         {
             json = null;
             detail = "hsbox_eval_failed";
@@ -3442,9 +3475,10 @@ namespace BotMain
             }
         }
 
-        private static string BuildConstructedHookBootstrapScript()
+        private string BuildConstructedHookBootstrapScript()
         {
-            return @"(() => {
+            var callbackName = TargetCallbackName;
+            return (@"(() => {
   function normalizePayload(raw) {
     return (raw || '')
       .replaceAll('opp-target-hero', 'oppTargetHero')
@@ -3693,7 +3727,7 @@ namespace BotMain
     window.__hbHsBoxBootstrapError = message;
     return JSON.stringify({ ok: false, installed: false, error: message });
   }
-})();";
+})();").Replace("onUpdateLadderActionRecommend", callbackName);
         }
 
         private static string BuildConstructedStateScript()
@@ -3744,7 +3778,7 @@ namespace BotMain
 })()";
         }
 
-        private static string BuildStateScript()
+        private string BuildStateScript()
         {
             return BuildConstructedHookBootstrapScript() + Environment.NewLine + BuildConstructedStateScript();
         }
