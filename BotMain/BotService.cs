@@ -3127,6 +3127,46 @@ namespace BotMain
             }
         }
 
+        /// <summary>
+        /// 打完一局后回大厅再重新进入竞技场，确保 UI 状态干净。
+        /// 赛后竞技场页面的 PlayButton 和首次进入不同，直接点击可能无效。
+        /// </summary>
+        private bool ArenaReenterForCleanState(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected) return false;
+
+            // 当前在 DRAFT 场景 → 先回 HUB
+            if (TryGetSceneValue(pipe, 3000, out var scene, "Arena.Reenter")
+                && string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+            {
+                Log("[Arena] 回大厅以重置 UI 状态...");
+                TrySendStatusCommand(pipe, "NAV_TO:HUB", 5000, out _, "Arena.NavToHub");
+                SleepOrCancelled(3000);
+
+                // 等大厅稳定
+                WaitForStableLobbyForNavigation(pipe, "Arena.ReenterLobbyReady", 15);
+
+                // 重新进入竞技场
+                Log("[Arena] 重新进入竞技场...");
+                TrySendStatusCommand(pipe, "CLICK_HUB_BUTTON:arena", 10000, out _, "Arena.ReenterNav");
+                SleepOrCancelled(3000);
+
+                // 确认到达 DRAFT
+                if (TryGetSceneValue(pipe, 5000, out var newScene, "Arena.ReenterCheck")
+                    && string.Equals(newScene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log("[Arena] 已重新进入 DRAFT 场景。");
+                    SleepOrCancelled(1000); // 等 UI 加载
+                    return true;
+                }
+
+                Log($"[Arena] 重进失败，当前场景: {newScene}");
+                return false;
+            }
+
+            return true; // 不在 DRAFT，不需要重进
+        }
+
         private bool ArenaEnsureDraftScene(PipeServer pipe)
         {
             if (pipe == null || !pipe.IsConnected)
@@ -3293,34 +3333,24 @@ namespace BotMain
 
         private void ArenaQueueAndPlay(PipeServer pipe)
         {
-            Log("[Arena] 选牌完成，开始排队...");
+            Log("[Arena] 准备排队...");
 
-            // 对局结束后竞技场 UI 可能有赛后界面（战绩弹窗/动画），先尝试关闭
-            for (int i = 0; i < 3; i++)
+            // 打完一局后的竞技场 UI 和首次进入不同（赛后页面），PlayButton 位置/对象可能不一致。
+            // 最可靠的方案：先回大厅，再重新进入竞技场，确保 UI 状态干净。
+            if (!ArenaReenterForCleanState(pipe))
             {
-                TrySendStatusCommand(pipe, "DISMISS_BLOCKING_DIALOG", 2000, out var dismissResp, "Arena.PreQueueDismiss");
-                if (dismissResp != null && dismissResp.StartsWith("OK", StringComparison.Ordinal))
-                {
-                    Log($"[Arena] 关闭赛后弹窗: {dismissResp}");
-                    SleepOrCancelled(1000);
-                }
-                else break; // 没有弹窗了
+                Log("[Arena] 重进竞技场失败，直接尝试匹配...");
             }
 
-            // 点击 CLICK_DISMISS 清除可能的遮罩
-            TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.PreQueueClickDismiss");
-            SleepOrCancelled(1500);
-
-            // 开始匹配
+            // 点击开始匹配
             TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
             Log($"[Arena] 开始匹配: {findResp}");
-
-            // 如果匹配没有开始（IsFinding 检测），再试一次
             SleepOrCancelled(2000);
+
+            // 验证是否真的在匹配
             if (!IsFindingGameViaCommand(pipe))
             {
-                Log("[Arena] 匹配未启动，再次尝试...");
-                TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.RetryDismiss");
+                Log("[Arena] 匹配未启动，再试一次...");
                 SleepOrCancelled(1000);
                 TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var retryResp, "Arena.RetryFindGame");
                 Log($"[Arena] 重试匹配: {retryResp}");
