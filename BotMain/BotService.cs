@@ -3295,10 +3295,37 @@ namespace BotMain
         {
             Log("[Arena] 选牌完成，开始排队...");
 
-            // 竞技场开始匹配（不能用 CLICK_PLAY，那是构筑模式的）
+            // 对局结束后竞技场 UI 可能有赛后界面（战绩弹窗/动画），先尝试关闭
+            for (int i = 0; i < 3; i++)
+            {
+                TrySendStatusCommand(pipe, "DISMISS_BLOCKING_DIALOG", 2000, out var dismissResp, "Arena.PreQueueDismiss");
+                if (dismissResp != null && dismissResp.StartsWith("OK", StringComparison.Ordinal))
+                {
+                    Log($"[Arena] 关闭赛后弹窗: {dismissResp}");
+                    SleepOrCancelled(1000);
+                }
+                else break; // 没有弹窗了
+            }
+
+            // 点击 CLICK_DISMISS 清除可能的遮罩
+            TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.PreQueueClickDismiss");
+            SleepOrCancelled(1500);
+
+            // 开始匹配
             TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
             Log($"[Arena] 开始匹配: {findResp}");
+
+            // 如果匹配没有开始（IsFinding 检测），再试一次
             SleepOrCancelled(2000);
+            if (!IsFindingGameViaCommand(pipe))
+            {
+                Log("[Arena] 匹配未启动，再次尝试...");
+                TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.RetryDismiss");
+                SleepOrCancelled(1000);
+                TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var retryResp, "Arena.RetryFindGame");
+                Log($"[Arena] 重试匹配: {retryResp}");
+                SleepOrCancelled(2000);
+            }
 
             // 等待进入对局
             var matchStart = DateTime.UtcNow;
@@ -3705,6 +3732,12 @@ namespace BotMain
             // 等待场景加载完成后再继续
             Log("[Arena] 等待结算后场景加载...");
             SleepOrCancelled(3000);
+        }
+
+        private bool IsFindingGameViaCommand(PipeServer pipe)
+        {
+            return TryGetYesNoResponse(pipe, "IS_FINDING", 1500, out var resp, "Arena.IsFinding")
+                   && resp == "YES";
         }
 
         private void ArenaClaimRewards(PipeServer pipe)
