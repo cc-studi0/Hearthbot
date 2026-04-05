@@ -1203,38 +1203,54 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 购买竞技场门票（触发开始新的竞技场轮次）
-        /// 真实调用路径：DraftManager.RequestDraftBegin()
-        ///   → Network.Get().DraftBegin(isUnderground)
-        ///   → 服务端响应 DraftBeginning → OnBegin() 创建新卡组
+        /// 获取 DraftDisplay 上按钮的屏幕坐标
+        /// </summary>
+        private bool TryGetDraftButtonScreenPos(string buttonFieldName, out int x, out int y)
+        {
+            x = y = 0;
+            var dd = GetDraftDisplay();
+            if (dd == null) return false;
+
+            var btn = TryGetFirstProp(dd, buttonFieldName);
+            if (btn == null) return false;
+
+            return TryGetScreenPos(btn, out x, out y);
+        }
+
+        /// <summary>
+        /// 购买竞技场门票 / 开始新轮次 — 点击 DraftDisplay.m_playButton
+        /// PlayButton 在 NO_RUN 状态下点击会花票开始新竞技场
         /// </summary>
         public string ArenaBuyTicket()
         {
+            // 获取按钮坐标（主线程）
+            int bx = 0, by = 0;
+            bool found = false;
+            OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
+                return found ? "OK" : "ERROR:no_play_button";
+            });
+
+            if (found)
+            {
+                var result = ClickAt(bx, by, 0.5f);
+                return "OK:BUY:" + result;
+            }
+
+            // 备选：直接调 API（可能导致 UI 异常，但至少不会静默失败）
             return OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    // 方式1（正确路径）：DraftManager.RequestDraftBegin()
                     var dm = GetDraftManager();
                     if (dm != null)
                     {
                         CallMethod(dm, "RequestDraftBegin");
-                        return "OK:BUY";
+                        return "OK:BUY:api_fallback";
                     }
-
-                    // 方式2（备选）：直接 Network.DraftBegin(false)
-                    var networkType = _asm?.GetType("Network");
-                    if (networkType != null)
-                    {
-                        var network = CallStatic(networkType, "Get");
-                        if (network != null)
-                        {
-                            CallMethod(network, "DraftBegin", false);
-                            return "OK:BUY";
-                        }
-                    }
-
                     return "ERROR:buy_method_not_found";
                 }
                 catch (Exception ex)
@@ -1395,35 +1411,38 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 竞技场开始匹配 — 通过 ArenaLandingPageManager 广播 CODE_FIND_GAME
+        /// 竞技场开始匹配 — 点击 DraftDisplay.m_playButton（和购票是同一个按钮）
+        /// 在 DRAFT_COMPLETE/MIDRUN 状态下点击 = 开始匹配
         /// </summary>
         public string ArenaFindGame()
         {
+            int bx = 0, by = 0;
+            bool found = false;
+            OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
+                return found ? "OK" : "ERROR:no_play_button";
+            });
+
+            if (found)
+            {
+                var result = ClickAt(bx, by, 0.5f);
+                return "OK:FIND_GAME:" + result;
+            }
+
+            // 备选：API 调用
             return OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    // 方式1：通过 DraftDisplay 广播事件
-                    var dd = GetDraftDisplay();
-                    if (dd != null)
+                    var dm = GetDraftManager();
+                    if (dm != null)
                     {
-                        CallMethod(dd, "BroadcastArenaLandingPageManagerEvent", "CODE_FIND_GAME");
-                        return "OK:FIND_GAME";
+                        CallMethod(dm, "FindGame");
+                        return "OK:FIND_GAME:api_fallback";
                     }
-
-                    // 方式2：通过 ArenaLandingPageManager
-                    var almType = _asm?.GetType("ArenaLandingPageManager");
-                    if (almType != null)
-                    {
-                        var alm = CallStatic(almType, "Get") ?? GetStaticValue(almType, "s_instance");
-                        if (alm != null)
-                        {
-                            CallMethod(alm, "BroadcastArenaLandingPageManagerEvent", "CODE_FIND_GAME");
-                            return "OK:FIND_GAME";
-                        }
-                    }
-
                     return "ERROR:find_game_not_available";
                 }
                 catch (Exception ex)
@@ -1434,80 +1453,42 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 领取竞技场奖励 — 确认奖励并关闭奖励界面
-        /// 真实流程（从 ArenaTrayDisplay/DraftDisplay 反编译）：
-        ///   Network.Get().AckDraftRewards(draftDeck.ID, slot, isUnderground)
-        ///   DraftDisplay.Get().OnOpenRewardsComplete()
-        /// 服务端收到后触发 DraftRewardsAcked → OnAckRewards() → 状态变为 NO_RUN
+        /// 领取竞技场奖励 — 点击 PlayButton 关闭奖励界面
+        /// 在 REWARDS 状态下点击 PlayButton 会走正常的奖励确认流程：
+        ///   PlayButtonPress → AckDraftRewards → OnAckRewards → NO_RUN
+        /// 不能直接调 API，会导致 UI 状态机卡死
         /// </summary>
         public string ArenaClaimRewards()
         {
-            return OnMain(() =>
+            int bx = 0, by = 0;
+            bool found = false;
+            OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
-                try
+                // 尝试 playButton（奖励确认后通常用 play 按钮继续）
+                found = TryGetDraftButtonScreenPos("m_playButton", out bx, out by);
+                if (!found)
                 {
-                    var dm = GetDraftManager();
-                    if (dm == null) return "ERROR:no_draft_manager";
-
-                    var networkType = _asm?.GetType("Network");
-                    if (networkType == null) return "ERROR:no_network_type";
-                    var network = CallStatic(networkType, "Get");
-                    if (network == null) return "ERROR:no_network";
-
-                    // 获取 deckId 和 slot
-                    var deck = CallMethod(dm, "GetDraftDeck");
-                    if (deck == null) return "ERROR:no_draft_deck";
-
-                    var deckId = TryGetFirstProp(deck, "ID", "m_id");
-                    if (deckId == null) return "ERROR:no_deck_id";
-
-                    var slot = CallMethod(dm, "GetSlot");
-                    int slotVal = slot != null ? Convert.ToInt32(slot) : 0;
-
-                    var isUnderground = CallMethod(dm, "IsUnderground");
-                    bool isUg = isUnderground != null && Convert.ToBoolean(isUnderground);
-
-                    // Network.Get().AckDraftRewards(deckId, slot, isUnderground)
-                    var ackMethod = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                        .FirstOrDefault(m => m.Name == "AckDraftRewards" && m.GetParameters().Length == 3);
-                    if (ackMethod != null)
-                    {
-                        ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUg });
-                    }
-                    else
-                    {
-                        // 备选：不带 isUnderground 参数的版本
-                        var ackMethod2 = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
-                            .FirstOrDefault(m => m.Name == "AckDraftRewards");
-                        if (ackMethod2 != null)
-                        {
-                            var parms = ackMethod2.GetParameters();
-                            if (parms.Length == 2)
-                                ackMethod2.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal });
-                            else
-                                ackMethod2.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUg });
-                        }
-                        else
-                        {
-                            return "ERROR:AckDraftRewards_not_found";
-                        }
-                    }
-
-                    // DraftDisplay.Get().OnOpenRewardsComplete()
-                    var dd = GetDraftDisplay();
-                    if (dd != null)
-                    {
-                        CallMethod(dd, "OnOpenRewardsComplete");
-                    }
-
-                    return "OK:CLAIMED";
+                    // 备选：doneButton
+                    found = TryGetDraftButtonScreenPos("m_doneButton", out bx, out by);
                 }
-                catch (Exception ex)
-                {
-                    return "ERROR:" + ex.Message;
-                }
+                return found ? "OK" : "ERROR:no_button";
             });
+
+            if (found)
+            {
+                // 多次点击确保通过奖励动画和确认
+                for (int i = 0; i < 3; i++)
+                {
+                    ClickAt(bx, by, 0.8f);
+                }
+                return "OK:CLAIMED";
+            }
+
+            // 备选：点击屏幕中央区域（奖励弹窗通常在中央）
+            return ClickAtRatio(0.5f, 0.5f, 0.5f).StartsWith("OK")
+                ? "OK:CLAIMED:center_click"
+                : "ERROR:claim_button_not_found";
         }
 
         /// <summary>
