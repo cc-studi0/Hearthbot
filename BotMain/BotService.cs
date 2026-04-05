@@ -3787,13 +3787,34 @@ namespace BotMain
 
         private void ArenaClaimRewards(PipeServer pipe)
         {
-            Log("[Arena] 领取奖励...");
-            TrySendStatusCommand(pipe, "ARENA_CLAIM_REWARDS", 10000, out var resp, "Arena.Claim");
-            Log($"[Arena] 领奖结果: {resp}");
-            for (int i = 0; i < 3; i++)
+            Log("[Arena] 领取奖励（点击宝箱→拆奖励→完成）...");
+
+            // ARENA_CLAIM_REWARDS 会模拟多次鼠标点击完成整个奖励交互
+            TrySendStatusCommand(pipe, "ARENA_CLAIM_REWARDS", 30000, out var resp, "Arena.Claim");
+            Log($"[Arena] 领奖点击: {resp}");
+
+            // 等待一下，然后多次 CLICK_DISMISS 确保关闭所有残留弹窗
+            for (int i = 0; i < 5; i++)
             {
                 SleepOrCancelled(2000);
+
+                // 检查是否已离开 REWARDS 状态
+                if (TrySendAndReceiveExpected(pipe, "ARENA_GET_STATUS", 3000, r => true, out var status, "Arena.ClaimCheck"))
+                {
+                    if (status != null && !status.StartsWith("REWARDS", StringComparison.Ordinal))
+                    {
+                        Log($"[Arena] 奖励已领取完成，状态: {status}");
+                        return;
+                    }
+                }
+
+                // 还在 REWARDS，继续点击
                 TrySendStatusCommand(pipe, "CLICK_DISMISS", 2000, out _, "Arena.ClaimDismiss");
+                Log($"[Arena] 领奖中... (尝试 {i + 1}/5)");
+
+                // 再调一次 ARENA_CLAIM_REWARDS 继续点击
+                if (i < 3)
+                    TrySendStatusCommand(pipe, "ARENA_CLAIM_REWARDS", 15000, out _, "Arena.ClaimRetry");
             }
         }
 

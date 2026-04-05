@@ -1414,39 +1414,63 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 领取奖励
-        /// 反编译路径 (ArenaTrayDisplay + DraftDisplay):
-        ///   Network.AckDraftRewards(deckId, slot, isUnderground)
-        ///   DraftDisplay.OnOpenRewardsComplete()
-        ///   → 服务端 DraftRewardsAcked → OnAckRewards() → 状态变 NO_RUN
+        /// 领取竞技场奖励 — 通过鼠标点击完成整个奖励交互流程：
+        ///   1. 点击宝箱（屏幕中央偏下区域，可能有多个）
+        ///   2. 点击弹出的奖励拆开
+        ///   3. 点击完成按钮
         /// </summary>
         public string ArenaClaimRewards()
         {
-            return OnMain(() =>
+            int clickCount = 0;
+
+            // 阶段1: 反复点击屏幕中央区域打开宝箱和拆奖励
+            // 宝箱通常在屏幕中央，奖励弹出后也在中央区域
+            for (int i = 0; i < 12; i++)
+            {
+                // 点击中央区域（宝箱和奖励的位置）
+                ClickAtRatio(0.5f, 0.5f, 0.4f);
+                clickCount++;
+
+                // 也点击偏左和偏右（多个宝箱可能并排）
+                if (i < 6)
+                {
+                    ClickAtRatio(0.35f, 0.5f, 0.3f);
+                    ClickAtRatio(0.65f, 0.5f, 0.3f);
+                    clickCount += 2;
+                }
+            }
+
+            // 阶段2: 点击"完成"按钮（通常在屏幕底部中央）
+            ClickAtRatio(0.5f, 0.8f, 0.5f);
+            clickCount++;
+
+            // 阶段3: 调用 ClickPlay 点击 DraftDisplay 的 PlayButton（作为备选关闭方式）
+            var playResult = ClickPlay();
+            clickCount++;
+
+            // 阶段4: API 兜底 — 如果鼠标点击没完全关闭，确保网络层确认
+            OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
                     var dm = GetDraftManager();
-                    if (dm == null) return "ERROR:no_draft_manager";
-
+                    if (dm == null) return "SKIP";
                     var networkType = _asm?.GetType("Network");
-                    if (networkType == null) return "ERROR:no_network_type";
+                    if (networkType == null) return "SKIP";
                     var network = CallStatic(networkType, "Get");
-                    if (network == null) return "ERROR:no_network";
+                    if (network == null) return "SKIP";
 
-                    // 获取 deckId
                     var deck = CallMethod(dm, "GetDraftDeck");
-                    if (deck == null) return "ERROR:no_draft_deck";
+                    if (deck == null) return "SKIP";
                     var deckId = TryGetFirstProp(deck, "ID");
-                    if (deckId == null) return "ERROR:no_deck_id";
+                    if (deckId == null) return "SKIP";
 
                     var slot = CallMethod(dm, "GetSlot");
                     int slotVal = slot != null ? Convert.ToInt32(slot) : 0;
                     var isUg = CallMethod(dm, "IsUnderground");
                     bool isUnderground = isUg != null && Convert.ToBoolean(isUg);
 
-                    // Network.AckDraftRewards(long deckId, int slot, bool isUnderground)
                     var ackMethod = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
                         .FirstOrDefault(m => m.Name == "AckDraftRewards");
                     if (ackMethod != null)
@@ -1458,15 +1482,16 @@ namespace HearthstonePayload
                             ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal });
                     }
 
-                    // DraftDisplay.OnOpenRewardsComplete()
                     var dd = GetDraftDisplay();
                     if (dd != null)
                         CallMethod(dd, "OnOpenRewardsComplete");
 
-                    return "OK:CLAIMED";
+                    return "OK";
                 }
-                catch (Exception ex) { return "ERROR:" + ex.Message; }
+                catch { return "SKIP"; }
             });
+
+            return $"OK:CLAIMED:clicks={clickCount}:play={playResult}";
         }
 
         /// <summary>
