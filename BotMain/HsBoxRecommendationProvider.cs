@@ -6932,13 +6932,16 @@ namespace BotMain
                     var ok = dto.Value<bool>("ok");
                     var reason = dto.Value<string>("reason") ?? string.Empty;
 
+                    long updatedAt = 0;
+                    try { updatedAt = dto.Value<long>("updatedAt"); } catch { }
+
                     recommendation = new ArenaDraftRecommendation
                     {
                         Ok = ok,
                         Reason = reason,
                         RecommendedCardId = dto.Value<string>("recommendedCardId"),
                         RecommendedCardName = dto.Value<string>("recommendedCardName"),
-                        UpdatedAtMs = dto.Value<long>("updatedAt"),
+                        UpdatedAtMs = updatedAt,
                     };
 
                     detail = ok ? "arena_ready" : $"arena_not_ready:{reason}";
