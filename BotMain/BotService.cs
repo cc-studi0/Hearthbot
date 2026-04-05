@@ -3076,6 +3076,15 @@ namespace BotMain
                         continue;
                     }
 
+                    // 0. 如果已在对局中，直接进入对局循环（不要导航打断对局）
+                    if (TryGetSceneValue(pipe, 3000, out var currentScene, "Arena.SceneProbe")
+                        && string.Equals(currentScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Log("[Arena] 检测到正在对局中，直接进入对局循环...");
+                        ArenaQueueAndPlay(pipe);
+                        continue;
+                    }
+
                     // 1. 导航到 DRAFT 场景
                     if (!ArenaEnsureDraftScene(pipe)) { SleepOrCancelled(2000); continue; }
 
@@ -3337,21 +3346,30 @@ namespace BotMain
 
         private void ArenaQueueAndPlay(PipeServer pipe)
         {
-            Log("[Arena] 准备排队...");
+            // 检查是否已在对局中（对局中启动脚本 或 已匹配成功）
+            bool alreadyInGame = TryGetSceneValue(pipe, 3000, out var preScene, "Arena.PreQueue")
+                                 && string.Equals(preScene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase);
 
-            // 直接调 DraftManager.FindGame() API，不依赖 UI 按钮状态
-            TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
-            Log($"[Arena] 开始匹配: {findResp}");
-            SleepOrCancelled(2000);
-
-            // 验证是否真的在匹配
-            if (!IsFindingGameViaCommand(pipe))
+            if (!alreadyInGame)
             {
-                Log("[Arena] 匹配未启动，等待后重试...");
+                Log("[Arena] 准备排队...");
+
+                TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var findResp, "Arena.FindGame");
+                Log($"[Arena] 开始匹配: {findResp}");
                 SleepOrCancelled(2000);
-                TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var retryResp, "Arena.RetryFindGame");
-                Log($"[Arena] 重试匹配: {retryResp}");
-                SleepOrCancelled(2000);
+
+                if (!IsFindingGameViaCommand(pipe))
+                {
+                    Log("[Arena] 匹配未启动，等待后重试...");
+                    SleepOrCancelled(2000);
+                    TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out var retryResp, "Arena.RetryFindGame");
+                    Log($"[Arena] 重试匹配: {retryResp}");
+                    SleepOrCancelled(2000);
+                }
+            }
+            else
+            {
+                Log("[Arena] 已在对局中，跳过排队。");
             }
 
             // 等待进入对局
