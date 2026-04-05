@@ -1437,7 +1437,11 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 领取竞技场奖励 — 通过 Network.RetireDraftDeck 退役当前卡组
+        /// 领取竞技场奖励 — 确认奖励并关闭奖励界面
+        /// 真实流程（从 ArenaTrayDisplay/DraftDisplay 反编译）：
+        ///   Network.Get().AckDraftRewards(draftDeck.ID, slot, isUnderground)
+        ///   DraftDisplay.Get().OnOpenRewardsComplete()
+        /// 服务端收到后触发 DraftRewardsAcked → OnAckRewards() → 状态变为 NO_RUN
         /// </summary>
         public string ArenaClaimRewards()
         {
@@ -1446,44 +1450,61 @@ namespace HearthstonePayload
                 if (!Init()) return "ERROR:not_initialized";
                 try
                 {
-                    // 方式1：Network.Get().RetireDraftDeck(deckId, slot)
                     var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
                     var networkType = _asm?.GetType("Network");
-                    if (dm != null && networkType != null)
+                    if (networkType == null) return "ERROR:no_network_type";
+                    var network = CallStatic(networkType, "Get");
+                    if (network == null) return "ERROR:no_network";
+
+                    // 获取 deckId 和 slot
+                    var deck = CallMethod(dm, "GetDraftDeck");
+                    if (deck == null) return "ERROR:no_draft_deck";
+
+                    var deckId = TryGetFirstProp(deck, "ID", "m_id");
+                    if (deckId == null) return "ERROR:no_deck_id";
+
+                    var slot = CallMethod(dm, "GetSlot");
+                    int slotVal = slot != null ? Convert.ToInt32(slot) : 0;
+
+                    var isUnderground = CallMethod(dm, "IsUnderground");
+                    bool isUg = isUnderground != null && Convert.ToBoolean(isUnderground);
+
+                    // Network.Get().AckDraftRewards(deckId, slot, isUnderground)
+                    var ackMethod = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                        .FirstOrDefault(m => m.Name == "AckDraftRewards" && m.GetParameters().Length == 3);
+                    if (ackMethod != null)
                     {
-                        var network = CallStatic(networkType, "Get");
-                        if (network != null)
+                        ackMethod.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUg });
+                    }
+                    else
+                    {
+                        // 备选：不带 isUnderground 参数的版本
+                        var ackMethod2 = networkType.GetMethods(BindingFlags.Public | BindingFlags.Instance)
+                            .FirstOrDefault(m => m.Name == "AckDraftRewards");
+                        if (ackMethod2 != null)
                         {
-                            // 获取 deckId
-                            var deck = CallMethod(dm, "GetDraftDeck");
-                            if (deck != null)
-                            {
-                                var deckId = TryGetFirstProp(deck, "ID", "m_id");
-                                var slot = CallMethod(dm, "GetSlot");
-                                if (deckId != null)
-                                {
-                                    CallMethod(network, "RetireDraftDeck",
-                                        Convert.ToInt64(deckId),
-                                        slot != null ? Convert.ToInt32(slot) : 0);
-                                    return "OK:CLAIMED";
-                                }
-                            }
+                            var parms = ackMethod2.GetParameters();
+                            if (parms.Length == 2)
+                                ackMethod2.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal });
+                            else
+                                ackMethod2.Invoke(network, new object[] { Convert.ToInt64(deckId), slotVal, isUg });
+                        }
+                        else
+                        {
+                            return "ERROR:AckDraftRewards_not_found";
                         }
                     }
 
-                    // 方式2：通过 ArenaLandingPageManager 事件
-                    var almType = _asm?.GetType("ArenaLandingPageManager");
-                    if (almType != null)
+                    // DraftDisplay.Get().OnOpenRewardsComplete()
+                    var dd = GetDraftDisplay();
+                    if (dd != null)
                     {
-                        var alm = CallStatic(almType, "Get") ?? GetStaticValue(almType, "s_instance");
-                        if (alm != null)
-                        {
-                            CallMethod(alm, "BroadcastArenaLandingPageManagerEvent", "EXIT_ARENA");
-                            return "OK:CLAIMED";
-                        }
+                        CallMethod(dd, "OnOpenRewardsComplete");
                     }
 
-                    return "ERROR:claim_method_not_found";
+                    return "OK:CLAIMED";
                 }
                 catch (Exception ex)
                 {
