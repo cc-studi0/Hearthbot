@@ -4972,6 +4972,7 @@ namespace BotMain
                 case "discard":
                     return TryMapChoiceAction(step, board, friendlyEntities, fallbackChoiceSourceEntityId, out command, out reason);
                 case "forge":
+                    return TryMapTradeAction(step, board, friendlyEntities, out command, out reason);
                 case "titan_power":
                 case "launch_starship":
                 case "common_action":
