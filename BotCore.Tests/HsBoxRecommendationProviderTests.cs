@@ -2874,6 +2874,59 @@ namespace BotCore.Tests
             Assert.Equal("bootstrap", request["params"]?["source"]?.Value<string>());
         }
 
+        [Fact]
+        public void RecommendActions_AcceptsStalePayload_WhenBoardFingerprintChanged()
+        {
+            var state = CreateState(100, raw: "stale-board-changed", actionName: "end_turn");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed", null, null, null,
+                lastConsumedUpdatedAtMs: 100,
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "END_TURN",
+                boardFingerprint: "fp_after_play",
+                lastConsumedBoardFingerprint: "fp_before_play"));
+
+            Assert.False(result.ShouldRetryWithoutAction, "局面已变，应放行而非重试");
+            Assert.NotEmpty(result.Actions);
+        }
+
+        [Fact]
+        public void RecommendActions_RejectsPayload_WhenSameBoardAndSamePayloadAndSameAction()
+        {
+            var state = CreateState(100, raw: "reject-same-board", actionName: "end_turn");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed", null, null, null,
+                lastConsumedUpdatedAtMs: 100,
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "END_TURN",
+                boardFingerprint: "fp_same",
+                lastConsumedBoardFingerprint: "fp_same"));
+
+            Assert.True(result.ShouldRetryWithoutAction, "同局面同推荐应被拦截");
+        }
+
+        [Fact]
+        public void RecommendActions_FallsBackToTimestamp_WhenFingerprintEmpty()
+        {
+            var state = CreateState(200, raw: "fallback-timestamp", actionName: "end_turn");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed", null, null, null,
+                lastConsumedUpdatedAtMs: 100,
+                lastConsumedPayloadSignature: "old_sig",
+                lastConsumedActionCommand: "END_TURN",
+                boardFingerprint: "",
+                lastConsumedBoardFingerprint: ""));
+
+            Assert.False(result.ShouldRetryWithoutAction, "时间戳更新时应放行");
+            Assert.NotEmpty(result.Actions);
+        }
+
         private static HsBoxRecommendationState CreateState(
             long updatedAtMs,
             string raw,
