@@ -121,7 +121,9 @@ namespace BotMain
                             currentState,
                             minimumUpdatedAtMs,
                             lastConsumedUpdatedAtMs,
-                            lastConsumedPayloadSignature);
+                            lastConsumedPayloadSignature,
+                            request?.BoardFingerprint,
+                            request?.LastConsumedBoardFingerprint);
                         if (fresh && evaluation.HasUsableResult)
                         {
                             selectedState = currentState;
@@ -208,12 +210,17 @@ namespace BotMain
                     minimumUpdatedAtMs,
                     lastConsumedUpdatedAtMs,
                     lastConsumedPayloadSignature,
-                    out var freshnessReason);
+                    out var freshnessReason,
+                    request?.BoardFingerprint,
+                    request?.LastConsumedBoardFingerprint);
                 diagParts.Add($"fresh={freshResult}");
                 diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
                 diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
                 diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
+                diagParts.Add($"boardFp={request?.BoardFingerprint ?? "null"}");
+                diagParts.Add($"lastBoardFp={request?.LastConsumedBoardFingerprint ?? "null"}");
+                diagParts.Add($"boardChanged={ConstructedRecommendationConsumptionTracker.IsBoardChanged(request?.BoardFingerprint, request?.LastConsumedBoardFingerprint)}");
                 diagParts.Add($"lastConsumedAction={TrimActionForDiag(lastConsumedActionCommand)}");
                 diagParts.Add($"hasLastSig={!string.IsNullOrWhiteSpace(lastConsumedPayloadSignature)}");
                 diagParts.Add($"sigMatch={string.Equals(diagState.PayloadSignature, lastConsumedPayloadSignature ?? string.Empty, StringComparison.Ordinal)}");
@@ -375,14 +382,22 @@ namespace BotMain
             return state.UpdatedAtMs > 0;
         }
 
-        private static bool IsActionPayloadFreshEnough(HsBoxRecommendationState state, long minimumUpdatedAtMs, long lastConsumedUpdatedAtMs, string lastConsumedPayloadSignature = null)
+        private static bool IsActionPayloadFreshEnough(
+            HsBoxRecommendationState state,
+            long minimumUpdatedAtMs,
+            long lastConsumedUpdatedAtMs,
+            string lastConsumedPayloadSignature = null,
+            string boardFingerprint = null,
+            string lastConsumedBoardFingerprint = null)
         {
             return TryEvaluateActionPayloadFreshness(
                 state,
                 minimumUpdatedAtMs,
                 lastConsumedUpdatedAtMs,
                 lastConsumedPayloadSignature,
-                out _);
+                out _,
+                boardFingerprint,
+                lastConsumedBoardFingerprint);
         }
 
         private static bool TryEvaluateActionPayloadFreshness(
@@ -390,7 +405,9 @@ namespace BotMain
             long minimumUpdatedAtMs,
             long lastConsumedUpdatedAtMs,
             string lastConsumedPayloadSignature,
-            out string reason)
+            out string reason,
+            string boardFingerprint = null,
+            string lastConsumedBoardFingerprint = null)
         {
             if (state == null)
             {
@@ -404,17 +421,15 @@ namespace BotMain
                 return false;
             }
 
+            // 局面指纹优先：局面变了则任何推荐都是新的
+            if (ConstructedRecommendationConsumptionTracker.IsBoardChanged(boardFingerprint, lastConsumedBoardFingerprint))
+            {
+                reason = "board_changed";
+                return true;
+            }
+
             if (lastConsumedUpdatedAtMs > 0)
             {
-                // minimumUpdatedAtMs：要求盒子推荐的时间戳必须 >= 这个下限，
-                // 用于在 RequireFreshSourcePayload 后跳过旧推荐，等盒子真正刷新。
-                // 仅在有已消费记录时生效，避免阻塞首次推荐或重置后的推荐。
-                if (minimumUpdatedAtMs > 0 && state.UpdatedAtMs < minimumUpdatedAtMs)
-                {
-                    reason = $"below_minimum({state.UpdatedAtMs}<{minimumUpdatedAtMs})";
-                    return false;
-                }
-
                 if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
                 {
                     reason = "updated_after_last_consumed";
