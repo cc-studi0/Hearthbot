@@ -87,7 +87,6 @@ namespace BotMain
         {
             var lastStructuredDetail = "json=not_checked";
             var lastBodyDetail = "body=not_checked";
-            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
             var lastConsumedActionCommand = request?.LastConsumedActionCommand ?? string.Empty;
@@ -96,11 +95,8 @@ namespace BotMain
             var lastObservedState = (HsBoxRecommendationState)null;
             var waitDetail = "timeout";
             var samePayloadDifferentActionRepeatKey = string.Empty;
-            var samePayloadRepeatedActionKey = string.Empty;
             var samePayloadDifferentActionRepeatCount = 0;
-            var samePayloadRepeatedActionCount = 0;
             var releasedDueToSamePayloadReuse = false;
-            var releasedDueToRepeatedFirstAction = false;
 
             var waitSw = Stopwatch.StartNew();
             while (waitSw.ElapsedMilliseconds < _actionWaitTimeoutMs)
@@ -119,7 +115,6 @@ namespace BotMain
 
                         var fresh = IsActionPayloadFreshEnough(
                             currentState,
-                            minimumUpdatedAtMs,
                             lastConsumedUpdatedAtMs,
                             lastConsumedPayloadSignature,
                             request?.BoardFingerprint,
@@ -142,24 +137,10 @@ namespace BotMain
                             if (!string.IsNullOrWhiteSpace(firstAction))
                             {
                                 var repeatKey = ConstructedRecommendationConsumptionTracker.BuildRepeatKey(currentState, firstAction);
-                                if (ConstructedRecommendationConsumptionTracker.IsSameFirstAction(firstAction, lastConsumedActionCommand))
+                                // 同一 payload（updatedAt+signature 不变）但首条动作不同，
+                                // 说明盒子更新了推荐内容但未刷新时间戳。
+                                if (!ConstructedRecommendationConsumptionTracker.IsSameFirstAction(firstAction, lastConsumedActionCommand))
                                 {
-                                    var repeatCount = AdvanceRepeatCount(
-                                        ref samePayloadRepeatedActionKey,
-                                        ref samePayloadRepeatedActionCount,
-                                        repeatKey);
-                                    if (repeatCount >= ConstructedRecommendationConsumptionTracker.ReleaseThreshold)
-                                    {
-                                        releasedDueToRepeatedFirstAction = true;
-                                        waitDetail = $"same_first_action_stalled:{repeatCount}";
-                                        break;
-                                    }
-                                }
-                                else
-                                {
-                                    // 同一 payload（updatedAt+signature 不变）但首条动作不同，
-                                    // 说明盒子更新了推荐内容但未刷新时间戳。
-                                    // 与"相同动作重复释放"对齐，不受 minimumUpdatedAtMs 限制。
                                     var repeatCount = AdvanceRepeatCount(
                                         ref samePayloadDifferentActionRepeatKey,
                                         ref samePayloadDifferentActionRepeatCount,
@@ -207,7 +188,6 @@ namespace BotMain
             {
                 var freshResult = TryEvaluateActionPayloadFreshness(
                     diagState,
-                    minimumUpdatedAtMs,
                     lastConsumedUpdatedAtMs,
                     lastConsumedPayloadSignature,
                     out var freshnessReason,
@@ -216,7 +196,6 @@ namespace BotMain
                 diagParts.Add($"fresh={freshResult}");
                 diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
-                diagParts.Add($"minUpdatedAt={minimumUpdatedAtMs}");
                 diagParts.Add($"lastConsumedAt={lastConsumedUpdatedAtMs}");
                 diagParts.Add($"boardFp={request?.BoardFingerprint ?? "null"}");
                 diagParts.Add($"lastBoardFp={request?.LastConsumedBoardFingerprint ?? "null"}");
@@ -226,11 +205,8 @@ namespace BotMain
                 diagParts.Add($"sigMatch={string.Equals(diagState.PayloadSignature, lastConsumedPayloadSignature ?? string.Empty, StringComparison.Ordinal)}");
                 diagParts.Add($"choiceLike={ConstructedChoiceBridge.LooksLikeChoiceRecommendation(diagState)}");
                 diagParts.Add($"releasedDueToSamePayload={releasedDueToSamePayloadReuse}");
-                diagParts.Add($"releasedDueToRepeatedFirstAction={releasedDueToRepeatedFirstAction}");
                 if (samePayloadDifferentActionRepeatCount > 0)
                     diagParts.Add($"samePayloadRepeat={samePayloadDifferentActionRepeatCount}");
-                if (samePayloadRepeatedActionCount > 0)
-                    diagParts.Add($"sameFirstActionRepeat={samePayloadRepeatedActionCount}");
 
                 if (request != null)
                 {
@@ -258,15 +234,14 @@ namespace BotMain
                 $"hsbox_actions wait_retry ({waitDetail}; {lastStructuredDetail}; {lastBodyDetail}; lastState={DescribeActionState(lastObservedState)}) [diag: {diag}]",
                 shouldRetryWithoutAction: true,
                 sourceUpdatedAtMs: diagState?.UpdatedAtMs ?? 0,
-                sourcePayloadSignature: diagState?.PayloadSignature,
-                requireFreshSourcePayload: releasedDueToRepeatedFirstAction);
+                sourcePayloadSignature: diagState?.PayloadSignature);
         }
 
         public MulliganRecommendationResult RecommendMulligan(MulliganRecommendationRequest request)
         {
             var state = WaitForState(
                 current =>
-                    (IsFreshEnough(current, request?.MinimumUpdatedAtMs ?? 0)
+                    (IsFreshEnough(current, 0)
                      && HsBoxRecommendationMapper.TryMapMulligan(current, request, out _, out _))
                     || HsBoxRecommendationMapper.TryMapMulliganFromBodyText(current, request, out _, out _),
                 timeoutMs: 3200,
@@ -274,7 +249,7 @@ namespace BotMain
                 out var waitDetail);
 
             if (state != null
-                && IsFreshEnough(state, request?.MinimumUpdatedAtMs ?? 0)
+                && IsFreshEnough(state, 0)
                 && HsBoxRecommendationMapper.TryMapMulligan(state, request, out var replaceEntityIds, out var mapDetail))
             {
                 return new MulliganRecommendationResult(replaceEntityIds, $"hsbox_mulligan {mapDetail}");
@@ -291,7 +266,7 @@ namespace BotMain
 
         public ChoiceRecommendationResult RecommendChoice(ChoiceRecommendationRequest request)
         {
-            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
+            var minimumUpdatedAtMs = 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature;
             HsBoxRecommendationState lastObservedState = null;
@@ -384,7 +359,6 @@ namespace BotMain
 
         private static bool IsActionPayloadFreshEnough(
             HsBoxRecommendationState state,
-            long minimumUpdatedAtMs,
             long lastConsumedUpdatedAtMs,
             string lastConsumedPayloadSignature = null,
             string boardFingerprint = null,
@@ -392,7 +366,6 @@ namespace BotMain
         {
             return TryEvaluateActionPayloadFreshness(
                 state,
-                minimumUpdatedAtMs,
                 lastConsumedUpdatedAtMs,
                 lastConsumedPayloadSignature,
                 out _,
@@ -402,7 +375,6 @@ namespace BotMain
 
         private static bool TryEvaluateActionPayloadFreshness(
             HsBoxRecommendationState state,
-            long minimumUpdatedAtMs,
             long lastConsumedUpdatedAtMs,
             string lastConsumedPayloadSignature,
             out string reason,
@@ -2855,7 +2827,7 @@ namespace BotMain
             string payloadSignature,
             ChoiceRecommendationRequest request)
         {
-            var minimumUpdatedAtMs = request?.MinimumUpdatedAtMs ?? 0;
+            var minimumUpdatedAtMs = 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature ?? string.Empty;
 

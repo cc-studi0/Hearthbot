@@ -44,7 +44,6 @@ namespace BotMain.Learning
                 {
                     deck_name = request?.DeckName ?? string.Empty,
                     deck_signature = request?.DeckSignature ?? string.Empty,
-                    minimum_updated_at_ms = request?.MinimumUpdatedAtMs ?? 0,
                     last_consumed_updated_at_ms = request?.LastConsumedUpdatedAtMs ?? 0,
                     last_consumed_payload_signature = request?.LastConsumedPayloadSignature ?? string.Empty,
                     last_consumed_action_command = request?.LastConsumedActionCommand ?? string.Empty,

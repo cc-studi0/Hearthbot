@@ -128,7 +128,6 @@ namespace BotMain
             Board planningBoard,
             Profile selectedProfile,
             IReadOnlyList<ApiCard.Cards> deckCards,
-            long minimumUpdatedAtMs = 0,
             string deckName = null,
             string deckSignature = null,
             IReadOnlyList<ApiCard.Cards> remainingDeckCards = null,
@@ -144,7 +143,6 @@ namespace BotMain
             PlanningBoard = planningBoard;
             SelectedProfile = selectedProfile;
             DeckCards = deckCards;
-            MinimumUpdatedAtMs = minimumUpdatedAtMs;
             DeckName = deckName ?? string.Empty;
             DeckSignature = deckSignature ?? string.Empty;
             RemainingDeckCards = remainingDeckCards ?? deckCards ?? Array.Empty<ApiCard.Cards>();
@@ -161,7 +159,6 @@ namespace BotMain
         public Board PlanningBoard { get; }
         public Profile SelectedProfile { get; }
         public IReadOnlyList<ApiCard.Cards> DeckCards { get; }
-        public long MinimumUpdatedAtMs { get; }
         public string DeckName { get; }
         public string DeckSignature { get; }
         public IReadOnlyList<ApiCard.Cards> RemainingDeckCards { get; }
@@ -182,8 +179,7 @@ namespace BotMain
             string detail,
             bool shouldRetryWithoutAction = false,
             long sourceUpdatedAtMs = 0,
-            string sourcePayloadSignature = null,
-            bool requireFreshSourcePayload = false)
+            string sourcePayloadSignature = null)
         {
             DecisionPlan = decisionPlan;
             Actions = actions ?? Array.Empty<string>();
@@ -191,7 +187,6 @@ namespace BotMain
             ShouldRetryWithoutAction = shouldRetryWithoutAction;
             SourceUpdatedAtMs = sourceUpdatedAtMs;
             SourcePayloadSignature = sourcePayloadSignature ?? string.Empty;
-            RequireFreshSourcePayload = requireFreshSourcePayload;
         }
 
         public AIDecisionPlan DecisionPlan { get; }
@@ -200,7 +195,6 @@ namespace BotMain
         public bool ShouldRetryWithoutAction { get; }
         public long SourceUpdatedAtMs { get; }
         public string SourcePayloadSignature { get; }
-        public bool RequireFreshSourcePayload { get; }
     }
 
     internal sealed class BattlegroundActionRecommendationResult

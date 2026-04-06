@@ -656,7 +656,6 @@ namespace BotCore.Tests
                 null,
                 null,
                 null,
-                minimumUpdatedAtMs: 650,
                 friendlyEntities: new[]
                 {
                     new EntityContextSnapshot
@@ -794,10 +793,7 @@ namespace BotCore.Tests
                 lastConsumedActionCommand: "PLAY|104|0|0"));
 
             Assert.True(result.ShouldRetryWithoutAction, result.Detail);
-            Assert.True(result.RequireFreshSourcePayload, result.Detail);
             Assert.Empty(result.Actions);
-            Assert.Contains("releasedDueToRepeatedFirstAction=True", result.Detail);
-            Assert.Contains("sameFirstAction=True", result.Detail);
         }
 
         [Fact]
@@ -818,7 +814,6 @@ namespace BotCore.Tests
                 null,
                 null,
                 null,
-                minimumUpdatedAtMs: 4001,
                 friendlyEntities: new[]
                 {
                     new EntityContextSnapshot
@@ -837,16 +832,12 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_StillRejectsConsumedPayload_WhenMinimumUpdatedAtIsNewer()
+        public void RecommendActions_RejectsConsumedPayload_WhenSameTimestampAndSignature()
         {
             var state = CreateState(
                 500,
-                raw: "consumed-and-stale-minimum-updated-at",
-                actionName: "play_minion",
-                cardId: "TLC_100",
-                cardName: "导航员伊莉斯",
-                zonePosition: 4,
-                bodyText: "推荐打法 打出4号位随从 导航员伊莉斯");
+                raw: "consumed-same-payload",
+                actionName: "end_turn");
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
 
             var result = provider.RecommendActions(new ActionRecommendationRequest(
@@ -854,27 +845,16 @@ namespace BotCore.Tests
                 null,
                 null,
                 null,
-                minimumUpdatedAtMs: 4001,
-                friendlyEntities: new[]
-                {
-                    new EntityContextSnapshot
-                    {
-                        EntityId = 104,
-                        CardId = "TLC_100",
-                        Zone = "HAND",
-                        ZonePosition = 4
-                    }
-                },
                 lastConsumedUpdatedAtMs: state.UpdatedAtMs,
-                lastConsumedPayloadSignature: state.PayloadSignature));
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "END_TURN",
+                boardFingerprint: "fp_same",
+                lastConsumedBoardFingerprint: "fp_same"));
 
             Assert.True(result.ShouldRetryWithoutAction);
             Assert.Empty(result.Actions);
             Assert.Contains("wait_retry", result.Detail);
-            Assert.Contains("freshReason=below_minimum(500<4001)", result.Detail);
-            Assert.Contains("stateUpdatedAt=500", result.Detail);
-            Assert.Contains("minUpdatedAt=4001", result.Detail);
-            Assert.Contains("lastConsumedAt=500", result.Detail);
+            Assert.Contains("freshReason=consumed_same_or_older_payload", result.Detail);
         }
 
         [Fact]
@@ -1965,8 +1945,7 @@ namespace BotCore.Tests
                 1,
                 options,
                 Array.Empty<int>(),
-                "seed",
-                minimumUpdatedAtMs: 9001));
+                "seed"));
 
             Assert.False(result.ShouldRetryWithoutAction);
             Assert.Equal(new[] { 502 }, result.SelectedEntityIds);
@@ -2011,7 +1990,6 @@ namespace BotCore.Tests
                 options,
                 Array.Empty<int>(),
                 "seed",
-                minimumUpdatedAtMs: 9001,
                 lastConsumedUpdatedAtMs: state.UpdatedAtMs,
                 lastConsumedPayloadSignature: state.PayloadSignature));
 

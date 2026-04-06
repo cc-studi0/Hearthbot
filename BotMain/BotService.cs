@@ -154,7 +154,6 @@ namespace BotMain
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
         private string _lastConsumedHsBoxActionCommand = string.Empty;
         private string _lastConsumedBoardFingerprint = string.Empty;
-        private long _hsBoxActionMinimumUpdatedAtMs;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
@@ -1277,7 +1276,6 @@ namespace BotMain
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
             _lastConsumedHsBoxActionCommand = string.Empty;
             _lastConsumedBoardFingerprint = string.Empty;
-            _hsBoxActionMinimumUpdatedAtMs = 0;
         }
 
         private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint = null)
@@ -1299,15 +1297,6 @@ namespace BotMain
             if (!string.IsNullOrWhiteSpace(boardFingerprint))
                 _lastConsumedBoardFingerprint = boardFingerprint;
         }
-
-        private void RefreshHsBoxActionMinimumUpdatedAtNow()
-        {
-            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-            if (nowMs > _hsBoxActionMinimumUpdatedAtMs)
-                _hsBoxActionMinimumUpdatedAtMs = nowMs;
-        }
-
-        private long GetHsBoxActionMinimumUpdatedAtMs() => Math.Max(0, _hsBoxActionMinimumUpdatedAtMs);
 
         private static string BuildBoardFingerprint(Board board)
         {
@@ -2058,7 +2047,6 @@ namespace BotMain
             int resimulationCount = 0;
             int actionFailStreak = 0;
             int actionFailResetCycles = 0;
-            int staleFreshSourceRetryCount = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             int seedNotReadyStreak = 0;
@@ -2468,7 +2456,6 @@ namespace BotMain
                         ref currentTurnStartedUtc,
                         ref resimulationCount,
                         ref actionFailStreak,
-                        ref staleFreshSourceRetryCount,
                         playActionFailStreakByEntity);
                 }
 
@@ -2478,7 +2465,7 @@ namespace BotMain
                 if (handledPendingChoiceBeforePlanning || waitingForChoiceState)
                 {
                     if (handledPendingChoiceBeforePlanning)
-                        RefreshHsBoxActionMinimumUpdatedAtNow();
+                        ResetHsBoxActionRecommendationTracking();
                     Thread.Sleep(120);
                     continue;
                 }
@@ -2511,7 +2498,6 @@ namespace BotMain
                             ref currentTurnStartedUtc,
                             ref resimulationCount,
                             ref actionFailStreak,
-                            ref staleFreshSourceRetryCount,
                             playActionFailStreakByEntity);
                     }
 
@@ -2601,7 +2587,7 @@ namespace BotMain
                     planningBoard,
                     _selectedProfile,
                     deckCards,
-                    GetHsBoxActionMinimumUpdatedAtMs(),
+
                     _currentDeckContext?.DeckName,
                     _currentDeckContext?.DeckSignature,
                     deckCards,
@@ -2639,22 +2625,9 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
-                    if (recommendation.RequireFreshSourcePayload)
-                    {
-                        RefreshHsBoxActionMinimumUpdatedAtNow();
-                        staleFreshSourceRetryCount++;
-                        if (staleFreshSourceRetryCount >= 3)
-                        {
-                            Log("[Action] stale hsbox recommendation after repeated fresh-source retries, clearing consumed state.");
-                            ResetHsBoxActionRecommendationTracking();
-                            staleFreshSourceRetryCount = 0;
-                        }
-                    }
                     Thread.Sleep(120);
                     continue;
                 }
-
-                staleFreshSourceRetryCount = 0;
 
                 actions = NormalizeRecommendedActions(actions);
 
@@ -2828,7 +2801,7 @@ namespace BotMain
 
                                             if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out _))
                                             {
-                                                RefreshHsBoxActionMinimumUpdatedAtNow();
+                                                ResetHsBoxActionRecommendationTracking();
                                                 ClearChoiceStateWatch("choice_after_play_fail");
                                                 requestResimulation = true;
                                                 resimulationReason = $"choice_after_play_fail:{failedPlayEntityId}";
@@ -2926,7 +2899,7 @@ namespace BotMain
                                 choiceProbeMs = choiceProbeSw.ElapsedMilliseconds;
                                 if (hasPendingChoice)
                                 {
-                                    RefreshHsBoxActionMinimumUpdatedAtNow();
+                                    ResetHsBoxActionRecommendationTracking();
                                     ClearChoiceStateWatch("choice_after_action");
                                     requestResimulation = true;
                                     resimulationReason = choiceResimulationReason;
@@ -2987,6 +2960,7 @@ namespace BotMain
                         resimulationCount++;
                         if (resimulationCount <= 5)
                         {
+                            ResetHsBoxActionRecommendationTracking();
                             Log($"[AI] resimulation requested ({resimulationCount}/5): {resimulationReason}");
                             if (SleepOrCancelled(800)) break;
                             WaitForGameReady(pipe, 30);
@@ -3015,7 +2989,6 @@ namespace BotMain
                                 actionFailResetCycles++;
                                 Log($"[Action] {actionFailStreak} consecutive failures while following hsbox (cycle {actionFailResetCycles}); clearing consumed state.");
                                 ResetHsBoxActionRecommendationTracking();
-                                RefreshHsBoxActionMinimumUpdatedAtNow();
                                 if (actionFailResetCycles >= 2)
                                 {
                                     Log($"[Action] {actionFailResetCycles} reset cycles, forcing END_TURN to avoid infinite loop.");
@@ -3483,7 +3456,6 @@ namespace BotMain
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int actionFailStreak = 0;
             int actionFailResetCycles = 0;
-            int staleFreshSourceRetryCount = 0;
             int seedNullStreak = 0;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
 
@@ -3619,7 +3591,7 @@ namespace BotMain
                 // ── 在规划前检测 Choice/Discover 界面（和构筑循环一致）──
                 if (TryHandlePendingChoiceBeforePlanning(pipe, seed, out var waitingForChoice))
                 {
-                    RefreshHsBoxActionMinimumUpdatedAtNow();
+                    ResetHsBoxActionRecommendationTracking();
                     continue; // choice 已处理，重新获取 seed
                 }
                 if (waitingForChoice)
@@ -3634,9 +3606,8 @@ namespace BotMain
                 if (planningBoard != null)
                 {
                     int resimCount = 0;
-                    int staleFresh = 0;
                     ApplyPlanningBoard(planningBoard, ref lastTurnNumber, ref currentTurnStartedUtc,
-                        ref resimCount, ref actionFailStreak, ref staleFresh, playActionFailStreakByEntity);
+                        ref resimCount, ref actionFailStreak, playActionFailStreakByEntity);
                 }
 
                 // 等待游戏就绪
@@ -3663,7 +3634,7 @@ namespace BotMain
                     planningBoard,
                     _selectedProfile,
                     null, // deckCards - arena 没有预定义牌组
-                    GetHsBoxActionMinimumUpdatedAtMs(),
+
                     null, null, null, null,
                     BuildMatchContext(planningBoard),
                     _lastConsumedHsBoxActionUpdatedAtMs,
@@ -3690,21 +3661,9 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
-                    if (recommendation.RequireFreshSourcePayload)
-                    {
-                        RefreshHsBoxActionMinimumUpdatedAtNow();
-                        staleFreshSourceRetryCount++;
-                        if (staleFreshSourceRetryCount >= 3)
-                        {
-                            Log("[Arena] stale hsbox recommendation after repeated fresh-source retries, clearing consumed state.");
-                            ResetHsBoxActionRecommendationTracking();
-                            staleFreshSourceRetryCount = 0;
-                        }
-                    }
                     Thread.Sleep(120);
                     continue;
                 }
-                staleFreshSourceRetryCount = 0;
 
                 actions = NormalizeRecommendedActions(actions);
                 if (actions == null || actions.Count == 0)
@@ -3771,7 +3730,7 @@ namespace BotMain
                         if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimReason))
                         {
                             Log($"[Arena] 动作后检测到发现/选择: {choiceResimReason}");
-                            RefreshHsBoxActionMinimumUpdatedAtNow();
+                            ResetHsBoxActionRecommendationTracking();
                             break; // 跳出动作循环，回到主循环重新获取推荐
                         }
                     }
@@ -3794,7 +3753,6 @@ namespace BotMain
                             actionFailResetCycles++;
                             Log($"[Arena] {actionFailStreak} consecutive failures while following hsbox (cycle {actionFailResetCycles}); clearing consumed state.");
                             ResetHsBoxActionRecommendationTracking();
-                            RefreshHsBoxActionMinimumUpdatedAtNow();
                             if (actionFailResetCycles >= 2)
                             {
                                 Log($"[Arena] {actionFailResetCycles} reset cycles, forcing END_TURN to avoid infinite loop.");
@@ -5780,7 +5738,6 @@ namespace BotMain
             ref DateTime currentTurnStartedUtc,
             ref int resimulationCount,
             ref int actionFailStreak,
-            ref int staleFreshSourceRetryCount,
             Dictionary<int, int> playActionFailStreakByEntity)
         {
             if (planningBoard == null)
@@ -5806,7 +5763,6 @@ namespace BotMain
                 _choiceRepeatedRecommendationCount = 0;
                 resimulationCount = 0;
                 actionFailStreak = 0;
-                staleFreshSourceRetryCount = 0;
                 playActionFailStreakByEntity?.Clear();
                 _pluginSystem?.FireOnTurnBegin();
             }

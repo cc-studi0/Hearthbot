@@ -41,7 +41,6 @@ namespace BotCore.Tests
             var recorder = new TeacherDatasetRecorder(store);
             var request = BuildActionRequest(
                 "seed-context-1",
-                minimumUpdatedAtMs: 4567,
                 lastConsumedUpdatedAtMs: 3456,
                 lastConsumedPayloadSignature: "consumed-action-signature",
                 lastConsumedActionCommand: "END_TURN",
@@ -85,7 +84,6 @@ namespace BotCore.Tests
             using var context = JsonDocument.Parse(decision.ContextSnapshotJson);
             var root = context.RootElement;
 
-            Assert.Equal(4567, root.GetProperty("minimum_updated_at_ms").GetInt64());
             Assert.Equal(3456, root.GetProperty("last_consumed_updated_at_ms").GetInt64());
             Assert.Equal("consumed-action-signature", root.GetProperty("last_consumed_payload_signature").GetString());
             Assert.Equal("END_TURN", root.GetProperty("last_consumed_action_command").GetString());
@@ -292,7 +290,6 @@ namespace BotCore.Tests
 
         private static ActionRecommendationRequest BuildActionRequest(
             string seed,
-            long minimumUpdatedAtMs = 0,
             long lastConsumedUpdatedAtMs = 0,
             string lastConsumedPayloadSignature = null,
             string lastConsumedActionCommand = null,
@@ -317,7 +314,6 @@ namespace BotCore.Tests
                 board,
                 null,
                 null,
-                minimumUpdatedAtMs: minimumUpdatedAtMs,
                 deckName: "Deck Action",
                 deckSignature: "deck-action-signature",
                 remainingDeckCards: remainingDeckCards,
@@ -345,7 +341,6 @@ namespace BotCore.Tests
                 },
                 selectedEntityIds: Array.Empty<int>(),
                 seed: seed,
-                minimumUpdatedAtMs: 1001,
                 lastConsumedUpdatedAtMs: 1000,
                 lastConsumedPayloadSignature: "consumed-choice-signature",
                 deckName: "Deck Choice",
@@ -374,7 +369,6 @@ namespace BotCore.Tests
                 seed: seed,
                 isRewindChoice: false,
                 maintainIndex: 0,
-                minimumUpdatedAtMs: 2001,
                 lastConsumedUpdatedAtMs: 2000,
                 lastConsumedPayloadSignature: "consumed-discover-signature",
                 deckName: "Deck Discover",
@@ -404,7 +398,6 @@ namespace BotCore.Tests
                     new RecommendationChoiceState("CARD_M1", 401),
                     new RecommendationChoiceState("CARD_M2", 402)
                 },
-                minimumUpdatedAtMs: 3001,
                 deckName: "Deck Mulligan",
                 deckSignature: "deck-mulligan-signature",
                 fullDeckCards: new[] { Card.Cards.CORE_CS2_231, Card.Cards.CORE_CS2_029 },
