@@ -406,6 +406,15 @@ namespace BotMain
 
             if (lastConsumedUpdatedAtMs > 0)
             {
+                // minimumUpdatedAtMs：要求盒子推荐的时间戳必须 >= 这个下限，
+                // 用于在 RequireFreshSourcePayload 后跳过旧推荐，等盒子真正刷新。
+                // 仅在有已消费记录时生效，避免阻塞首次推荐或重置后的推荐。
+                if (minimumUpdatedAtMs > 0 && state.UpdatedAtMs < minimumUpdatedAtMs)
+                {
+                    reason = $"below_minimum({state.UpdatedAtMs}<{minimumUpdatedAtMs})";
+                    return false;
+                }
+
                 if (state.UpdatedAtMs > lastConsumedUpdatedAtMs)
                 {
                     reason = "updated_after_last_consumed";

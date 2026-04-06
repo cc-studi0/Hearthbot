@@ -2023,6 +2023,7 @@ namespace BotMain
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int resimulationCount = 0;
             int actionFailStreak = 0;
+            int actionFailResetCycles = 0;
             int staleFreshSourceRetryCount = 0;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
@@ -2974,8 +2975,16 @@ namespace BotMain
                         {
                             if (_followHsBoxRecommendations)
                             {
-                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox; clearing consumed state.");
+                                actionFailResetCycles++;
+                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox (cycle {actionFailResetCycles}); clearing consumed state.");
                                 ResetHsBoxActionRecommendationTracking();
+                                RefreshHsBoxActionMinimumUpdatedAtNow();
+                                if (actionFailResetCycles >= 2)
+                                {
+                                    Log($"[Action] {actionFailResetCycles} reset cycles, forcing END_TURN to avoid infinite loop.");
+                                    try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
+                                    actionFailResetCycles = 0;
+                                }
                             }
                             else
                             {
@@ -3006,6 +3015,7 @@ namespace BotMain
                     && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     actionFailStreak = 0;
+                    actionFailResetCycles = 0;
                     if (!lastRecommendationWasAttackOnly)
                         Thread.Sleep(200);
                     continue;
@@ -3435,6 +3445,8 @@ namespace BotMain
             int lastTurnNumber = -1;
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int actionFailStreak = 0;
+            int actionFailResetCycles = 0;
+            int staleFreshSourceRetryCount = 0;
             int seedNullStreak = 0;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
 
@@ -3639,10 +3651,20 @@ namespace BotMain
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
                     if (recommendation.RequireFreshSourcePayload)
+                    {
                         RefreshHsBoxActionMinimumUpdatedAtNow();
+                        staleFreshSourceRetryCount++;
+                        if (staleFreshSourceRetryCount >= 3)
+                        {
+                            Log("[Arena] stale hsbox recommendation after repeated fresh-source retries, clearing consumed state.");
+                            ResetHsBoxActionRecommendationTracking();
+                            staleFreshSourceRetryCount = 0;
+                        }
+                    }
                     Thread.Sleep(120);
                     continue;
                 }
+                staleFreshSourceRetryCount = 0;
 
                 actions = NormalizeRecommendedActions(actions);
                 if (actions == null || actions.Count == 0)
@@ -3659,6 +3681,15 @@ namespace BotMain
                     if (!_running) break;
 
                     bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                    bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
+
+                    // 回合末投降：竞技场对局同样检测是否下回合必死
+                    if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
+                    {
+                        Log("[Arena] CONCEDED_BEFORE_END_TURN");
+                        break;
+                    }
+
                     if (!isOption)
                     {
                         if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PreReady", action: action))
@@ -3719,9 +3750,21 @@ namespace BotMain
                     if (actionFailStreak >= 3)
                     {
                         if (_followHsBoxRecommendations)
+                        {
+                            actionFailResetCycles++;
+                            Log($"[Arena] {actionFailStreak} consecutive failures while following hsbox (cycle {actionFailResetCycles}); clearing consumed state.");
                             ResetHsBoxActionRecommendationTracking();
+                            RefreshHsBoxActionMinimumUpdatedAtNow();
+                            if (actionFailResetCycles >= 2)
+                            {
+                                Log($"[Arena] {actionFailResetCycles} reset cycles, forcing END_TURN to avoid infinite loop.");
+                                try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
+                                actionFailResetCycles = 0;
+                            }
+                        }
                         else
                         {
+                            Log($"[Arena] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
                             try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
                         }
                         actionFailStreak = 0;
@@ -3735,6 +3778,7 @@ namespace BotMain
                 }
 
                 actionFailStreak = 0;
+                actionFailResetCycles = 0;
 
                 // END_TURN 后等待回合切换
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
@@ -7452,14 +7496,17 @@ namespace BotMain
 
             try
             {
-                if (!WaitForGameReady(pipe, 8, 60))
+                if (!WaitForGameReady(pipe, 15, 200))
+                {
+                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=wait-ready-timeout");
                     return false;
+                }
 
                 var seedResp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
                 if (string.IsNullOrWhiteSpace(seedResp)
                     || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
                 {
-                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-unavailable");
+                    Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-unavailable resp={seedResp?.Substring(0, Math.Min(seedResp?.Length ?? 0, 60)) ?? "null"}");
                     return false;
                 }
 
@@ -7469,19 +7516,25 @@ namespace BotMain
                     var liveSeed = SeedCompatibility.GetCompatibleSeed(seedResp.Substring(5), out _);
                     liveBoard = Board.FromSeed(liveSeed);
                 }
-                catch
+                catch (Exception seedEx)
                 {
-                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-parse-failed");
+                    Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-parse-failed error={seedEx.Message}");
                     return false;
                 }
+
+                var simBoard = SimBoard.FromBoard(liveBoard);
+                var friendHp = simBoard?.FriendHero != null ? simBoard.FriendHero.Health + simBoard.FriendHero.Armor : -1;
+                var enemyMinionCount = simBoard?.EnemyMinions?.Count ?? 0;
+                var enemyAtk = simBoard?.EnemyHero?.Atk ?? 0;
+                var friendSecrets = simBoard?.FriendSecrets?.Count ?? 0;
 
                 if (!ShouldConcedeWhenEnemyHasLethalNextTurn(liveBoard, out var detail))
                 {
-                    Log($"[ConcedeWhenLethal] {detail}");
+                    Log($"[ConcedeWhenLethal] {detail} friendHp={friendHp} enemyMinions={enemyMinionCount} enemyHeroAtk={enemyAtk} friendSecrets={friendSecrets}");
                     return false;
                 }
 
-                Log($"[ConcedeWhenLethal] {detail}");
+                Log($"[ConcedeWhenLethal] {detail} friendHp={friendHp} enemyMinions={enemyMinionCount} enemyHeroAtk={enemyAtk}");
                 var concedeResp = SendActionCommand(pipe, "CONCEDE", 5000) ?? "NO_RESPONSE";
                 Log($"[Action] CONCEDE -> {concedeResp}");
                 if (concedeResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase))

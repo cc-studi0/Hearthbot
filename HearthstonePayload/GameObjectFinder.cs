@@ -156,7 +156,7 @@ namespace HearthstonePayload
                     float gap = nextX - myX;
                     if (gap > 0 && gap < 1.5f)
                     {
-                        float offset = gap * 0.40f; // 默认兜底
+                        float offset = gap * 0.45f; // 默认兜底
                         float rawHalfWidth = TryGetCardHalfWidth(cardList[targetIdx].card);
                         if (rawHalfWidth > 0)
                         {
@@ -165,7 +165,7 @@ namespace HearthstonePayload
                             // 暴露区域中心偏移 = 有效半宽 - 间距/2（间距不够时偏左，间距够时几乎不偏）
                             offset = effectiveHalfWidth - gap * 0.5f;
                             if (offset < 0) offset = 0; // 不需要偏移（卡牌不重叠）
-                            if (offset > gap * 0.4f) offset = gap * 0.4f;
+                            if (offset > effectiveHalfWidth * 0.80f) offset = effectiveHalfWidth * 0.80f;
                         }
                         _lastHandPosDebug = $"idx={targetIdx}/{cardList.Count} gap={gap:F3} rawHW={rawHalfWidth:F3} offset={offset:F3}";
 

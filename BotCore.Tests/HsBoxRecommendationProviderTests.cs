@@ -871,7 +871,7 @@ namespace BotCore.Tests
             Assert.True(result.ShouldRetryWithoutAction);
             Assert.Empty(result.Actions);
             Assert.Contains("wait_retry", result.Detail);
-            Assert.Contains("freshReason=consumed_same_or_older_payload", result.Detail);
+            Assert.Contains("freshReason=below_minimum(500<4001)", result.Detail);
             Assert.Contains("stateUpdatedAt=500", result.Detail);
             Assert.Contains("minUpdatedAt=4001", result.Detail);
             Assert.Contains("lastConsumedAt=500", result.Detail);

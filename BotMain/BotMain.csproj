@@ -3,14 +3,13 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <DefaultItemExcludes>$(DefaultItemExcludes);_tmp_*\**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
-    <SelfContained>true</SelfContained>
-    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>

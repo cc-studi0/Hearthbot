@@ -23,11 +23,11 @@ Write-Host "=== Hearthbot Release Build ===" -ForegroundColor Cyan
 Write-Host "Repo root: $RepoRoot"
 
 # -- Step 1: Clean & Publish --
-Write-Host "`n[1/6] Publishing (self-contained, win-x86)..." -ForegroundColor Yellow
+Write-Host "`n[1/6] Publishing (framework-dependent, x86)..." -ForegroundColor Yellow
 if (Test-Path $PublishDir) { Remove-Item $PublishDir -Recurse -Force }
 
 dotnet publish "$RepoRoot\BotMain\BotMain.csproj" `
-    -c Release -r win-x86 --self-contained `
+    -c Release --no-self-contained `
     -p:DebugType=none -p:DebugSymbols=false `
     -o $PublishDir
 
@@ -47,7 +47,32 @@ if (-not $SkipObfuscation) {
 
     # Copy all DLLs (Obfuscar needs to resolve references)
     Copy-Item "$PublishDir\*.dll" $ObfuscateTmp
-    Copy-Item "$RepoRoot\obfuscar.xml" $ObfuscateTmp
+
+    # Framework-dependent mode: runtime DLLs are not in publish dir
+    # Find .NET 8 Desktop Runtime (WPF) shared framework path
+    $dotnetRoot = Split-Path (Get-Command dotnet).Source
+    $wpfRuntime = Get-ChildItem "$dotnetRoot\shared\Microsoft.WindowsDesktop.App\8.*" -Directory |
+        Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+    $aspRuntime = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App\8.*" -Directory |
+        Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
+
+    if (-not $wpfRuntime) { throw ".NET 8 Desktop Runtime not found. Please install it first." }
+
+    # Generate obfuscar.xml with AssemblySearchPath for runtime refs
+    $obfXml = [xml](Get-Content "$RepoRoot\obfuscar.xml")
+    $root = $obfXml.DocumentElement
+
+    # Insert AssemblySearchPath nodes before first Var
+    $firstChild = $root.FirstChild
+    foreach ($searchDir in @($wpfRuntime.FullName, $aspRuntime.FullName)) {
+        $node = $obfXml.CreateElement("AssemblySearchPath")
+        $node.SetAttribute("path", $searchDir)
+        $root.InsertBefore($node, $firstChild) | Out-Null
+    }
+    $obfXml.Save("$ObfuscateTmp\obfuscar.xml")
+    Write-Host "  Runtime search paths:" -ForegroundColor DarkGray
+    Write-Host "    $($wpfRuntime.FullName)" -ForegroundColor DarkGray
+    Write-Host "    $($aspRuntime.FullName)" -ForegroundColor DarkGray
 
     Push-Location $ObfuscateTmp
     try {
@@ -78,7 +103,7 @@ Copy-Item "$PublishDir\*" $PackageDir -Recurse
 # -- Step 4: Copy runtime resources --
 Write-Host "`n[4/6] Copying runtime resources..." -ForegroundColor Yellow
 
-$ResourceDirs = @("Profiles", "MulliganProfiles", "DiscoverCC", "ArenaCC", "Libs", "Data")
+$ResourceDirs = @("Profiles", "MulliganProfiles", "DiscoverCC", "ArenaCC", "Libs", "Data", "Plugins")
 foreach ($dir in $ResourceDirs) {
     $src = Join-Path $RepoRoot $dir
     if (Test-Path $src) {
@@ -97,7 +122,7 @@ if (Test-Path $cardsJson) {
     Write-Host "  cards.json -> OK"
 }
 
-# HearthstonePayload.dll（BepInEx 插件，net472 独立项目）
+# HearthstonePayload.dll (BepInEx plugin, net472 standalone project)
 Write-Host "  Building HearthstonePayload..." -ForegroundColor Yellow
 dotnet build "$RepoRoot\HearthstonePayload\HearthstonePayload.csproj" -c Release -v q
 if ($LASTEXITCODE -ne 0) { throw "HearthstonePayload build failed" }
@@ -112,8 +137,15 @@ if (Test-Path $payloadDll) {
 # -- Step 5: Trim --
 Write-Host "`n[5/6] Trimming package..." -ForegroundColor Yellow
 
+# Remove debug symbols
 Get-ChildItem $PackageDir -Filter "*.pdb" -Recurse | Remove-Item -Force -ErrorAction SilentlyContinue
 
+# Remove XML doc files in root (keep config files)
+Get-ChildItem $PackageDir -Filter "*.xml" -Recurse | Where-Object {
+    $_.Name -notmatch "^(cards|obfuscar|app)\." -and $_.Directory.FullName -eq $PackageDir
+} | Remove-Item -Force -ErrorAction SilentlyContinue
+
+# Remove locale satellite assemblies
 $langDirs = Get-ChildItem $PackageDir -Directory | Where-Object {
     $_.Name -match "^(cs|de|es|fr|it|ja|ko|pl|pt-BR|ru|tr|zh-Hant)$"
 }
@@ -122,17 +154,36 @@ foreach ($lang in $langDirs) {
     Write-Host "  Removed locale: $($lang.Name)"
 }
 
+# SQLite native: keep only win-x86, remove all other platforms
+$runtimesDir = Join-Path $PackageDir "runtimes"
+if (Test-Path $runtimesDir) {
+    $kept = 0
+    $removed = 0
+    Get-ChildItem $runtimesDir -Directory | ForEach-Object {
+        if ($_.Name -ne "win-x64" -and $_.Name -ne "win") {
+            Remove-Item $_.FullName -Recurse -Force
+            $removed++
+        } else {
+            $kept++
+        }
+    }
+    Write-Host "  SQLite runtimes: kept $kept, removed $removed platforms"
+}
+
+# SBAPI.dll exists in both root (runtime assembly loading) and Libs/ (script compiler reference)
+# Both copies are needed - do not remove either
+
 $totalSize = (Get-ChildItem $PackageDir -Recurse -File | Measure-Object -Property Length -Sum).Sum
 $sizeMB = [math]::Round($totalSize / 1MB, 1)
 $fileCount = (Get-ChildItem $PackageDir -Recurse -File).Count
-Write-Host "  Package: $fileCount files, ${sizeMB} MB" -ForegroundColor Green
+Write-Host "  Package: $fileCount files, $sizeMB MB" -ForegroundColor Green
 
 # -- Step 6: Create zip --
 Write-Host "`n[6/6] Creating zip archive..." -ForegroundColor Yellow
 if (Test-Path $ZipPath) { Remove-Item $ZipPath -Force }
 Compress-Archive -Path "$PackageDir\*" -DestinationPath $ZipPath -CompressionLevel Optimal
 $zipSize = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
-Write-Host "  Archive: $ZipPath (${zipSize} MB)" -ForegroundColor Green
+Write-Host "  Archive: $ZipPath ($zipSize MB)" -ForegroundColor Green
 
 # -- Verification --
 Write-Host "`n=== Verification ===" -ForegroundColor Cyan

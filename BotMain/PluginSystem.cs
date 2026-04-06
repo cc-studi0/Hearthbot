@@ -32,7 +32,7 @@ namespace BotMain
             _plugins.Clear();
             if (!Directory.Exists(pluginDir))
             {
-                _log?.Invoke($"[PluginSystem] Plugin directory not found: {pluginDir}");
+                try { Directory.CreateDirectory(pluginDir); } catch { }
                 return;
             }
 

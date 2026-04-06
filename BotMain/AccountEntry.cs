@@ -9,6 +9,8 @@ namespace BotMain
     public class AccountEntry : INotifyPropertyChanged
     {
         private string _displayName = string.Empty;
+        private string _battleNetEmail = string.Empty;
+        private string _hearthstoneToken = string.Empty;
         private int? _battleNetProcessId;
         private string _battleNetWindowTitle = string.Empty;
         private int _modeIndex;
@@ -26,6 +28,8 @@ namespace BotMain
         private DateTime? _completedAt;
 
         public string DisplayName { get => _displayName; set { if (_displayName == value) return; _displayName = value; Notify(); } }
+        public string BattleNetEmail { get => _battleNetEmail; set { if (_battleNetEmail == value) return; _battleNetEmail = value; Notify(); } }
+        public string HearthstoneToken { get => _hearthstoneToken; set { if (_hearthstoneToken == value) return; _hearthstoneToken = value; Notify(); } }
 
         // 运行时绑定，不持久化
         public int? BattleNetProcessId { get => _battleNetProcessId; set { if (_battleNetProcessId == value) return; _battleNetProcessId = value; Notify(); Notify(nameof(BattleNetLabel)); } }

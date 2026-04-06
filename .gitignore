@@ -3,6 +3,7 @@
 .playwright-mcp/
 .vscode/
 .gemini/
+.superpowers/
 
 # ========== 临时/构建目录 ==========
 _tmp*/
@@ -46,6 +47,7 @@ obj_codex/
 *.tmp
 *.temp
 Scripts/decompiled_sb/
+Scripts/-SkipObfuscation/
 Scripts/effects_data.json
 Data/HsBoxTeacher/*.db
 Data/HsBoxTeacher/*.db-wal

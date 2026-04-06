@@ -1,14 +1,10 @@
-<#
+﻿<#
 .SYNOPSIS
-    构建 Bot 并上传到云控服务器，其他机器通过 URL 下载更新
+    Build Bot and upload to cloud server for incremental updates
 .USAGE
-    .\deploy_bot.ps1                          # 构建+上传
-    .\deploy_bot.ps1 -SkipObfuscation         # 跳过混淆（快速调试）
-    .\deploy_bot.ps1 -BuildOnly               # 只构建不上传
-.NOTES
-    上传后其他机器访问: http://<服务器IP>:5000/bot/Hearthbot.zip
-    或在 bot 机器上执行:
-      powershell -c "Invoke-WebRequest http://70.39.201.9:5000/bot/Hearthbot.zip -OutFile hb.zip; Expand-Archive hb.zip -Dest C:\Hearthbot -Force"
+    .\deploy_bot.ps1                          # Build + upload
+    .\deploy_bot.ps1 -SkipObfuscation         # Skip obfuscation
+    .\deploy_bot.ps1 -BuildOnly               # Build only, no upload
 #>
 param(
     [string]$RemoteHost = "70.39.201.9",
@@ -21,47 +17,96 @@ param(
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path -Parent $PSScriptRoot
+$PackageDir = Join-Path $RepoRoot "publish\Hearthbot"
 $ZipPath = Join-Path $RepoRoot "publish\Hearthbot.zip"
 
-Write-Host "=== Bot 分发包构建 ===" -ForegroundColor Cyan
+Write-Host "=== Bot Distribution Build ===" -ForegroundColor Cyan
 
-# -- Step 1: 调用已有的构建脚本 --
-Write-Host "`n[1/2] 构建 Release 包..." -ForegroundColor Yellow
+# -- Step 1: Build --
+Write-Host "`n[1/3] Building release package..." -ForegroundColor Yellow
 $buildArgs = @()
 if ($SkipObfuscation) { $buildArgs += "-SkipObfuscation" }
 
 & "$RepoRoot\Scripts\build_release.ps1" @buildArgs
 
-if (!(Test-Path $ZipPath)) { throw "构建失败: 未找到 $ZipPath" }
+if (!(Test-Path $ZipPath)) { throw "Build failed: $ZipPath not found" }
 
 $zipSize = [math]::Round((Get-Item $ZipPath).Length / 1MB, 1)
 Write-Host "  Zip: ${zipSize} MB" -ForegroundColor Green
 
 if ($BuildOnly) {
-    Write-Host "`n构建完成 (跳过上传)" -ForegroundColor Cyan
+    Write-Host "`nBuild complete (upload skipped)" -ForegroundColor Cyan
     Write-Host "Zip: $ZipPath"
     return
 }
 
-# -- Step 2: 上传到云控服务器的静态文件目录 --
-Write-Host "`n[2/2] 上传到 ${User}@${RemoteHost}..." -ForegroundColor Yellow
+# -- Step 2: Generate manifest.json --
+Write-Host "`n[2/3] Generating manifest..." -ForegroundColor Yellow
 
-ssh -p $Port "${User}@${RemoteHost}" "mkdir -p $RemotePath"
+$md5Provider = [System.Security.Cryptography.MD5]::Create()
+$manifest = @{}
+$files = Get-ChildItem $PackageDir -Recurse -File
+foreach ($f in $files) {
+    $relativePath = $f.FullName.Substring($PackageDir.Length + 1).Replace('\', '/')
+    $stream = [System.IO.File]::OpenRead($f.FullName)
+    try {
+        $hashBytes = $md5Provider.ComputeHash($stream)
+        $hash = [BitConverter]::ToString($hashBytes).Replace('-','').ToLower()
+    } finally {
+        $stream.Close()
+    }
+    $manifest[$relativePath] = $hash
+}
+
+# Build version from overall zip hash
+$stream = [System.IO.File]::OpenRead($ZipPath)
+try {
+    $hashBytes = $md5Provider.ComputeHash($stream)
+    $version = [BitConverter]::ToString($hashBytes).Replace('-','').ToLower()
+} finally {
+    $stream.Close()
+}
+
+$manifestObj = @{
+    version = $version
+    files = $manifest
+}
+
+# Use .NET serializer for PS 5.1 compatibility
+Add-Type -AssemblyName System.Web.Extensions -ErrorAction SilentlyContinue
+$serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
+$serializer.MaxJsonLength = 100MB
+$manifestJson = $serializer.Serialize($manifestObj)
+
+$manifestFile = Join-Path $RepoRoot "publish\manifest.json"
+[System.IO.File]::WriteAllText($manifestFile, $manifestJson, [System.Text.Encoding]::UTF8)
+
+Write-Host "  Manifest: $($manifest.Count) files, version: $($version.Substring(0,8))..." -ForegroundColor Green
+
+# -- Step 3: Upload --
+Write-Host "`n[3/3] Uploading to $User@$RemoteHost..." -ForegroundColor Yellow
+
+# Upload zip + manifest
+ssh -p $Port "$User@$RemoteHost" "mkdir -p $RemotePath/files"
 scp -P $Port "$ZipPath" "${User}@${RemoteHost}:${RemotePath}/Hearthbot.zip"
+if ($LASTEXITCODE -ne 0) { throw "Upload zip failed" }
 
-if ($LASTEXITCODE -ne 0) { throw "上传失败" }
+scp -P $Port "$manifestFile" "${User}@${RemoteHost}:${RemotePath}/manifest.json"
+if ($LASTEXITCODE -ne 0) { throw "Upload manifest failed" }
 
-# 生成版本文件（zip 的 MD5），bot 机器用它判断是否有更新
-$hash = (Get-FileHash $ZipPath -Algorithm MD5).Hash.ToLower()
-$versionContent = $hash
+# Also upload version.txt for backward compatibility
 $versionFile = Join-Path $RepoRoot "publish\version.txt"
-Set-Content -Path $versionFile -Value $versionContent -NoNewline
+Set-Content -Path $versionFile -Value $version -NoNewline -Encoding UTF8
 scp -P $Port "$versionFile" "${User}@${RemoteHost}:${RemotePath}/version.txt"
 
-Write-Host "  上传完成 (version: $hash)" -ForegroundColor Green
+# Extract files on server for individual file downloads
+# unzip exit code 1 = warning (e.g. backslash paths from Windows), not an error
+ssh -p $Port "$User@$RemoteHost" "rm -rf $RemotePath/files; mkdir -p $RemotePath/files; unzip -o $RemotePath/Hearthbot.zip -d $RemotePath/files > /dev/null 2>&1; test `$? -le 1"
+if ($LASTEXITCODE -ne 0) { throw "Server extract failed" }
 
-Write-Host "`n=== 分发就绪 ===" -ForegroundColor Cyan
-Write-Host "下载地址: http://${RemoteHost}:5000/bot/Hearthbot.zip"
-Write-Host ""
-Write-Host "其他机器一键更新 (PowerShell):" -ForegroundColor Yellow
-Write-Host '  irm http://70.39.201.9:5000/bot/Hearthbot.zip -OutFile hb.zip; Expand-Archive hb.zip -Dest C:\Hearthbot -Force; del hb.zip'
+Write-Host "  Upload complete (version: $($version.Substring(0,8))...)" -ForegroundColor Green
+
+Write-Host "`n=== Distribution Ready ===" -ForegroundColor Cyan
+Write-Host "Manifest: http://${RemoteHost}:5000/bot/manifest.json"
+Write-Host "Full zip: http://${RemoteHost}:5000/bot/Hearthbot.zip"
+Write-Host "Files:    http://${RemoteHost}:5000/bot/files/<path>"

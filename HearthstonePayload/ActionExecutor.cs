@@ -1589,7 +1589,7 @@ namespace HearthstonePayload
         /// <summary>
         /// 缓动曲线平滑移动（ease-in-out）
         /// </summary>
-        private static IEnumerable<float> SmoothMove(int tx, int ty, int steps = 25, float stepDelay = 0.012f)
+        private static IEnumerable<float> SmoothMove(int tx, int ty, int steps = 10, float stepDelay = 0.006f)
         {
             int sx = MouseSimulator.CurX, sy = MouseSimulator.CurY;
             for (int i = 1; i <= steps; i++)
@@ -1661,10 +1661,10 @@ namespace HearthstonePayload
                 double c2x = sx + (dx * 0.72d) - (normalX * offsetMagnitude * c2Scale);
                 double c2y = sy + (dy * 0.72d) - (normalY * offsetMagnitude * c2Scale);
 
-                int stepCount = dragging ? NextHumanizeInt32(14, 24) : NextHumanizeInt32(6, 10);
+                int stepCount = dragging ? NextHumanizeInt32(14, 24) : NextHumanizeInt32(3, 6);
                 float stepDelay = dragging
                     ? (float)NextHumanizeDouble(0.008d, 0.014d)
-                    : (float)NextHumanizeDouble(0.004d, 0.007d);
+                    : (float)NextHumanizeDouble(0.002d, 0.004d);
 
                 for (int i = 1; i <= stepCount; i++)
                 {
@@ -3166,54 +3166,68 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
-            var gsBeforeTrade = GetGameState();
-            var sourceZonePosition = ResolveEntityZonePosition(gsBeforeTrade, entityId);
-            bool grabbedViaAPI = TryGrabCardViaAPI(entityId, sourceZonePosition, out var apiGrabMethod, out var apiHeldEntityId, out var apiGrabDetail);
-            if (grabbedViaAPI)
+            // 等待手牌位置稳定
+            int sourceX = 0, sourceY = 0;
+            bool positionStable = false;
+            for (int retry = 0; retry < 8 && !positionStable; retry++)
             {
-                AppendActionTrace(
-                    "API grabbed card expected=" + entityId
-                    + " held=" + apiHeldEntityId
-                    + " zonePos=" + sourceZonePosition
-                    + " via=" + apiGrabMethod);
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
+                {
+                    yield return 0.05f;
+                    continue;
+                }
+
+                if (retry > 0
+                    && Math.Abs(cx - sourceX) < 5
+                    && Math.Abs(cy - sourceY) < 5)
+                {
+                    positionStable = true;
+                }
+                sourceX = cx;
+                sourceY = cy;
+                yield return 0.05f;
             }
-            else
+
+            if (!positionStable)
             {
-                AppendActionTrace(
-                    "API grab failed expected=" + entityId
-                    + " zonePos=" + sourceZonePosition
-                    + " detail=" + apiGrabDetail);
-                TryResetHeldCard();
-                _coroutine.SetResult("FAIL:TRADE:grab_api_failed:" + entityId + ":" + (string.IsNullOrWhiteSpace(apiGrabDetail) ? "unknown" : apiGrabDetail));
+                _coroutine.SetResult("FAIL:TRADE:source_pos:" + entityId);
                 yield break;
             }
 
-            if (grabbedViaAPI)
+            // 等待手牌布局完成
+            for (int layoutWait = 0; layoutWait < 20; layoutWait++)
             {
-                int midX = MouseSimulator.GetScreenWidth() / 2;
-                int midY = MouseSimulator.GetScreenHeight() / 2;
-                MouseSimulator.MoveTo(midX, midY);
-                MouseSimulator.LeftDown();
-                yield return 0.12f;
-            }
-            else
-            {
-                _coroutine.SetResult("FAIL:TRADE:grab_api_failed:" + entityId + ":mouse_grab_disabled");
-                yield break;
+                var blocking = GetHandZoneBlockingReason(GetGameState());
+                if (string.IsNullOrWhiteSpace(blocking)) break;
+                yield return 0.05f;
             }
 
+            // 刷新到最新坐标
+            if (GameObjectFinder.GetEntityScreenPos(entityId, out var freshX, out var freshY))
+            {
+                sourceX = freshX;
+                sourceY = freshY;
+            }
+
+            // 获取牌库位置
             if (!GameObjectFinder.GetFriendlyDeckScreenPos(out var dx, out var dy))
             {
-                MouseSimulator.LeftUp();
                 _coroutine.SetResult("FAIL:TRADE:deck_pos");
                 yield break;
             }
 
-            foreach (var w in SmoothMove(dx, dy, 18)) yield return w;
-            MouseSimulator.LeftUp();
-            yield return 0.45f;
+            // 鼠标拖拽：移到手牌位置 → 按下 → 拖到牌库 → 松开
+            foreach (var w in MoveCursorConstructed(sourceX, sourceY, 10, 0.010f, true)) yield return w;
+            yield return 0.04f;
+            MouseSimulator.LeftDown();
+            yield return 0.12f;
+            AppendActionTrace("TRADE(mouse) drag_start entity=" + entityId + " pos=(" + sourceX + "," + sourceY + ")");
 
-            _coroutine.SetResult("OK:TRADE:" + entityId + ":api_grab");
+            foreach (var w in MoveCursorConstructed(dx, dy, 18, 0.012f, true)) yield return w;
+            MouseSimulator.LeftUp();
+            yield return 0.35f;
+
+            _coroutine.SetResult("OK:TRADE:" + entityId + ":mouse_drag");
         }
 
         /// <summary>
@@ -3927,17 +3941,9 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            // 瞬移并点击英雄技能
-            foreach (var wait in MoveCursorConstructed(hx, hy, 10, 0.010f, false)) yield return wait;
-            yield return 0.05f;
-            MouseSimulator.LeftDown();
-            yield return 0.05f;
-            MouseSimulator.LeftUp();
-            yield return 0.3f;
-
-            // 如果有目标
             if (targetEntityId > 0)
             {
+                // 指向性英雄技能：从技能位置按住拖动到目标位置后松开
                 var targetHeroSide = -1;
                 var currentState = SafeReadGameState();
                 if (currentState != null)
@@ -3954,8 +3960,26 @@ namespace HearthstonePayload
                     _coroutine.SetResult("FAIL:HP:target_pos:" + targetEntityId);
                     yield break;
                 }
-                foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, false)) yield return wait;
-                foreach (var wait in MoveCursorConstructed(tx, ty, 10, 0.010f, false)) yield return wait;
+
+                // 移动到英雄技能位置并按下
+                foreach (var wait in MoveCursorConstructed(hx, hy, 10, 0.010f, false)) yield return wait;
+                yield return 0.05f;
+                MouseSimulator.LeftDown();
+                yield return 0.1f;
+
+                // 按住拖动到目标位置
+                foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, true)) yield return wait;
+                foreach (var wait in MoveCursorConstructed(tx, ty, 14, 0.012f, true)) yield return wait;
+                yield return 0.05f;
+
+                // 松开完成释放
+                MouseSimulator.LeftUp();
+                yield return 0.3f;
+            }
+            else
+            {
+                // 非指向性英雄技能：直接点击
+                foreach (var wait in MoveCursorConstructed(hx, hy, 10, 0.010f, false)) yield return wait;
                 yield return 0.05f;
                 MouseSimulator.LeftDown();
                 yield return 0.05f;

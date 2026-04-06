@@ -6,7 +6,7 @@ namespace BotMain.Cloud
 {
     public class CloudConfig
     {
-        public string ServerUrl { get; set; } = string.Empty;
+        public string ServerUrl { get; set; } = "http://70.39.201.9:5000";
         public string DeviceId { get; set; } = string.Empty;
         public string DisplayName { get; set; } = string.Empty;
         public string DeviceToken { get; set; } = string.Empty;
@@ -40,12 +40,15 @@ namespace BotMain.Cloud
 
         public void EnsureDeviceId()
         {
-            if (!string.IsNullOrEmpty(DeviceId)) return;
-
-            DeviceId = $"{Environment.MachineName}-{Guid.NewGuid().ToString("N")[..8]}";
-            if (string.IsNullOrEmpty(DisplayName))
-                DisplayName = Environment.MachineName;
-            Save();
+            // 用机器名作为固定 DeviceId，重装/重部署不会产生重复设备
+            var stableId = Environment.MachineName;
+            if (DeviceId != stableId)
+            {
+                DeviceId = stableId;
+                if (string.IsNullOrEmpty(DisplayName))
+                    DisplayName = stableId;
+                Save();
+            }
         }
     }
 }

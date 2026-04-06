@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace BotMain.Cloud
 {
     public class DeviceStatusCollector
@@ -16,12 +18,23 @@ namespace BotMain.Cloud
             var account = _accounts.CurrentAccount;
             var stats = _bot.GetStatsSnapshot();
 
-            var status = _bot.State switch
+            // 游戏进程不在 → Offline，在大厅 → Idle，对局中 → InGame
+            var hearthstoneAlive = Process.GetProcessesByName("Hearthstone").Length > 0;
+
+            string status;
+            if (!hearthstoneAlive)
             {
-                BotState.Running => "InGame",
-                BotState.Finishing => "InGame",
-                _ => "Idle"
-            };
+                status = "Offline";
+            }
+            else
+            {
+                status = _bot.State switch
+                {
+                    BotState.Running => "InGame",
+                    BotState.Finishing => "InGame",
+                    _ => "Idle"
+                };
+            }
 
             // 优先从多账号控制器获取，否则从 BotService 获取
             return new HeartbeatData

@@ -26,6 +26,8 @@ namespace BotMain
                 return data.Accounts.Select(dto => new AccountEntry
                 {
                     DisplayName = dto.DisplayName ?? string.Empty,
+                    BattleNetEmail = dto.BattleNetEmail ?? string.Empty,
+                    HearthstoneToken = dto.HearthstoneToken ?? string.Empty,
                     ModeIndex = dto.ModeIndex,
                     ProfileName = dto.ProfileName ?? string.Empty,
                     DeckName = dto.DeckName ?? string.Empty,
@@ -49,6 +51,8 @@ namespace BotMain
                     Accounts = accounts.Select(a => new AccountDto
                     {
                         DisplayName = a.DisplayName,
+                        BattleNetEmail = a.BattleNetEmail,
+                        HearthstoneToken = a.HearthstoneToken,
                         ModeIndex = a.ModeIndex,
                         ProfileName = a.ProfileName,
                         DeckName = a.DeckName,
@@ -72,6 +76,8 @@ namespace BotMain
         private class AccountDto
         {
             public string DisplayName { get; set; }
+            public string BattleNetEmail { get; set; }
+            public string HearthstoneToken { get; set; }
             public int ModeIndex { get; set; }
             public string ProfileName { get; set; }
             public string DeckName { get; set; }
