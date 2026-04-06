@@ -2,170 +2,599 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:BotMain"
-        Title="炉石脚本 v1.0" Width="562" Height="420"
+        Title="Hearthbot" MinWidth="400" MinHeight="450"
+        SnapsToDevicePixels="True"
         WindowStartupLocation="Manual" Background="#F0F0F0"
         FontFamily="Segoe UI" FontSize="12">
     <Window.DataContext>
         <local:MainViewModel/>
     </Window.DataContext>
-    <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#007ACC" Padding="8,5">
-            <TextBlock Foreground="White" FontSize="11" Text="{Binding TopStatusText}"/>
-        </Border>
+    <Grid Margin="10,0,10,10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="100"/>
+            <RowDefinition Height="140"/>
+            <RowDefinition Height="300*"/>
+        </Grid.RowDefinitions>
 
-        <Grid DockPanel.Dock="Top" Margin="4,6,4,1">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <Button Content="{Binding MainButtonText}" Width="55" Height="23" Command="{Binding MainCmd}"
-                    Margin="0,0,4,0" FontSize="11"/>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,4,0">
-                <TextBlock Text="Mode:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="115" Height="23" SelectedIndex="{Binding ModeIndex}" FontSize="11">
-                    <ComboBoxItem Content="Standard"/>
-                    <ComboBoxItem Content="Wild"/>
-                    <ComboBoxItem Content="Battlegrounds"/>
-                    <ComboBoxItem Content="Test"/>
-                    <ComboBoxItem Content="Arena"/>
-                </ComboBox>
-            </StackPanel>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
-                <TextBlock Text="Profile:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="200" Height="23" ItemsSource="{Binding ProfileNames}"
-                          SelectedIndex="{Binding SelectedProfileIndex}" FontSize="11"/>
-                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
-                        Command="{Binding RefreshProfilesCmd}" ToolTip="刷新策略"/>
-            </StackPanel>
-            <StackPanel Grid.Column="3" Orientation="Horizontal">
-                <Button Content="中控" Width="35" Height="23" Command="{Binding OpenAccountControllerCmd}"
-                        FontSize="11" ToolTip="多账号中控" Margin="0,0,3,0"/>
-                <Button Content="更新" Width="35" Height="23" Command="{Binding CheckUpdateCmd}"
-                        FontSize="11" ToolTip="检查更新" Margin="0,0,3,0"/>
-                <Button Content="⚙" Width="25" Height="23" Command="{Binding SettingsCmd}"
-                        FontSize="13" ToolTip="设置"/>
-            </StackPanel>
-        </Grid>
-
-        <Grid DockPanel.Dock="Top" Margin="4,1,4,4">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-            <Button Content="Finish" Width="55" Height="23" Command="{Binding FinishCmd}"
-                    Margin="0,0,4,0" FontSize="11"/>
-            <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="0,0,4,0">
-                <TextBlock Text="Deck:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="120" Height="23" ItemsSource="{Binding DeckNames}"
-                          SelectedIndex="{Binding SelectedDeckIndex}" FontSize="11"/>
-                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
-                        Command="{Binding RefreshDecksCmd}" ToolTip="刷新卡组"/>
-            </StackPanel>
-            <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="0,0,4,0" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
-                <TextBlock Text="Mulligan:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="110" Height="23" ItemsSource="{Binding MulliganNames}"
-                          SelectedIndex="{Binding MulliganProfileIndex}" FontSize="11"/>
-                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
-                        Command="{Binding RefreshMulliganCmd}" ToolTip="刷新留牌"/>
-            </StackPanel>
-            <StackPanel Grid.Column="3" Orientation="Horizontal" IsEnabled="{Binding LocalRecommendationControlsEnabled}">
-                <TextBlock Text="Discover:" VerticalAlignment="Center" Margin="0,0,3,0" FontSize="11"/>
-                <ComboBox Width="110" Height="23" ItemsSource="{Binding DiscoverNames}"
-                          SelectedIndex="{Binding DiscoverProfileIndex}" FontSize="11"/>
-                <Button Content="↻" Width="23" Height="23" Margin="2,0,0,0" FontSize="13"
-                        Command="{Binding RefreshDiscoverCmd}" ToolTip="刷新发现策略"/>
-            </StackPanel>
-        </Grid>
-
-        <Border DockPanel.Dock="Top" BorderBrush="#CCC" BorderThickness="0,1,0,1" Padding="6,4">
-            <StackPanel>
-                <TextBlock Text="Statistics:" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,2"/>
-                <TextBlock FontSize="11" Foreground="#333">
-                    <Run Text="Runtime: "/><Run Text="{Binding RuntimeText, Mode=OneWay}"/>
-                    <Run Text="  -  W: "/><Run Text="{Binding Wins, Mode=OneWay}"/>
-                    <Run Text="  L: "/><Run Text="{Binding Losses, Mode=OneWay}"/>
-                    <Run Text="  C: "/><Run Text="{Binding Concedes, Mode=OneWay}"/>
-                </TextBlock>
-                <TextBlock FontSize="11" Foreground="#333">
-                    <Run Text="WR: "/><Run Text="{Binding WinRate, Mode=OneWay}"/><Run Text="%"/>
-                    <Run Text="  -  Mana: "/><Run Text="{Binding ManaInfo, Mode=OneWay}"/>
-                    <Run Text="  -  Rank: "/><Run Text="{Binding CurrentRankText, Mode=OneWay}"/>
-                </TextBlock>
-                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
-                    <Button Content="Reset stats" Height="22" Padding="8,0" FontSize="11"
-                            Command="{Binding ResetStatsCmd}" Margin="0,0,4,0"/>
-                    <Button Content="Save log as..." Height="22" Padding="8,0" FontSize="11"
-                            Command="{Binding SaveLogCmd}"/>
+        <!-- ===== Row 0: 顶栏 — 标题 + 按钮 + 选择器 ===== -->
+        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+            <Label x:Name="TitleLabel" Content="{Binding TopStatusText}"
+                   VerticalContentAlignment="Center" FontSize="11" Margin="0,0,0,2"/>
+            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                <!-- 左侧：按钮区 -->
+                <StackPanel Margin="0">
+                    <Grid>
+                        <Button x:Name="ButtonInject" Content="Inject" FontSize="12"
+                                MinWidth="100" MinHeight="32" Padding="10,4"
+                                Command="{Binding MainCmd}"
+                                Visibility="{Binding InjectButtonVisibility}"/>
+                        <Button x:Name="ButtonStart" Content="Start" FontSize="12"
+                                MinWidth="75" MinHeight="32" Padding="10,4"
+                                Command="{Binding MainCmd}"
+                                Visibility="{Binding StartButtonVisibility}"/>
+                        <Button x:Name="ButtonStop" Content="Stop" FontSize="12"
+                                MinWidth="75" MinHeight="32" Padding="10,4"
+                                Command="{Binding MainCmd}"
+                                Visibility="{Binding StopButtonVisibility}"/>
+                    </Grid>
+                    <Button x:Name="ButtonFinish" Content="Finish" FontSize="12"
+                            MinWidth="75" MinHeight="32" Margin="0,5,0,0" Padding="10,4"
+                            Command="{Binding FinishCmd}"/>
+                </StackPanel>
+                <!-- 右侧：选择器区 -->
+                <StackPanel Margin="10,0,0,0" VerticalAlignment="Center">
+                    <!-- 第一行：Mode + Profile -->
+                    <StackPanel Orientation="Horizontal" MinHeight="30">
+                        <Label Content="Mode :" Margin="0,0,5,0" Padding="2,4,3,4"
+                               VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="40"/>
+                        <ComboBox x:Name="ComboBoxMode" MinWidth="120" MaxWidth="75" MinHeight="25"
+                                  FontSize="12" Padding="0"
+                                  VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                  HorizontalContentAlignment="Center"
+                                  SelectedIndex="{Binding ModeIndex}" Margin="0,0,29,0">
+                            <ComboBoxItem Content="Standard"/>
+                            <ComboBoxItem Content="Wild"/>
+                            <ComboBoxItem Content="Battlegrounds"/>
+                            <ComboBoxItem Content="Test"/>
+                            <ComboBoxItem Content="Arena"/>
+                        </ComboBox>
+                        <Label Content="Profile :" Margin="0,0,5,0" Padding="2,4,6,4"
+                               VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="56"/>
+                        <ComboBox x:Name="ComboBoxProfile" MinWidth="120" MaxWidth="110" MinHeight="25"
+                                  FontSize="12" Padding="0" Margin="0,0,5,0"
+                                  VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                  HorizontalContentAlignment="Center"
+                                  ItemsSource="{Binding ProfileNames}"
+                                  SelectedIndex="{Binding SelectedProfileIndex}"
+                                  IsEnabled="{Binding LocalRecommendationControlsEnabled}"/>
+                        <Button x:Name="ButtonRefreshProfiles" Content="↻" Width="23" Height="23"
+                                FontSize="12" VerticalAlignment="Center"
+                                HorizontalContentAlignment="Center"
+                                Command="{Binding RefreshProfilesCmd}"/>
+                        <!-- Battleground Profile — 占位 Collapsed -->
+                        <Label Content="Profile :" Visibility="Collapsed" Margin="0,0,5,0"
+                               Padding="2,4,6,4" VerticalContentAlignment="Center" MinWidth="56"/>
+                        <ComboBox x:Name="ComboBoxProfileBattleground" Visibility="Collapsed"
+                                  MinWidth="120" MaxWidth="110" MinHeight="25" FontSize="12"/>
+                        <Button x:Name="ButtonRefreshProfilesBattleground" Content="↻"
+                                Visibility="Collapsed" Width="23" Height="23"/>
+                    </StackPanel>
+                    <!-- 第二行：Deck + Mulligan + Discover -->
+                    <StackPanel Orientation="Horizontal" MinHeight="30" Margin="0,10,0,0">
+                        <Label Content="Deck :" Margin="0,0,5,0" Padding="2,4,3,4"
+                               VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="40"/>
+                        <ComboBox x:Name="ComboBoxDeck" MinWidth="120" MaxWidth="110" MinHeight="25"
+                                  FontSize="12" Padding="0" Margin="0,0,5,0"
+                                  VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                  HorizontalContentAlignment="Center"
+                                  ItemsSource="{Binding DeckNames}"
+                                  SelectedIndex="{Binding SelectedDeckIndex}"/>
+                        <Button x:Name="ButtonRefreshDeck" Content="↻" Width="23" Height="23"
+                                FontSize="12" VerticalAlignment="Center"
+                                Command="{Binding RefreshDecksCmd}" Margin="0,0,1,0"/>
+                        <Label Content="Mulligan :" Margin="0,0,5,0" Padding="2,4"
+                               VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="56"/>
+                        <ComboBox x:Name="ComboBoxMulligan" MinWidth="120" MaxWidth="110" MinHeight="25"
+                                  FontSize="12" Padding="0" Margin="0,0,5,0"
+                                  VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                  HorizontalContentAlignment="Center"
+                                  ItemsSource="{Binding MulliganNames}"
+                                  SelectedIndex="{Binding MulliganProfileIndex}"
+                                  IsEnabled="{Binding LocalRecommendationControlsEnabled}"/>
+                        <Button x:Name="ButtonRefreshMulligan" Content="↻" Width="23" Height="23"
+                                FontSize="12" VerticalAlignment="Center"
+                                Command="{Binding RefreshMulliganCmd}"/>
+                        <Label Content="Discover :" Margin="0,0,5,0" Padding="2,4"
+                               VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="56"
+                               IsEnabled="{Binding LocalRecommendationControlsEnabled}"/>
+                        <ComboBox x:Name="ComboBoxDiscover" MinWidth="100" MaxWidth="100" MinHeight="25"
+                                  FontSize="12" Padding="0" Margin="0,0,5,0"
+                                  VerticalAlignment="Center" VerticalContentAlignment="Center"
+                                  HorizontalContentAlignment="Center"
+                                  ItemsSource="{Binding DiscoverNames}"
+                                  SelectedIndex="{Binding DiscoverProfileIndex}"
+                                  IsEnabled="{Binding LocalRecommendationControlsEnabled}"/>
+                        <Button x:Name="ButtonRefreshDiscover" Content="↻" Width="23" Height="23"
+                                FontSize="12" VerticalAlignment="Center"
+                                Command="{Binding RefreshDiscoverCmd}"/>
+                    </StackPanel>
                 </StackPanel>
             </StackPanel>
-        </Border>
+        </StackPanel>
 
-        <TabControl Margin="4,4,4,4">
-            <TabItem Header="Logs">
-                <TextBox Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
-                         Background="White" Foreground="#222" BorderThickness="0"
-                         FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
-                         VerticalScrollBarVisibility="Auto" x:Name="LogBox"/>
-            </TabItem>
-            <TabItem Header="Board">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6">
-                    <StackPanel>
-                        <Border Background="#FFEBEE" Padding="6,3" Margin="0,0,0,4">
-                            <TextBlock Text="{Binding EnemyHeroInfo, StringFormat='Enemy Hero: {0}'}" FontSize="11" Foreground="#C62828"/>
-                        </Border>
-                        <TextBlock Text="Enemy Minions:" FontSize="10" Foreground="#888" Margin="0,0,0,2"/>
-                        <ItemsControl ItemsSource="{Binding EnemyMinionList}" Margin="0,0,0,6">
-                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate><DataTemplate>
-                                <Border Background="#FFCDD2" CornerRadius="2" Padding="5,2" Margin="1">
-                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
-                            </DataTemplate></ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <Separator Margin="0,2"/>
-                        <TextBlock Text="Friendly Minions:" FontSize="10" Foreground="#888" Margin="0,4,0,2"/>
-                        <ItemsControl ItemsSource="{Binding FriendMinionList}" Margin="0,0,0,6">
-                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate><DataTemplate>
-                                <Border Background="#C8E6C9" CornerRadius="2" Padding="5,2" Margin="1">
-                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
-                            </DataTemplate></ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <Border Background="#E8F5E9" Padding="6,3" Margin="0,0,0,4">
-                            <TextBlock Text="{Binding FriendHeroInfo, StringFormat='Friendly Hero: {0}'}" FontSize="11" Foreground="#2E7D32"/>
-                        </Border>
-                        <TextBlock Text="Hand:" FontSize="10" Foreground="#888" Margin="0,2,0,2"/>
-                        <ItemsControl ItemsSource="{Binding HandCardList}">
-                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            <ItemsControl.ItemTemplate><DataTemplate>
-                                <Border Background="#BBDEFB" CornerRadius="2" Padding="5,2" Margin="1">
-                                    <TextBlock Text="{Binding}" FontSize="10"/></Border>
-                            </DataTemplate></ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </StackPanel>
-                </ScrollViewer>
-            </TabItem>
-            <TabItem Header="Misplays">
-                <TextBox Text="{Binding MisplayText, Mode=OneWay}" IsReadOnly="True"
-                         Background="White" BorderThickness="0" FontFamily="Consolas"
-                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-            </TabItem>
-            <TabItem Header="Stats">
-                <TextBox Text="{Binding StatsDetailText, Mode=OneWay}" IsReadOnly="True"
-                         Background="White" BorderThickness="0" FontFamily="Consolas"
-                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-            </TabItem>
-            <TabItem Header="Debug">
-                <TextBox Text="{Binding DebugText, Mode=OneWay}" IsReadOnly="True"
-                         Background="White" BorderThickness="0" FontFamily="Consolas"
-                         FontSize="11" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
-            </TabItem>
-            <TabItem Header="Plugins">
-                <Canvas x:Name="PluginCanvas" Background="White" ClipToBounds="True"/>
-            </TabItem>
-        </TabControl>
-    </DockPanel>
+        <!-- ===== Row 1: 中间栏 — 统计 + 选项 + 功能按钮 ===== -->
+        <Grid Grid.Row="1" Margin="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="50*"/>
+                <ColumnDefinition Width="150"/>
+                <ColumnDefinition Width="100"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Col 0: 统计面板 -->
+            <Grid Grid.Column="0" Margin="0">
+                <GroupBox Header="Statistics" Margin="0" Padding="8,4,8,6">
+                    <Grid Margin="0">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="61*"/>
+                            <RowDefinition Height="16*"/>
+                        </Grid.RowDefinitions>
+                        <Label x:Name="Statslabel" Grid.RowSpan="2" Margin="0"
+                               VerticalContentAlignment="Center">
+                            <Label.Content>
+                                <TextBlock TextWrapping="Wrap" FontSize="11" Foreground="#333">
+                                    <Run Text="Runtime: "/><Run Text="{Binding RuntimeText, Mode=OneWay}"/>
+                                    <LineBreak/>
+                                    <Run Text="W: "/><Run Text="{Binding Wins, Mode=OneWay}"/>
+                                    <Run Text="  L: "/><Run Text="{Binding Losses, Mode=OneWay}"/>
+                                    <Run Text="  C: "/><Run Text="{Binding Concedes, Mode=OneWay}"/>
+                                    <LineBreak/>
+                                    <Run Text="WR: "/><Run Text="{Binding WinRate, Mode=OneWay}"/><Run Text="%"/>
+                                    <Run Text="  Rank: "/><Run Text="{Binding CurrentRankText, Mode=OneWay}"/>
+                                </TextBlock>
+                            </Label.Content>
+                        </Label>
+                        <Button Content="Reset stats" Grid.Row="1" Width="75"
+                                HorizontalAlignment="Right" Margin="0"
+                                VerticalContentAlignment="Stretch"
+                                Command="{Binding ResetStatsCmd}"/>
+                        <Button x:Name="LegendsButton" Content="Legends" Grid.Row="1" Width="75"
+                                HorizontalAlignment="Right" Margin="0,0,75,0"
+                                VerticalContentAlignment="Stretch"
+                                HorizontalContentAlignment="Center"
+                                IsEnabled="False"/>
+                    </Grid>
+                </GroupBox>
+            </Grid>
+
+            <!-- Col 1: 复选框区 -->
+            <StackPanel Grid.Column="1" Margin="15,5,0,0">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <CheckBox x:Name="SessionEnabled" Content="Task" Margin="0"
+                              VerticalAlignment="Center" Padding="4,-1,0,0"
+                              Visibility="Collapsed"/>
+                    <ComboBox x:Name="taskCombo" MinWidth="80" MaxWidth="80" Height="21"
+                              Margin="3,0,0,0" VerticalAlignment="Center"
+                              Visibility="Collapsed"/>
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <CheckBox x:Name="CheckBoxCoach" Content="Coach" FontSize="12"
+                              Margin="0" VerticalAlignment="Center"
+                              VerticalContentAlignment="Center" IsEnabled="False"/>
+                    <CheckBox x:Name="CheckBoxOverlay" Content="Overlay" FontSize="12"
+                              Margin="6,0,0,0" VerticalAlignment="Center"
+                              VerticalContentAlignment="Center" IsEnabled="False"/>
+                </StackPanel>
+                <CheckBox x:Name="CheckBoxResetStats" Content="Reset stats on start"
+                          FontSize="12" Margin="0,8,0,0" Padding="4,-1,0,0"
+                          VerticalAlignment="Center" VerticalContentAlignment="Center"
+                          IsEnabled="False"/>
+                <StackPanel Orientation="Horizontal" Margin="0,3,0,0">
+                    <CheckBox x:Name="FPSbox" Content="FPS Lock" Margin="0,0,10,0"
+                              VerticalAlignment="Center" IsEnabled="False"/>
+                    <TextBox x:Name="FPSValue" Text="60" Width="45" Height="22"
+                             VerticalAlignment="Bottom" Margin="0,2,0,0" IsEnabled="False"/>
+                </StackPanel>
+                <CheckBox x:Name="CutConAuth" Content="Cut con auth" Visibility="Collapsed"/>
+                <CheckBox x:Name="CutGameCon" Content="Cut game con" Visibility="Collapsed"/>
+                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                    <Label Content="Proxy :" Padding="2,4,5,4"/>
+                    <ComboBox x:Name="proxyDropBox" Width="92" IsEnabled="False">
+                        <ComboBoxItem Content="smartbot.ws" IsSelected="True"/>
+                        <ComboBoxItem Content="cnproxy.smartbot.ws"/>
+                    </ComboBox>
+                </StackPanel>
+                <CheckBox x:Name="CheckBoxUseWebSocket" Content="WebSocket"
+                          Margin="0,4,0,0" VerticalContentAlignment="Center"
+                          FontSize="11" Padding="4,0,0,0" IsChecked="True" IsEnabled="False"/>
+            </StackPanel>
+
+            <!-- Col 2: 功能按钮 -->
+            <StackPanel Grid.Column="2" Margin="0,5,0,0" HorizontalAlignment="Center">
+                <Button x:Name="taskEditorButton" Content="Task Editor"
+                        Margin="0,0,0,9" Visibility="Collapsed"/>
+                <Button x:Name="MissplayButton" Content="Missplay"
+                        Margin="0,0,0,6" Padding="10,4" IsEnabled="False"/>
+                <Button Content="中控" Margin="0,0,0,6" Padding="10,4"
+                        Command="{Binding OpenAccountControllerCmd}" ToolTip="多账号中控"/>
+                <Button Content="更新" Margin="0,0,0,6" Padding="10,4"
+                        Command="{Binding CheckUpdateCmd}" ToolTip="检查更新"/>
+                <Button Content="Settings" Margin="0,0,0,6" Width="93" Padding="10,4"
+                        Command="{Binding SettingsCmd}"/>
+                <Button Content="Plugins" Margin="0,0,0,4" Padding="10,4" IsEnabled="False"/>
+            </StackPanel>
+        </Grid>
+
+        <!-- ===== Row 2: 主内容区 — TabControl ===== -->
+        <Grid Grid.Row="2" Margin="0">
+            <TabControl x:Name="TabControlHeader" Margin="0"
+                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                        SelectedIndex="4">
+
+                <!-- === Tab: Debug === -->
+                <TabItem x:Name="TabDebug" Header="Debug">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="4*"/>
+                            <RowDefinition Height="23*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Orientation="Horizontal" Margin="0">
+                            <Label x:Name="DebugLabel" Content="Seed :" VerticalAlignment="Center"/>
+                            <TextBox x:Name="DebugInput" Width="50" VerticalAlignment="Center" MaxLines="1"/>
+                            <Button x:Name="DebugButton" Content="Execute" Width="50"
+                                    VerticalAlignment="Center" IsEnabled="False"/>
+                            <Button x:Name="DebugClearButton" Content="Clear" Width="50"
+                                    VerticalAlignment="Center" Margin="0" IsEnabled="False"/>
+                            <Button x:Name="DebugClearLogButton" Content="Clear Log" Width="70"
+                                    VerticalAlignment="Center" Margin="0" IsEnabled="False"/>
+                            <ComboBox x:Name="ComboBoxProfileDebug" Margin="5,0,0,0" FontSize="12"
+                                      VerticalAlignment="Center" MinHeight="23" IsEnabled="False"
+                                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            <ComboBox x:Name="ComboBoxModeDebug" Margin="5,0,0,0" FontSize="12"
+                                      VerticalAlignment="Center" IsEnabled="False"
+                                      HorizontalContentAlignment="Center" VerticalContentAlignment="Center"/>
+                            <Button x:Name="ButtonRefreshProfilesDebug" Content="↻" FontSize="12"
+                                    Margin="5,7,0,7" Width="20" Height="20" IsEnabled="False"/>
+                        </StackPanel>
+                        <TabControl x:Name="tabControl2" Grid.Row="1" Margin="0">
+                            <TabItem x:Name="TabBoardDEbu" Header="Board">
+                                <Grid Margin="0">
+                                    <TabControl>
+                                        <TabItem Header="Current">
+                                            <Grid>
+                                                <TextBox x:Name="DebugTextBox" Margin="0" TextWrapping="Wrap"
+                                                         IsReadOnly="True" Text="{Binding DebugText, Mode=OneWay}"/>
+                                            </Grid>
+                                        </TabItem>
+                                        <TabItem Header="Before">
+                                            <Grid>
+                                                <TextBox x:Name="DebugTextBoxBefore" Margin="0"
+                                                         TextWrapping="Wrap" IsReadOnly="True"/>
+                                            </Grid>
+                                        </TabItem>
+                                        <TabItem Header="After">
+                                            <Grid>
+                                                <TextBox x:Name="DebugTextBoxAfter" Margin="0"
+                                                         TextWrapping="Wrap" IsReadOnly="True"/>
+                                            </Grid>
+                                        </TabItem>
+                                    </TabControl>
+                                </Grid>
+                            </TabItem>
+                            <TabItem Header="Mulligan">
+                                <Grid IsEnabled="False">
+                                    <ComboBox x:Name="mullTestOne" HorizontalAlignment="Left" Margin="10,10,0,0"
+                                              VerticalAlignment="Top" Width="131" IsEditable="True"/>
+                                    <ComboBox x:Name="mullTestTwo" HorizontalAlignment="Left" Margin="10,36,0,0"
+                                              VerticalAlignment="Top" Width="131" IsEditable="True"/>
+                                    <ComboBox x:Name="mullTestThree" HorizontalAlignment="Left" Margin="10,63,0,0"
+                                              VerticalAlignment="Top" Width="131" IsEditable="True"/>
+                                    <ComboBox x:Name="mullTestFour" HorizontalAlignment="Left" Margin="10,90,0,0"
+                                              VerticalAlignment="Top" Width="131" IsEditable="True"/>
+                                    <Label Content="Own hero :" HorizontalAlignment="Left" Margin="155,11,0,0"
+                                           VerticalAlignment="Top"/>
+                                    <Label Content="Enemy hero :" HorizontalAlignment="Left" Margin="156,47,0,0"
+                                           VerticalAlignment="Top"/>
+                                    <ComboBox x:Name="mullOwnHero" HorizontalAlignment="Left" Margin="239,16,0,0"
+                                              VerticalAlignment="Top" Width="70"/>
+                                    <ComboBox x:Name="mullEnemyHero" HorizontalAlignment="Left" Margin="239,47,0,0"
+                                              VerticalAlignment="Top" Width="70"/>
+                                    <Button x:Name="mulltest" Content="Test" HorizontalAlignment="Left"
+                                            Margin="228,86,0,0" VerticalAlignment="Top" Width="81"/>
+                                    <TextBox x:Name="mullTestRes" HorizontalAlignment="Left" Margin="317,0,0,0"
+                                             TextWrapping="Wrap" VerticalAlignment="Center" Width="174" Height="90"/>
+                                </Grid>
+                            </TabItem>
+                            <TabItem Header="Discover">
+                                <Grid IsEnabled="False">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="32*"/>
+                                        <RowDefinition Height="178*"/>
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Orientation="Horizontal" Margin="0">
+                                        <Label Content="Choices :" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="discoChoiceOne" MinWidth="40" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="discoChoiceTwo" MinWidth="40" Margin="5,0,0,0"
+                                                 VerticalAlignment="Center"/>
+                                        <TextBox x:Name="discoChoiceThree" MinWidth="40" Margin="5,0,0,0"
+                                                 VerticalAlignment="Center"/>
+                                        <Label Content="Origin :" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="discoChoiceOrigin" MinWidth="40" Margin="5,3.82,0,3.78"
+                                                 VerticalAlignment="Center"/>
+                                        <Button x:Name="discoverDebugFromClipboard" Content="From clipboard"
+                                                Width="123" VerticalAlignment="Center" Margin="20,0,0,0"/>
+                                    </StackPanel>
+                                    <TextBox x:Name="debugDiscoOut" Grid.Row="1" Margin="0" TextWrapping="Wrap"/>
+                                </Grid>
+                            </TabItem>
+                            <TabItem x:Name="hiddentab" Header="Advanced" Visibility="Hidden">
+                                <Grid IsEnabled="False">
+                                    <Label Content="Debug tools" HorizontalAlignment="Left"
+                                           Margin="10,10,0,0" VerticalAlignment="Top"/>
+                                    <Button x:Name="DebugObjectsButton" Content="Objects" Height="20"
+                                            Margin="10,53,0,93.4" HorizontalAlignment="Left"/>
+                                    <TextBox x:Name="xcoord" Text="xcoord" Margin="10,86,0,62.4"
+                                             HorizontalAlignment="Left" VerticalAlignment="Center" MinWidth="20"/>
+                                    <TextBox x:Name="ycoord" Text="ycoord" Margin="52,86,0,62.4"
+                                             HorizontalAlignment="Left" VerticalAlignment="Center" MinWidth="20"/>
+                                    <Button x:Name="sendcoords" Content="Send" Margin="100,86,0,61.4"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </TabItem>
+
+                <!-- === Tab: Changelog (空壳) === -->
+                <TabItem x:Name="TabChangelog" Header="Changelog">
+                    <TabControl x:Name="TabControlChangelog"
+                                HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch">
+                        <TabItem x:Name="TabChangelogAI" Header="AI">
+                            <Grid>
+                                <FlowDocumentScrollViewer x:Name="RichTextChangelogAI"
+                                    VerticalScrollBarVisibility="Auto" IsToolBarVisible="False" Margin="0"/>
+                            </Grid>
+                        </TabItem>
+                        <TabItem x:Name="TabChangelogBot" Header="Bot">
+                            <Grid>
+                                <FlowDocumentScrollViewer x:Name="RichTextChangelog"
+                                    VerticalScrollBarVisibility="Auto" IsToolBarVisible="False" Margin="0"/>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
+                </TabItem>
+
+                <!-- === Tab: Stats === -->
+                <TabItem x:Name="TabStats" Header="Stats">
+                    <Grid>
+                        <TabControl Margin="0" Grid.RowSpan="2">
+                            <TabItem Header="Overview">
+                                <Grid Margin="10,0,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="5*"/>
+                                        <RowDefinition Height="33*"/>
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,0" HorizontalAlignment="Left">
+                                        <Label Content="Period :" VerticalAlignment="Center"/>
+                                        <RadioButton x:Name="StatsOneHour" Content="1h" IsChecked="True"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                        <RadioButton x:Name="StatsTwelveHours" Content="12h"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                        <RadioButton x:Name="StatsTwentyFourHours" Content="24h"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                        <RadioButton x:Name="StatsSeventyTwoHours" Content="72h"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                        <RadioButton x:Name="StatsMonthly" Content="Monthly"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                        <RadioButton x:Name="StatsLastMonthly" Content="Last month"
+                                                     VerticalContentAlignment="Center" Margin="0,0,10,0"
+                                                     VerticalAlignment="Center" IsEnabled="False"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0">
+                                        <TextBox x:Name="ArenaStatsTextbox" TextWrapping="Wrap" Margin="0,10,12,0"
+                                                 VerticalAlignment="Top" IsReadOnly="True" FontFamily="Courier New"
+                                                 Padding="6,4" Text="{Binding StatsDetailText, Mode=OneWay}"/>
+                                        <TextBox x:Name="RankedStdTextbox" TextWrapping="Wrap" Margin="0,10,12,0"
+                                                 VerticalAlignment="Top" IsReadOnly="True" FontFamily="Courier New"
+                                                 Padding="6,4"/>
+                                        <TextBox x:Name="RankedWTextbox" TextWrapping="Wrap" Margin="0,10,12,0"
+                                                 VerticalAlignment="Top" IsReadOnly="True" FontFamily="Courier New"
+                                                 Padding="6,4"/>
+                                        <TextBox x:Name="RankedCTextbox" TextWrapping="Wrap" Margin="0,10,12,0"
+                                                 VerticalAlignment="Top" IsReadOnly="True" FontFamily="Courier New"
+                                                 Padding="6,4"/>
+                                    </StackPanel>
+                                </Grid>
+                            </TabItem>
+                            <TabItem Header="By profile">
+                                <Grid Margin="0" IsEnabled="False">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="13*"/>
+                                        <RowDefinition Height="87*"/>
+                                    </Grid.RowDefinitions>
+                                    <Label Content="Profile :" HorizontalAlignment="Left" Margin="10,0,0,0"
+                                           VerticalAlignment="Top"/>
+                                    <ComboBox x:Name="profStatComboBox" HorizontalAlignment="Left"
+                                              Margin="100,0,0,0" VerticalAlignment="Top" Width="120"/>
+                                    <RadioButton x:Name="profStatClassicBut" Content="Classic"
+                                                 HorizontalAlignment="Left" Margin="225,0,0,0"
+                                                 VerticalAlignment="Top" Height="21" IsChecked="True"
+                                                 VerticalContentAlignment="Center"/>
+                                    <RadioButton x:Name="profStatStandardBut" Content="Standard"
+                                                 HorizontalAlignment="Left" Margin="284,0,0,0"
+                                                 VerticalAlignment="Top" Height="21"
+                                                 VerticalContentAlignment="Center"/>
+                                    <RadioButton x:Name="profStatWildBut" Content="Wild"
+                                                 HorizontalAlignment="Left" Margin="355,0,0,0"
+                                                 VerticalAlignment="Top" Height="21"
+                                                 VerticalContentAlignment="Center"/>
+                                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0">
+                                        <TextBox x:Name="profStatsTextBoxStd" TextWrapping="Wrap"
+                                                 FontSize="11" IsReadOnly="True" TextAlignment="Right"/>
+                                        <TextBox x:Name="profStatsTextBoxStd_Copy" TextWrapping="Wrap"
+                                                 FontSize="11" IsReadOnly="True"/>
+                                    </StackPanel>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </TabItem>
+
+                <!-- === Tab: Misplays === -->
+                <TabItem x:Name="TabMissplay" Header="Misplays">
+                    <Grid>
+                        <TabControl x:Name="tabControl" Margin="0,0,0,-1">
+                            <TabItem x:Name="MissplayInfosTab" Header="Info">
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="30"/>
+                                        <RowDefinition Height="213*"/>
+                                    </Grid.RowDefinitions>
+                                    <StackPanel x:Name="PanelMissplay" Orientation="Horizontal">
+                                        <Label x:Name="labelMissplays"/>
+                                        <Button x:Name="button1" Content="Refresh" IsEnabled="False"/>
+                                    </StackPanel>
+                                    <TextBox Grid.Row="1" Text="{Binding MisplayText, Mode=OneWay}"
+                                             IsReadOnly="True" FontFamily="Consolas" FontSize="11"
+                                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"/>
+                                </Grid>
+                            </TabItem>
+                            <TabItem x:Name="MissplayLeaderboard" Header="Leaderboard">
+                                <Grid IsEnabled="False">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="45"/>
+                                        <RowDefinition Height="106*"/>
+                                    </Grid.RowDefinitions>
+                                    <Label x:Name="LabelMissplayStats" Content=""
+                                           VerticalContentAlignment="Center" MinHeight="30"/>
+                                    <TabControl x:Name="tabControl1" Grid.Row="1" Margin="0">
+                                        <TabItem Header="This month">
+                                            <Grid>
+                                                <RichTextBox x:Name="Leaderboard" IsReadOnly="True"
+                                                             FontFamily="Courier New" AllowDrop="False"
+                                                             IsUndoEnabled="False" AcceptsReturn="False" Margin="0">
+                                                    <FlowDocument><Paragraph/></FlowDocument>
+                                                </RichTextBox>
+                                            </Grid>
+                                        </TabItem>
+                                        <TabItem Header="Last month">
+                                            <Grid>
+                                                <RichTextBox x:Name="LeaderboardMonth" IsReadOnly="True"
+                                                             FontFamily="Courier New" AllowDrop="False"
+                                                             IsUndoEnabled="False" AcceptsReturn="False" Margin="0">
+                                                    <FlowDocument><Paragraph/></FlowDocument>
+                                                </RichTextBox>
+                                            </Grid>
+                                        </TabItem>
+                                    </TabControl>
+                                </Grid>
+                            </TabItem>
+                            <TabItem x:Name="MissplayEditTab" Header="Edit" Visibility="Hidden">
+                                <Grid IsEnabled="False">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="30"/>
+                                        <RowDefinition Height="208*"/>
+                                    </Grid.RowDefinitions>
+                                    <StackPanel Orientation="Horizontal">
+                                        <RadioButton Content="Ranked" GroupName="Buttons" VerticalAlignment="Center"/>
+                                        <RadioButton Content="Arena" GroupName="Buttons" VerticalAlignment="Center"/>
+                                        <RadioButton Content="Practice" GroupName="Buttons" VerticalAlignment="Center"/>
+                                        <RadioButton Content="Secret" GroupName="Buttons" VerticalAlignment="Center"/>
+                                        <RadioButton Content="Wild" GroupName="Buttons" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                    <ListBox x:Name="MissplayEditListBox" Grid.Row="1"
+                                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+                                </Grid>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                </TabItem>
+
+                <!-- === Tab: Logs === -->
+                <TabItem x:Name="TabLog" Header="Logs">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="2,2,2,0">
+                            <TextBox x:Name="LogSearchBox" Width="150" Margin="2"
+                                     VerticalContentAlignment="Center" FontSize="11" Padding="4,2"
+                                     IsEnabled="False"/>
+                            <Button x:Name="LogFilterAll" Content="All" Margin="2" Padding="6,2"
+                                    FontSize="11" FontWeight="Bold" IsEnabled="False"/>
+                            <Button x:Name="LogFilterErrors" Content="Errors" Margin="2" Padding="6,2"
+                                    FontSize="11" IsEnabled="False"/>
+                            <Button x:Name="LogFilterActions" Content="Actions" Margin="2" Padding="6,2"
+                                    FontSize="11" IsEnabled="False"/>
+                            <Button x:Name="LogFilterCurrentGame" Content="Current game" Margin="2"
+                                    Padding="6,2" FontSize="11" IsEnabled="False"/>
+                            <Button x:Name="LogFilterLastGame" Content="Last game" Margin="2"
+                                    Padding="6,2" FontSize="11" IsEnabled="False"/>
+                        </StackPanel>
+                        <TextBox x:Name="LogBox" Grid.Row="1"
+                                 Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
+                                 Background="White" Foreground="#222" BorderThickness="0"
+                                 FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto"/>
+                    </Grid>
+                </TabItem>
+
+                <!-- === Tab: Board === -->
+                <TabItem Header="Board">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="6">
+                        <StackPanel>
+                            <Border Background="#FFEBEE" Padding="6,3" Margin="0,0,0,4">
+                                <TextBlock Text="{Binding EnemyHeroInfo, StringFormat='Enemy Hero: {0}'}"
+                                           FontSize="11" Foreground="#C62828"/>
+                            </Border>
+                            <TextBlock Text="Enemy Minions:" FontSize="10" Foreground="#888" Margin="0,0,0,2"/>
+                            <ItemsControl ItemsSource="{Binding EnemyMinionList}" Margin="0,0,0,6">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border Background="#FFCDD2" CornerRadius="2" Padding="5,2" Margin="1">
+                                        <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Separator Margin="0,2"/>
+                            <TextBlock Text="Friendly Minions:" FontSize="10" Foreground="#888" Margin="0,4,0,2"/>
+                            <ItemsControl ItemsSource="{Binding FriendMinionList}" Margin="0,0,0,6">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border Background="#C8E6C9" CornerRadius="2" Padding="5,2" Margin="1">
+                                        <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Border Background="#E8F5E9" Padding="6,3" Margin="0,0,0,4">
+                                <TextBlock Text="{Binding FriendHeroInfo, StringFormat='Friendly Hero: {0}'}"
+                                           FontSize="11" Foreground="#2E7D32"/>
+                            </Border>
+                            <TextBlock Text="Hand:" FontSize="10" Foreground="#888" Margin="0,2,0,2"/>
+                            <ItemsControl ItemsSource="{Binding HandCardList}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate><DataTemplate>
+                                    <Border Background="#BBDEFB" CornerRadius="2" Padding="5,2" Margin="1">
+                                        <TextBlock Text="{Binding}" FontSize="10"/></Border>
+                                </DataTemplate></ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
+
+                <!-- === Tab: Plugins === -->
+                <TabItem Header="Plugins">
+                    <Canvas x:Name="PluginCanvas" Background="White" ClipToBounds="True"/>
+                </TabItem>
+            </TabControl>
+
+            <!-- SaveLog 按钮浮在 TabControl 上方 -->
+            <Button x:Name="SaveLogButton" Content="Save log as..."
+                    HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="0,10,0,0" Command="{Binding SaveLogCmd}"/>
+        </Grid>
+    </Grid>
 </Window>
