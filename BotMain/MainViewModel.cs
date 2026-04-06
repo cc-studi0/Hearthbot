@@ -91,6 +91,9 @@ namespace BotMain
                 Notify(nameof(IsRunning));
                 Notify(nameof(TopStatusText));
                 Notify(nameof(MainButtonText));
+                Notify(nameof(InjectButtonVisibility));
+                Notify(nameof(StartButtonVisibility));
+                Notify(nameof(StopButtonVisibility));
             });
             _bot.OnStatsChanged += stats => _dispatcher.BeginInvoke(() =>
             {
@@ -299,6 +302,13 @@ namespace BotMain
         public string MainButtonText => _bot.State == BotState.Idle
             ? (_bot.IsPrepared ? "Start" : "Inject")
             : "Stop";
+
+        public System.Windows.Visibility InjectButtonVisibility =>
+            _bot.State == BotState.Idle && !_bot.IsPrepared ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        public System.Windows.Visibility StartButtonVisibility =>
+            _bot.State == BotState.Idle && _bot.IsPrepared ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
+        public System.Windows.Visibility StopButtonVisibility =>
+            _bot.State != BotState.Idle ? System.Windows.Visibility.Visible : System.Windows.Visibility.Collapsed;
 
         // 统计
         public int Wins { get; set; }
