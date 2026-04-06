@@ -4,6 +4,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BotMain.AI;
@@ -151,6 +153,7 @@ namespace BotMain
         private long _lastConsumedHsBoxActionUpdatedAtMs;
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
         private string _lastConsumedHsBoxActionCommand = string.Empty;
+        private string _lastConsumedBoardFingerprint = string.Empty;
         private long _hsBoxActionMinimumUpdatedAtMs;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
@@ -1273,10 +1276,11 @@ namespace BotMain
             _lastConsumedHsBoxActionUpdatedAtMs = 0;
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
             _lastConsumedHsBoxActionCommand = string.Empty;
+            _lastConsumedBoardFingerprint = string.Empty;
             _hsBoxActionMinimumUpdatedAtMs = 0;
         }
 
-        private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation, string executedAction)
+        private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint = null)
         {
             if (recommendation == null)
                 return;
@@ -1292,6 +1296,8 @@ namespace BotMain
             _lastConsumedHsBoxActionCommand = string.IsNullOrWhiteSpace(executedAction)
                 ? ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(recommendation.Actions)
                 : executedAction.Trim();
+            if (!string.IsNullOrWhiteSpace(boardFingerprint))
+                _lastConsumedBoardFingerprint = boardFingerprint;
         }
 
         private void RefreshHsBoxActionMinimumUpdatedAtNow()
@@ -1302,6 +1308,34 @@ namespace BotMain
         }
 
         private long GetHsBoxActionMinimumUpdatedAtMs() => Math.Max(0, _hsBoxActionMinimumUpdatedAtMs);
+
+        private static string BuildBoardFingerprint(Board board)
+        {
+            if (board == null) return string.Empty;
+            var sb = new StringBuilder(256);
+            sb.Append(board.TurnCount).Append('|');
+            sb.Append(board.ManaAvailable).Append('|');
+            if (board.Hand != null)
+                foreach (var c in board.Hand.Where(c => c != null).OrderBy(c => c.Id))
+                    sb.Append(c.Id).Append(',');
+            sb.Append('|');
+            if (board.MinionFriend != null)
+                foreach (var m in board.MinionFriend.Where(m => m != null).OrderBy(m => m.Id))
+                    sb.Append(m.Id).Append(':').Append(m.CurrentHealth).Append(',');
+            sb.Append('|');
+            if (board.MinionEnemy != null)
+                foreach (var m in board.MinionEnemy.Where(m => m != null).OrderBy(m => m.Id))
+                    sb.Append(m.Id).Append(':').Append(m.CurrentHealth).Append(',');
+            sb.Append('|');
+            sb.Append(board.HeroFriend?.CurrentHealth ?? 0).Append('|');
+            sb.Append(board.HeroEnemy?.CurrentHealth ?? 0);
+
+            using (var sha = SHA256.Create())
+            {
+                var hash = sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()));
+                return BitConverter.ToString(hash, 0, 8).Replace("-", "").ToLowerInvariant();
+            }
+        }
 
         private PendingAcquisitionContext ResolvePendingOrigin(int sourceEntityId, string sourceCardId)
         {
@@ -2561,6 +2595,7 @@ namespace BotMain
                 cachedDeckCards = deckCards;
                 cachedFriendlyEntities = friendlyEntities;
                 recommendationStage = "build_action_request";
+                var currentBoardFingerprint = BuildBoardFingerprint(planningBoard);
                 var actionRequest = new ActionRecommendationRequest(
                     seed,
                     planningBoard,
@@ -2574,7 +2609,9 @@ namespace BotMain
                     BuildMatchContext(planningBoard),
                     _lastConsumedHsBoxActionUpdatedAtMs,
                     _lastConsumedHsBoxActionPayloadSignature,
-                    _lastConsumedHsBoxActionCommand);
+                    _lastConsumedHsBoxActionCommand,
+                    currentBoardFingerprint,
+                    _lastConsumedBoardFingerprint);
 
                 recommendationStage = "recommend_actions";
                 var sw = Stopwatch.StartNew();
@@ -2810,7 +2847,7 @@ namespace BotMain
                                 break;
                             }
 
-                            RememberConsumedHsBoxActionRecommendation(recommendation, action);
+                            RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
@@ -3620,6 +3657,7 @@ namespace BotMain
                 }
 
                 // 获取推荐动作
+                var currentBoardFingerprint = BuildBoardFingerprint(planningBoard);
                 var actionRequest = new ActionRecommendationRequest(
                     seed,
                     planningBoard,
@@ -3630,7 +3668,9 @@ namespace BotMain
                     BuildMatchContext(planningBoard),
                     _lastConsumedHsBoxActionUpdatedAtMs,
                     _lastConsumedHsBoxActionPayloadSignature,
-                    _lastConsumedHsBoxActionCommand);
+                    _lastConsumedHsBoxActionCommand,
+                    currentBoardFingerprint,
+                    _lastConsumedBoardFingerprint);
 
                 ActionRecommendationResult recommendation;
                 try
@@ -3720,7 +3760,7 @@ namespace BotMain
                         break;
                     }
 
-                    RememberConsumedHsBoxActionRecommendation(recommendation, action);
+                    RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
 
                     // 检查动作后是否触发了发现/选择界面
                     bool nextIsOption = ai < actions.Count - 1
