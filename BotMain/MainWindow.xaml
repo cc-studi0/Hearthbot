@@ -153,15 +153,16 @@
                                 </TextBlock>
                             </Label.Content>
                         </Label>
-                        <Button Content="Reset stats" Grid.Row="1" Width="75"
-                                HorizontalAlignment="Right" Margin="0"
-                                VerticalContentAlignment="Stretch"
-                                Command="{Binding ResetStatsCmd}"/>
-                        <Button x:Name="LegendsButton" Content="Legends" Grid.Row="1" Width="75"
-                                HorizontalAlignment="Right" Margin="0,0,75,0"
-                                VerticalContentAlignment="Stretch"
-                                HorizontalContentAlignment="Center"
-                                IsEnabled="False"/>
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                                    VerticalAlignment="Bottom">
+                            <Button x:Name="LegendsButton" Content="Legends" Width="65"
+                                    Margin="0,0,4,0" Padding="4,2"
+                                    HorizontalContentAlignment="Center" IsEnabled="False"/>
+                            <Button Content="Reset stats" Width="70" Padding="4,2"
+                                    Margin="0,0,4,0" Command="{Binding ResetStatsCmd}"/>
+                            <Button Content="Save log" Width="60" Padding="4,2"
+                                    Command="{Binding SaveLogCmd}"/>
+                        </StackPanel>
                     </Grid>
                 </GroupBox>
             </Grid>
@@ -211,16 +212,18 @@
             <!-- Col 2: 功能按钮 -->
             <StackPanel Grid.Column="2" Margin="0,5,0,0" HorizontalAlignment="Center">
                 <Button x:Name="taskEditorButton" Content="Task Editor"
-                        Margin="0,0,0,9" Visibility="Collapsed"/>
+                        Margin="0,0,0,6" Visibility="Collapsed"/>
                 <Button x:Name="MissplayButton" Content="Missplay"
-                        Margin="0,0,0,6" Padding="10,4" IsEnabled="False"/>
-                <Button Content="中控" Margin="0,0,0,6" Padding="10,4"
-                        Command="{Binding OpenAccountControllerCmd}" ToolTip="多账号中控"/>
-                <Button Content="更新" Margin="0,0,0,6" Padding="10,4"
-                        Command="{Binding CheckUpdateCmd}" ToolTip="检查更新"/>
-                <Button Content="Settings" Margin="0,0,0,6" Width="93" Padding="10,4"
+                        Margin="0,0,0,4" Padding="10,2" IsEnabled="False"/>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                    <Button Content="中控" Padding="6,2"
+                            Command="{Binding OpenAccountControllerCmd}" ToolTip="多账号中控"/>
+                    <Button Content="更新" Padding="6,2" Margin="3,0,0,0"
+                            Command="{Binding CheckUpdateCmd}" ToolTip="检查更新"/>
+                </StackPanel>
+                <Button Content="Settings" Margin="0,0,0,4" Width="93" Padding="10,2"
                         Command="{Binding SettingsCmd}"/>
-                <Button Content="Plugins" Margin="0,0,0,4" Padding="10,4" IsEnabled="False"/>
+                <Button Content="Plugins" Margin="0,0,0,2" Padding="10,2" IsEnabled="False"/>
             </StackPanel>
         </Grid>
 
@@ -591,10 +594,6 @@
                 </TabItem>
             </TabControl>
 
-            <!-- SaveLog 按钮浮在 TabControl 上方 -->
-            <Button x:Name="SaveLogButton" Content="Save log as..."
-                    HorizontalAlignment="Left" VerticalAlignment="Top"
-                    Margin="0,10,0,0" Command="{Binding SaveLogCmd}"/>
         </Grid>
     </Grid>
 </Window>
