@@ -136,7 +136,9 @@ namespace BotMain
             MatchContextSnapshot matchContext = null,
             long lastConsumedUpdatedAtMs = 0,
             string lastConsumedPayloadSignature = null,
-            string lastConsumedActionCommand = null)
+            string lastConsumedActionCommand = null,
+            string boardFingerprint = null,
+            string lastConsumedBoardFingerprint = null)
         {
             Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             PlanningBoard = planningBoard;
@@ -151,6 +153,8 @@ namespace BotMain
             LastConsumedUpdatedAtMs = lastConsumedUpdatedAtMs;
             LastConsumedPayloadSignature = lastConsumedPayloadSignature ?? string.Empty;
             LastConsumedActionCommand = lastConsumedActionCommand ?? string.Empty;
+            BoardFingerprint = boardFingerprint ?? string.Empty;
+            LastConsumedBoardFingerprint = lastConsumedBoardFingerprint ?? string.Empty;
         }
 
         public string Seed { get; }
@@ -166,6 +170,8 @@ namespace BotMain
         public long LastConsumedUpdatedAtMs { get; }
         public string LastConsumedPayloadSignature { get; }
         public string LastConsumedActionCommand { get; }
+        public string BoardFingerprint { get; }
+        public string LastConsumedBoardFingerprint { get; }
     }
 
     internal sealed class ActionRecommendationResult
@@ -375,6 +381,13 @@ namespace BotMain
                 return string.Empty;
 
             return $"{state.UpdatedAtMs}|{state.PayloadSignature ?? string.Empty}|{firstAction ?? string.Empty}";
+        }
+
+        public static bool IsBoardChanged(string currentFingerprint, string lastConsumedFingerprint)
+        {
+            if (string.IsNullOrWhiteSpace(currentFingerprint) || string.IsNullOrWhiteSpace(lastConsumedFingerprint))
+                return false;
+            return !string.Equals(currentFingerprint, lastConsumedFingerprint, StringComparison.Ordinal);
         }
     }
 
