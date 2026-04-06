@@ -836,6 +836,83 @@ namespace HearthstonePayload
             {
                 _pipe.Write("PONG");
             }
+            else if (cmd == "GC")
+            {
+                try
+                {
+                    UnityEngine.Resources.UnloadUnusedAssets();
+                    System.GC.Collect();
+                    _logSource?.LogInfo("[GC] UnloadUnusedAssets + GC.Collect triggered by BotMain.");
+                    _pipe.Write("GC:done");
+                }
+                catch (Exception ex)
+                {
+                    _logSource?.LogWarning("[GC] failed: " + ex.Message);
+                    _pipe.Write("GC:error:" + ex.Message);
+                }
+            }
+            else if (cmd == "NETSTATUS")
+            {
+                try
+                {
+                    var ctx = ReflectionContext.Instance;
+                    if (ctx.NetworkType == null)
+                    {
+                        _pipe.Write("NETSTATUS:unknown");
+                        return;
+                    }
+
+                    var getMethod = ctx.NetworkType.GetMethod("Get",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+                    if (getMethod == null)
+                    {
+                        _pipe.Write("NETSTATUS:unknown");
+                        return;
+                    }
+
+                    var networkInstance = getMethod.Invoke(null, null);
+                    if (networkInstance == null)
+                    {
+                        _pipe.Write("NETSTATUS:disconnected;reason=no_instance");
+                        return;
+                    }
+
+                    bool connected = false;
+                    string reason = "unknown";
+
+                    var auroraMethod = ctx.NetworkType.GetMethod("IsConnectedToAurora",
+                        System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                    if (auroraMethod != null)
+                    {
+                        connected = (bool)auroraMethod.Invoke(networkInstance, null);
+                        reason = connected ? "aurora" : "server_lost";
+                    }
+                    else
+                    {
+                        var connMethod = ctx.NetworkType.GetMethod("IsConnected",
+                            System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                        if (connMethod != null)
+                        {
+                            connected = (bool)connMethod.Invoke(networkInstance, null);
+                            reason = connected ? "generic" : "server_lost";
+                        }
+                        else
+                        {
+                            _pipe.Write("NETSTATUS:unknown");
+                            return;
+                        }
+                    }
+
+                    _pipe.Write(connected
+                        ? "NETSTATUS:connected"
+                        : "NETSTATUS:disconnected;reason=" + reason);
+                }
+                catch (Exception ex)
+                {
+                    _logSource?.LogWarning("[NETSTATUS] check failed: " + ex.Message);
+                    _pipe.Write("NETSTATUS:unknown");
+                }
+            }
             else if (cmd.StartsWith("REFLECT:", StringComparison.Ordinal))
             {
                 _pipe.Write(nav.Reflect(cmd.Substring(8)));

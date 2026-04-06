@@ -223,6 +223,16 @@ namespace BotMain
             }
         }
 
+        /// <summary>
+        /// 供外部监控器（MemoryMonitor / NetworkMonitor）触发恢复流程。
+        /// </summary>
+        public void TriggerRecovery(string reason)
+        {
+            if (_state == WatchdogState.Recovering || _state == WatchdogState.Disabled)
+                return;
+            EnterRecovering(reason);
+        }
+
         private void EnterRecovering(string reason)
         {
             TransitionTo(WatchdogState.Recovering);

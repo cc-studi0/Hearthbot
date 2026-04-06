@@ -223,6 +223,48 @@ namespace BotMain
         {
             get { lock (_sync) { return _pipe != null && _pipe.IsConnected; } }
         }
+        /// <summary>
+        /// 通过 Pipe 发送 GC 命令让 Payload 执行内存清理。
+        /// 返回 true 表示命令已成功发送且收到确认。
+        /// </summary>
+        public bool RequestPayloadGC()
+        {
+            lock (_sync)
+            {
+                if (_pipe == null || !_pipe.IsConnected) return false;
+                var resp = _pipe.SendAndReceive("GC", 5000);
+                return resp != null && resp.StartsWith("GC:", StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        /// <summary>
+        /// 通过 Pipe 查询 Payload 端的游戏网络状态。
+        /// 返回原始响应字符串，如 "NETSTATUS:connected"。
+        /// </summary>
+        public string QueryPayloadNetStatus()
+        {
+            lock (_sync)
+            {
+                if (_pipe == null || !_pipe.IsConnected) return null;
+                return _pipe.SendAndReceive("NETSTATUS", 3000);
+            }
+        }
+
+        /// <summary>
+        /// 获取当前炉石进程的工作集内存（字节）。
+        /// </summary>
+        public static long? GetHearthstoneMemoryBytes()
+        {
+            try
+            {
+                var procs = System.Diagnostics.Process.GetProcessesByName("Hearthstone");
+                if (procs.Length == 0) return null;
+                try { return procs[0].WorkingSet64; }
+                finally { foreach (var p in procs) p.Dispose(); }
+            }
+            catch { return null; }
+        }
+
         public StatsBridge Stats => _stats;
         public List<string> ProfileNames { get; private set; } = new();
         public List<string> MulliganProfileNames { get; private set; } = new();

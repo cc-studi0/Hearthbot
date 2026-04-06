@@ -37,6 +37,8 @@ namespace BotMain
         private CommandExecutor? _commandExecutor;
         private AutoUpdater? _autoUpdater;
         private HearthstoneWatchdog? _watchdog;
+        private MemoryMonitor? _memoryMonitor;
+        private NetworkMonitor? _networkMonitor;
 #nullable restore
         private readonly Dispatcher _dispatcher;
         private readonly DispatcherTimer _timer;
@@ -270,6 +272,8 @@ namespace BotMain
 
         public void Dispose()
         {
+            _memoryMonitor?.Dispose();
+            _networkMonitor?.Dispose();
             _watchdog?.Dispose();
             _autoUpdater?.Dispose();
             _cloudAgent?.Dispose();
@@ -883,10 +887,33 @@ namespace BotMain
                 _watchdog.StateChanged += state =>
                     _dispatcher.BeginInvoke(() => AppendLocalLog($"[Watchdog] 状态: {WatchdogStateToString(state)}"));
                 _watchdog.Start();
+
+                // 启动内存监控
+                _memoryMonitor?.Stop();
+                _memoryMonitor = new MemoryMonitor
+                {
+                    GetHearthstoneMemoryBytes = () => BotService.GetHearthstoneMemoryBytes(),
+                    RequestGarbageCollection = () => _bot.RequestPayloadGC(),
+                    OnMemoryAlert = reason => _watchdog?.TriggerRecovery(reason),
+                    Log = EnqueueLog
+                };
+                _memoryMonitor.Start();
+
+                // 启动网络监控
+                _networkMonitor?.Stop();
+                _networkMonitor = new NetworkMonitor
+                {
+                    QueryNetStatus = () => _bot.QueryPayloadNetStatus(),
+                    OnNetworkAlert = reason => _watchdog?.TriggerRecovery(reason),
+                    Log = EnqueueLog
+                };
+                _networkMonitor.Start();
             }
             else
             {
                 _watchdog?.Stop();
+                _memoryMonitor?.Stop();
+                _networkMonitor?.Stop();
                 _timer.Stop();
                 _bot.Stop();
             }
