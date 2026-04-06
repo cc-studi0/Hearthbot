@@ -2047,6 +2047,8 @@ namespace BotMain
             int resimulationCount = 0;
             int actionFailStreak = 0;
             int actionFailResetCycles = 0;
+            int sameBoardStalledCount = 0;
+            string sameBoardStalledFingerprint = string.Empty;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
             DateTime nextTickUtc = DateTime.UtcNow;
             int seedNotReadyStreak = 0;
@@ -2625,9 +2627,28 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
+                    if (string.Equals(currentBoardFingerprint, sameBoardStalledFingerprint, StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(currentBoardFingerprint))
+                    {
+                        sameBoardStalledCount++;
+                    }
+                    else
+                    {
+                        sameBoardStalledCount = 1;
+                        sameBoardStalledFingerprint = currentBoardFingerprint;
+                    }
+
+                    if (sameBoardStalledCount >= 5)
+                    {
+                        Log($"[Action] same board stalled {sameBoardStalledCount} times (fp={currentBoardFingerprint}), resetting consumed state.");
+                        ResetHsBoxActionRecommendationTracking();
+                        sameBoardStalledCount = 0;
+                    }
+
                     Thread.Sleep(120);
                     continue;
                 }
+                sameBoardStalledCount = 0;
 
                 actions = NormalizeRecommendedActions(actions);
 
@@ -3456,6 +3477,8 @@ namespace BotMain
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int actionFailStreak = 0;
             int actionFailResetCycles = 0;
+            int sameBoardStalledCount = 0;
+            string sameBoardStalledFingerprint = string.Empty;
             int seedNullStreak = 0;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
 
@@ -3661,9 +3684,28 @@ namespace BotMain
 
                 if (recommendation?.ShouldRetryWithoutAction == true)
                 {
+                    if (string.Equals(currentBoardFingerprint, sameBoardStalledFingerprint, StringComparison.Ordinal)
+                        && !string.IsNullOrWhiteSpace(currentBoardFingerprint))
+                    {
+                        sameBoardStalledCount++;
+                    }
+                    else
+                    {
+                        sameBoardStalledCount = 1;
+                        sameBoardStalledFingerprint = currentBoardFingerprint;
+                    }
+
+                    if (sameBoardStalledCount >= 5)
+                    {
+                        Log($"[Arena] same board stalled {sameBoardStalledCount} times (fp={currentBoardFingerprint}), resetting consumed state.");
+                        ResetHsBoxActionRecommendationTracking();
+                        sameBoardStalledCount = 0;
+                    }
+
                     Thread.Sleep(120);
                     continue;
                 }
+                sameBoardStalledCount = 0;
 
                 actions = NormalizeRecommendedActions(actions);
                 if (actions == null || actions.Count == 0)
