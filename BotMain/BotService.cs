@@ -8829,9 +8829,8 @@ namespace BotMain
                 _postGameLeftGameplayConfirmed = false;
                 _pluginSystem?.FireOnGameEnd();
                 CheckRunLimits();
-                TryQueryCurrentRank(pipe, force: true);
                 TryQueryPlayerName(pipe);
-                if (CheckRankStopLimit(pipe, force: true))
+                if (CheckRankStopLimitWithRetry(pipe))
                     return;
                 if (_finishAfterGame)
                 {
@@ -8949,6 +8948,62 @@ namespace BotMain
             OnRankTargetReached?.Invoke(reachedRankText, modeText);
             _running = false;
             return true;
+        }
+
+        private bool CheckRankStopLimitWithRetry(PipeServer pipe, int retryCount = 3, int intervalMs = 500)
+        {
+            if (_maxRank <= 0)
+            {
+                // 未设置目标段位，仅更新UI显示
+                TryQueryCurrentRank(pipe, force: true);
+                return false;
+            }
+
+            var targetText = RankHelper.FormatRank(_maxRank);
+            Log($"[RankRetry] 对局结束，开始重试轮询段位 (目标: {targetText}, 最多{retryCount}次)");
+
+            // 首次查询前等待，给服务器更新时间
+            if (SleepOrCancelled(intervalMs))
+                return false;
+
+            for (var i = 1; i <= retryCount; i++)
+            {
+                if (!_running)
+                    return false;
+
+                if (!TryQueryCurrentRank(pipe, force: true))
+                {
+                    Log($"[RankRetry] 第{i}次查询失败，跳过");
+                    if (i < retryCount)
+                        SleepOrCancelled(intervalMs);
+                    continue;
+                }
+
+                var currentText = RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex);
+
+                if (_lastQueriedStarLevel >= _maxRank)
+                {
+                    var modeText = GetRankFormatNameForCurrentMode() == "FT_STANDARD" ? "标准" : "狂野";
+                    Log($"[RankRetry] 第{i}次查询: {currentText}，已达标，停止");
+                    Log($"[Limit] TargetRank={targetText} reached ({currentText}), stopping.");
+                    OnRankTargetReached?.Invoke(currentText, modeText);
+                    _running = false;
+                    return true;
+                }
+
+                if (i < retryCount)
+                {
+                    Log($"[RankRetry] 第{i}次查询: {currentText}，未达标，{intervalMs}ms后重试");
+                    if (SleepOrCancelled(intervalMs))
+                        return false;
+                }
+                else
+                {
+                    Log($"[RankRetry] {retryCount}次查询均未达标 (当前: {currentText})，继续排队");
+                }
+            }
+
+            return false;
         }
 
         private string GetRankFormatNameForCurrentMode()
