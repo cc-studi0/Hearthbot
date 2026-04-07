@@ -2211,7 +2211,7 @@ namespace HearthstonePayload
             _coroutine.SetResult("OK:PLAY:" + entityId + ":api_grab");
         }
 
-        private static IEnumerator<float> MousePlayCardByMouseFlow(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop)
+        private static IEnumerator<float> MousePlayCardByMouseFlow(int entityId, int targetEntityId, int position, int targetHeroSide, bool sourceUsesBoardDrop, string expectedCardId = null)
         {
             InputHook.Simulating = true;
             var gsBeforePlay = GetGameState();
@@ -2263,6 +2263,23 @@ namespace HearthstonePayload
                 }
                 _coroutine.SetResult("FAIL:PLAY:source_pos:" + entityId);
                 yield break;
+            }
+
+            // ── cardId 验证：确保即将拖拽的牌是预期的牌 ──
+            if (!string.IsNullOrWhiteSpace(expectedCardId))
+            {
+                var gsVerify = GetGameState();
+                var actualCardId = ResolveEntityCardId(gsVerify, entityId);
+                if (!string.IsNullOrWhiteSpace(actualCardId)
+                    && !string.Equals(actualCardId, expectedCardId, StringComparison.OrdinalIgnoreCase))
+                {
+                    AppendActionTrace(
+                        "PLAY(mouse-flow) card_mismatch entity=" + entityId
+                        + " expected=" + expectedCardId
+                        + " actual=" + actualCardId);
+                    _coroutine.SetResult("FAIL:PLAY:card_mismatch:" + entityId + ":" + expectedCardId + ":" + actualCardId);
+                    yield break;
+                }
             }
 
             // 拖拽前等待手牌布局完成（前一张牌打出后手牌会位移）
