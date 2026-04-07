@@ -1870,31 +1870,72 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
 
+            // ── 等待地标位置稳定（入场动画完成）──
             int sx = 0, sy = 0;
-            bool gotSource = false;
-            for (int retry = 0; retry < 4; retry++)
+            bool positionStable = false;
+            for (int retry = 0; retry < 10; retry++)
             {
-                if (GameObjectFinder.GetEntityScreenPos(entityId, out sx, out sy))
+                if (!GameObjectFinder.GetEntityScreenPos(entityId, out var cx, out var cy))
                 {
-                    gotSource = true;
-                    break;
+                    yield return 0.12f;
+                    continue;
                 }
-                yield return 0.12f;
+
+                if (retry > 0
+                    && Math.Abs(cx - sx) < 5
+                    && Math.Abs(cy - sy) < 5)
+                {
+                    positionStable = true;
+                }
+                sx = cx;
+                sy = cy;
+
+                if (positionStable)
+                    break;
+                yield return 0.10f;
             }
-            if (!gotSource)
+            if (!positionStable)
             {
-                _coroutine.SetResult("FAIL:USE_LOCATION:pos:" + entityId);
-                yield break;
+                // 位置未稳定但至少获取到了坐标，继续尝试
+                if (sx == 0 && sy == 0)
+                {
+                    _coroutine.SetResult("FAIL:USE_LOCATION:pos:" + entityId);
+                    yield break;
+                }
             }
 
-            // 无目标地标：单击一次，不做额外点击
+            // 无目标地标：单击一次，确认生效
             if (targetEntityId <= 0)
             {
+                var gsBefore = GetGameState();
+                var selectedBefore = GetSelectedOptionValue(gsBefore);
+
                 foreach (var w in MoveCursorConstructed(sx, sy, 10, 0.01f, false)) yield return w;
                 MouseSimulator.LeftDown();
                 yield return 0.06f;
                 MouseSimulator.LeftUp();
-                yield return 0.25f;
+
+                // ── 确认地标激活是否被游戏接受 ──
+                bool confirmed = false;
+                for (int poll = 0; poll < 8; poll++)
+                {
+                    yield return 0.06f;
+                    var gsAfter = GetGameState();
+                    if (DidSubmissionStart(gsAfter, selectedBefore, entityId, false, false))
+                    {
+                        confirmed = true;
+                        break;
+                    }
+                }
+
+                if (!confirmed)
+                {
+                    AppendActionTrace("USE_LOCATION not_confirmed entity=" + entityId);
+                    _coroutine.SetResult("FAIL:USE_LOCATION:not_confirmed:" + entityId);
+                    yield break;
+                }
+
+                yield return 0.10f;
                 _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":click");
                 yield break;
             }
@@ -1921,14 +1962,37 @@ namespace HearthstonePayload
                 yield break;
             }
 
+            var gsBeforeDrag = GetGameState();
+            var selectedBeforeDrag = GetSelectedOptionValue(gsBeforeDrag);
+
             foreach (var w in MoveCursorConstructed(sx, sy, 10, 0.01f, false)) yield return w;
             MouseSimulator.LeftDown();
             yield return 0.08f;
             foreach (var wait in MaybePreviewAlternateTarget(targetEntityId, targetHeroSide, true)) yield return wait;
             foreach (var w in MoveCursorConstructed(tx, ty, 16, 0.012f, true)) yield return w;
             MouseSimulator.LeftUp();
-            yield return 0.28f;
 
+            // ── 确认有目标地标激活是否被游戏接受 ──
+            bool dragConfirmed = false;
+            for (int poll = 0; poll < 8; poll++)
+            {
+                yield return 0.06f;
+                var gsAfterDrag = GetGameState();
+                if (DidSubmissionStart(gsAfterDrag, selectedBeforeDrag, entityId, false, false))
+                {
+                    dragConfirmed = true;
+                    break;
+                }
+            }
+
+            if (!dragConfirmed)
+            {
+                AppendActionTrace("USE_LOCATION(drag) not_confirmed entity=" + entityId + " target=" + targetEntityId);
+                _coroutine.SetResult("FAIL:USE_LOCATION:not_confirmed:" + entityId);
+                yield break;
+            }
+
+            yield return 0.10f;
             _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":drag");
         }
 
