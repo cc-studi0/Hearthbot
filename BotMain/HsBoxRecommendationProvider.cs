@@ -5225,7 +5225,8 @@ namespace BotMain
                     position = targetZonePos;
             }
 
-            command = $"PLAY|{source}|{target}|{position}";
+            var sourceCardId = step.GetPrimaryCard()?.CardId ?? string.Empty;
+            command = $"PLAY|{source}|{target}|{position}|{sourceCardId}";
             reason = NormalizeSuccessfulMappingReason(sourceResolutionDetail);
             return true;
         }
