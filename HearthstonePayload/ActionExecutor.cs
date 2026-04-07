@@ -1276,8 +1276,8 @@ namespace HearthstonePayload
                         // ── 标准路径（首次攻击 / 非连续攻击） ──
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
-                        const int attackConfirmPollCount = 5;
-                        const int attackConfirmSleepMs = 15;
+                        const int attackConfirmDeadlineMs = 800;
+                        const int attackConfirmSleepMs = 25;
                         GameStateData beforeState = null;
                         AttackStateSnapshot beforeSnapshot = default;
                         var hasBeforeSnapshot = false;
@@ -1370,7 +1370,7 @@ namespace HearthstonePayload
                             var confirmSw = Stopwatch.StartNew();
                             var confirmPolls = 0;
                             var confirmReason = "unchanged";
-                            for (int i = 0; i < attackConfirmPollCount; i++)
+                            while (confirmSw.ElapsedMilliseconds < attackConfirmDeadlineMs)
                             {
                                 Thread.Sleep(attackConfirmSleepMs);
                                 confirmPolls++;

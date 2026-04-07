@@ -2878,6 +2878,17 @@ namespace BotMain
 
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_failed");
+
+                                // 攻击的 not_confirmed 不算硬失败——攻击可能已经生效但确认窗口内状态未更新。
+                                // 让主循环重新读取棋盘，由盒子判断下一步动作。
+                                if (isAttack && result != null
+                                    && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    Log($"[Action] ATTACK not_confirmed treated as soft failure, deferring to board refresh.");
+                                    actionFailedThisAction = true;
+                                    break;
+                                }
+
                                 actionFailed = true;
                                 actionFailedThisAction = true;
                                 break;
@@ -3799,6 +3810,15 @@ namespace BotMain
                         {
                             SendActionCommand(pipe, "CANCEL", 3000);
                         }
+                        // 攻击的 not_confirmed 不算硬失败
+                        if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                            && result != null
+                            && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            Log($"[Arena] ATTACK not_confirmed treated as soft failure, deferring to board refresh.");
+                            break;
+                        }
+
                         actionFailed = true;
                         break;
                     }
