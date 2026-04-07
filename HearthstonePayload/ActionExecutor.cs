@@ -204,25 +204,10 @@ namespace HearthstonePayload
                 return "FAIL:OPTION:target_mode_not_ready:" + sourceId;
             }
 
-            var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
-            if (submitDetail == null)
-                return "OK:OPTION:network:" + sourceId;
-
-            // 构筑抉择类指向法术（例如 活体根须）在运行时顺序是：
-            // 打出卡牌 -> 选择子选项 -> 再选择目标。
-            // 这类场景把 subOption + target 一次性提交通常会失败，
-            // 因为目标列表只有在子选项确定后才会真正出现。
-            if (targetId > 0
-                && position <= 0
-                && !string.IsNullOrWhiteSpace(subOptionCardId))
-            {
-                var subOptionThenTargetResult = TryExecuteSubOptionThenTarget(sourceId, targetId, position, subOptionCardId);
-                if (subOptionThenTargetResult != null)
-                    return subOptionThenTargetResult;
-            }
-
-            // 二选一 / 子选项路径：等待 EntityChoices 包 或
-            // ChoiceCardMgr 的 SubOption UI 出现，然后解析并点击/提交。
+            // 纯子选项路径（泰坦能力 / Choose One 等）：
+            // 不先尝试网络提交，因为泰坦等需要先点击实体激活选择 UI，
+            // 网络 SendOption 虽然方法调用不抛异常，但游戏状态机未激活时会静默丢弃。
+            // 直接走 UI 路径可同时兼容 Choose One（UI 已弹出）和泰坦（需要点击）。
             if (targetId <= 0
                 && position <= 0
                 && !string.IsNullOrWhiteSpace(subOptionCardId))
@@ -249,7 +234,23 @@ namespace HearthstonePayload
                 return "FAIL:OPTION:suboption_not_found:" + sourceId + ":" + subOptionCardId;
             }
 
-            // 指向性选项（有 targetId 或 position）：使用原始鼠标打开 + 重试流程
+            // 有 subOption + target 的指向性抉择（例如 活体根须）：
+            // 打出卡牌 -> 选择子选项 -> 再选择目标。
+            if (targetId > 0
+                && position <= 0
+                && !string.IsNullOrWhiteSpace(subOptionCardId))
+            {
+                var subOptionThenTargetResult = TryExecuteSubOptionThenTarget(sourceId, targetId, position, subOptionCardId);
+                if (subOptionThenTargetResult != null)
+                    return subOptionThenTargetResult;
+            }
+
+            // 指向性选项（有 targetId 或 position，无 subOption）：
+            // 先尝试网络提交，再回退到鼠标打开 + 重试流程
+            var submitDetail = TrySubmitStructuredOption(sourceId, targetId, position, subOptionCardId);
+            if (submitDetail == null)
+                return "OK:OPTION:network:" + sourceId;
+
             var openResult = _coroutine.RunAndWait(MouseClickChoice(sourceId));
             if (!openResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
                 return openResult;
@@ -1210,6 +1211,7 @@ namespace HearthstonePayload
                         int sourceId = int.Parse(parts[1]);
                         int targetId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string expectedCardId = parts.Length > 4 ? parts[4] : null;
                         int targetHeroSide = -1; // -1: 不是英雄目标, 0: 我方英雄, 1: 敌方英雄
                         bool sourceUsesBoardDrop = false;
 
@@ -1228,7 +1230,7 @@ namespace HearthstonePayload
                         }
                         catch { }
 
-                        return _coroutine.RunAndWait(MousePlayCardByMouseFlow(sourceId, targetId, position, targetHeroSide, sourceUsesBoardDrop));
+                        return _coroutine.RunAndWait(MousePlayCardByMouseFlow(sourceId, targetId, position, targetHeroSide, sourceUsesBoardDrop, expectedCardId));
                     }
                 case "ATTACK":
                     {
