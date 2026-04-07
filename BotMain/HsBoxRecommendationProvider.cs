@@ -4032,7 +4032,14 @@ namespace BotMain
                     actions.Add(command);
 
                     // 构筑 follow-up 选择必须显式绑定到触发它的主动作。
+                    // 但当主命令本身已经是包含 subOption 的 OPTION 时（如 titan_power），
+                    // 不再追加重复的 OPTION follow-up。
+                    var commandIsAlreadyOptionWithSub =
+                        hasEmbeddedSubOption
+                        && command.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase)
+                        && command.Split('|').Length > 4;
                     if (hasEmbeddedSubOption
+                        && !commandIsAlreadyOptionWithSub
                         && TryGetCommandSourceEntityId(command, out var embeddedPlaySourceId))
                     {
                         actions.Add(BuildOptionCommand(embeddedPlaySourceId, 0, 0, step.SubOption.CardId));
@@ -5870,18 +5877,6 @@ namespace BotMain
             {
                 resolutionDetail = "ordered_card_match";
                 return byCard.Id;
-            }
-
-            // seed_compat 可能将卡牌替换为其他 cardId，位置不变。
-            // cardId 匹配全部失败时，按纯位置兜底。
-            if (zonePosition > 0 && zonePosition <= cards.Count)
-            {
-                var positional = cards[zonePosition - 1];
-                if (positional != null)
-                {
-                    resolutionDetail = "ordered_slot_fallback";
-                    return positional.Id;
-                }
             }
 
             return 0;
