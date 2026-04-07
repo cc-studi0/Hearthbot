@@ -6191,7 +6191,8 @@ namespace BotMain
                 return false;
             }
 
-            command = $"PLAY|{source}|0|0";
+            var sourceCardId = board.Hand[oneBasedIndex - 1]?.Template?.Id.ToString() ?? string.Empty;
+            command = $"PLAY|{source}|0|0|{sourceCardId}";
             detail = $"play_text slot={oneBasedIndex}";
             return true;
         }
