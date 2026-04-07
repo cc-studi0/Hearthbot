@@ -6261,7 +6261,8 @@ namespace BotMain
                 detail = $"play_text slot={oneBasedIndex}";
             }
 
-            command = $"PLAY|{source}|{target}|0";
+            var sourceCardId = ResolveCardIdFromHandByPosition(board, friendlyEntities, oneBasedIndex);
+            command = $"PLAY|{source}|{target}|0|{sourceCardId}";
             return true;
         }
 
@@ -6498,6 +6499,30 @@ namespace BotMain
                 return 0;
 
             return cards[oneBasedIndex - 1]?.Id ?? 0;
+        }
+
+        private static string ResolveCardIdFromHandByPosition(Board board, IReadOnlyList<EntityContextSnapshot> friendlyEntities, int oneBasedIndex)
+        {
+            if (friendlyEntities != null)
+            {
+                var handEntities = friendlyEntities
+                    .Where(e => IsFriendlyZone(e, "HAND"))
+                    .OrderBy(e => e.ZonePosition)
+                    .ToList();
+                if (oneBasedIndex > 0 && oneBasedIndex <= handEntities.Count)
+                {
+                    var cardId = handEntities[oneBasedIndex - 1].CardId;
+                    if (!string.IsNullOrWhiteSpace(cardId))
+                        return cardId;
+                }
+            }
+
+            if (board?.Hand != null && oneBasedIndex > 0 && oneBasedIndex <= board.Hand.Count)
+            {
+                return board.Hand[oneBasedIndex - 1]?.Template?.Id.ToString() ?? string.Empty;
+            }
+
+            return string.Empty;
         }
 
         private static string DescribeStepFailureContext(
