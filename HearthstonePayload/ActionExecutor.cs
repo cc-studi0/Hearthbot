@@ -1276,8 +1276,8 @@ namespace HearthstonePayload
                         // ── 标准路径（首次攻击 / 非连续攻击） ──
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
-                        const int attackConfirmPollCount = 1;
-                        const int attackConfirmSleepMs = 10;
+                        const int attackConfirmPollCount = 5;
+                        const int attackConfirmSleepMs = 15;
                         GameStateData beforeState = null;
                         AttackStateSnapshot beforeSnapshot = default;
                         var hasBeforeSnapshot = false;
@@ -1429,7 +1429,7 @@ namespace HearthstonePayload
                                 + " confirmPolls=" + lastConfirmPolls
                                 + " apply=" + lastApplyReason);
                             return AppendAttackTimingToResult(
-                                "OK:ATTACK:" + attackerId + ":click_drag_click",
+                                "FAIL:ATTACK:not_confirmed:" + attackerId,
                                 1,
                                 lastMouseMs,
                                 lastConfirmMs,
