@@ -33,7 +33,9 @@ export const deviceApi = {
 }
 
 export const gameRecordApi = {
-  getAll: (params: Record<string, any>) => api.get('/gamerecord', { params })
+  getAll: (params: Record<string, any>) => api.get('/gamerecord', { params }),
+  getAccounts: (params?: Record<string, any>) => api.get<string[]>('/gamerecord/accounts', { params }),
+  getStats: (params: Record<string, any>) => api.get('/gamerecord/stats', { params })
 }
 
 export const commandApi = {
