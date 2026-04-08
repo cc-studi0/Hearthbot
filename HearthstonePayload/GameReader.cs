@@ -1182,7 +1182,7 @@ namespace HearthstonePayload
                 data.Taunt = _ctx.GetTagValue(entity, "TAUNT") == 1;
                 data.DivineShield = _ctx.GetTagValue(entity, "DIVINE_SHIELD") == 1;
                 data.Charge = _ctx.GetTagValue(entity, "CHARGE") == 1;
-                data.Windfury = _ctx.GetTagValue(entity, "WINDFURY") == 1;
+                data.WindfuryValue = _ctx.GetTagValue(entity, "WINDFURY");
                 data.Stealth = _ctx.GetTagValue(entity, "STEALTH") == 1;
                 data.Frozen = _ctx.GetTagValue(entity, "FROZEN") == 1;
                 data.Silenced = _ctx.GetTagValue(entity, "SILENCED") == 1;
@@ -1209,6 +1209,9 @@ namespace HearthstonePayload
                 data.CanAttackHeroes = _ctx.GetTagValue(entity, "CANNOT_ATTACK_HEROES") != 1;
                 data.HasEcho = _ctx.GetTagValue(entity, "ECHO") == 1;
                 data.IsCombo = _ctx.GetTagValue(entity, "COMBO") == 1;
+
+                data.CantAttack = _ctx.GetTagValue(entity, "CANT_ATTACK") == 1;
+                data.Dormant = _ctx.GetTagValue(entity, "DORMANT") > 0;
 
                 data.Tags = ReadAllTags(entity);
                 return data;

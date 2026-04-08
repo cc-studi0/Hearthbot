@@ -116,7 +116,10 @@ namespace HearthstonePayload
         public bool Taunt;
         public bool DivineShield;
         public bool Charge;
-        public bool Windfury;
+        public int WindfuryValue;
+        public bool Windfury => WindfuryValue > 0;
+        public bool CantAttack;
+        public bool Dormant;
         public bool Stealth;
         public bool Frozen;
         public bool Freeze;

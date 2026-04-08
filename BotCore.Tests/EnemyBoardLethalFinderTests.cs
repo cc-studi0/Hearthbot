@@ -211,6 +211,25 @@ namespace BotCore.Tests
             };
         }
 
+        [Fact]
+        public void EntityData_WindfuryValue_DefaultsToZero()
+        {
+            var e = new EntityData();
+            Assert.Equal(0, e.WindfuryValue);
+            Assert.False(e.Windfury);
+        }
+
+        [Fact]
+        public void EntityData_Windfury_ReflectsWindfuryValue()
+        {
+            var e = new EntityData { WindfuryValue = 1 };
+            Assert.True(e.Windfury);
+            Assert.Equal(1, e.WindfuryValue);
+
+            var e2 = new EntityData { WindfuryValue = 2 };
+            Assert.True(e2.Windfury);
+        }
+
         private static EntityData CreateEntity(string cardId, int entityId)
         {
             return new EntityData

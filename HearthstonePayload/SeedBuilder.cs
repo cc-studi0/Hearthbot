@@ -162,7 +162,7 @@ namespace HearthstonePayload
             p[13] = B(e.Charge);
             p[14] = B(e.DivineShield);
             p[15] = B(e.Taunt);
-            p[16] = B(e.Windfury);
+            p[16] = B(e.WindfuryValue > 0);
             p[17] = B(e.Exhausted);
             p[18] = B(e.IsEnraged);
             p[19] = B(e.Exhausted);
