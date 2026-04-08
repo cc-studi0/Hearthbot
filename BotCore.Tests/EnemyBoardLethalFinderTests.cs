@@ -233,6 +233,103 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void SimBoard_FromBoard_ReadsMegaWindfuryFromTags()
+        {
+            var state = new GameStateData
+            {
+                FriendlyPlayerId = 1, TurnCount = 1, MaxMana = 1, ManaAvailable = 1,
+                HeroFriend = CreateEntity("HERO_06", 101),
+                HeroEnemy = CreateEntity("HERO_08", 201),
+                AbilityFriend = CreateEntity("HERO_06bp", 102),
+                AbilityEnemy = CreateEntity("HERO_08bp", 202),
+                MinionEnemy = new List<EntityData>
+                {
+                    new EntityData
+                    {
+                        CardId = "CORE_CS2_231", EntityId = 301,
+                        Atk = 5, Health = 5, Cost = 1,
+                        WindfuryValue = 2,
+                        Tags = new Dictionary<int, int> { { 189, 2 } }
+                    }
+                }
+            };
+
+            CardTemplate.INIT();
+            var ok = SeedBuilder.TryBuild(state, out var seed, out _);
+            Assert.True(ok);
+            var board = Board.FromSeed(seed);
+            var simBoard = SimBoard.FromBoard(board);
+
+            Assert.Single(simBoard.EnemyMinions);
+            Assert.True(simBoard.EnemyMinions[0].IsWindfury);
+            Assert.Equal(4, simBoard.EnemyMinions[0].WindfuryCount);
+        }
+
+        [Fact]
+        public void SimBoard_FromBoard_ReadsCantAttackFromTags()
+        {
+            var state = new GameStateData
+            {
+                FriendlyPlayerId = 1, TurnCount = 1, MaxMana = 1, ManaAvailable = 1,
+                HeroFriend = CreateEntity("HERO_06", 101),
+                HeroEnemy = CreateEntity("HERO_08", 201),
+                AbilityFriend = CreateEntity("HERO_06bp", 102),
+                AbilityEnemy = CreateEntity("HERO_08bp", 202),
+                MinionEnemy = new List<EntityData>
+                {
+                    new EntityData
+                    {
+                        CardId = "CORE_CS2_231", EntityId = 301,
+                        Atk = 4, Health = 5, Cost = 1,
+                        CantAttack = true,
+                        Tags = new Dictionary<int, int> { { 227, 1 } }
+                    }
+                }
+            };
+
+            CardTemplate.INIT();
+            var ok = SeedBuilder.TryBuild(state, out var seed, out _);
+            Assert.True(ok);
+            var board = Board.FromSeed(seed);
+            var simBoard = SimBoard.FromBoard(board);
+
+            Assert.Single(simBoard.EnemyMinions);
+            Assert.True(simBoard.EnemyMinions[0].CantAttack);
+        }
+
+        [Fact]
+        public void SimBoard_FromBoard_ReadsDormantFromTags()
+        {
+            var state = new GameStateData
+            {
+                FriendlyPlayerId = 1, TurnCount = 1, MaxMana = 1, ManaAvailable = 1,
+                HeroFriend = CreateEntity("HERO_06", 101),
+                HeroEnemy = CreateEntity("HERO_08", 201),
+                AbilityFriend = CreateEntity("HERO_06bp", 102),
+                AbilityEnemy = CreateEntity("HERO_08bp", 202),
+                MinionEnemy = new List<EntityData>
+                {
+                    new EntityData
+                    {
+                        CardId = "CORE_CS2_231", EntityId = 301,
+                        Atk = 4, Health = 5, Cost = 1,
+                        Dormant = true,
+                        Tags = new Dictionary<int, int> { { 1518, 1 } }
+                    }
+                }
+            };
+
+            CardTemplate.INIT();
+            var ok = SeedBuilder.TryBuild(state, out var seed, out _);
+            Assert.True(ok);
+            var board = Board.FromSeed(seed);
+            var simBoard = SimBoard.FromBoard(board);
+
+            Assert.Single(simBoard.EnemyMinions);
+            Assert.True(simBoard.EnemyMinions[0].IsDormant);
+        }
+
+        [Fact]
         public void SimEntity_CanAttack_FalseWhenCantAttack()
         {
             var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, CantAttack = true };

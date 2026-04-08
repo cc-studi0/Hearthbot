@@ -86,9 +86,15 @@ namespace BotMain.AI
 
             // 某些客户端版本里武器的风怒不一定同步到英雄实体，补一层继承以避免漏掉第 2 次攻击。
             if (sb.FriendHero != null && sb.FriendWeapon?.IsWindfury == true)
+            {
                 sb.FriendHero.IsWindfury = true;
+                sb.FriendHero.WindfuryCount = Math.Max(sb.FriendHero.WindfuryCount, sb.FriendWeapon.WindfuryCount);
+            }
             if (sb.EnemyHero != null && sb.EnemyWeapon?.IsWindfury == true)
+            {
                 sb.EnemyHero.IsWindfury = true;
+                sb.EnemyHero.WindfuryCount = Math.Max(sb.EnemyHero.WindfuryCount, sb.EnemyWeapon.WindfuryCount);
+            }
 
             // 兼容部分版本里 Hero.CurrentAtk 未正确反映武器攻击力的情况
             if (sb.FriendHero != null && sb.FriendHero.Atk <= 0 && sb.FriendWeapon != null && sb.FriendWeapon.Health > 0)
@@ -157,6 +163,9 @@ namespace BotMain.AI
                 IsTaunt = c.IsTaunt,
                 IsDivineShield = c.IsDivineShield,
                 IsWindfury = c.IsWindfury,
+                WindfuryCount = ReadWindfuryCount(c),
+                CantAttack = ReadCantAttack(c),
+                IsDormant = ReadDormant(c),
                 HasPoison = c.HasPoison,
                 IsLifeSteal = c.IsLifeSteal,
                 HasReborn = c.HasReborn,
@@ -177,6 +186,46 @@ namespace BotMain.AI
                 BoardCanAttack = c.CanAttack,
                 Type = c.Type,
             };
+        }
+
+        private static int ReadWindfuryCount(Card c)
+        {
+            if (c == null) return 1;
+            try
+            {
+                if (Enum.TryParse("WINDFURY", out Card.GAME_TAG tag))
+                {
+                    var val = c.GetTag(tag);
+                    if (val >= 2) return 4; // mega windfury
+                    if (val == 1) return 2; // normal windfury
+                }
+            }
+            catch { }
+            return c.IsWindfury ? 2 : 1;
+        }
+
+        private static bool ReadCantAttack(Card c)
+        {
+            if (c == null) return false;
+            try
+            {
+                if (Enum.TryParse("CANT_ATTACK", out Card.GAME_TAG tag))
+                    return c.GetTag(tag) == 1;
+            }
+            catch { }
+            return false;
+        }
+
+        private static bool ReadDormant(Card c)
+        {
+            if (c == null) return false;
+            try
+            {
+                if (Enum.TryParse("DORMANT", out Card.GAME_TAG tag))
+                    return c.GetTag(tag) > 0;
+            }
+            catch { }
+            return false;
         }
 
         private static int ReadCountAttackThisTurn(Card c)
