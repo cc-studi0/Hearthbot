@@ -101,6 +101,10 @@ namespace BotMain
         private volatile bool _suspended;
         private volatile bool _restartPending;
 
+        // 空回合紧急刹车
+        private int _consecutiveIdleTurns;
+        private bool _turnHadEffectiveAction;
+
         // 延迟监控
         private int _latencyAvg;
         private int _latencyMin = int.MaxValue;
@@ -210,6 +214,7 @@ namespace BotMain
         public event Action<string> OnRestartFailed;
         public event Action OnBotStopped;
         public event Action<bool> OnGameEnded; // true=win, false=loss
+        public event Action OnIdleGuardTriggered;
 
         public BotState State { get; private set; } = BotState.Idle;
         public bool IsPrepared => _prepared;
@@ -725,6 +730,8 @@ namespace BotMain
             ClearPendingConcedeLoss();
             ResetAlternateConcedeState();
             _currentMatchResultHandled = false;
+            _consecutiveIdleTurns = 0;
+            _turnHadEffectiveAction = false;
             _cts = new CancellationTokenSource();
             StatusChanged("Starting");
 
@@ -2338,6 +2345,7 @@ namespace BotMain
                         if (mulliganStreak == 1)
                         {
                             mulliganPhaseStartedUtc = DateTime.UtcNow;
+                            _consecutiveIdleTurns = 0;
                             Log("[MainLoop] mulligan phase detected; waiting mulligan ui ready...");
                             nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
 
@@ -2473,6 +2481,7 @@ namespace BotMain
                 mulliganHandled = false;
                 nextMulliganAttemptUtc = DateTime.MinValue;
                 mulliganPhaseStartedUtc = DateTime.MinValue;
+                _turnHadEffectiveAction = false;
 
                 EnsureGameplaySessionStarted(ref wasInGame);
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
@@ -2837,6 +2846,10 @@ namespace BotMain
                             actionOutcome = result;
                             Log($"[Action] {action} -> {result}");
 
+                            // IdleGuard: 标记本回合有有效动作
+                            if (!isEndTurn && !IsActionFailure(result))
+                                _turnHadEffectiveAction = true;
+
                             if (IsActionFailure(result))
                             {
                                 if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
@@ -3103,6 +3116,28 @@ namespace BotMain
                     if (!lastRecommendationWasAttackOnly)
                         Thread.Sleep(200);
                     continue;
+                }
+
+                // ── IdleGuard: 空回合紧急刹车 ──
+                if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_turnHadEffectiveAction)
+                    {
+                        _consecutiveIdleTurns = 0;
+                    }
+                    else
+                    {
+                        _consecutiveIdleTurns++;
+                        Log($"[IdleGuard] 空回合 #{_consecutiveIdleTurns}/3");
+                        if (_consecutiveIdleTurns >= 3)
+                        {
+                            Log("[IdleGuard] 连续3回合无操作，触发紧急停止");
+                            _running = false;
+                            try { BattleNetWindowManager.KillHearthstone(s => Log(s)); } catch { }
+                            try { OnIdleGuardTriggered?.Invoke(); } catch { }
+                            break;
+                        }
+                    }
                 }
 
                 // END_TURN 后等待回合切换，避免重复发送
@@ -3592,6 +3627,7 @@ namespace BotMain
                         if (wasInGame)
                         {
                             Log("[Arena] ENDGAME_PENDING，等待结算...");
+                            _consecutiveIdleTurns = 0;
                             ResolveEndgamePending(pipe, "Arena.Endgame", out _);
                         }
                         break;
@@ -3602,6 +3638,7 @@ namespace BotMain
                         if (wasInGame)
                         {
                             Log("[Arena] 对局结束 (NO_GAME)。");
+                            _consecutiveIdleTurns = 0;
                             HandleGameResult(null);
                             _pluginSystem?.FireOnGameEnd();
                         }
@@ -3618,6 +3655,7 @@ namespace BotMain
                         if (mulliganStreak == 1)
                         {
                             mulliganPhaseStartedUtc = DateTime.UtcNow;
+                            _consecutiveIdleTurns = 0;
                             Log("[Arena] 留牌阶段检测到，等待 UI 就绪...");
                             nextMulliganAttemptUtc = DateTime.UtcNow.AddSeconds(2);
                         }
@@ -3659,6 +3697,7 @@ namespace BotMain
                 // ── 我方回合：SEED: 数据 ──
                 mulliganStreak = 0;
                 mulliganHandled = false;
+                _turnHadEffectiveAction = false;
                 EnsureGameplaySessionStarted(ref wasInGame);
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
 
@@ -3800,6 +3839,10 @@ namespace BotMain
                     var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
                     Log($"[Arena.Action] {action} -> {result}");
 
+                    // IdleGuard: 标记本回合有有效动作
+                    if (!isEndTurn && !IsActionFailure(result))
+                        _turnHadEffectiveAction = true;
+
                     if (IsActionFailure(result))
                     {
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
@@ -3882,8 +3925,30 @@ namespace BotMain
                 actionFailStreak = 0;
                 actionFailResetCycles = 0;
 
-                // END_TURN 后等待回合切换
+                // ── IdleGuard: 空回合紧急刹车 ──
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
+                if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (_turnHadEffectiveAction)
+                    {
+                        _consecutiveIdleTurns = 0;
+                    }
+                    else
+                    {
+                        _consecutiveIdleTurns++;
+                        Log($"[IdleGuard] 空回合 #{_consecutiveIdleTurns}/3 (Arena)");
+                        if (_consecutiveIdleTurns >= 3)
+                        {
+                            Log("[IdleGuard] 连续3回合无操作，触发紧急停止 (Arena)");
+                            _running = false;
+                            try { BattleNetWindowManager.KillHearthstone(s => Log(s)); } catch { }
+                            try { OnIdleGuardTriggered?.Invoke(); } catch { }
+                            break;
+                        }
+                    }
+                }
+
+                // END_TURN 后等待回合切换
                 if (lastAction != null && lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     var deadline = DateTime.UtcNow.AddMilliseconds(EndTurnPostWaitMaxMs);
@@ -8850,6 +8915,7 @@ namespace BotMain
                 wasInGame = false;
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
+                _consecutiveIdleTurns = 0;
 
                 wasConcede = _pendingConcedeLoss;
                 resultResolution = ResolvePostGameResultWithWindow(pipe);

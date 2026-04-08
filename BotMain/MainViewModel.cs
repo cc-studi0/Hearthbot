@@ -81,6 +81,7 @@ namespace BotMain
             _bot.OnLog += EnqueueLog;
             _notify.OnLog += EnqueueLog;
             _bot.OnRankTargetReached += OnRankTargetReached;
+            _bot.OnIdleGuardTriggered += OnIdleGuardTriggered;
             _bot.OnRankUpdated += rank => _dispatcher.BeginInvoke(() =>
             {
                 CurrentRankText = rank;
@@ -881,6 +882,18 @@ namespace BotMain
                             _bot.Start();
                         }
                     }),
+                    SuspendMonitors = () =>
+                    {
+                        _memoryMonitor?.Stop();
+                        _networkMonitor?.Stop();
+                    },
+                    ResumeMonitors = () =>
+                    {
+                        _memoryMonitor?.Reset();
+                        _memoryMonitor?.Start();
+                        _networkMonitor?.Reset();
+                        _networkMonitor?.Start();
+                    },
                     Log = EnqueueLog,
                     GameTimeoutSeconds = _matchmakingTimeoutSeconds * 5
                 };
@@ -1140,6 +1153,18 @@ namespace BotMain
             var device = string.IsNullOrWhiteSpace(DeviceName) ? "默认设备" : DeviceName;
             var title = $"[{device}] 达到目标段位";
             var content = $"设备: {device}\n模式: {modeText}\n达到段位: {rankText}\n时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
+
+            _notify.SendNotification(SelectedNotifyChannelId, title, content);
+        }
+
+        private void OnIdleGuardTriggered()
+        {
+            if (string.IsNullOrWhiteSpace(NotifyToken))
+                return;
+
+            var device = string.IsNullOrWhiteSpace(DeviceName) ? "默认设备" : DeviceName;
+            var title = $"[{device}] 脚本异常停止";
+            var content = $"设备: {device}\n原因: 连续3回合无任何操作\n时间: {DateTime.Now:yyyy-MM-dd HH:mm:ss}";
 
             _notify.SendNotification(SelectedNotifyChannelId, title, content);
         }
