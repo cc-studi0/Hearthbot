@@ -330,6 +330,72 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void Evaluate_CantAttackMinionIgnored()
+        {
+            var board = NewBaseBoard(friendHealth: 3);
+            board.EnemyMinions.Add(new SimEntity
+            {
+                Type = Card.CType.MINION, Atk = 8, Health = 8,
+                IsFriend = false, CanAttackHeroes = true, CantAttack = true
+            });
+
+            var result = EnemyBoardLethalFinder.Evaluate(board);
+
+            Assert.False(result.ShouldConcede);
+            Assert.Equal("negative:not-lethal", result.Reason);
+        }
+
+        [Fact]
+        public void Evaluate_DormantMinionIgnored()
+        {
+            var board = NewBaseBoard(friendHealth: 3);
+            board.EnemyMinions.Add(new SimEntity
+            {
+                Type = Card.CType.MINION, Atk = 8, Health = 8,
+                IsFriend = false, CanAttackHeroes = true, IsDormant = true
+            });
+
+            var result = EnemyBoardLethalFinder.Evaluate(board);
+
+            Assert.False(result.ShouldConcede);
+            Assert.Equal("negative:not-lethal", result.Reason);
+        }
+
+        [Fact]
+        public void Evaluate_MegaWindfuryLethal()
+        {
+            var board = NewBaseBoard(friendHealth: 10);
+            board.EnemyMinions.Add(new SimEntity
+            {
+                Type = Card.CType.MINION, Atk = 3, Health = 3,
+                IsFriend = false, CanAttackHeroes = true,
+                IsWindfury = true, WindfuryCount = 4
+            });
+
+            var result = EnemyBoardLethalFinder.Evaluate(board);
+
+            Assert.True(result.ShouldConcede);
+            Assert.Equal("positive:deterministic-lethal", result.Reason);
+        }
+
+        [Fact]
+        public void Evaluate_MegaWindfuryNotLethalWhenDamageInsufficient()
+        {
+            var board = NewBaseBoard(friendHealth: 13);
+            board.EnemyMinions.Add(new SimEntity
+            {
+                Type = Card.CType.MINION, Atk = 3, Health = 3,
+                IsFriend = false, CanAttackHeroes = true,
+                IsWindfury = true, WindfuryCount = 4
+            });
+
+            var result = EnemyBoardLethalFinder.Evaluate(board);
+
+            Assert.False(result.ShouldConcede);
+            Assert.Equal("negative:not-lethal", result.Reason);
+        }
+
+        [Fact]
         public void SimEntity_CanAttack_FalseWhenCantAttack()
         {
             var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, CantAttack = true };

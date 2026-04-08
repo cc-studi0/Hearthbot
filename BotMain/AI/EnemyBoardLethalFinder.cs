@@ -80,7 +80,10 @@ namespace BotMain.AI
                 {
                     clone.EnemyHero.Atk = Math.Max(clone.EnemyHero.Atk, clone.EnemyWeapon.Atk);
                     if (clone.EnemyWeapon.IsWindfury)
+                    {
                         clone.EnemyHero.IsWindfury = true;
+                        clone.EnemyHero.WindfuryCount = Math.Max(clone.EnemyHero.WindfuryCount, clone.EnemyWeapon.WindfuryCount);
+                    }
                 }
             }
 
@@ -440,7 +443,7 @@ namespace BotMain.AI
             if (entity == null || entity.Atk <= 0 || entity.IsFrozen || entity.IsTired)
                 return 0;
 
-            var maxAttacks = entity.IsWindfury ? 2 : 1;
+            var maxAttacks = entity.WindfuryCount;
             return Math.Max(0, maxAttacks - entity.CountAttack);
         }
 
@@ -489,6 +492,7 @@ namespace BotMain.AI
                 .Append(entity.IsTaunt ? '1' : '0').Append(',')
                 .Append(entity.IsDivineShield ? '1' : '0').Append(',')
                 .Append(entity.IsWindfury ? '1' : '0').Append(',')
+                .Append(entity.WindfuryCount).Append(',')
                 .Append(entity.HasPoison ? '1' : '0').Append(',')
                 .Append(entity.IsLifeSteal ? '1' : '0').Append(',')
                 .Append(entity.HasReborn ? '1' : '0').Append(',')
