@@ -9,6 +9,9 @@ namespace BotMain.AI
         public bool IsFriend, IsTaunt, IsDivineShield, IsWindfury, HasPoison;
         public bool IsLifeSteal, HasReborn, IsFrozen, IsImmune, IsSilenced, IsStealth;
         public bool HasCharge, HasRush, IsTired;
+        public bool CantAttack;
+        public bool IsDormant;
+        public int WindfuryCount = 1;
         public bool CanAttackHeroes = true;
         public bool IsTradeable;
         public bool HasBattlecry, HasDeathrattle;
@@ -25,7 +28,9 @@ namespace BotMain.AI
         {
             get
             {
-                var maxAttackCount = IsWindfury ? 2 : 1;
+                if (IsDormant || CantAttack) return false;
+
+                var maxAttackCount = WindfuryCount;
                 var localReady =
                     Atk > 0
                     && !IsFrozen

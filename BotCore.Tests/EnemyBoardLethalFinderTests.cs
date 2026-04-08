@@ -191,6 +191,7 @@ namespace BotCore.Tests
                 IsTaunt = taunt,
                 IsDivineShield = divineShield,
                 IsWindfury = windfury,
+                WindfuryCount = windfury ? 2 : 1,
                 HasReborn = reborn,
                 IsFriend = isFriend,
                 CanAttackHeroes = canAttackHeroes
@@ -206,6 +207,7 @@ namespace BotCore.Tests
                 Health = durability,
                 MaxHealth = durability,
                 IsWindfury = windfury,
+                WindfuryCount = windfury ? 2 : 1,
                 IsFriend = isFriend,
                 CanAttackHeroes = true
             };
@@ -228,6 +230,37 @@ namespace BotCore.Tests
 
             var e2 = new EntityData { WindfuryValue = 2 };
             Assert.True(e2.Windfury);
+        }
+
+        [Fact]
+        public void SimEntity_CanAttack_FalseWhenCantAttack()
+        {
+            var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, CantAttack = true };
+            Assert.False(e.CanAttack);
+        }
+
+        [Fact]
+        public void SimEntity_CanAttack_FalseWhenDormant()
+        {
+            var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, IsDormant = true };
+            Assert.False(e.CanAttack);
+        }
+
+        [Fact]
+        public void SimEntity_WindfuryCount_DefaultsToOne()
+        {
+            var e = new SimEntity();
+            Assert.Equal(1, e.WindfuryCount);
+        }
+
+        [Fact]
+        public void SimEntity_CanAttack_MegaWindfuryAllowsFourAttacks()
+        {
+            var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, IsWindfury = true, WindfuryCount = 4, CountAttack = 3 };
+            Assert.True(e.CanAttack);
+
+            e.CountAttack = 4;
+            Assert.False(e.CanAttack);
         }
 
         private static EntityData CreateEntity(string cardId, int entityId)
