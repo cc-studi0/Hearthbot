@@ -2481,7 +2481,9 @@ namespace BotMain
                 mulliganHandled = false;
                 nextMulliganAttemptUtc = DateTime.MinValue;
                 mulliganPhaseStartedUtc = DateTime.MinValue;
-                _turnHadEffectiveAction = false;
+                // 注意：不在此处重置 _turnHadEffectiveAction，
+                // 同一回合内会多次收到 SEED:（每次操作后刷新场面），
+                // 重置移到 IdleGuard 检查之后，避免清掉已标记的有效操作。
 
                 EnsureGameplaySessionStarted(ref wasInGame);
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
@@ -3138,6 +3140,8 @@ namespace BotMain
                             break;
                         }
                     }
+                    // END_TURN 标志本回合结束，重置标记供下回合使用
+                    _turnHadEffectiveAction = false;
                 }
 
                 // END_TURN 后等待回合切换，避免重复发送
@@ -3697,7 +3701,6 @@ namespace BotMain
                 // ── 我方回合：SEED: 数据 ──
                 mulliganStreak = 0;
                 mulliganHandled = false;
-                _turnHadEffectiveAction = false;
                 EnsureGameplaySessionStarted(ref wasInGame);
                 _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
 
@@ -3946,6 +3949,8 @@ namespace BotMain
                             break;
                         }
                     }
+                    // END_TURN 标志本回合结束，重置标记供下回合使用
+                    _turnHadEffectiveAction = false;
                 }
 
                 // END_TURN 后等待回合切换
