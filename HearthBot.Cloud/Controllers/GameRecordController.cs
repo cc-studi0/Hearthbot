@@ -138,4 +138,55 @@ public class GameRecordController : ControllerBase
             DailyTrend = dailyTrend
         });
     }
+
+    [HttpGet("by-device")]
+    public async Task<IActionResult> GetByDevice()
+    {
+        var devices = await _db.Devices
+            .OrderBy(d => d.DisplayName)
+            .ToListAsync();
+
+        var result = new List<object>();
+
+        foreach (var device in devices)
+        {
+            var records = await _db.GameRecords
+                .Where(g => g.DeviceId == device.DeviceId)
+                .OrderByDescending(g => g.PlayedAt)
+                .Take(20)
+                .Select(g => new
+                {
+                    g.Result,
+                    g.OpponentClass,
+                    g.DeckName,
+                    g.DurationSeconds,
+                    g.RankBefore,
+                    g.RankAfter,
+                    g.PlayedAt
+                })
+                .ToListAsync();
+
+            var wins = records.Count(r => r.Result == "Win");
+            var losses = records.Count(r => r.Result == "Loss");
+            var concedes = records.Count(r => r.Result == "Concede");
+            var total = records.Count;
+            var winRate = total > 0 ? Math.Round(wins * 100.0 / total, 1) : 0;
+
+            result.Add(new
+            {
+                device.DeviceId,
+                device.DisplayName,
+                device.CurrentAccount,
+                device.CurrentRank,
+                TotalGames = total,
+                Wins = wins,
+                Losses = losses,
+                Concedes = concedes,
+                WinRate = winRate,
+                Records = records
+            });
+        }
+
+        return Ok(result);
+    }
 }
