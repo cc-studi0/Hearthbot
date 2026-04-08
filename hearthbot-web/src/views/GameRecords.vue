@@ -54,10 +54,10 @@ function resultLabel(r: string): { text: string; color: string } {
 }
 
 function rankDisplay(rec: DeviceRecord): string | null {
-  if (!rec.rankBefore && !rec.rankAfter) return null
-  if (rec.rankBefore && rec.rankAfter && rec.rankBefore !== rec.rankAfter)
+  if (!rec.rankAfter) return null
+  if (rec.rankBefore && rec.rankBefore !== rec.rankAfter)
     return `${rec.rankBefore}→${rec.rankAfter}`
-  return rec.rankAfter || rec.rankBefore || null
+  return rec.rankAfter
 }
 
 async function loadData() {
