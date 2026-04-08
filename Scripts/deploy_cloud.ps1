@@ -63,6 +63,7 @@ $extractCmd = @(
     "cd $RemotePath",
     "cp -f appsettings.json /tmp/hb_appsettings_bak.json 2>/dev/null",
     "cp -f cloud.db /tmp/hb_cloud_db_bak.db 2>/dev/null",
+    "rm -rf $RemotePath/*",
     "apt-get install -qq -y unzip >/dev/null 2>&1",
     "unzip -o /tmp/cloud-server.zip -d $RemotePath > /dev/null",
     "cp -f /tmp/hb_appsettings_bak.json $RemotePath/appsettings.json 2>/dev/null",
