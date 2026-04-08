@@ -26,7 +26,7 @@ Write-Host "`n[1/4] Building (linux-x64)..." -ForegroundColor Yellow
 if (Test-Path $PublishDir) { Remove-Item $PublishDir -Recurse -Force }
 
 dotnet publish "$RepoRoot\HearthBot.Cloud\HearthBot.Cloud.csproj" `
-    -c Release -r linux-x64 --self-contained `
+    -c Release -r linux-x64 --no-self-contained `
     -p:DebugType=none -p:DebugSymbols=false `
     -o $PublishDir
 
@@ -74,6 +74,9 @@ $extractCmd = @(
 ssh -p $Port "$User@$RemoteHost" $extractCmd
 
 Write-Host "  Upload and extract done" -ForegroundColor Green
+
+# -- Ensure .NET Runtime installed --
+ssh -p $Port "$User@$RemoteHost" "dotnet --list-runtimes 2>/dev/null | grep -q 'Microsoft.AspNetCore.App 8' || (apt-get update -qq && apt-get install -qq -y aspnetcore-runtime-8.0)"
 
 # -- Step 4: Restart service --
 Write-Host "`n[4/4] Restarting service..." -ForegroundColor Yellow
