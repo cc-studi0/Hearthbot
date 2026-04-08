@@ -43,4 +43,21 @@ public class GameRecordController : ControllerBase
 
         return Ok(new { Total = total, Page = page, PageSize = pageSize, Records = records });
     }
+
+    [HttpGet("accounts")]
+    public async Task<IActionResult> GetAccounts([FromQuery] string? deviceId)
+    {
+        var query = _db.GameRecords.AsQueryable();
+        if (!string.IsNullOrEmpty(deviceId))
+            query = query.Where(g => g.DeviceId == deviceId);
+
+        var accounts = await query
+            .Where(g => g.AccountName != "")
+            .Select(g => g.AccountName)
+            .Distinct()
+            .OrderBy(a => a)
+            .ToListAsync();
+
+        return Ok(accounts);
+    }
 }
