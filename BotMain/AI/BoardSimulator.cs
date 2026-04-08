@@ -43,7 +43,7 @@ namespace BotMain.AI
             attacker.CountAttack++;
             if (attacker.Type == Card.CType.HERO)
             {
-                if (!attacker.IsWindfury || attacker.CountAttack >= 2)
+                if (attacker.CountAttack >= attacker.WindfuryCount)
                     attacker.IsTired = true;
             }
 

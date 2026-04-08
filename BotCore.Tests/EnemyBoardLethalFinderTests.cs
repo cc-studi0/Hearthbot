@@ -396,6 +396,32 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void BoardSimulator_HeroAttack_MegaWindfuryAllowsFourAttacks()
+        {
+            CardTemplate.INIT();
+            var sim = new BoardSimulator(CardEffectDB.BuildDefault());
+            var board = NewBaseBoard(friendHealth: 30);
+            board.EnemyHero.Atk = 3;
+            board.EnemyHero.IsWindfury = true;
+            board.EnemyHero.WindfuryCount = 4;
+            board.EnemyHero.UseBoardCanAttack = false;
+
+            sim.Attack(board, board.EnemyHero, board.FriendHero);
+            Assert.True(board.EnemyHero.CanAttack);
+
+            sim.Attack(board, board.EnemyHero, board.FriendHero);
+            Assert.True(board.EnemyHero.CanAttack);
+
+            sim.Attack(board, board.EnemyHero, board.FriendHero);
+            Assert.True(board.EnemyHero.CanAttack);
+
+            sim.Attack(board, board.EnemyHero, board.FriendHero);
+            Assert.False(board.EnemyHero.CanAttack);
+
+            Assert.Equal(18, board.FriendHero.Health); // 30 - 12 = 18
+        }
+
+        [Fact]
         public void SimEntity_CanAttack_FalseWhenCantAttack()
         {
             var e = new SimEntity { Atk = 3, Health = 3, Type = Card.CType.MINION, CantAttack = true };
