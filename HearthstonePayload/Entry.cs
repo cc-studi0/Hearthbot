@@ -866,10 +866,7 @@ namespace HearthstonePayload
                     var networkInstance = getMethod.Invoke(null, null);
                     if (networkInstance == null)
                     {
-                        var scene = nav.GetScene();
-                        _pipe.Write(string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
-                            ? "NETSTATUS:disconnected;reason=no_instance"
-                            : "NETSTATUS:unknown");
+                        _pipe.Write("NETSTATUS:disconnected;reason=no_instance");
                         return;
                     }
 
@@ -899,23 +896,9 @@ namespace HearthstonePayload
                         }
                     }
 
-                    if (connected)
-                    {
-                        _pipe.Write("NETSTATUS:connected");
-                    }
-                    else
-                    {
-                        // 非对战场景下 IsConnectedToAurora() == false 是正常的，不视为断连
-                        var scene = nav.GetScene();
-                        if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _pipe.Write("NETSTATUS:disconnected;reason=" + reason);
-                        }
-                        else
-                        {
-                            _pipe.Write("NETSTATUS:unknown");
-                        }
-                    }
+                    _pipe.Write(connected
+                        ? "NETSTATUS:connected"
+                        : "NETSTATUS:disconnected;reason=" + reason);
                 }
                 catch (Exception ex)
                 {

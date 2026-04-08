@@ -918,6 +918,7 @@ namespace BotMain
                 {
                     QueryNetStatus = () => _bot.QueryPayloadNetStatus(),
                     OnNetworkAlert = reason => _watchdog?.TriggerRecovery(reason),
+                    GetLastEffectiveAction = () => _bot.LastEffectiveActionUtc,
                     Log = EnqueueLog
                 };
                 _networkMonitor.Start();

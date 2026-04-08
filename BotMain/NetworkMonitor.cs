@@ -14,6 +14,15 @@ namespace BotMain
         public Action<string> OnNetworkAlert { get; set; }
         public Action<string> Log { get; set; }
 
+        /// <summary>
+        /// 返回 Bot 最后一次有效操作的时间。
+        /// 如果最近仍有操作，说明游戏实际可用，忽略 Aurora 断连误报。
+        /// </summary>
+        public Func<DateTime?> GetLastEffectiveAction { get; set; }
+
+        /// <summary>Bot 活跃宽限期（秒）：最近这么多秒内有操作，则不视为断连。</summary>
+        public int ActiveGraceSeconds { get; set; } = 60;
+
         // ── 内部状态 ──
         private volatile bool _active;
         private Thread _thread;
@@ -38,6 +47,14 @@ namespace BotMain
         {
             _active = false;
             Log?.Invoke("[NetworkMonitor] 已停止");
+        }
+
+        /// <summary>
+        /// 重置内部断连计时器。用于恢复流程后清除残留状态。
+        /// </summary>
+        public void Reset()
+        {
+            _disconnectedSinceUtc = null;
         }
 
         public void Dispose() => Stop();
@@ -91,7 +108,11 @@ namespace BotMain
             }
 
             if (payload.StartsWith("unknown", StringComparison.OrdinalIgnoreCase))
+            {
+                // unknown 不代表确认断连，清零计时器防止误判
+                _disconnectedSinceUtc = null;
                 return;
+            }
 
             // disconnected
             if (_disconnectedSinceUtc == null)
@@ -104,6 +125,16 @@ namespace BotMain
             var elapsed = (DateTime.UtcNow - _disconnectedSinceUtc.Value).TotalSeconds;
             if (elapsed >= DisconnectTimeoutSeconds)
             {
+                // Bot 最近仍有有效操作，说明游戏实际可用，Aurora 断连是误报
+                var lastAction = GetLastEffectiveAction?.Invoke();
+                if (lastAction.HasValue &&
+                    (DateTime.UtcNow - lastAction.Value).TotalSeconds < ActiveGraceSeconds)
+                {
+                    Log?.Invoke($"[NetworkMonitor] Aurora 报告断连 {elapsed:F0}s，但 Bot 仍活跃，忽略");
+                    _disconnectedSinceUtc = null;
+                    return;
+                }
+
                 Log?.Invoke($"[NetworkMonitor] 网络断连超时 {elapsed:F0}s (阈值 {DisconnectTimeoutSeconds}s)，触发重启恢复");
                 OnNetworkAlert?.Invoke("网络断连");
                 _disconnectedSinceUtc = null;
