@@ -66,7 +66,6 @@ namespace HearthstonePayload
                 AntiCheatPatches.Apply(harmony);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
-                DialogAutoDismissPatch.Apply(harmony, msg => _logSource?.LogInfo(msg));
 
                 Logger.LogInfo("Harmony patches applied.");
                 LogStartupInfo("awake", "Harmony patches applied.");
@@ -97,7 +96,6 @@ namespace HearthstonePayload
             if (deltaTime <= 0f)
                 deltaTime = 0.016f;
             _coroutine?.Tick(deltaTime);
-            DialogAutoDismissPatch.Tick();
 
             if (_memoryCleanupCountdown > 0f)
             {
@@ -672,11 +670,6 @@ namespace HearthstonePayload
             {
                 _pipe.Write(nav.DismissBlockingDialog());
             }
-            else if (cmd == "TOGGLE_AUTO_DISMISS")
-            {
-                DialogAutoDismissPatch.Enabled = !DialogAutoDismissPatch.Enabled;
-                _pipe.Write("AUTO_DISMISS:" + (DialogAutoDismissPatch.Enabled ? "ON" : "OFF"));
-            }
             else if (cmd.StartsWith("NAV_TO:", StringComparison.Ordinal))
             {
                 _pipe.Write(nav.NavigateTo(cmd.Substring(7)));
@@ -873,7 +866,10 @@ namespace HearthstonePayload
                     var networkInstance = getMethod.Invoke(null, null);
                     if (networkInstance == null)
                     {
-                        _pipe.Write("NETSTATUS:disconnected;reason=no_instance");
+                        var scene = nav.GetScene();
+                        _pipe.Write(string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase)
+                            ? "NETSTATUS:disconnected;reason=no_instance"
+                            : "NETSTATUS:unknown");
                         return;
                     }
 
@@ -903,9 +899,23 @@ namespace HearthstonePayload
                         }
                     }
 
-                    _pipe.Write(connected
-                        ? "NETSTATUS:connected"
-                        : "NETSTATUS:disconnected;reason=" + reason);
+                    if (connected)
+                    {
+                        _pipe.Write("NETSTATUS:connected");
+                    }
+                    else
+                    {
+                        // 非对战场景下 IsConnectedToAurora() == false 是正常的，不视为断连
+                        var scene = nav.GetScene();
+                        if (string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                        {
+                            _pipe.Write("NETSTATUS:disconnected;reason=" + reason);
+                        }
+                        else
+                        {
+                            _pipe.Write("NETSTATUS:unknown");
+                        }
+                    }
                 }
                 catch (Exception ex)
                 {
