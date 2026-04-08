@@ -81,10 +81,20 @@ namespace BotMain.Cloud
                 return RegisterAsync();
             };
 
-            _hub.Closed += ex =>
+            _hub.Closed += async ex =>
             {
-                _log($"[云控] 连接关闭: {ex?.Message ?? "正常关闭"}");
-                return Task.CompletedTask;
+                _log($"[云控] 连接关闭: {ex?.Message ?? "正常关闭"}，30秒后重新连接...");
+                lock (_timerLock)
+                {
+                    _heartbeatTimer?.Dispose();
+                    _heartbeatTimer = null;
+                }
+                var ct = _cts?.Token ?? CancellationToken.None;
+                if (!ct.IsCancellationRequested)
+                {
+                    try { await Task.Delay(30000, ct); } catch { return; }
+                    await ConnectWithRetry();
+                }
             };
 
             await ConnectWithRetry();
