@@ -53,9 +53,11 @@ function resultLabel(r: string): { text: string; color: string } {
   return { text: 'C', color: '#f2c97d' }
 }
 
-function rankChanged(rec: DeviceRecord): string | null {
-  if (!rec.rankBefore || !rec.rankAfter || rec.rankBefore === rec.rankAfter) return null
-  return `${rec.rankBefore}→${rec.rankAfter}`
+function rankDisplay(rec: DeviceRecord): string | null {
+  if (!rec.rankBefore && !rec.rankAfter) return null
+  if (rec.rankBefore && rec.rankAfter && rec.rankBefore !== rec.rankAfter)
+    return `${rec.rankBefore}→${rec.rankAfter}`
+  return rec.rankAfter || rec.rankBefore || null
 }
 
 async function loadData() {
@@ -132,7 +134,7 @@ const menuOptions = [
                 <span style="color:#ccc;">{{ rec.opponentClass }}</span>
                 <span style="color:#888;font-size:11px;">{{ rec.deckName }}</span>
                 <span style="color:#666;font-size:11px;">{{ formatDuration(rec.durationSeconds) }}</span>
-                <span v-if="rankChanged(rec)" style="color:#7ec8e3;font-size:11px;">{{ rankChanged(rec) }}</span>
+                <span v-if="rankDisplay(rec)" style="color:#7ec8e3;font-size:11px;">{{ rankDisplay(rec) }}</span>
               </div>
             </div>
           </div>
