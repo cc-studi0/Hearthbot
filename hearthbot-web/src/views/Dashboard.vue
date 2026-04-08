@@ -2,7 +2,8 @@
 import { ref, onMounted, onUnmounted, computed, h } from 'vue'
 import {
   NLayout, NLayoutHeader, NLayoutContent, NSpace, NCard, NStatistic,
-  NDataTable, NTag, NButton, NModal, NSelect, NGrid, NGi, NMenu, NInput
+  NDataTable, NTag, NButton, NModal, NSelect, NGrid, NGi, NMenu, NInput,
+  NSkeleton
 } from 'naive-ui'
 import { useRouter } from 'vue-router'
 import { deviceApi, commandApi } from '../api'
@@ -44,6 +45,7 @@ const selectedDevice = ref<Device | null>(null)
 const selectedDeck = ref('')
 const editingOrderNumber = ref('')
 const isLoading = ref(false)
+const firstLoad = ref(true)
 let pollTimer: ReturnType<typeof setInterval> | null = null
 
 const todayWinRate = computed(() => {
@@ -123,6 +125,7 @@ async function loadData() {
     stats.value = statRes.data
   } finally {
     isLoading.value = false
+    firstLoad.value = false
   }
 }
 
@@ -181,7 +184,12 @@ const menuOptions = [
     </NLayoutHeader>
 
     <NLayoutContent style="padding:24px">
-      <NGrid :cols="4" :x-gap="12" style="margin-bottom:24px">
+      <NGrid :cols="4" :x-gap="12" style="margin-bottom:24px" v-if="firstLoad">
+        <NGi v-for="i in 4" :key="i">
+          <NCard><NSkeleton text :repeat="2" /></NCard>
+        </NGi>
+      </NGrid>
+      <NGrid :cols="4" :x-gap="12" style="margin-bottom:24px" v-else>
         <NGi>
           <NCard>
             <NStatistic label="在线设备" :value="stats.onlineCount">
@@ -200,7 +208,10 @@ const menuOptions = [
         </NGi>
       </NGrid>
 
-      <NCard title="设备实时状态">
+      <NCard title="设备实时状态" v-if="firstLoad">
+        <NSkeleton text :repeat="8" />
+      </NCard>
+      <NCard title="设备实时状态" v-else>
         <NDataTable :columns="columns" :data="devices" :row-key="(r: Device) => r.deviceId" />
       </NCard>
     </NLayoutContent>
