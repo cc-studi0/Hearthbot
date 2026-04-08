@@ -75,9 +75,6 @@ ssh -p $Port "$User@$RemoteHost" $extractCmd
 
 Write-Host "  Upload and extract done" -ForegroundColor Green
 
-# -- Ensure .NET Runtime installed --
-ssh -p $Port "$User@$RemoteHost" "dotnet --list-runtimes 2>/dev/null | grep -q 'Microsoft.AspNetCore.App 8' || (apt-get update -qq && apt-get install -qq -y aspnetcore-runtime-8.0)"
-
 # -- Step 4: Restart service --
 Write-Host "`n[4/4] Restarting service..." -ForegroundColor Yellow
 
