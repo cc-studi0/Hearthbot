@@ -25,6 +25,7 @@ public class CloudDbContext : DbContext
             e.Property(g => g.Id).ValueGeneratedOnAdd();
             e.HasIndex(g => g.DeviceId);
             e.HasIndex(g => g.PlayedAt);
+            e.HasIndex(g => g.AccountName);
         });
 
         b.Entity<PendingCommand>(e =>
