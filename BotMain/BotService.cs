@@ -7628,6 +7628,15 @@ namespace BotMain
                 var enemyAtk = simBoard?.EnemyHero?.Atk ?? 0;
                 var friendSecrets = simBoard?.FriendSecrets?.Count ?? 0;
 
+                if (simBoard?.EnemyMinions != null)
+                {
+                    for (int i = 0; i < simBoard.EnemyMinions.Count; i++)
+                    {
+                        var m = simBoard.EnemyMinions[i];
+                        Log($"[ConcedeWhenLethal] enemy[{i}] id={m.CardId} atk={m.Atk} hp={m.Health} wf={m.WindfuryCount} cant={m.CantAttack} dorm={m.IsDormant} taunt={m.IsTaunt} frozen={m.IsFrozen}");
+                    }
+                }
+
                 if (!ShouldConcedeWhenEnemyHasLethalNextTurn(liveBoard, out var detail))
                 {
                     Log($"[ConcedeWhenLethal] {detail} friendHp={friendHp} enemyMinions={enemyMinionCount} enemyHeroAtk={enemyAtk} friendSecrets={friendSecrets}");
