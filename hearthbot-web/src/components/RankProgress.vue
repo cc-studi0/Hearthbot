@@ -38,17 +38,17 @@ const progress = computed(() => {
   font-size: 11px;
   margin-bottom: 3px;
 }
-.rank-start, .rank-target { color: #888; }
-.rank-current { color: #fff; font-weight: 600; }
+.rank-start, .rank-target { color: #64748b; }
+.rank-current { color: #1e293b; font-weight: 600; }
 .rank-bar {
-  background: #1a1a2e;
+  background: #e2e8f0;
   border-radius: 4px;
   height: 6px;
   overflow: hidden;
 }
 .rank-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #ffa726, #66bb6a);
+  background: linear-gradient(90deg, #3b82f6, #2563eb);
   border-radius: 4px;
   transition: width 0.5s ease;
 }

@@ -64,7 +64,7 @@ const recordColumns = [
     title: '结果', key: 'result', width: 50,
     render: (row: any) => {
       const isWin = row.result === 'Win'
-      return h('span', { style: { color: isWin ? '#66bb6a' : '#ef5350' } }, isWin ? '胜' : '负')
+      return h('span', { style: { color: isWin ? '#22c55e' : '#ef4444' } }, isWin ? '胜' : '负')
     }
   },
   { title: '我方', key: 'myClass', width: 60 },
@@ -156,7 +156,7 @@ const recordColumns = [
             </div>
             <div class="stat-item">
               <div class="stat-label">胜率</div>
-              <div class="stat-value" style="color:#66bb6a">{{ winRate }}</div>
+              <div class="stat-value" style="color:#22c55e">{{ winRate }}</div>
             </div>
           </div>
         </div>
@@ -182,10 +182,12 @@ const recordColumns = [
 
 <style scoped>
 .order-detail {
-  background: #1e1e38;
-  border-radius: 10px;
+  background: #ffffff;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
   padding: 16px;
   margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 .detail-header {
   display: flex;
@@ -193,39 +195,52 @@ const recordColumns = [
   align-items: center;
   margin-bottom: 12px;
 }
-.detail-order { font-size: 18px; font-weight: 700; }
+.detail-order {
+  font-size: 18px;
+  font-weight: 700;
+  color: #1e293b;
+}
 .detail-body { display: flex; gap: 16px; margin-bottom: 16px; }
 .detail-left { flex: 1; }
 .detail-right { flex: 1; }
 .detail-section {
-  background: #252545;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 10px;
 }
-.section-title { font-size: 11px; color: #888; margin-bottom: 8px; }
+.section-title {
+  font-size: 11px;
+  color: #64748b;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
 .info-grid {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
   font-size: 12px;
+  color: #1e293b;
 }
-.info-label { color: #888; }
-.device-name { color: #4fc3f7; }
+.info-label { color: #64748b; }
+.device-name { color: #3b82f6; }
 .stats-grid {
   display: flex;
   justify-content: space-around;
   margin-top: 12px;
   text-align: center;
 }
-.stat-item .stat-label { font-size: 11px; color: #888; }
-.stat-item .stat-value { font-size: 20px; font-weight: 700; }
+.stat-item .stat-label { font-size: 11px; color: #64748b; }
+.stat-item .stat-value { font-size: 20px; font-weight: 700; color: #1e293b; }
 .load-more {
   text-align: center;
-  color: #555;
+  color: #94a3b8;
   font-size: 10px;
   margin-top: 8px;
   cursor: pointer;
 }
-.load-more:hover { color: #888; }
+.load-more:hover { color: #3b82f6; }
 </style>

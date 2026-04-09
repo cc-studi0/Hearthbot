@@ -31,10 +31,10 @@ const winRate = computed(() => {
 })
 
 const borderColor = computed(() => {
-  if (props.column === 'completed') return '#ab47bc'
-  if (props.device.status === 'InGame') return '#66bb6a'
-  if (props.device.status === 'Idle' || props.device.status === 'Online') return '#42a5f5'
-  return '#555'
+  if (props.column === 'completed') return '#8b5cf6'
+  if (props.device.status === 'InGame') return '#22c55e'
+  if (props.device.status === 'Idle' || props.device.status === 'Online') return '#3b82f6'
+  return '#e2e8f0'
 })
 </script>
 
@@ -108,52 +108,71 @@ const borderColor = computed(() => {
 
 <style scoped>
 .order-card {
-  background: #252545;
+  background: #ffffff;
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 8px;
-  border-left: 3px solid #555;
+  border: 1px solid #e2e8f0;
+  border-left: 3px solid #e2e8f0;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s ease;
 }
-.order-card:hover { background: #2a2a50; }
+.order-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  transform: translateY(-2px);
+}
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   margin-bottom: 4px;
 }
-.order-number { font-weight: 600; }
-.need-order { color: #ffa726; font-size: 11px; }
+.order-number {
+  font-weight: 600;
+  color: #3b82f6;
+}
+.need-order { color: #f59e0b; font-size: 11px; }
 .card-info {
   font-size: 12px;
-  color: #aaa;
+  color: #64748b;
   margin-bottom: 6px;
 }
-.device-name { color: #4fc3f7; }
+.device-name {
+  color: #3b82f6;
+  font-weight: 500;
+}
 .order-input { margin-top: 8px; }
 .game-status {
-  background: #1a1a2e;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
   border-radius: 6px;
   padding: 8px;
   font-size: 11px;
   margin-top: 6px;
+  color: #1e293b;
 }
-.game-matchup { margin-bottom: 2px; }
-.game-stats { font-size: 11px; color: #888; margin-top: 4px; }
+.game-matchup {
+  margin-bottom: 2px;
+  color: #1e293b;
+}
+.game-stats {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
 .card-expand-hint {
   font-size: 10px;
-  color: #555;
+  color: #94a3b8;
   text-align: right;
   margin-top: 6px;
 }
 .completed-info {
   font-size: 11px;
-  color: #888;
+  color: #64748b;
   margin-top: 4px;
 }
 .completed-time {
   font-size: 11px;
-  color: #666;
+  color: #94a3b8;
 }
 </style>

@@ -1,16 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
-import { NLayout, NLayoutHeader, NLayoutContent, NSpace, NButton, NMenu } from 'naive-ui'
-import { useRouter } from 'vue-router'
 import { deviceApi } from '../api'
 import { useSignalR } from '../composables/useSignalR'
-import { useAuth } from '../composables/useAuth'
 import StatsBar from '../components/StatsBar.vue'
 import KanbanBoard from '../components/KanbanBoard.vue'
 import type { Device, Stats } from '../types'
 
-const router = useRouter()
-const { logout } = useAuth()
 const devices = ref<Device[]>([])
 const stats = ref<Stats>({ onlineCount: 0, totalCount: 0, todayGames: 0, todayWins: 0, todayLosses: 0, abnormalCount: 0, completedCount: 0 })
 const firstLoad = ref(true)
@@ -65,27 +60,11 @@ onUnmounted(() => {
     pollTimer = null
   }
 })
-
-const menuOptions = [
-  { label: '总览', key: '/' },
-  { label: '对局记录', key: '/records' }
-]
 </script>
 
 <template>
-  <NLayout style="min-height:100vh">
-    <NLayoutHeader bordered style="padding:0 24px;display:flex;align-items:center;justify-content:space-between;height:56px">
-      <NSpace align="center">
-        <strong style="font-size:16px;color:#63e2b7">HearthBot 云控</strong>
-        <NMenu mode="horizontal" :options="menuOptions" :value="router.currentRoute.value.path"
-          @update:value="(k: string) => router.push(k)" />
-      </NSpace>
-      <NButton text @click="logout">退出</NButton>
-    </NLayoutHeader>
-
-    <NLayoutContent style="padding:24px">
-      <StatsBar :stats="stats" :loading="firstLoad" />
-      <KanbanBoard :devices="devices" @refresh="loadData" />
-    </NLayoutContent>
-  </NLayout>
+  <div>
+    <StatsBar :stats="stats" :loading="firstLoad" />
+    <KanbanBoard :devices="devices" @refresh="loadData" />
+  </div>
 </template>
