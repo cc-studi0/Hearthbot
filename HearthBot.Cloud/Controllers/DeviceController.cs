@@ -54,7 +54,10 @@ public class DeviceController : ControllerBase
             TodayLosses = todayGames.Count(g => g.Result is "Loss" or "Concede"),
             AbnormalCount = devices.Count(d =>
                 d.Status != "Offline" &&
-                d.LastHeartbeat < DateTime.UtcNow.AddSeconds(-90))
+                d.LastHeartbeat < DateTime.UtcNow.AddSeconds(-90)),
+            CompletedCount = devices.Count(d =>
+                !string.IsNullOrEmpty(d.OrderNumber) &&
+                d.StartedAt?.Date == today)
         });
     }
 }

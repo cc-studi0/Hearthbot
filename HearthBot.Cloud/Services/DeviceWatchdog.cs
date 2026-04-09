@@ -12,6 +12,7 @@ public class DeviceWatchdog : BackgroundService
     private readonly IHubContext<DashboardHub> _dashboard;
     private readonly ILogger<DeviceWatchdog> _logger;
     private readonly HashSet<string> _alreadyAlerted = new();
+    private DateTime _lastArchiveCheck = DateTime.MinValue;
 
     private const int CheckIntervalSeconds = 30;
     private const int TimeoutSeconds = 90;
@@ -32,6 +33,12 @@ public class DeviceWatchdog : BackgroundService
             try
             {
                 await CheckDevices();
+
+                if (DateTime.UtcNow.Date > _lastArchiveCheck.Date)
+                {
+                    await ArchiveCompletedOrders();
+                    _lastArchiveCheck = DateTime.UtcNow;
+                }
             }
             catch (Exception ex)
             {
@@ -78,5 +85,30 @@ public class DeviceWatchdog : BackgroundService
             .Select(d => d.DeviceId)
             .ToListAsync();
         _alreadyAlerted.ExceptWith(onlineIds);
+    }
+
+    private async Task ArchiveCompletedOrders()
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
+
+        var today = DateTime.UtcNow.Date;
+        var devices = await db.Devices
+            .Where(d => d.StartedAt != null && d.StartedAt.Value.Date < today && d.OrderNumber != "")
+            .ToListAsync();
+
+        foreach (var device in devices)
+        {
+            device.OrderNumber = string.Empty;
+            device.StartRank = string.Empty;
+            device.StartedAt = null;
+            device.TargetRank = string.Empty;
+        }
+
+        if (devices.Count > 0)
+        {
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Archived {Count} completed orders from previous days", devices.Count);
+        }
     }
 }
