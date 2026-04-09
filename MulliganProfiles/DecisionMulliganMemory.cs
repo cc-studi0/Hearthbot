@@ -27,8 +27,10 @@ namespace SmartBot.Mulligan
         public string teacher_status { get; set; }
         public string teacher_timestamp_utc { get; set; }
         public List<string> choice_ids { get; set; }
+        public List<string> choice_slot_ids { get; set; }
         public List<string> keep_ids { get; set; }
         public List<string> replace_ids { get; set; }
+        public List<int> replace_slots { get; set; }
     }
 
     public sealed class DecisionMulliganMemoryEntry
@@ -43,6 +45,8 @@ namespace SmartBot.Mulligan
         public string action_type { get; set; }
         public string card_id { get; set; }
         public string card_family { get; set; }
+        public int copy_total { get; set; }
+        public int copy_index { get; set; }
         public int sample_count { get; set; }
         public int win_count { get; set; }
         public int loss_count { get; set; }
@@ -80,6 +84,9 @@ namespace SmartBot.Mulligan
     public sealed class DecisionMulliganSuggestion
     {
         public Card.Cards CardId = default(Card.Cards);
+        public int Slot = 0;
+        public int CopyTotal = 1;
+        public int CopyIndex = 1;
         public bool Keep;
         public double Score;
         public string Scope = string.Empty;
@@ -108,6 +115,9 @@ namespace SmartBot.Mulligan
         public string action_type { get; set; }
         public string action_card_id { get; set; }
         public string action_family { get; set; }
+        public int action_slot { get; set; }
+        public int copy_total { get; set; }
+        public int copy_index { get; set; }
         public int sample_count { get; set; }
         public double win_rate { get; set; }
         public double confidence { get; set; }
@@ -121,6 +131,12 @@ namespace SmartBot.Mulligan
         {
             public DecisionMulliganMemoryEntry Entry = new DecisionMulliganMemoryEntry();
             public DateTime LastSeenUtc = DateTime.MinValue;
+        }
+
+        private sealed class FeatureKeyCandidate
+        {
+            public string Key = string.Empty;
+            public double Weight = 1.0d;
         }
 
         [Flags]
@@ -144,6 +160,7 @@ namespace SmartBot.Mulligan
 
         private static readonly object MemorySync = new object();
         private static DateTime _lastLoadUtc = DateTime.MinValue;
+        private static DateTime _lastEnsureRebuildUtc = DateTime.MinValue;
         private static DecisionMulliganMemoryFile _global;
         private static DecisionMulliganMemoryFile _family;
         private static DecisionMulliganMemoryFile _archetype;
@@ -151,7 +168,7 @@ namespace SmartBot.Mulligan
 
         private static string LearningDir
         {
-            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime", "learning"); }
+            get { return ResolveLearningDir(); }
         }
 
         private static string SharedLearningDir
@@ -162,6 +179,25 @@ namespace SmartBot.Mulligan
         public static string SamplesPath
         {
             get { return Path.Combine(LearningDir, "mulligan_samples.jsonl"); }
+        }
+
+        public static string DescribeRuntimePaths()
+        {
+            return "learning=" + SafePath(LearningDir)
+                + " | published=" + SafePath(PublishedLearningDir)
+                + " | config=" + SafePath(DecisionRuntimeMode.GetConfigPath())
+                + " | samples=" + (File.Exists(SamplesPath) ? "present" : "missing")
+                + " | published_global=" + (File.Exists(PublishedGlobalMemoryPath) ? "present" : "missing");
+        }
+
+        public static string DescribeRuntimeMode()
+        {
+            return "pure=" + DecisionRuntimeMode.IsPureLearningModeEnabled().ToString()
+                + " | teacher=" + DecisionRuntimeMode.AllowLiveTeacherFallback().ToString()
+                + " | legacy_mulligan=" + DecisionRuntimeMode.AllowLegacyMulliganFallback().ToString()
+                + " | memory_first_mulligan=" + DecisionRuntimeMode.PreferMulliganMemoryFirst().ToString()
+                + " | memory_first_min_score=" + DecisionRuntimeMode.GetMulliganMemoryFirstMinScore().ToString("0.000", CultureInfo.InvariantCulture)
+                + " | memory_first_min_coverage=" + DecisionRuntimeMode.GetMulliganMemoryFirstMinCoverage().ToString("0.000", CultureInfo.InvariantCulture);
         }
 
         public static string MemoryHitsPath
@@ -211,7 +247,185 @@ namespace SmartBot.Mulligan
 
         private static string PublishedLearningDir
         {
-            get { return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "MulliganProfiles", "PublishedLearning"); }
+            get { return ResolvePublishedLearningDir(); }
+        }
+
+        private static string ResolveLearningDir()
+        {
+            List<string> candidates = GetLearningDirCandidatePaths();
+            string bestPath = candidates.Count > 0
+                ? candidates[0]
+                : CombinePath(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty, "runtime", "learning");
+            int bestSourceArtifactCount = -1;
+            DateTime bestLatestSourceWriteUtc = DateTime.MinValue;
+            int bestArtifactCount = -1;
+            DateTime bestLatestWriteUtc = DateTime.MinValue;
+
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                string candidate = candidates[i];
+                int sourceArtifactCount = CountSourceArtifacts(candidate);
+                DateTime latestSourceWriteUtc = GetLatestSourceArtifactWriteUtc(candidate);
+                int artifactCount = CountLearningArtifacts(candidate);
+                DateTime latestWriteUtc = GetLatestLearningArtifactWriteUtc(candidate);
+                if (sourceArtifactCount > bestSourceArtifactCount
+                    || (sourceArtifactCount == bestSourceArtifactCount && latestSourceWriteUtc > bestLatestSourceWriteUtc)
+                    || (sourceArtifactCount == bestSourceArtifactCount
+                        && latestSourceWriteUtc == bestLatestSourceWriteUtc
+                        && artifactCount > bestArtifactCount)
+                    || (sourceArtifactCount == bestSourceArtifactCount
+                        && latestSourceWriteUtc == bestLatestSourceWriteUtc
+                        && artifactCount == bestArtifactCount
+                        && latestWriteUtc > bestLatestWriteUtc))
+                {
+                    bestPath = candidate;
+                    bestSourceArtifactCount = sourceArtifactCount;
+                    bestLatestSourceWriteUtc = latestSourceWriteUtc;
+                    bestArtifactCount = artifactCount;
+                    bestLatestWriteUtc = latestWriteUtc;
+                }
+            }
+
+            return bestPath;
+        }
+
+        private static List<string> GetLearningDirCandidatePaths()
+        {
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? string.Empty;
+            AddLearningDirCandidate(paths, seen, CombinePath(baseDir, "runtime", "learning"));
+            AddLearningDirCandidate(paths, seen, CombinePath(baseDir, "Temp", "runtime", "learning"));
+
+            try
+            {
+                string parentBaseDir = Path.GetFullPath(Path.Combine(baseDir, ".."));
+                AddLearningDirCandidate(paths, seen, CombinePath(parentBaseDir, "runtime", "learning"));
+                AddLearningDirCandidate(paths, seen, CombinePath(parentBaseDir, "Temp", "runtime", "learning"));
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return paths;
+        }
+
+        private static void AddLearningDirCandidate(List<string> paths, HashSet<string> seen, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            string normalized = path;
+            try
+            {
+                normalized = Path.GetFullPath(path);
+            }
+            catch
+            {
+                normalized = path;
+            }
+
+            if (seen.Add(normalized))
+                paths.Add(normalized);
+        }
+
+        private static int CountLearningArtifacts(string learningDir)
+        {
+            if (string.IsNullOrWhiteSpace(learningDir))
+                return 0;
+
+            int count = 0;
+            string[] paths = GetLearningArtifactPaths(learningDir);
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (File.Exists(paths[i]))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static int CountSourceArtifacts(string learningDir)
+        {
+            if (string.IsNullOrWhiteSpace(learningDir))
+                return 0;
+
+            int count = 0;
+            string[] paths = GetSourceArtifactPaths(learningDir);
+            for (int i = 0; i < paths.Length; i++)
+            {
+                if (File.Exists(paths[i]))
+                    count++;
+            }
+
+            return count;
+        }
+
+        private static DateTime GetLatestSourceArtifactWriteUtc(string learningDir)
+        {
+            if (string.IsNullOrWhiteSpace(learningDir))
+                return DateTime.MinValue;
+
+            DateTime latest = DateTime.MinValue;
+            string[] paths = GetSourceArtifactPaths(learningDir);
+            for (int i = 0; i < paths.Length; i++)
+            {
+                DateTime writeUtc = SafeLastWriteUtc(paths[i]);
+                if (writeUtc > latest)
+                    latest = writeUtc;
+            }
+
+            return latest;
+        }
+
+        private static DateTime GetLatestLearningArtifactWriteUtc(string learningDir)
+        {
+            if (string.IsNullOrWhiteSpace(learningDir))
+                return DateTime.MinValue;
+
+            DateTime latest = DateTime.MinValue;
+            string[] paths = GetLearningArtifactPaths(learningDir);
+            for (int i = 0; i < paths.Length; i++)
+            {
+                DateTime writeUtc = SafeLastWriteUtc(paths[i]);
+                if (writeUtc > latest)
+                    latest = writeUtc;
+            }
+
+            return latest;
+        }
+
+        private static string[] GetLearningArtifactPaths(string learningDir)
+        {
+            string sharedDir = CombinePath(learningDir, "shared");
+            return new[]
+            {
+                CombinePath(learningDir, "mulligan_samples.jsonl"),
+                CombinePath(learningDir, "mulligan_memory_hits.jsonl"),
+                CombinePath(learningDir, "game_results.jsonl"),
+                CombinePath(sharedDir, "mulligan_samples.jsonl"),
+                CombinePath(sharedDir, "mulligan_memory_hits.jsonl"),
+                CombinePath(sharedDir, "game_results.jsonl"),
+                CombinePath(learningDir, "mulligan_memory_global.json"),
+                CombinePath(learningDir, "mulligan_memory_family.json"),
+                CombinePath(learningDir, "mulligan_memory_archetype.json"),
+                CombinePath(learningDir, "mulligan_memory_deck.json")
+            };
+        }
+
+        private static string[] GetSourceArtifactPaths(string learningDir)
+        {
+            string sharedDir = CombinePath(learningDir, "shared");
+            return new[]
+            {
+                CombinePath(learningDir, "mulligan_samples.jsonl"),
+                CombinePath(learningDir, "mulligan_memory_hits.jsonl"),
+                CombinePath(learningDir, "game_results.jsonl"),
+                CombinePath(sharedDir, "mulligan_samples.jsonl"),
+                CombinePath(sharedDir, "mulligan_memory_hits.jsonl"),
+                CombinePath(sharedDir, "game_results.jsonl")
+            };
         }
 
         private static string PublishedGlobalMemoryPath
@@ -234,7 +448,59 @@ namespace SmartBot.Mulligan
             get { return Path.Combine(PublishedLearningDir, "mulligan_memory_deck.json"); }
         }
 
-        public static void CaptureTeacherSample(
+        private static string ResolvePublishedLearningDir()
+        {
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? string.Empty;
+            string primary = CombinePath(baseDir, "MulliganProfiles", "PublishedLearning");
+            string parent = primary;
+
+            try
+            {
+                string parentBaseDir = Path.GetFullPath(Path.Combine(baseDir, ".."));
+                parent = CombinePath(parentBaseDir, "MulliganProfiles", "PublishedLearning");
+            }
+            catch
+            {
+                parent = primary;
+            }
+
+            if (Directory.Exists(primary))
+                return primary;
+            if (Directory.Exists(parent))
+                return parent;
+            return primary;
+        }
+
+        private static string CombinePath(string root, params string[] parts)
+        {
+            string result = root ?? string.Empty;
+            if (parts == null || parts.Length == 0)
+                return result;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                result = Path.Combine(result, parts[i] ?? string.Empty);
+            }
+
+            return result;
+        }
+
+        private static string SafePath(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return string.Empty;
+
+            try
+            {
+                return Path.GetFullPath(raw);
+            }
+            catch
+            {
+                return raw;
+            }
+        }
+
+        public static string CaptureTeacherSample(
             List<Card.Cards> choices,
             Card.CClass opponentClass,
             Card.CClass ownClass,
@@ -242,11 +508,11 @@ namespace SmartBot.Mulligan
             string mulliganName)
         {
             if (choices == null || choices.Count == 0)
-                return;
+                return "跳过=空候选";
 
             string normalizedMulligan = NormalizeName(mulliganName);
             if (string.IsNullOrWhiteSpace(normalizedMulligan))
-                return;
+                return "跳过=留牌名为空";
 
             MulliganBoxOcrState teacher = MulliganBoxOcr.LoadCurrentState();
             if (teacher == null
@@ -255,36 +521,44 @@ namespace SmartBot.Mulligan
                 || !string.Equals(teacher.Stage ?? string.Empty, "mulligan", StringComparison.OrdinalIgnoreCase)
                 || !teacher.MatchesMulligan(normalizedMulligan))
             {
-                return;
+                return "跳过=老师状态未就绪";
             }
 
-            List<Card.Cards> distinctChoices = new List<Card.Cards>();
-            foreach (Card.Cards cardId in choices)
+            List<Card.Cards> orderedChoices = new List<Card.Cards>(choices);
+            List<int> replaceSlots = NormalizeReplaceSlots(teacher.ReplaceSlots, orderedChoices.Count);
+            bool useSlotHints = replaceSlots.Count > 0;
+            List<Card.Cards> keepSlotCards = new List<Card.Cards>();
+            List<Card.Cards> replaceSlotCards = new List<Card.Cards>();
+            Dictionary<string, int> remainingReplaceCounts = !useSlotHints && teacher.ReplaceIds != null
+                ? BuildCardCounts(teacher.ReplaceIds)
+                : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            for (int i = 0; i < orderedChoices.Count; i++)
             {
-                if (!distinctChoices.Contains(cardId))
-                    distinctChoices.Add(cardId);
+                Card.Cards cardId = orderedChoices[i];
+                bool replace = useSlotHints
+                    ? replaceSlots.Contains(i + 1)
+                    : TryConsumeCardCount(remainingReplaceCounts, cardId.ToString());
+
+                if (replace)
+                    replaceSlotCards.Add(cardId);
+                else
+                    keepSlotCards.Add(cardId);
             }
 
-            List<Card.Cards> replaceIds = new List<Card.Cards>();
-            if (teacher.ReplaceIds != null)
-            {
-                foreach (Card.Cards cardId in teacher.ReplaceIds)
-                {
-                    if (distinctChoices.Contains(cardId) && !replaceIds.Contains(cardId))
-                        replaceIds.Add(cardId);
-                }
-            }
+            List<Card.Cards> distinctChoices = orderedChoices.Distinct().ToList();
+            List<Card.Cards> keepIds = new List<Card.Cards>(keepSlotCards);
+            List<Card.Cards> replaceIds = new List<Card.Cards>(replaceSlotCards);
 
-            List<Card.Cards> keepIds = new List<Card.Cards>();
-            foreach (Card.Cards cardId in distinctChoices)
-            {
-                if (!replaceIds.Contains(cardId))
-                    keepIds.Add(cardId);
-            }
-
-            string fingerprint = BuildFingerprint(distinctChoices, replaceIds, opponentClass, ownClass, normalizedMulligan);
+            string fingerprint = BuildSlotAwareFingerprint(
+                orderedChoices,
+                replaceSlots,
+                replaceSlotCards,
+                opponentClass,
+                ownClass,
+                normalizedMulligan);
             if (string.IsNullOrWhiteSpace(fingerprint))
-                return;
+                return "跳过=指纹为空";
 
             string captureKey = normalizedMulligan + "|"
                 + (teacher.TimestampUtc != DateTime.MinValue ? teacher.TimestampUtc.ToString("o") : string.Empty)
@@ -295,7 +569,7 @@ namespace SmartBot.Mulligan
                 lock (CaptureSync)
                 {
                     if (IsDuplicateCapture(normalizedMulligan, captureKey))
-                        return;
+                        return "跳过=重复样本";
 
                     DecisionMulliganSampleRecord record = new DecisionMulliganSampleRecord();
                     record.sample_type = "mulligan_teacher_sample";
@@ -309,22 +583,27 @@ namespace SmartBot.Mulligan
                     record.state_fingerprint = fingerprint;
                     record.own_class = ownClass.ToString();
                     record.opponent_class = opponentClass.ToString();
-                    record.has_coin = distinctChoices.Count >= 4;
+                    record.has_coin = orderedChoices.Count >= 4;
                     record.teacher_status = teacher.Status ?? string.Empty;
                     record.teacher_timestamp_utc = teacher.TimestampUtc != DateTime.MinValue ? teacher.TimestampUtc.ToString("o") : string.Empty;
                     record.choice_ids = ToIdList(distinctChoices);
+                    record.choice_slot_ids = ToIdList(orderedChoices);
                     record.keep_ids = ToIdList(keepIds);
                     record.replace_ids = ToIdList(replaceIds);
+                    record.replace_slots = new List<int>(replaceSlots);
 
                     AppendJsonLine(SamplesPath, record);
                     LastCaptureKeyByMulligan[normalizedMulligan] = captureKey;
                     LastCaptureUtcByMulligan[normalizedMulligan] = DateTime.UtcNow;
+                    return "样本已记录";
                 }
             }
             catch
             {
                 // ignore
             }
+
+            return "跳过=写入失败";
         }
 
         public static DecisionMulliganMemoryBuildSummary Rebuild()
@@ -396,7 +675,8 @@ namespace SmartBot.Mulligan
             Dictionary<string, Bucket> deckBuckets,
             ScopeTargets targets)
         {
-            if (sample == null || sample.choice_ids == null || sample.choice_ids.Count == 0)
+            List<string> orderedChoiceIds = ResolveSampleChoiceIds(sample);
+            if (orderedChoiceIds.Count == 0)
                 return;
 
             DecisionDeckArchetypeContext context = DecisionDeckArchetypeResolver.Resolve(
@@ -404,27 +684,45 @@ namespace SmartBot.Mulligan
                 (DecisionLearningStateRecord)null,
                 sample.deck_name,
                 sample.deck_fingerprint);
-            string featureKey = BuildFeatureKey(sample);
+            List<string> learningFeatureKeys = BuildLearningFeatureKeys(
+                ParseClass(sample != null ? sample.opponent_class : string.Empty),
+                ParseClass(sample != null ? sample.own_class : string.Empty),
+                sample != null && sample.has_coin);
             string result = ResolveResult(sample, resultByGame);
+            HashSet<int> replaceSlots = ResolveSampleReplaceSlots(sample);
+            Dictionary<string, int> keepCounts = BuildStringCardCounts(sample != null ? sample.keep_ids : null);
+            Dictionary<string, int> replaceCounts = BuildStringCardCounts(sample != null ? sample.replace_ids : null);
+            Dictionary<string, int> totalByCard = BuildStringCardCounts(orderedChoiceIds);
+            Dictionary<string, int> seenByCard = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            foreach (string cardId in sample.choice_ids)
+            for (int i = 0; i < orderedChoiceIds.Count; i++)
             {
+                string cardId = orderedChoiceIds[i];
                 if (string.IsNullOrWhiteSpace(cardId))
                     continue;
 
-                bool keep = ContainsId(sample.keep_ids, cardId);
+                int copyTotal = ReadCardCount(totalByCard, cardId);
+                int copyIndex = IncrementCardCount(seenByCard, cardId);
+                bool keep = ResolveSampleKeepDecision(sample, i + 1, cardId, replaceSlots, keepCounts, replaceCounts);
                 string family = ResolveCardFamily(cardId);
                 string capturedAtUtc = sample.captured_at_utc;
                 string actionType = keep ? "Keep" : "Replace";
 
-                if ((targets & ScopeTargets.Global) != 0)
-                    Accumulate(globalBuckets, "global", "global", context, featureKey, actionType, cardId, family, result, capturedAtUtc);
-                if ((targets & ScopeTargets.Family) != 0)
-                    Accumulate(familyBuckets, "family", context.ArchetypeKey, context, featureKey, actionType, string.Empty, family, result, capturedAtUtc);
-                if ((targets & ScopeTargets.Archetype) != 0)
-                    Accumulate(archetypeBuckets, "archetype", context.ArchetypeKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc);
-                if ((targets & ScopeTargets.Deck) != 0)
-                    Accumulate(deckBuckets, "deck", context.DeckKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc);
+                for (int featureIndex = 0; featureIndex < learningFeatureKeys.Count; featureIndex++)
+                {
+                    string featureKey = learningFeatureKeys[featureIndex];
+                    if (string.IsNullOrWhiteSpace(featureKey))
+                        continue;
+
+                    if ((targets & ScopeTargets.Global) != 0)
+                        Accumulate(globalBuckets, "global", "global", context, featureKey, actionType, cardId, family, result, capturedAtUtc, false, copyTotal, copyIndex);
+                    if ((targets & ScopeTargets.Family) != 0)
+                        Accumulate(familyBuckets, "family", context.ArchetypeKey, context, featureKey, actionType, string.Empty, family, result, capturedAtUtc, false, copyTotal, copyIndex);
+                    if ((targets & ScopeTargets.Archetype) != 0)
+                        Accumulate(archetypeBuckets, "archetype", context.ArchetypeKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc, false, copyTotal, copyIndex);
+                    if ((targets & ScopeTargets.Deck) != 0)
+                        Accumulate(deckBuckets, "deck", context.DeckKey, context, featureKey, actionType, cardId, family, result, capturedAtUtc, false, copyTotal, copyIndex);
+                }
             }
         }
 
@@ -442,16 +740,25 @@ namespace SmartBot.Mulligan
 
             DecisionDeckArchetypeContext context = BuildContext(hit.profile, hit.mulligan, hit.deck_name, hit.deck_fingerprint);
             string result = ResolveResult(hit, resultByGame);
+            List<string> learningFeatureKeys = BuildLearningFeatureKeys(
+                ParseClass(hit.opponent_class),
+                ParseClass(hit.own_class),
+                hit.has_coin,
+                hit.feature_key);
             for (int i = 0; i < MemoryHitSampleWeight; i++)
             {
-                if ((targets & ScopeTargets.Deck) != 0)
-                    AccumulateByHit(deckBuckets, "deck", context.DeckKey, context, hit, result);
-                if ((targets & ScopeTargets.Archetype) != 0)
-                    AccumulateByHit(archetypeBuckets, "archetype", context.ArchetypeKey, context, hit, result);
-                if ((targets & ScopeTargets.Global) != 0)
-                    AccumulateByHit(globalBuckets, "global", "global", context, hit, result);
-                if ((targets & ScopeTargets.Family) != 0)
-                    AccumulateByHit(familyBuckets, "family", context.ArchetypeKey, context, hit, result);
+                for (int featureIndex = 0; featureIndex < learningFeatureKeys.Count; featureIndex++)
+                {
+                    string featureKey = learningFeatureKeys[featureIndex];
+                    if ((targets & ScopeTargets.Deck) != 0)
+                        AccumulateByHit(deckBuckets, "deck", context.DeckKey, context, hit, result, featureKey);
+                    if ((targets & ScopeTargets.Archetype) != 0)
+                        AccumulateByHit(archetypeBuckets, "archetype", context.ArchetypeKey, context, hit, result, featureKey);
+                    if ((targets & ScopeTargets.Global) != 0)
+                        AccumulateByHit(globalBuckets, "global", "global", context, hit, result, featureKey);
+                    if ((targets & ScopeTargets.Family) != 0)
+                        AccumulateByHit(familyBuckets, "family", context.ArchetypeKey, context, hit, result, featureKey);
+                }
             }
         }
 
@@ -482,33 +789,12 @@ namespace SmartBot.Mulligan
             if (suggestions == null || suggestions.Count == 0)
                 return false;
 
-            bool changed = false;
-            List<DecisionMulliganSuggestion> appliedSuggestions = new List<DecisionMulliganSuggestion>();
-            foreach (DecisionMulliganSuggestion suggestion in suggestions)
-            {
-                if (suggestion == null || suggestion.CardId == default(Card.Cards))
-                    continue;
-
-                if (suggestion.Keep)
-                {
-                    if (!cardsToKeep.Contains(suggestion.CardId))
-                    {
-                        cardsToKeep.Add(suggestion.CardId);
-                        changed = true;
-                        appliedSuggestions.Add(suggestion);
-                    }
-                }
-                else
-                {
-                    int before = cardsToKeep.Count;
-                    cardsToKeep.RemoveAll(card => card == suggestion.CardId);
-                    if (cardsToKeep.Count != before)
-                    {
-                        changed = true;
-                        appliedSuggestions.Add(suggestion);
-                    }
-                }
-            }
+            List<Card.Cards> originalKeeps = new List<Card.Cards>(cardsToKeep);
+            ApplySuggestionsToKeepList(cardsToKeep, choices, suggestions);
+            bool changed = !HaveSameCardMultiset(originalKeeps, cardsToKeep);
+            List<DecisionMulliganSuggestion> appliedSuggestions = changed
+                ? new List<DecisionMulliganSuggestion>(suggestions)
+                : new List<DecisionMulliganSuggestion>();
 
             if (changed && appliedSuggestions.Count > 0)
                 CaptureMemoryHits(appliedSuggestions, choices, cardsToKeep, opponentClass, ownClass, profileName, mulliganName);
@@ -532,7 +818,66 @@ namespace SmartBot.Mulligan
                 ownClass,
                 SafeCurrentProfileName(),
                 SafeCurrentMulliganName(),
-                true);
+                DecisionRuntimeMode.AllowLiveTeacherFallback());
+        }
+
+        public static string TryApplyMemoryFirstBeforeTeacher(
+            List<Card.Cards> cardsToKeep,
+            List<Card.Cards> choices,
+            Card.CClass opponentClass,
+            Card.CClass ownClass)
+        {
+            if (cardsToKeep == null || choices == null || choices.Count == 0)
+                return string.Empty;
+
+            if (!DecisionRuntimeMode.IsPureLearningModeEnabled())
+                return string.Empty;
+
+            bool allowTeacherFallback = DecisionRuntimeMode.AllowLiveTeacherFallback();
+            bool preferMemoryFirst = DecisionRuntimeMode.PreferMulliganMemoryFirst();
+            if (allowTeacherFallback && !preferMemoryFirst)
+                return string.Empty;
+
+            string profileName = SafeCurrentProfileName();
+            string mulliganName = SafeCurrentMulliganName();
+            List<DecisionMulliganSuggestion> suggestions = QuerySuggestions(choices, opponentClass, ownClass, profileName, mulliganName);
+            int suggestionCount = suggestions != null ? suggestions.Count : 0;
+            int choiceCount = choices.Count;
+            double minScore = suggestionCount > 0
+                ? suggestions.Min(item => item != null ? item.Score : 0d)
+                : 0d;
+            double coverage = choiceCount > 0
+                ? ((double)suggestionCount / (double)choiceCount)
+                : 0d;
+            double requiredScore = DecisionRuntimeMode.GetMulliganMemoryFirstMinScore();
+            double requiredCoverage = DecisionRuntimeMode.GetMulliganMemoryFirstMinCoverage();
+
+            if (!allowTeacherFallback)
+            {
+                if (suggestionCount > 0)
+                {
+                    ApplySuggestionsToKeepList(cardsToKeep, choices, suggestions);
+                    CaptureMemoryHits(suggestions, choices, cardsToKeep, opponentClass, ownClass, profileName, mulliganName);
+                    return BuildMemoryFirstStatus("apply_memory", "teacher_disabled", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
+                }
+
+                cardsToKeep.Clear();
+                cardsToKeep.AddRange(choices);
+                return BuildMemoryFirstStatus("apply_keep_all", "teacher_disabled_no_memory", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
+            }
+
+            if (suggestionCount <= 0)
+                return BuildMemoryFirstStatus("skip", "no_suggestions", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
+
+            if (minScore + 0.0001d < requiredScore)
+                return BuildMemoryFirstStatus("skip", "min_score", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
+
+            if (coverage + 0.0001d < requiredCoverage)
+                return BuildMemoryFirstStatus("skip", "coverage", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
+
+            ApplySuggestionsToKeepList(cardsToKeep, choices, suggestions);
+            CaptureMemoryHits(suggestions, choices, cardsToKeep, opponentClass, ownClass, profileName, mulliganName);
+            return BuildMemoryFirstStatus("apply_memory", "gate_pass", suggestionCount, choiceCount, minScore, coverage, requiredScore, requiredCoverage);
         }
 
         private static bool ApplyPureLearningHints(
@@ -556,30 +901,25 @@ namespace SmartBot.Mulligan
             bool allowTeacher)
         {
             List<Card.Cards> originalKeeps = cardsToKeep != null
-                ? cardsToKeep.Distinct().ToList()
+                ? new List<Card.Cards>(cardsToKeep)
                 : new List<Card.Cards>();
             List<Card.Cards> pureKeeps = new List<Card.Cards>();
 
-            bool hasTeacherKeeps = false;
+            bool hasTeacherDecision = false;
             if (allowTeacher)
             {
-                TryBuildTeacherKeepSet(pureKeeps, choices, mulliganName);
-                hasTeacherKeeps = pureKeeps.Count > 0;
+                hasTeacherDecision = TryBuildTeacherKeepSet(pureKeeps, choices, mulliganName);
             }
 
             List<DecisionMulliganSuggestion> suggestions = null;
-            if (!hasTeacherKeeps)
+            bool hasMemoryDecision = false;
+            if (!hasTeacherDecision)
             {
                 suggestions = QuerySuggestions(choices, opponentClass, ownClass, profileName, mulliganName);
                 if (suggestions != null && suggestions.Count > 0)
                 {
-                    foreach (DecisionMulliganSuggestion suggestion in suggestions)
-                    {
-                        if (suggestion == null || !suggestion.Keep || suggestion.CardId == default(Card.Cards))
-                            continue;
-                        if (!pureKeeps.Contains(suggestion.CardId))
-                            pureKeeps.Add(suggestion.CardId);
-                    }
+                    hasMemoryDecision = true;
+                    ApplySuggestionsToKeepList(pureKeeps, choices, suggestions);
                 }
             }
 
@@ -590,9 +930,9 @@ namespace SmartBot.Mulligan
             if (suggestions != null && suggestions.Count > 0)
                 CaptureMemoryHits(suggestions, choices, cardsToKeep, opponentClass, ownClass, profileName, mulliganName);
 
-            return originalKeeps.Count != cardsToKeep.Distinct().Count()
-                || originalKeeps.Except(cardsToKeep).Any()
-                || cardsToKeep.Except(originalKeeps).Any();
+            return hasTeacherDecision
+                || hasMemoryDecision
+                || !HaveSameCardMultiset(originalKeeps, cardsToKeep);
         }
 
         private static List<DecisionMulliganSuggestion> QuerySuggestions(
@@ -608,13 +948,18 @@ namespace SmartBot.Mulligan
 
             string scopeName = !string.IsNullOrWhiteSpace(mulliganName) ? mulliganName : profileName;
             DecisionDeckArchetypeContext context = DecisionDeckArchetypeResolver.Resolve(scopeName, (DecisionLearningStateRecord)null, SafeCurrentDeckName(), SafeCurrentDeckFingerprint());
-            string featureKey = BuildFeatureKey(opponentClass, ownClass, choices != null && choices.Count >= 4);
+            List<FeatureKeyCandidate> featureKeys = BuildFeatureKeyCandidates(opponentClass, ownClass, choices != null && choices.Count >= 4);
+            Dictionary<string, int> totalByCard = BuildCardCounts(choices);
+            Dictionary<string, int> seenByCard = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             LoadMemoryFiles();
-            foreach (Card.Cards cardId in choices.Distinct())
+            for (int slot = 0; slot < choices.Count; slot++)
             {
+                Card.Cards cardId = choices[slot];
                 string cardKey = cardId.ToString();
                 string family = ResolveCardFamily(cardKey);
+                int copyTotal = ReadCardCount(totalByCard, cardKey);
+                int copyIndex = IncrementCardCount(seenByCard, cardKey);
 
                 double keepScore = 0d;
                 double replaceScore = 0d;
@@ -625,10 +970,17 @@ namespace SmartBot.Mulligan
                 DecisionMulliganMemoryEntry bestKeepEntry = null;
                 DecisionMulliganMemoryEntry bestReplaceEntry = null;
 
-                ScoreEntries(_deck, "deck", context.DeckKey, featureKey, cardKey, family, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 1.00d);
-                ScoreEntries(_archetype, "archetype", context.ArchetypeKey, featureKey, cardKey, family, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.90d);
-                ScoreEntries(_family, "family", context.ArchetypeKey, featureKey, cardKey, family, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.75d);
-                ScoreEntries(_global, "global", "global", featureKey, cardKey, family, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.60d);
+                for (int i = 0; i < featureKeys.Count; i++)
+                {
+                    FeatureKeyCandidate candidate = featureKeys[i];
+                    if (candidate == null || string.IsNullOrWhiteSpace(candidate.Key))
+                        continue;
+
+                    ScoreEntries(_deck, "deck", context.DeckKey, candidate.Key, cardKey, family, copyTotal, copyIndex, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 1.00d * candidate.Weight);
+                    ScoreEntries(_archetype, "archetype", context.ArchetypeKey, candidate.Key, cardKey, family, copyTotal, copyIndex, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.90d * candidate.Weight);
+                    ScoreEntries(_family, "family", context.ArchetypeKey, candidate.Key, cardKey, family, copyTotal, copyIndex, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.75d * candidate.Weight);
+                    ScoreEntries(_global, "global", "global", candidate.Key, cardKey, family, copyTotal, copyIndex, ref keepScore, ref replaceScore, ref bestKeepScope, ref bestKeepReason, ref bestReplaceScope, ref bestReplaceReason, ref bestKeepEntry, ref bestReplaceEntry, 0.60d * candidate.Weight);
+                }
 
                 if (keepScore < 0.10d && replaceScore < 0.10d)
                     continue;
@@ -639,6 +991,9 @@ namespace SmartBot.Mulligan
 
                 DecisionMulliganSuggestion suggestion = new DecisionMulliganSuggestion();
                 suggestion.CardId = cardId;
+                suggestion.Slot = slot + 1;
+                suggestion.CopyTotal = copyTotal;
+                suggestion.CopyIndex = copyIndex;
                 suggestion.Keep = keepScore > replaceScore;
                 suggestion.Score = Math.Round(delta, 4);
                 suggestion.Scope = suggestion.Keep ? bestKeepScope : bestReplaceScope;
@@ -651,12 +1006,90 @@ namespace SmartBot.Mulligan
             {
                 if (Math.Abs((y != null ? y.Score : 0d) - (x != null ? x.Score : 0d)) > 0.0001d)
                     return (y != null ? y.Score : 0d) > (x != null ? x.Score : 0d) ? 1 : -1;
+                if ((x != null ? x.Slot : 0) != (y != null ? y.Slot : 0))
+                    return (x != null ? x.Slot : 0).CompareTo(y != null ? y.Slot : 0);
                 return string.Compare(
                     x != null ? x.CardId.ToString() : string.Empty,
                     y != null ? y.CardId.ToString() : string.Empty,
                     StringComparison.OrdinalIgnoreCase);
             });
             return results;
+        }
+
+        private static string BuildMemoryFirstStatus(
+            string outcome,
+            string reason,
+            int suggestionCount,
+            int choiceCount,
+            double minScore,
+            double coverage,
+            double requiredScore,
+            double requiredCoverage)
+        {
+            return (outcome ?? string.Empty)
+                + "|reason=" + (reason ?? string.Empty)
+                + "|suggestions=" + suggestionCount.ToString(CultureInfo.InvariantCulture) + "/" + choiceCount.ToString(CultureInfo.InvariantCulture)
+                + "|min_score=" + minScore.ToString("0.0000", CultureInfo.InvariantCulture)
+                + "|coverage=" + coverage.ToString("0.0000", CultureInfo.InvariantCulture)
+                + "|threshold_score=" + requiredScore.ToString("0.0000", CultureInfo.InvariantCulture)
+                + "|threshold_coverage=" + requiredCoverage.ToString("0.0000", CultureInfo.InvariantCulture);
+        }
+
+        private static List<FeatureKeyCandidate> BuildFeatureKeyCandidates(
+            Card.CClass opponentClass,
+            Card.CClass ownClass,
+            bool hasCoin)
+        {
+            List<FeatureKeyCandidate> results = new List<FeatureKeyCandidate>();
+            AddFeatureKeyCandidate(results, BuildFeatureKey(opponentClass, ownClass, hasCoin), 1.00d);
+            AddFeatureKeyCandidate(results, BuildFeatureKeyFromRaw("ALL", ownClass.ToString(), hasCoin), 0.92d);
+            AddFeatureKeyCandidate(results, BuildFeatureKeyFromRaw("ALL", "ALL", hasCoin), 0.84d);
+            return results;
+        }
+
+        private static List<string> BuildLearningFeatureKeys(
+            Card.CClass opponentClass,
+            Card.CClass ownClass,
+            bool hasCoin,
+            string preferredFeatureKey = null)
+        {
+            List<string> keys = new List<string>();
+            AddLearningFeatureKey(keys, preferredFeatureKey);
+            AddLearningFeatureKey(keys, BuildFeatureKey(opponentClass, ownClass, hasCoin));
+            AddLearningFeatureKey(keys, BuildFeatureKeyFromRaw("ALL", ownClass.ToString(), hasCoin));
+            return keys;
+        }
+
+        private static void AddLearningFeatureKey(List<string> keys, string key)
+        {
+            if (keys == null || string.IsNullOrWhiteSpace(key))
+                return;
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                if (string.Equals(keys[i], key, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+
+            keys.Add(key);
+        }
+
+        private static void AddFeatureKeyCandidate(List<FeatureKeyCandidate> items, string key, double weight)
+        {
+            if (items == null || string.IsNullOrWhiteSpace(key))
+                return;
+
+            for (int i = 0; i < items.Count; i++)
+            {
+                FeatureKeyCandidate existing = items[i];
+                if (existing != null && string.Equals(existing.Key, key, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+
+            FeatureKeyCandidate candidate = new FeatureKeyCandidate();
+            candidate.Key = key;
+            candidate.Weight = weight;
+            items.Add(candidate);
         }
 
         private static void ScoreEntries(
@@ -666,6 +1099,8 @@ namespace SmartBot.Mulligan
             string featureKey,
             string cardId,
             string family,
+            int copyTotal,
+            int copyIndex,
             ref double keepScore,
             ref double replaceScore,
             ref string bestKeepScope,
@@ -699,7 +1134,11 @@ namespace SmartBot.Mulligan
                 if (!match)
                     continue;
 
-                double score = ComputeEntryScore(entry, scopeWeight);
+                double copyContextWeight = ComputeCopyContextWeight(entry, copyTotal, copyIndex);
+                if (copyContextWeight <= 0d)
+                    continue;
+
+                double score = ComputeEntryScore(entry, scopeWeight * copyContextWeight);
                 if (string.Equals(entry.action_type ?? string.Empty, "Keep", StringComparison.OrdinalIgnoreCase))
                 {
                     if (score > keepScore)
@@ -723,6 +1162,33 @@ namespace SmartBot.Mulligan
             }
         }
 
+        private static double ComputeCopyContextWeight(
+            DecisionMulliganMemoryEntry entry,
+            int copyTotal,
+            int copyIndex)
+        {
+            if (entry == null)
+                return 0d;
+
+            int entryCopyTotal = entry.copy_total > 1 ? entry.copy_total : 1;
+            int entryCopyIndex = entry.copy_index > 1 ? entry.copy_index : 1;
+            int normalizedCopyTotal = copyTotal > 1 ? copyTotal : 1;
+            int normalizedCopyIndex = normalizedCopyTotal > 1 ? Math.Max(1, copyIndex) : 1;
+
+            bool entryIsSpecific = entryCopyTotal > 1 || entryCopyIndex > 1;
+            if (entryIsSpecific)
+            {
+                if (entryCopyTotal == normalizedCopyTotal && entryCopyIndex == normalizedCopyIndex)
+                    return 1.08d;
+                return 0d;
+            }
+
+            if (normalizedCopyTotal > 1)
+                return 0.82d;
+
+            return 1.00d;
+        }
+
         private static double ComputeEntryScore(DecisionMulliganMemoryEntry entry, double scopeWeight)
         {
             if (entry == null)
@@ -742,7 +1208,8 @@ namespace SmartBot.Mulligan
             string scopeKey,
             DecisionDeckArchetypeContext context,
             DecisionMulliganMemoryHitRecord hit,
-            string result)
+            string result,
+            string featureKeyOverride = null)
         {
             if (hit == null)
                 return;
@@ -756,13 +1223,15 @@ namespace SmartBot.Mulligan
                 scope,
                 scopeKey,
                 context,
-                hit.feature_key ?? string.Empty,
+                !string.IsNullOrWhiteSpace(featureKeyOverride) ? featureKeyOverride : (hit.feature_key ?? string.Empty),
                 hit.action_type ?? string.Empty,
                 hit.action_card_id ?? string.Empty,
                 family,
                 result,
                 hit.captured_at_utc,
-                true);
+                true,
+                hit.copy_total,
+                hit.copy_index);
         }
 
         private static void Accumulate(
@@ -776,7 +1245,9 @@ namespace SmartBot.Mulligan
             string family,
             string result,
             string capturedAtUtc,
-            bool fromMemoryHit = false)
+            bool fromMemoryHit = false,
+            int copyTotal = 1,
+            int copyIndex = 1)
         {
             string normalizedScopeKey = string.IsNullOrWhiteSpace(scopeKey) ? "unknown" : scopeKey.Trim();
             string identity = string.Equals(scope, "family", StringComparison.OrdinalIgnoreCase)
@@ -785,7 +1256,11 @@ namespace SmartBot.Mulligan
             if (string.IsNullOrWhiteSpace(identity))
                 return;
 
-            string bucketKey = scope + "|" + normalizedScopeKey + "|" + featureKey + "|" + actionType + "|" + identity;
+            int normalizedCopyTotal = copyTotal > 1 ? copyTotal : 1;
+            int normalizedCopyIndex = normalizedCopyTotal > 1 ? Math.Max(1, copyIndex) : 1;
+            string bucketKey = scope + "|" + normalizedScopeKey + "|" + featureKey + "|" + actionType + "|" + identity
+                + "|copy_total=" + normalizedCopyTotal.ToString(CultureInfo.InvariantCulture)
+                + "|copy_index=" + normalizedCopyIndex.ToString(CultureInfo.InvariantCulture);
             Bucket bucket;
             if (!buckets.TryGetValue(bucketKey, out bucket))
             {
@@ -800,6 +1275,8 @@ namespace SmartBot.Mulligan
                 bucket.Entry.action_type = actionType ?? string.Empty;
                 bucket.Entry.card_id = cardId ?? string.Empty;
                 bucket.Entry.card_family = family ?? string.Empty;
+                bucket.Entry.copy_total = normalizedCopyTotal;
+                bucket.Entry.copy_index = normalizedCopyIndex;
                 bucket.Entry.last_seen_utc = string.Empty;
                 buckets[bucketKey] = bucket;
             }
@@ -840,11 +1317,7 @@ namespace SmartBot.Mulligan
                 entry.win_rate = knownCount > 0
                     ? Math.Round((double)entry.win_count / knownCount, 4)
                     : 0d;
-                entry.confidence = Math.Round(
-                    (Math.Min(entry.sample_count, 12) / 12.0)
-                    * (knownCount > 0 ? entry.win_rate : 0.35d)
-                    * recencyWeight,
-                    4);
+                entry.confidence = ComputeEntryConfidence(entry, knownCount, recencyWeight);
                 if (!ShouldKeepEntry(entry))
                     continue;
                 entries.Add(entry);
@@ -871,6 +1344,35 @@ namespace SmartBot.Mulligan
             file.entry_count = entries.Count;
             file.entries = entries;
             return file;
+        }
+
+        private static double ComputeEntryConfidence(
+            DecisionMulliganMemoryEntry entry,
+            int knownCount,
+            double recencyWeight)
+        {
+            if (entry == null || entry.sample_count <= 0)
+                return 0d;
+
+            if (knownCount > 0)
+            {
+                return Math.Round(
+                    (Math.Min(entry.sample_count, 12) / 12.0)
+                    * entry.win_rate
+                    * recencyWeight,
+                    4);
+            }
+
+            // Early mulligan learning often has teacher samples before result files land.
+            // Give those entries a bootstrap confidence so 2-3 consistent observations can
+            // start helping locally instead of being rebuilt forever without becoming usable.
+            double bootstrapConfidence = 0.05d
+                + Math.Min(entry.sample_count, 4) * 0.05d
+                + Math.Min(entry.source_memory_hit_count, 4) * 0.015d;
+
+            return Math.Round(
+                Math.Min(0.32d, bootstrapConfidence) * recencyWeight,
+                4);
         }
 
         private static double ComputeRecencyWeight(string lastSeenUtc)
@@ -1005,15 +1507,24 @@ namespace SmartBot.Mulligan
 
             string normalizedMulligan = NormalizeName(mulliganName);
             string normalizedProfile = NormalizeName(profileName);
-            List<Card.Cards> distinctChoices = choices.Distinct().ToList();
-            List<Card.Cards> distinctKeeps = cardsToKeep != null ? cardsToKeep.Distinct().ToList() : new List<Card.Cards>();
-            string fingerprint = BuildFingerprint(
-                distinctChoices,
-                distinctChoices.Where(cardId => !distinctKeeps.Contains(cardId)).ToList(),
+            List<Card.Cards> orderedChoices = new List<Card.Cards>(choices);
+            List<int> replaceSlots = ResolveReplaceSlotsFromKeepList(orderedChoices, cardsToKeep);
+            List<Card.Cards> replaceCards = new List<Card.Cards>();
+            foreach (int slot in replaceSlots)
+            {
+                int index = slot - 1;
+                if (index >= 0 && index < orderedChoices.Count)
+                    replaceCards.Add(orderedChoices[index]);
+            }
+
+            string fingerprint = BuildSlotAwareFingerprint(
+                orderedChoices,
+                replaceSlots,
+                replaceCards,
                 opponentClass,
                 ownClass,
                 normalizedMulligan);
-            string featureKey = BuildFeatureKey(opponentClass, ownClass, distinctChoices.Count >= 4);
+            string featureKey = BuildFeatureKey(opponentClass, ownClass, orderedChoices.Count >= 4);
 
             try
             {
@@ -1024,7 +1535,8 @@ namespace SmartBot.Mulligan
                         if (suggestion == null || suggestion.Entry == null || suggestion.CardId == default(Card.Cards))
                             continue;
 
-                        string hitKey = normalizedMulligan + "|" + fingerprint + "|" + (suggestion.Entry.memory_key ?? string.Empty);
+                        string hitKey = normalizedMulligan + "|" + fingerprint + "|" + (suggestion.Entry.memory_key ?? string.Empty)
+                            + "|slot=" + suggestion.Slot.ToString(CultureInfo.InvariantCulture);
                         if (IsDuplicateMemoryHit(normalizedMulligan, hitKey))
                             continue;
 
@@ -1040,7 +1552,7 @@ namespace SmartBot.Mulligan
                         record.state_fingerprint = fingerprint;
                         record.own_class = ownClass.ToString();
                         record.opponent_class = opponentClass.ToString();
-                        record.has_coin = distinctChoices.Count >= 4;
+                        record.has_coin = orderedChoices.Count >= 4;
                         record.memory_key = suggestion.Entry.memory_key ?? string.Empty;
                         record.scope = suggestion.Entry.scope ?? string.Empty;
                         record.scope_key = suggestion.Entry.scope_key ?? string.Empty;
@@ -1050,6 +1562,9 @@ namespace SmartBot.Mulligan
                         record.action_type = suggestion.Keep ? "Keep" : "Replace";
                         record.action_card_id = suggestion.CardId.ToString();
                         record.action_family = ResolveCardFamily(record.action_card_id);
+                        record.action_slot = suggestion.Slot;
+                        record.copy_total = suggestion.CopyTotal;
+                        record.copy_index = suggestion.CopyIndex;
                         record.sample_count = suggestion.Entry.sample_count;
                         record.win_rate = suggestion.Entry.win_rate;
                         record.confidence = suggestion.Entry.confidence;
@@ -1077,18 +1592,30 @@ namespace SmartBot.Mulligan
 
         private static string BuildFeatureKey(Card.CClass opponentClass, Card.CClass ownClass, bool hasCoin)
         {
-            return "opp:" + opponentClass
-                + "|own:" + ownClass
+            return BuildFeatureKeyFromRaw(opponentClass.ToString(), ownClass.ToString(), hasCoin);
+        }
+
+        private static string BuildFeatureKeyFromRaw(string opponentClass, string ownClass, bool hasCoin)
+        {
+            return "opp:" + NormalizeFeatureToken(opponentClass)
+                + "|own:" + NormalizeFeatureToken(ownClass)
                 + "|coin:" + (hasCoin ? "1" : "0");
         }
 
-        private static void TryBuildTeacherKeepSet(
+        private static string NormalizeFeatureToken(string raw)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                return "ALL";
+            return raw.Trim().ToUpperInvariant();
+        }
+
+        private static bool TryBuildTeacherKeepSet(
             List<Card.Cards> keeps,
             List<Card.Cards> choices,
             string mulliganName)
         {
             if (keeps == null || choices == null || choices.Count == 0 || string.IsNullOrWhiteSpace(mulliganName))
-                return;
+                return false;
 
             MulliganBoxOcrState teacher = MulliganBoxOcr.LoadCurrentState();
             if (teacher == null
@@ -1097,28 +1624,32 @@ namespace SmartBot.Mulligan
                 || !string.Equals(teacher.Stage ?? string.Empty, "mulligan", StringComparison.OrdinalIgnoreCase)
                 || !teacher.MatchesMulligan(mulliganName))
             {
-                return;
+                return false;
             }
 
             List<Card.Cards> replaceIds = teacher.ReplaceIds != null
-                ? teacher.ReplaceIds.Distinct().ToList()
+                ? new List<Card.Cards>(teacher.ReplaceIds)
                 : new List<Card.Cards>();
             List<int> replaceSlots = teacher.ReplaceSlots != null
                 ? teacher.ReplaceSlots.Distinct().ToList()
                 : new List<int>();
             bool useSlotHints = replaceSlots.Count > 0;
+            Dictionary<string, int> remainingReplaceCounts = !useSlotHints
+                ? BuildCardCounts(replaceIds)
+                : new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
             for (int i = 0; i < choices.Count; i++)
             {
                 Card.Cards cardId = choices[i];
                 bool replace = useSlotHints
                     ? replaceSlots.Contains(i + 1)
-                    : replaceIds.Contains(cardId);
+                    : TryConsumeCardCount(remainingReplaceCounts, cardId.ToString());
                 if (replace)
                     continue;
-                if (!keeps.Contains(cardId))
-                    keeps.Add(cardId);
+                keeps.Add(cardId);
             }
+
+            return true;
         }
 
         private static Card.CClass ParseClass(string raw)
@@ -1192,6 +1723,239 @@ namespace SmartBot.Mulligan
             return false;
         }
 
+        private static List<string> ResolveSampleChoiceIds(DecisionMulliganSampleRecord sample)
+        {
+            if (sample == null)
+                return new List<string>();
+
+            List<string> slotIds = sample.choice_slot_ids != null
+                ? sample.choice_slot_ids.Where(id => !string.IsNullOrWhiteSpace(id)).ToList()
+                : new List<string>();
+            if (slotIds.Count > 0)
+                return slotIds;
+
+            return sample.choice_ids != null
+                ? sample.choice_ids.Where(id => !string.IsNullOrWhiteSpace(id)).ToList()
+                : new List<string>();
+        }
+
+        private static HashSet<int> ResolveSampleReplaceSlots(DecisionMulliganSampleRecord sample)
+        {
+            HashSet<int> result = new HashSet<int>();
+            if (sample == null || sample.replace_slots == null || sample.replace_slots.Count == 0)
+                return result;
+
+            foreach (int slot in sample.replace_slots)
+            {
+                if (slot > 0)
+                    result.Add(slot);
+            }
+
+            return result;
+        }
+
+        private static bool ResolveSampleKeepDecision(
+            DecisionMulliganSampleRecord sample,
+            int slot,
+            string cardId,
+            HashSet<int> replaceSlots,
+            Dictionary<string, int> keepCounts,
+            Dictionary<string, int> replaceCounts)
+        {
+            if (replaceSlots != null && replaceSlots.Count > 0)
+                return !replaceSlots.Contains(slot);
+
+            if (TryConsumeCardCount(replaceCounts, cardId))
+                return false;
+
+            if (TryConsumeCardCount(keepCounts, cardId))
+                return true;
+
+            if (sample != null && sample.keep_ids != null && sample.keep_ids.Count > 0)
+                return ContainsId(sample.keep_ids, cardId);
+
+            if (sample != null && sample.replace_ids != null && sample.replace_ids.Count > 0)
+                return !ContainsId(sample.replace_ids, cardId);
+
+            return true;
+        }
+
+        private static Dictionary<string, int> BuildStringCardCounts(IEnumerable<string> cardIds)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (cardIds == null)
+                return counts;
+
+            foreach (string cardId in cardIds)
+            {
+                if (string.IsNullOrWhiteSpace(cardId))
+                    continue;
+
+                int count;
+                counts.TryGetValue(cardId, out count);
+                counts[cardId] = count + 1;
+            }
+
+            return counts;
+        }
+
+        private static Dictionary<string, int> BuildCardCounts(IEnumerable<Card.Cards> cards)
+        {
+            Dictionary<string, int> counts = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (cards == null)
+                return counts;
+
+            foreach (Card.Cards cardId in cards)
+            {
+                string key = cardId.ToString();
+                int count;
+                counts.TryGetValue(key, out count);
+                counts[key] = count + 1;
+            }
+
+            return counts;
+        }
+
+        private static int ReadCardCount(Dictionary<string, int> counts, string cardId)
+        {
+            if (counts == null || string.IsNullOrWhiteSpace(cardId))
+                return 0;
+
+            int count;
+            return counts.TryGetValue(cardId, out count) ? count : 0;
+        }
+
+        private static int IncrementCardCount(Dictionary<string, int> counts, string cardId)
+        {
+            if (counts == null || string.IsNullOrWhiteSpace(cardId))
+                return 0;
+
+            int count;
+            counts.TryGetValue(cardId, out count);
+            count++;
+            counts[cardId] = count;
+            return count;
+        }
+
+        private static Dictionary<string, int> BuildDesiredKeepCounts(
+            List<Card.Cards> choices,
+            List<DecisionMulliganSuggestion> suggestions)
+        {
+            Dictionary<string, int> desired = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            if (choices == null || suggestions == null || suggestions.Count == 0)
+                return desired;
+
+            Dictionary<string, int> totalByCard = BuildCardCounts(choices);
+            Dictionary<string, int> keepByCard = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> replaceByCard = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (DecisionMulliganSuggestion suggestion in suggestions)
+            {
+                if (suggestion == null || suggestion.CardId == default(Card.Cards))
+                    continue;
+
+                string key = suggestion.CardId.ToString();
+                if (suggestion.Keep)
+                    keepByCard[key] = ReadCardCount(keepByCard, key) + 1;
+                else
+                    replaceByCard[key] = ReadCardCount(replaceByCard, key) + 1;
+            }
+
+            foreach (KeyValuePair<string, int> kv in totalByCard)
+            {
+                string key = kv.Key;
+                int totalCount = kv.Value;
+                int keepCount = ReadCardCount(keepByCard, key);
+                int replaceCount = ReadCardCount(replaceByCard, key);
+                int desiredCount = totalCount;
+                if (replaceCount > 0)
+                    desiredCount = Math.Max(keepCount, totalCount - replaceCount);
+
+                desired[key] = Math.Min(totalCount, desiredCount);
+            }
+
+            return desired;
+        }
+
+        private static bool TryConsumeCardCount(Dictionary<string, int> counts, string cardId)
+        {
+            if (counts == null || string.IsNullOrWhiteSpace(cardId))
+                return false;
+
+            int remaining = ReadCardCount(counts, cardId);
+            if (remaining <= 0)
+                return false;
+
+            counts[cardId] = remaining - 1;
+            return true;
+        }
+
+        private static void ApplySuggestionsToKeepList(
+            List<Card.Cards> cardsToKeep,
+            List<Card.Cards> choices,
+            List<DecisionMulliganSuggestion> suggestions)
+        {
+            if (cardsToKeep == null)
+                return;
+
+            cardsToKeep.Clear();
+            if (choices == null || choices.Count == 0 || suggestions == null || suggestions.Count == 0)
+                return;
+
+            Dictionary<string, int> desiredKeepCounts = BuildDesiredKeepCounts(choices, suggestions);
+            foreach (Card.Cards cardId in choices)
+            {
+                string key = cardId.ToString();
+                int remaining = ReadCardCount(desiredKeepCounts, key);
+                if (remaining <= 0)
+                    continue;
+
+                cardsToKeep.Add(cardId);
+                desiredKeepCounts[key] = remaining - 1;
+            }
+        }
+
+        private static bool HaveSameCardMultiset(List<Card.Cards> left, List<Card.Cards> right)
+        {
+            Dictionary<string, int> leftCounts = BuildCardCounts(left);
+            Dictionary<string, int> rightCounts = BuildCardCounts(right);
+            if (leftCounts.Count != rightCounts.Count)
+                return false;
+
+            foreach (KeyValuePair<string, int> kv in leftCounts)
+            {
+                if (ReadCardCount(rightCounts, kv.Key) != kv.Value)
+                    return false;
+            }
+
+            return true;
+        }
+
+        private static List<int> ResolveReplaceSlotsFromKeepList(
+            List<Card.Cards> choices,
+            List<Card.Cards> cardsToKeep)
+        {
+            List<int> replaceSlots = new List<int>();
+            if (choices == null || choices.Count == 0)
+                return replaceSlots;
+
+            Dictionary<string, int> keepCounts = BuildCardCounts(cardsToKeep);
+            for (int i = 0; i < choices.Count; i++)
+            {
+                string key = choices[i].ToString();
+                int remaining = ReadCardCount(keepCounts, key);
+                if (remaining > 0)
+                {
+                    keepCounts[key] = remaining - 1;
+                    continue;
+                }
+
+                replaceSlots.Add(i + 1);
+            }
+
+            return replaceSlots;
+        }
+
         private static List<string> ToIdList(IEnumerable<Card.Cards> cards)
         {
             List<string> result = new List<string>();
@@ -1244,6 +2008,58 @@ namespace SmartBot.Mulligan
             }
 
             return hash.ToString("x8");
+        }
+
+        private static string BuildSlotAwareFingerprint(
+            List<Card.Cards> choices,
+            List<int> replaceSlots,
+            List<Card.Cards> replaceIds,
+            Card.CClass opponentClass,
+            Card.CClass ownClass,
+            string mulliganName)
+        {
+            List<string> parts = new List<string>();
+            parts.Add(NormalizeName(mulliganName));
+            parts.Add(SafeCurrentDeckName());
+            parts.Add(SafeCurrentDeckFingerprint());
+            parts.Add(opponentClass.ToString());
+            parts.Add(ownClass.ToString());
+
+            if (choices != null)
+            {
+                for (int i = 0; i < choices.Count; i++)
+                    parts.Add("s" + (i + 1).ToString(CultureInfo.InvariantCulture) + ":" + choices[i]);
+            }
+
+            if (replaceSlots != null && replaceSlots.Count > 0)
+            {
+                foreach (int slot in replaceSlots.Distinct().OrderBy(value => value))
+                    parts.Add("x" + slot.ToString(CultureInfo.InvariantCulture));
+            }
+            else if (replaceIds != null)
+            {
+                for (int i = 0; i < replaceIds.Count; i++)
+                    parts.Add("r" + (i + 1).ToString(CultureInfo.InvariantCulture) + ":" + replaceIds[i]);
+            }
+
+            return ComputeFnv1a(parts);
+        }
+
+        private static List<int> NormalizeReplaceSlots(IEnumerable<int> slots, int maxSlot)
+        {
+            List<int> result = new List<int>();
+            if (slots == null || maxSlot <= 0)
+                return result;
+
+            foreach (int slot in slots)
+            {
+                if (slot <= 0 || slot > maxSlot || result.Contains(slot))
+                    continue;
+
+                result.Add(slot);
+            }
+
+            return result;
         }
 
         private static string ComputeFnv1a(List<string> parts)
@@ -1357,6 +2173,8 @@ namespace SmartBot.Mulligan
 
         private static void LoadMemoryFiles()
         {
+            EnsureMemoryFilesCurrent();
+
             lock (MemorySync)
             {
                 if (_lastLoadUtc.AddSeconds(2) > DateTime.UtcNow)
@@ -1376,6 +2194,68 @@ namespace SmartBot.Mulligan
                     ReadMemoryFile(PublishedDeckMemoryPath));
                 _lastLoadUtc = DateTime.UtcNow;
             }
+        }
+
+        private static void EnsureMemoryFilesCurrent()
+        {
+            DateTime nowUtc = DateTime.UtcNow;
+            if (_lastEnsureRebuildUtc.AddSeconds(2) > nowUtc)
+                return;
+
+            _lastEnsureRebuildUtc = nowUtc;
+            try
+            {
+                DateTime sourceLatest = MaxUtc(
+                    SafeLastWriteUtc(SamplesPath),
+                    SafeLastWriteUtc(MemoryHitsPath),
+                    SafeLastWriteUtc(ResultsPath),
+                    SafeLastWriteUtc(SharedSamplesPath),
+                    SafeLastWriteUtc(SharedMemoryHitsPath),
+                    SafeLastWriteUtc(SharedResultsPath));
+                if (sourceLatest == DateTime.MinValue)
+                    return;
+
+                DateTime memoryLatest = MaxUtc(
+                    SafeLastWriteUtc(GlobalMemoryPath),
+                    SafeLastWriteUtc(FamilyMemoryPath),
+                    SafeLastWriteUtc(ArchetypeMemoryPath),
+                    SafeLastWriteUtc(DeckMemoryPath));
+                if (memoryLatest == DateTime.MinValue || sourceLatest > memoryLatest)
+                    Rebuild();
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+
+        private static DateTime SafeLastWriteUtc(string path)
+        {
+            try
+            {
+                if (!File.Exists(path))
+                    return DateTime.MinValue;
+                return File.GetLastWriteTimeUtc(path);
+            }
+            catch
+            {
+                return DateTime.MinValue;
+            }
+        }
+
+        private static DateTime MaxUtc(params DateTime[] values)
+        {
+            DateTime best = DateTime.MinValue;
+            if (values == null)
+                return best;
+
+            for (int i = 0; i < values.Length; i++)
+            {
+                if (values[i] > best)
+                    best = values[i];
+            }
+
+            return best;
         }
 
         private static DecisionMulliganMemoryFile ReadMemoryFile(string path)
@@ -1847,6 +2727,9 @@ namespace SmartBot.Mulligan
 
         public static MulliganBoxOcrState LoadCurrentState()
         {
+            if (!IsRankedWinOcrPluginEnabled())
+                return new MulliganBoxOcrState();
+
             string path = StateFilePath;
             if (!File.Exists(path))
                 return new MulliganBoxOcrState();
@@ -1859,6 +2742,30 @@ namespace SmartBot.Mulligan
             catch
             {
                 return new MulliganBoxOcrState();
+            }
+        }
+
+        private static bool IsRankedWinOcrPluginEnabled()
+        {
+            try
+            {
+                string configPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Plugins", "RankedWinOcrPlugin.json");
+                if (!File.Exists(configPath))
+                    return false;
+
+                string raw = File.ReadAllText(configPath);
+                if (string.IsNullOrWhiteSpace(raw))
+                    return false;
+
+                string compact = raw.Replace(" ", string.Empty)
+                    .Replace("\t", string.Empty)
+                    .Replace("\r", string.Empty)
+                    .Replace("\n", string.Empty);
+                return compact.IndexOf("\"Enabled\":true", StringComparison.OrdinalIgnoreCase) >= 0;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -1976,21 +2883,178 @@ namespace SmartBot.Mulligan
         }
     }
 
+    internal sealed class DecisionRuntimeModeConfig
+    {
+        public bool pure_learning_mode { get; set; }
+        public bool allow_live_teacher_fallback { get; set; }
+        public bool allow_legacy_mulligan_fallback { get; set; }
+        public bool prefer_mulligan_memory_first { get; set; }
+        public double mulligan_memory_first_min_score { get; set; }
+        public double mulligan_memory_first_min_coverage { get; set; }
+    }
+
     internal static class DecisionRuntimeMode
     {
+        private static readonly object Sync = new object();
+        private static DateTime _lastLoadUtc = DateTime.MinValue;
+        private static DecisionRuntimeModeConfig _cached;
+
+        private static string ConfigPath
+        {
+            get { return ResolveConfigPath(); }
+        }
+
         public static bool IsPureLearningModeEnabled()
         {
-            return true;
+            return GetConfig().pure_learning_mode;
         }
 
         public static bool AllowLiveTeacherFallback()
         {
-            return true;
+            return GetConfig().allow_live_teacher_fallback;
         }
 
         public static bool AllowLegacyMulliganFallback()
         {
-            return false;
+            return GetConfig().allow_legacy_mulligan_fallback;
+        }
+
+        public static bool PreferMulliganMemoryFirst()
+        {
+            return GetConfig().prefer_mulligan_memory_first;
+        }
+
+        public static double GetMulliganMemoryFirstMinScore()
+        {
+            return Math.Max(0d, GetConfig().mulligan_memory_first_min_score);
+        }
+
+        public static double GetMulliganMemoryFirstMinCoverage()
+        {
+            return Math.Max(0d, Math.Min(1d, GetConfig().mulligan_memory_first_min_coverage));
+        }
+
+        public static string GetConfigPath()
+        {
+            return ConfigPath;
+        }
+
+        private static DecisionRuntimeModeConfig GetConfig()
+        {
+            lock (Sync)
+            {
+                if (_cached != null && _lastLoadUtc.AddSeconds(2) > DateTime.UtcNow)
+                    return _cached;
+
+                _cached = LoadConfig();
+                _lastLoadUtc = DateTime.UtcNow;
+                return _cached;
+            }
+        }
+
+        private static DecisionRuntimeModeConfig LoadConfig()
+        {
+            DecisionRuntimeModeConfig config = BuildDefault();
+            try
+            {
+                if (!File.Exists(ConfigPath))
+                    return config;
+
+                string raw = File.ReadAllText(ConfigPath);
+                DecisionRuntimeModeConfig parsed = JsonConvert.DeserializeObject<DecisionRuntimeModeConfig>(raw);
+                if (parsed == null)
+                    return config;
+
+                return parsed;
+            }
+            catch
+            {
+                return config;
+            }
+        }
+
+        private static DecisionRuntimeModeConfig BuildDefault()
+        {
+            DecisionRuntimeModeConfig config = new DecisionRuntimeModeConfig();
+            config.pure_learning_mode = true;
+            config.allow_live_teacher_fallback = true;
+            config.allow_legacy_mulligan_fallback = false;
+            config.prefer_mulligan_memory_first = false;
+            config.mulligan_memory_first_min_score = 0.28d;
+            config.mulligan_memory_first_min_coverage = 0.50d;
+            return config;
+        }
+
+        private static string ResolveConfigPath()
+        {
+            List<string> candidates = GetConfigCandidatePaths();
+            for (int i = 0; i < candidates.Count; i++)
+            {
+                string candidate = candidates[i];
+                if (!string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate))
+                    return candidate;
+            }
+
+            return candidates.Count > 0
+                ? candidates[0]
+                : CombinePath(AppDomain.CurrentDomain.BaseDirectory ?? string.Empty, "runtime", "learning", "decision_runtime_mode.json");
+        }
+
+        private static List<string> GetConfigCandidatePaths()
+        {
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory ?? string.Empty;
+            AddConfigCandidate(paths, seen, CombinePath(baseDir, "runtime", "learning", "decision_runtime_mode.json"));
+            AddConfigCandidate(paths, seen, CombinePath(baseDir, "Temp", "runtime", "learning", "decision_runtime_mode.json"));
+
+            try
+            {
+                string parentBaseDir = Path.GetFullPath(Path.Combine(baseDir, ".."));
+                AddConfigCandidate(paths, seen, CombinePath(parentBaseDir, "runtime", "learning", "decision_runtime_mode.json"));
+                AddConfigCandidate(paths, seen, CombinePath(parentBaseDir, "Temp", "runtime", "learning", "decision_runtime_mode.json"));
+            }
+            catch
+            {
+                // ignore
+            }
+
+            return paths;
+        }
+
+        private static string CombinePath(string root, params string[] parts)
+        {
+            string result = root ?? string.Empty;
+            if (parts == null || parts.Length == 0)
+                return result;
+
+            for (int i = 0; i < parts.Length; i++)
+            {
+                result = Path.Combine(result, parts[i] ?? string.Empty);
+            }
+
+            return result;
+        }
+
+        private static void AddConfigCandidate(List<string> paths, HashSet<string> seen, string path)
+        {
+            if (string.IsNullOrWhiteSpace(path))
+                return;
+
+            string normalized = path;
+            try
+            {
+                normalized = Path.GetFullPath(path);
+            }
+            catch
+            {
+                normalized = path;
+            }
+
+            if (!seen.Add(normalized))
+                return;
+
+            paths.Add(normalized);
         }
     }
 }

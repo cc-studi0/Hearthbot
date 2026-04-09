@@ -9,8 +9,13 @@ namespace BotMain
         // ── 配置 ──
         public int SampleIntervalSeconds { get; set; } = 30;
         public int WindowSize { get; set; } = 20;
-        public int GrowthThresholdMB { get; set; } = 500;
+        public int GrowthThresholdMB { get; set; } = 800;
         public int GcRecoveryThresholdMB { get; set; } = 100;
+        /// <summary>
+        /// 绝对内存阈值(MB)，低于此值不触发增长检测。
+        /// 炉石正常运行 1.5~2GB 是常态，只有超过此值才有检测意义。
+        /// </summary>
+        public int AbsoluteThresholdMB { get; set; } = 2500;
 
         // ── 外部回调 ──
         public Func<long?> GetHearthstoneMemoryBytes { get; set; }
@@ -44,6 +49,15 @@ namespace BotMain
         {
             _active = false;
             Log?.Invoke("[MemoryMonitor] 已停止");
+        }
+
+        /// <summary>
+        /// 重置内部采样数据。用于恢复流程后清除残留状态。
+        /// </summary>
+        public void Reset()
+        {
+            _samples.Clear();
+            _gcRequested = false;
         }
 
         public void Dispose() => Stop();
@@ -107,6 +121,10 @@ namespace BotMain
             var oldest = _samples.First.Value;
             var newest = _samples.Last.Value;
             var growthMB = (newest.Bytes - oldest.Bytes) / (1024L * 1024L);
+
+            // 绝对内存低于阈值时不触发，炉石正常运行 1~2GB 是常态
+            if (currentMB < AbsoluteThresholdMB)
+                return;
 
             if (growthMB >= GrowthThresholdMB)
             {
