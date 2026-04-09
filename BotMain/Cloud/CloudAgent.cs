@@ -156,7 +156,8 @@ namespace BotMain.Cloud
                 var s = CollectStatus();
                 await _hub.InvokeAsync("Heartbeat",
                     _config.DeviceId, s.Status, s.CurrentAccount, s.CurrentRank,
-                    s.CurrentDeck, s.CurrentProfile, s.GameMode, s.SessionWins, s.SessionLosses);
+                    s.CurrentDeck, s.CurrentProfile, s.GameMode, s.SessionWins, s.SessionLosses,
+                    s.TargetRank ?? "", s.CurrentOpponent ?? "");
             }
             catch (Exception ex)
             {
@@ -221,5 +222,7 @@ namespace BotMain.Cloud
         public string GameMode;
         public int SessionWins;
         public int SessionLosses;
+        public string TargetRank;
+        public string CurrentOpponent;
     }
 }

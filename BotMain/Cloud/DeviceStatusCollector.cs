@@ -46,7 +46,9 @@ namespace BotMain.Cloud
                 CurrentProfile = account?.ProfileName ?? _bot.SelectedProfileName ?? "",
                 GameMode = (account?.ModeIndex ?? _bot.ModeIndex) == 1 ? "Wild" : "Standard",
                 SessionWins = account?.Wins ?? stats.Wins,
-                SessionLosses = account?.Losses ?? stats.Losses
+                SessionLosses = account?.Losses ?? stats.Losses,
+                TargetRank = account?.TargetRankText ?? "",
+                CurrentOpponent = _bot.CurrentEnemyClassName ?? ""
             };
         }
     }
