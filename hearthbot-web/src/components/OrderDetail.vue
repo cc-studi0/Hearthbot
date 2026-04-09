@@ -96,8 +96,8 @@ const recordColumns = [
     <div class="detail-header">
       <div>
         <span class="detail-order">#{{ device.orderNumber || '未标记' }}</span>
-        <NTag :type="device.status === 'InGame' ? 'success' : device.status === 'Idle' ? 'warning' : 'error'" size="small" style="margin-left:8px">
-          {{ device.status === 'InGame' ? '对局中' : device.status === 'Idle' ? '空闲' : device.status }}
+        <NTag :type="device.status === 'InGame' || device.status === 'Running' ? 'success' : device.status === 'Idle' || device.status === 'Switching' ? 'warning' : 'error'" size="small" style="margin-left:8px">
+          {{ device.status === 'InGame' ? '对局中' : device.status === 'Running' ? '运行中' : device.status === 'Switching' ? '切换中' : device.status === 'Idle' ? '空闲' : device.status }}
         </NTag>
       </div>
       <NButton text size="small" @click="emit('close')">关闭</NButton>

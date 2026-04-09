@@ -4,7 +4,7 @@ public class Device
 {
     public string DeviceId { get; set; } = string.Empty;
     public string DisplayName { get; set; } = string.Empty;
-    public string Status { get; set; } = "Offline"; // Online, Offline, InGame, Idle
+    public string Status { get; set; } = "Offline"; // InGame, Running, Switching, Idle, Offline
     public string CurrentAccount { get; set; } = string.Empty;
     public string CurrentRank { get; set; } = string.Empty;
     public string CurrentDeck { get; set; } = string.Empty;

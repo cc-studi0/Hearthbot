@@ -18,6 +18,8 @@ const orderInput = defineModel<string>('orderInput', { default: '' })
 
 const statusMap: Record<string, { type: 'success' | 'warning' | 'error' | 'default'; label: string }> = {
   InGame: { type: 'success', label: '对局中' },
+  Running: { type: 'success', label: '运行中' },
+  Switching: { type: 'warning', label: '切换中' },
   Idle: { type: 'warning', label: '空闲' },
   Online: { type: 'success', label: '在线' },
   Offline: { type: 'error', label: '离线' },
@@ -33,6 +35,7 @@ const winRate = computed(() => {
 const borderColor = computed(() => {
   if (props.column === 'completed') return '#8b5cf6'
   if (props.device.status === 'InGame') return '#22c55e'
+  if (props.device.status === 'Running' || props.device.status === 'Switching') return '#3b82f6'
   if (props.device.status === 'Idle' || props.device.status === 'Online') return '#3b82f6'
   return '#e2e8f0'
 })

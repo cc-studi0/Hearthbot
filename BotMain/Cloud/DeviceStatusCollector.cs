@@ -24,7 +24,8 @@ namespace BotMain.Cloud
             string status;
             if (!hearthstoneAlive)
             {
-                status = "Offline";
+                // 队列运行中但炉石暂时关闭（切换账号期间）→ 显示"切换中"
+                status = _accounts.IsRunning ? "Switching" : "Offline";
             }
             else
             {
@@ -32,7 +33,8 @@ namespace BotMain.Cloud
                 {
                     BotState.Running => "InGame",
                     BotState.Finishing => "InGame",
-                    _ => "Idle"
+                    // 队列运行中但 bot 暂时空闲（两局之间/切换账号等待）→ 显示"运行中"
+                    _ => _accounts.IsRunning ? "Running" : "Idle"
                 };
             }
 
