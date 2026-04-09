@@ -47,7 +47,8 @@ builder.Services.AddHostedService<DeviceWatchdog>();
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
-    p.SetIsOriginAllowed(_ => true).AllowAnyMethod().AllowAnyHeader().AllowCredentials()));
+    p.WithOrigins("http://localhost:5173", "http://localhost:5000")
+     .AllowAnyMethod().AllowAnyHeader().AllowCredentials()));
 
 var app = builder.Build();
 

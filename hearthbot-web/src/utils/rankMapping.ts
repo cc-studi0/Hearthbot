@@ -11,10 +11,11 @@ export function rankToNumber(rank: string): number | null {
   const trimmed = rank.trim()
   if (trimmed.toLowerCase().startsWith('legend')) return 51
 
-  const match = trimmed.match(/^(\w+)\s+(\d+)$/)
+  const match = trimmed.match(/^(\w+)\s+(\d+)$/i)
   if (!match) return null
 
-  const tier = match[1]
+  // 规范化首字母大写以匹配 TIER_BASE 的 key
+  const tier = match[1].charAt(0).toUpperCase() + match[1].slice(1).toLowerCase()
   const star = parseInt(match[2], 10)
   const base = TIER_BASE[tier]
   if (base === undefined || star < 1 || star > 10) return null
