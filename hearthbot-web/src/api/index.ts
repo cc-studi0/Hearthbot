@@ -36,7 +36,9 @@ export const gameRecordApi = {
   getAll: (params: Record<string, any>) => api.get('/gamerecord', { params }),
   getAccounts: (params?: Record<string, any>) => api.get<string[]>('/gamerecord/accounts', { params }),
   getStats: (params: Record<string, any>) => api.get('/gamerecord/stats', { params }),
-  byDevice: () => api.get('/gamerecord/by-device')
+  byDevice: () => api.get('/gamerecord/by-device'),
+  getByDeviceId: (deviceId: string, page = 1, pageSize = 5) =>
+    api.get('/gamerecord', { params: { deviceId, days: 0, page, pageSize } })
 }
 
 export const commandApi = {
