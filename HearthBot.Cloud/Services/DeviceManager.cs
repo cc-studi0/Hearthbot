@@ -57,7 +57,8 @@ public class DeviceManager
 
     public async Task<Device?> UpdateHeartbeat(string deviceId, string status,
         string currentAccount, string currentRank, string currentDeck,
-        string currentProfile, string gameMode, int sessionWins, int sessionLosses)
+        string currentProfile, string gameMode, int sessionWins, int sessionLosses,
+        string targetRank = "", string currentOpponent = "")
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
@@ -74,6 +75,16 @@ public class DeviceManager
         device.SessionWins = sessionWins;
         device.SessionLosses = sessionLosses;
         device.LastHeartbeat = DateTime.UtcNow;
+        device.TargetRank = targetRank;
+        device.CurrentOpponent = currentOpponent;
+
+        // 首次心跳时记录起始段位和开始时间
+        if (string.IsNullOrEmpty(device.StartRank) && !string.IsNullOrEmpty(currentRank))
+        {
+            device.StartRank = currentRank;
+            device.StartedAt = DateTime.UtcNow;
+        }
+
         await db.SaveChangesAsync();
 
         return device;
