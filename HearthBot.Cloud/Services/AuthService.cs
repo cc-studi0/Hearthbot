@@ -27,12 +27,16 @@ public class AuthService
 
         if (string.IsNullOrEmpty(storedHash))
         {
-            _logger.LogError("Admin:PasswordHash 未配置！请在 appsettings.json 中设置密码哈希。" +
-                " 可用 AuthService.HashPassword(\"你的密码\") 生成。");
+            _logger.LogError("Admin:PasswordHash 未配置！请在 appsettings.json 中设置密码。");
             return false;
         }
 
-        return VerifyHash(password, storedHash);
+        // 如果存储的是哈希格式（Base64:Base64），用哈希验证
+        if (storedHash.Contains(':'))
+            return VerifyHash(password, storedHash);
+
+        // 否则当作明文密码直接比较（方便首次配置）
+        return password == storedHash;
     }
 
     public string GenerateToken()
