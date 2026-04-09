@@ -9,8 +9,13 @@ namespace HearthBot.Cloud.Services;
 public class AuthService
 {
     private readonly IConfiguration _config;
+    private readonly ILogger<AuthService> _logger;
 
-    public AuthService(IConfiguration config) => _config = config;
+    public AuthService(IConfiguration config, ILogger<AuthService> logger)
+    {
+        _config = config;
+        _logger = logger;
+    }
 
     public bool ValidateCredentials(string username, string password)
     {
@@ -20,9 +25,12 @@ public class AuthService
         if (!string.Equals(username, adminUser, StringComparison.OrdinalIgnoreCase))
             return false;
 
-        // 首次登录：如果 PasswordHash 为空，接受任意密码
         if (string.IsNullOrEmpty(storedHash))
-            return true;
+        {
+            _logger.LogError("Admin:PasswordHash 未配置！请在 appsettings.json 中设置密码哈希。" +
+                " 可用 AuthService.HashPassword(\"你的密码\") 生成。");
+            return false;
+        }
 
         return VerifyHash(password, storedHash);
     }

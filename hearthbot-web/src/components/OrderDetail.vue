@@ -42,16 +42,30 @@ async function loadRecords(page = 1) {
   }
 }
 
+const opMessage = ref('')
+
 async function saveOrderNumber() {
-  await deviceApi.setOrderNumber(props.device.deviceId, editingOrder.value)
+  try {
+    await deviceApi.setOrderNumber(props.device.deviceId, editingOrder.value)
+    opMessage.value = '订单号已保存'
+  } catch { opMessage.value = '保存失败' }
+  setTimeout(() => opMessage.value = '', 2000)
 }
 
 async function changeDeck() {
-  await commandApi.send(props.device.deviceId, 'ChangeDeck', { DeckName: selectedDeck.value })
+  try {
+    await commandApi.send(props.device.deviceId, 'ChangeDeck', { DeckName: selectedDeck.value })
+    opMessage.value = '卡组切换指令已发送'
+  } catch { opMessage.value = '发送失败' }
+  setTimeout(() => opMessage.value = '', 2000)
 }
 
 async function stopBot() {
-  await commandApi.send(props.device.deviceId, 'Stop', {})
+  try {
+    await commandApi.send(props.device.deviceId, 'Stop', {})
+    opMessage.value = '停止指令已发送'
+  } catch { opMessage.value = '发送失败' }
+  setTimeout(() => opMessage.value = '', 2000)
 }
 
 watch(() => props.device.deviceId, () => {
@@ -132,6 +146,7 @@ const recordColumns = [
               style="width:140px"
             />
             <NButton type="primary" size="small" @click="changeDeck">切换卡组</NButton>
+            <span v-if="opMessage" style="font-size:12px;color:#3b82f6">{{ opMessage }}</span>
           </NSpace>
         </div>
       </div>

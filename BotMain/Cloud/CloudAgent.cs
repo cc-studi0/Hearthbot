@@ -76,7 +76,7 @@ namespace BotMain.Cloud
                 {
                     _heartbeatTimer?.Dispose();
                     _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
-                        null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                        null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
                 }
                 return RegisterAsync();
             };
@@ -115,7 +115,7 @@ namespace BotMain.Cloud
                     {
                         _heartbeatTimer?.Dispose();
                         _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
-                            null, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(30));
+                            null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
                     }
                     return;
                 }

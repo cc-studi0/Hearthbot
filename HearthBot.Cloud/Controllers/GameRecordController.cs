@@ -146,33 +146,26 @@ public class GameRecordController : ControllerBase
             .OrderBy(d => d.DisplayName)
             .ToListAsync();
 
-        var result = new List<object>();
+        var deviceIds = devices.Select(d => d.DeviceId).ToList();
 
-        foreach (var device in devices)
+        // 一次查询所有设备的最近对局，避免 N+1
+        var allRecords = await _db.GameRecords
+            .Where(g => deviceIds.Contains(g.DeviceId))
+            .OrderByDescending(g => g.PlayedAt)
+            .ToListAsync();
+
+        var grouped = allRecords.GroupBy(g => g.DeviceId)
+            .ToDictionary(g => g.Key, g => g.Take(20).ToList());
+
+        var result = devices.Select(device =>
         {
-            var records = await _db.GameRecords
-                .Where(g => g.DeviceId == device.DeviceId)
-                .OrderByDescending(g => g.PlayedAt)
-                .Take(20)
-                .Select(g => new
-                {
-                    g.Result,
-                    g.OpponentClass,
-                    g.DeckName,
-                    g.DurationSeconds,
-                    g.RankBefore,
-                    g.RankAfter,
-                    g.PlayedAt
-                })
-                .ToListAsync();
-
+            var records = grouped.TryGetValue(device.DeviceId, out var recs) ? recs : [];
             var wins = records.Count(r => r.Result == "Win");
             var losses = records.Count(r => r.Result == "Loss");
             var concedes = records.Count(r => r.Result == "Concede");
             var total = records.Count;
-            var winRate = total > 0 ? Math.Round(wins * 100.0 / total, 1) : 0;
 
-            result.Add(new
+            return new
             {
                 device.DeviceId,
                 device.DisplayName,
@@ -182,10 +175,19 @@ public class GameRecordController : ControllerBase
                 Wins = wins,
                 Losses = losses,
                 Concedes = concedes,
-                WinRate = winRate,
-                Records = records
-            });
-        }
+                WinRate = total > 0 ? Math.Round(wins * 100.0 / total, 1) : 0,
+                Records = records.Select(g => new
+                {
+                    g.Result,
+                    g.OpponentClass,
+                    g.DeckName,
+                    g.DurationSeconds,
+                    g.RankBefore,
+                    g.RankAfter,
+                    g.PlayedAt
+                })
+            };
+        }).ToList();
 
         return Ok(result);
     }

@@ -14,9 +14,12 @@ const orderInputs = ref<Record<string, string>>({})
 
 function isCompletedToday(d: Device): boolean {
   if (!d.startedAt || !d.orderNumber) return false
-  const started = new Date(d.startedAt)
-  const today = new Date()
-  return started.toDateString() === today.toDateString()
+  const s = new Date(d.startedAt)
+  const t = new Date()
+  // 统一用 UTC 日期比较，避免时区偏移导致跨天误判
+  return s.getUTCFullYear() === t.getUTCFullYear()
+    && s.getUTCMonth() === t.getUTCMonth()
+    && s.getUTCDate() === t.getUTCDate()
 }
 
 function isCompleted(d: Device): boolean {

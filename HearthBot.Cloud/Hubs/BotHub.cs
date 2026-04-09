@@ -22,7 +22,12 @@ public class BotHub : Hub
         await _devices.RegisterDevice(deviceId, displayName,
             availableDecks, availableProfiles, Context.ConnectionId);
 
-        await _dashboard.Clients.All.SendAsync("DeviceOnline", deviceId, displayName);
+        // 推送完整设备对象，避免前端收到不完整数据
+        var device = await _devices.GetDevice(deviceId);
+        if (device != null)
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+        else
+            await _dashboard.Clients.All.SendAsync("DeviceOnline", deviceId, displayName);
 
         // 返回离线期间积累的待执行指令
         var pending = await _devices.GetPendingCommands(deviceId);

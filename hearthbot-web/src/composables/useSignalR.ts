@@ -17,7 +17,9 @@ export function useSignalR() {
     hub.onreconnecting(() => { connected.value = false })
     hub.onclose(() => { connected.value = false })
 
-    hub.start().then(() => { connected.value = true })
+    hub.start()
+      .then(() => { connected.value = true })
+      .catch(err => { console.error('[SignalR] 连接失败:', err) })
     connection.value = hub
     return hub
   }
