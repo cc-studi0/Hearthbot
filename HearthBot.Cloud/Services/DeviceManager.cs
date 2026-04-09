@@ -75,8 +75,11 @@ public class DeviceManager
         device.SessionWins = sessionWins;
         device.SessionLosses = sessionLosses;
         device.LastHeartbeat = DateTime.UtcNow;
-        device.TargetRank = targetRank;
         device.CurrentOpponent = currentOpponent;
+
+        // 只在有值时更新目标段位，防止账号完成后心跳用空值覆盖
+        if (!string.IsNullOrEmpty(targetRank))
+            device.TargetRank = targetRank;
 
         // 首次心跳时记录起始段位和开始时间
         if (string.IsNullOrEmpty(device.StartRank) && !string.IsNullOrEmpty(currentRank))
