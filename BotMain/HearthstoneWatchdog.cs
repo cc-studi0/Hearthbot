@@ -33,6 +33,8 @@ namespace BotMain
         public Func<DateTime?> GetLastEffectiveAction { get; set; }
         public Action RequestBotStop { get; set; }
         public Action RequestBotStart { get; set; }
+        public Action SuspendMonitors { get; set; }
+        public Action ResumeMonitors { get; set; }
         public Action<string> Log { get; set; }
 
         // ── 事件 ──
@@ -161,6 +163,34 @@ namespace BotMain
                     {
                         TransitionTo(WatchdogState.WaitingPayload);
                     }
+                    else if (IsBotRunning?.Invoke() == true)
+                    {
+                        // Bot 已启动但炉石不在，自动拉起游戏
+                        Log?.Invoke("[Watchdog] Bot 已启动但炉石未运行，自动启动炉石...");
+                        var cts = new CancellationTokenSource(TimeSpan.FromSeconds(LaunchTimeoutSeconds));
+                        try
+                        {
+                            var result = BattleNetWindowManager.LaunchHearthstoneCmd(Log, cts.Token, LaunchTimeoutSeconds)
+                                .GetAwaiter().GetResult();
+                            if (result.Success)
+                            {
+                                Log?.Invoke("[Watchdog] 炉石启动成功");
+                                TransitionTo(WatchdogState.WaitingPayload);
+                            }
+                            else
+                            {
+                                Log?.Invoke($"[Watchdog] 炉石启动失败: {result.Message}");
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            Log?.Invoke($"[Watchdog] 启动异常: {ex.Message}");
+                        }
+                        finally
+                        {
+                            cts.Dispose();
+                        }
+                    }
                     break;
 
                 case WatchdogState.Launching:
@@ -235,6 +265,16 @@ namespace BotMain
 
         private void EnterRecovering(string reason)
         {
+            // Bot 未运行时不走完整恢复流程，仅清理残留后回到 NotRunning
+            if (IsBotRunning?.Invoke() != true)
+            {
+                Log?.Invoke($"[Watchdog] Bot 未运行，跳过恢复流程 (原因: {reason})");
+                BattleNetWindowManager.KillWerFault(Log);
+                BattleNetWindowManager.KillHearthstone(Log);
+                TransitionTo(WatchdogState.NotRunning);
+                return;
+            }
+
             TransitionTo(WatchdogState.Recovering);
             _consecutiveFailures++;
             Log?.Invoke($"[Watchdog] 开始恢复流程 (原因: {reason}, 连续失败: {_consecutiveFailures}/{MaxConsecutiveFailures})");
@@ -246,21 +286,24 @@ namespace BotMain
                 return;
             }
 
-            // 1. 记录恢复前 Bot 是否在运行，恢复后自动重启
+            // 1. 暂停监控器，防止恢复期间误判触发二次恢复
+            try { SuspendMonitors?.Invoke(); } catch { }
+
+            // 2. 记录恢复前 Bot 是否在运行，恢复后自动重启
             _wasRunningBeforeRecovery = IsBotRunning?.Invoke() == true;
             try { RequestBotStop?.Invoke(); } catch { }
 
-            // 2. 杀 WerFault
+            // 3. 杀 WerFault
             BattleNetWindowManager.KillWerFault(Log);
 
-            // 3. 杀 Hearthstone
+            // 4. 杀 Hearthstone
             BattleNetWindowManager.KillHearthstone(Log);
             WaitForHearthstoneExit(15);
 
-            // 4. 冷却
+            // 5. 冷却
             Thread.Sleep(RecoveryCooldownSeconds * 1000);
 
-            // 5. 连续失败多次则重启战网
+            // 6. 连续失败多次则重启战网
             if (_consecutiveFailures >= BattleNetRestartThreshold)
             {
                 Log?.Invoke("[Watchdog] 连续失败过多，重启 Battle.net");
@@ -268,7 +311,7 @@ namespace BotMain
                 Thread.Sleep(10000);
             }
 
-            // 6. 启动炉石
+            // 7. 启动炉石
             Log?.Invoke("[Watchdog] 通过命令行启动炉石...");
             var cts = new CancellationTokenSource(TimeSpan.FromSeconds(LaunchTimeoutSeconds));
             try
@@ -296,6 +339,9 @@ namespace BotMain
             {
                 cts.Dispose();
             }
+
+            // 8. 恢复监控器（重置状态后再启动，避免残留计时器误判）
+            try { ResumeMonitors?.Invoke(); } catch { }
         }
 
         private void TransitionTo(WatchdogState newState)
