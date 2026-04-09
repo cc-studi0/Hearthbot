@@ -154,10 +154,12 @@ namespace BotMain.Cloud
             try
             {
                 var s = CollectStatus();
-                await _hub.InvokeAsync("Heartbeat",
+                await _hub.InvokeCoreAsync("Heartbeat", new object[]
+                {
                     _config.DeviceId, s.Status, s.CurrentAccount, s.CurrentRank,
                     s.CurrentDeck, s.CurrentProfile, s.GameMode, s.SessionWins, s.SessionLosses,
-                    s.TargetRank ?? "", s.CurrentOpponent ?? "");
+                    s.TargetRank ?? "", s.CurrentOpponent ?? ""
+                });
             }
             catch (Exception ex)
             {
