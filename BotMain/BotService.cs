@@ -7917,9 +7917,10 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 若当前场景为 STARTUP/LOGIN，循环点击屏幕中央直到进入大厅。
+        /// 若当前场景为 STARTUP/LOGIN，等待大厅加载完成。
+        /// STARTUP 阶段每轮点击屏幕中央加速推门，LOGIN 阶段仅等待。
         /// </summary>
-        private void WaitForLoginToHub(PipeServer pipe, string scope, int timeoutSeconds = 60)
+        private void WaitForLoginToHub(PipeServer pipe, string scope, int timeoutSeconds = 90)
         {
             if (pipe == null || !pipe.IsConnected) return;
 
@@ -7929,23 +7930,26 @@ namespace BotMain
                 || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 return;
 
-            Log($"[{scope}] 当前场景={scene}，尝试自动推门...");
+            Log($"[{scope}] 当前场景={scene}，等待大厅加载...");
             var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
-                pipe.SendAndReceive("CLICK_SCREEN:0.5,0.5", 2000);
+                // STARTUP 阶段点击屏幕中央推门
+                if (string.Equals(scene, "STARTUP", StringComparison.OrdinalIgnoreCase))
+                    pipe.SendAndReceive("CLICK_SCREEN:0.5,0.5", 2000);
+
                 SleepOrCancelled(3000);
 
                 if (TryGetSceneValue(pipe, 2000, out scene, scope)
                     && !BotProtocol.IsNavigationBlockedScene(scene))
                 {
-                    Log($"[{scope}] 推门成功，当前场景={scene}");
+                    Log($"[{scope}] 大厅已加载，当前场景={scene}");
                     return;
                 }
             }
 
-            Log($"[{scope}] 推门超时({timeoutSeconds}s)，当前场景={scene}");
+            Log($"[{scope}] 等待大厅加载超时({timeoutSeconds}s)，当前场景={scene}");
         }
 
         private bool TryGetSceneValue(PipeServer pipe, int timeoutMs, out string scene, string scope)
