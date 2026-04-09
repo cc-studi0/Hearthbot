@@ -1834,6 +1834,9 @@ namespace BotMain
                     }
                 }
 
+                // 自动推门：如果卡在 STARTUP/LOGIN，循环点击屏幕中央直到进入大厅
+                WaitForLoginToHub(_pipe, "StartBot");
+
                 var profileName = _selectedProfile?.GetType().Name ?? "None";
                 Log($"Run config: mode={_modeIndex}, deck={_selectedDeck}, profile={profileName}, mulligan={_mulliganProfile}");
 
@@ -7913,6 +7916,38 @@ namespace BotMain
             return BotProtocol.IsCrossCommandResponse(resp);
         }
 
+        /// <summary>
+        /// 若当前场景为 STARTUP/LOGIN，循环点击屏幕中央直到进入大厅。
+        /// </summary>
+        private void WaitForLoginToHub(PipeServer pipe, string scope, int timeoutSeconds = 60)
+        {
+            if (pipe == null || !pipe.IsConnected) return;
+
+            if (!TryGetSceneValue(pipe, 2000, out var scene, scope))
+                return;
+            if (!BotProtocol.IsNavigationBlockedScene(scene)
+                || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
+                return;
+
+            Log($"[{scope}] 当前场景={scene}，尝试自动推门...");
+            var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
+
+            while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
+            {
+                pipe.SendAndReceive("CLICK_SCREEN:0.5,0.5", 2000);
+                SleepOrCancelled(3000);
+
+                if (TryGetSceneValue(pipe, 2000, out scene, scope)
+                    && !BotProtocol.IsNavigationBlockedScene(scene))
+                {
+                    Log($"[{scope}] 推门成功，当前场景={scene}");
+                    return;
+                }
+            }
+
+            Log($"[{scope}] 推门超时({timeoutSeconds}s)，当前场景={scene}");
+        }
+
         private bool TryGetSceneValue(PipeServer pipe, int timeoutMs, out string scene, string scope)
         {
             scene = null;
@@ -9783,6 +9818,7 @@ namespace BotMain
                 if (EnsurePreparedAndConnected())
                 {
                     Log($"[Restart] 重连成功（第 {attempt} 次）。");
+                    WaitForLoginToHub(_pipe, "Reconnect");
                     StatusChanged("Running");
                     TouchEffectiveAction();
                     return true;
