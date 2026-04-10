@@ -28,6 +28,7 @@ namespace HearthstonePayload
         private bool _initialized;
         private CoroutineExecutor _coroutine;
         private Func<Func<object>, object> _runOnMain;
+        private OverlayDetector _overlayDetector;
         private static readonly string[] KnownBlockingDialogTypes =
         {
             "AlertPopup",
@@ -223,6 +224,11 @@ namespace HearthstonePayload
                 _gameMgrType = ctx.GameMgrType;
                 _collMgrType = ctx.CollMgrType;
                 _initialized = _sceneMgrType != null;
+                if (_initialized && _overlayDetector == null)
+                {
+                    _overlayDetector = new OverlayDetector(_asm, _runOnMain, _ => { });
+                    _overlayDetector.Init();
+                }
                 return _initialized;
             }
             catch
@@ -809,6 +815,19 @@ namespace HearthstonePayload
 
         public string GetBlockingDialog()
         {
+            // 优先使用 OverlayDetector（基于管理器单例）
+            if (_overlayDetector != null)
+            {
+                try
+                {
+                    var status = _overlayDetector.DetectBlockingOverlay();
+                    if (status != null)
+                        return status.ToProtocol();
+                }
+                catch { /* 回退到旧逻辑 */ }
+            }
+
+            // 回退：旧的对象图遍历逻辑
             return OnMain(() =>
             {
                 if (!Init()) return "NO_DIALOG";
@@ -822,6 +841,20 @@ namespace HearthstonePayload
 
         public string DismissBlockingDialog()
         {
+            // 优先使用 OverlayDetector
+            if (_overlayDetector != null)
+            {
+                try
+                {
+                    var result = _overlayDetector.DismissOverlay();
+                    if (result != null)
+                        return result;
+                    // result == null 表示 OverlayDetector 需要回退
+                }
+                catch { /* 回退到旧逻辑 */ }
+            }
+
+            // 回退：旧的按钮查找+点击逻辑
             var hit = OnMain(() =>
             {
                 if (!Init()) return null;
