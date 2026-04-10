@@ -18,6 +18,13 @@ namespace HearthstonePayload
         public static int PressFrame = -1, ReleaseFrame = -1;
         public static int FrameCount;
 
+        // PegUI.m_hasFocus 反射缓存（独立于 Application.isFocused）
+        private static Type _pegUIType;
+        private static MethodInfo _pegUIGet;
+        private static FieldInfo _pegUIHasFocus;
+        private static FieldInfo _pegUIUguiActive;
+        private static bool _pegUIReflectionReady;
+
         public static void NewFrame() { FrameCount++; }
 
         public static void ResetSimulationState()
@@ -50,6 +57,68 @@ namespace HearthstonePayload
             // 拦截 HearthstoneApplication.OnApplicationFocus，防止窗口失焦时
             // PegUI.m_hasFocus 被置为 false 从而屏蔽所有鼠标输入
             TryPatchFocusCallback(harmony);
+
+            // 拦截 PegUI.OnAppFocusChanged — 这是 PegUI 独立维护的焦点状态，
+            // 失焦时会导致 MouseInputUpdate 提前返回，所有点击失效
+            TryPatchPegUIFocusCallback(harmony);
+        }
+
+        private static void TryPatchPegUIFocusCallback(Harmony harmony)
+        {
+            try
+            {
+                EnsurePegUIReflection();
+                if (_pegUIType == null) return;
+
+                var onFocus = _pegUIType.GetMethod("OnAppFocusChanged",
+                    BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance,
+                    null, new[] { typeof(bool), typeof(object) }, null);
+                if (onFocus != null)
+                {
+                    harmony.Patch(onFocus,
+                        prefix: new HarmonyMethod(typeof(InputHook), nameof(OnPegUIFocusChangedPre)));
+                }
+            }
+            catch { }
+        }
+
+        private static void EnsurePegUIReflection()
+        {
+            if (_pegUIReflectionReady) return;
+            try
+            {
+                _pegUIType = AppDomain.CurrentDomain.GetAssemblies()
+                    .Select(a => a.GetType("PegUI"))
+                    .FirstOrDefault(t => t != null);
+                if (_pegUIType != null)
+                {
+                    _pegUIGet = _pegUIType.GetMethod("Get", BindingFlags.Public | BindingFlags.Static);
+                    _pegUIHasFocus = _pegUIType.GetField("m_hasFocus", BindingFlags.NonPublic | BindingFlags.Instance);
+                    _pegUIUguiActive = _pegUIType.GetField("m_uguiActive", BindingFlags.NonPublic | BindingFlags.Instance);
+                }
+            }
+            catch { }
+            _pegUIReflectionReady = true;
+        }
+
+        /// <summary>
+        /// 强制 PegUI 认为有焦点。必须在每次鼠标点击模拟前调用，
+        /// 因为窗口可能在脚本运行前就已经失焦，m_hasFocus=false 会使
+        /// MouseInputUpdate 完全跳过鼠标事件处理。
+        /// </summary>
+        public static void ForcePegUIFocus()
+        {
+            try
+            {
+                EnsurePegUIReflection();
+                if (_pegUIGet == null || _pegUIHasFocus == null) return;
+                var instance = _pegUIGet.Invoke(null, null);
+                if (instance == null) return;
+                _pegUIHasFocus.SetValue(instance, true);
+                // m_uguiActive 为 true 时 MouseInputUpdate 也会跳过，顺便清掉
+                _pegUIUguiActive?.SetValue(instance, false);
+            }
+            catch { }
         }
 
         private static void TryPatchFocusCallback(Harmony harmony)
@@ -139,6 +208,16 @@ namespace HearthstonePayload
                 ResetSimulationState();
             }
 
+            return !Simulating;
+        }
+
+        /// <summary>
+        /// 模拟鼠标输入时阻止 PegUI 的焦点状态被置为 false；
+        /// 否则 PegUI.MouseInputUpdate 会因 m_hasFocus=false 而跳过所有点击。
+        /// </summary>
+        static bool OnPegUIFocusChangedPre(bool focus)
+        {
+            // 模拟期间一律忽略失焦事件；非模拟期间放行
             return !Simulating;
         }
     }

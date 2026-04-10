@@ -3026,6 +3026,9 @@ namespace HearthstonePayload
         private IEnumerator<float> MouseClick(int x, int y, float delayAfter)
         {
             InputHook.Simulating = true;
+            // 强制 PegUI.m_hasFocus = true，否则窗口未被实鼠标点击时
+            // MouseInputUpdate 会跳过所有点击事件
+            InputHook.ForcePegUIFocus();
             foreach (var wait in SmoothMove(x, y)) yield return wait;
             // 显式重置到目标坐标 + 60ms 稳定，确保 PegUI 的 raycast 与鼠标位置一致
             MouseSimulator.MoveTo(x, y);
