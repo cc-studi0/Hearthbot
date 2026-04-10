@@ -32,13 +32,14 @@ namespace HearthstonePayload
             {
                 if (Action == OverlayAction.None)
                     return "NO_DIALOG";
-                string actionStr = Action switch
+                string actionStr;
+                switch (Action)
                 {
-                    OverlayAction.CanDismiss => "CAN_DISMISS",
-                    OverlayAction.Wait => "WAIT",
-                    OverlayAction.Fatal => "FATAL",
-                    _ => "WAIT"
-                };
+                    case OverlayAction.CanDismiss: actionStr = "CAN_DISMISS"; break;
+                    case OverlayAction.Wait:       actionStr = "WAIT"; break;
+                    case OverlayAction.Fatal:      actionStr = "FATAL"; break;
+                    default:                       actionStr = "WAIT"; break;
+                }
                 return "DIALOG:" + Type + ":" + actionStr + ":" + (Detail ?? string.Empty);
             }
         }
