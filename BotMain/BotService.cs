@@ -2856,7 +2856,8 @@ namespace BotMain
                                         {
                                             if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.PreAction")
                                                 && !string.IsNullOrWhiteSpace(dismissResp)
-                                                && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                                                && (dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
+                                                    || BotProtocol.IsDismissedOverlayResponse(dismissResp)))
                                             {
                                                 Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 -> {dismissResp}");
                                                 SleepOrCancelled(500);
@@ -2918,11 +2919,18 @@ namespace BotMain
                                     try
                                     {
                                         if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.DialogBlock")
-                                            && !string.IsNullOrWhiteSpace(blockDialogType)
-                                            && BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                            && !string.IsNullOrWhiteSpace(blockDialogType))
                                         {
-                                            TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.DialogBlock");
-                                            SleepOrCancelled(500);
+                                            if (BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                            {
+                                                TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.DialogBlock");
+                                                SleepOrCancelled(500);
+                                            }
+                                            else
+                                            {
+                                                Log($"[IdleGuard] 弹窗 {blockDialogType} 不可安全关闭，等待");
+                                                SleepOrCancelled(1500);
+                                            }
                                         }
                                     }
                                     catch { }
@@ -3928,7 +3936,8 @@ namespace BotMain
                                 {
                                     if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.ArenaPreAction")
                                         && !string.IsNullOrWhiteSpace(dismissResp)
-                                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                                        && (dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
+                                            || BotProtocol.IsDismissedOverlayResponse(dismissResp)))
                                     {
                                         Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 (Arena) -> {dismissResp}");
                                         SleepOrCancelled(500);
@@ -3985,11 +3994,18 @@ namespace BotMain
                             try
                             {
                                 if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.ArenaDialogBlock")
-                                    && !string.IsNullOrWhiteSpace(blockDialogType)
-                                    && BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                    && !string.IsNullOrWhiteSpace(blockDialogType))
                                 {
-                                    TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.ArenaDialogBlock");
-                                    SleepOrCancelled(500);
+                                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                    {
+                                        TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.ArenaDialogBlock");
+                                        SleepOrCancelled(500);
+                                    }
+                                    else
+                                    {
+                                        Log($"[IdleGuard] 弹窗 {blockDialogType} 不可安全关闭，等待 (Arena)");
+                                        SleepOrCancelled(1500);
+                                    }
                                 }
                             }
                             catch { }
