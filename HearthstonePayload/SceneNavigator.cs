@@ -445,29 +445,28 @@ namespace HearthstonePayload
                 {
                     var optionsType = _asm.GetType("Options");
                     if (optionsType == null) return "ERROR:no_options_type";
-                    var options = CallStatic(optionsType, "Get");
+                    var options = CallStatic(optionsType, "Get"); // 仅用于 DeckPickerTray 上下文，Options 的业务方法是静态的
                     if (options == null) return "ERROR:no_options";
 
                     object formatArg = null;
-                    var optFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
+                    var staticFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
 
+                    // Options.SetInRankedPlayMode / SetFormatType 都是 static 方法
                     // vft=4 是休闲模式，其他是天梯模式
+                    var setRanked = optionsType.GetMethod("SetInRankedPlayMode", staticFlags, null, new[] { typeof(bool) }, null);
                     if (vft == 4)
                     {
-                        CallMethod(options, "SetInRankedPlayMode", false);
+                        setRanked?.Invoke(null, new object[] { false });
                     }
                     else
                     {
-                        CallMethod(options, "SetInRankedPlayMode", true);
+                        setRanked?.Invoke(null, new object[] { true });
 
-                        var setFmt = options.GetType().GetMethods(optFlags)
-                            .FirstOrDefault(m => m.Name == "SetFormatType" && m.GetParameters().Length >= 1);
-                        if (setFmt == null)
-                            setFmt = options.GetType().GetMethods(optFlags)
-                                .FirstOrDefault(m => m.Name == "SetFormatType");
+                        var setFmt = optionsType.GetMethods(staticFlags)
+                            .FirstOrDefault(m => m.Name == "SetFormatType" && m.GetParameters().Length == 1);
                         if (setFmt == null)
                         {
-                            var diag = options.GetType().GetMethods(optFlags)
+                            var diag = optionsType.GetMethods(staticFlags)
                                 .Where(m => m.Name.IndexOf("Format", StringComparison.OrdinalIgnoreCase) >= 0)
                                 .Select(m => (m.IsStatic ? "S:" : "") + m.Name + "(" +
                                     string.Join(",", m.GetParameters().Select(p => p.ParameterType.Name)) + ")")
@@ -502,7 +501,7 @@ namespace HearthstonePayload
                             formatArg = Convert.ChangeType(vft, paramType);
                         }
 
-                        CallMethod(options, "SetFormatType", formatArg);
+                        try { setFmt.Invoke(null, new[] { formatArg }); } catch { }
                     }
 
                     // 通过 DeckPickerTrayDisplay 触发实际 UI 切换
@@ -2091,19 +2090,29 @@ namespace HearthstonePayload
             if (_asm == null) return false;
             var optionsType = _asm.GetType("Options");
             if (optionsType == null) return false;
-            var options = CallStatic(optionsType, "Get");
-            if (options == null) return false;
 
-            var formatObj = Call(options, "GetFormatType")
-                ?? GetProp(options, "m_formatType")
-                ?? GetProp(options, "FormatType");
+            // Options.GetFormatType() / GetInRankedPlayMode() 是 static 方法
+            var staticFlags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+            object formatObj = null;
+            try
+            {
+                var getFmt = optionsType.GetMethod("GetFormatType", staticFlags, null, Type.EmptyTypes, null);
+                if (getFmt != null) formatObj = getFmt.Invoke(null, null);
+            }
+            catch { }
             var format = (formatObj?.ToString() ?? string.Empty).ToUpperInvariant();
 
-            var rankedObj = Call(options, "GetInRankedPlayMode")
-                ?? GetProp(options, "m_inRankedPlayMode")
-                ?? GetProp(options, "InRankedPlayMode");
             var inRanked = true;
-            if (rankedObj is bool b) inRanked = b;
+            try
+            {
+                var getRanked = optionsType.GetMethod("GetInRankedPlayMode", staticFlags, null, Type.EmptyTypes, null);
+                if (getRanked != null)
+                {
+                    var r = getRanked.Invoke(null, null);
+                    if (r is bool b) inRanked = b;
+                }
+            }
+            catch { }
 
             switch (vft)
             {
