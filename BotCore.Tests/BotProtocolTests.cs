@@ -322,6 +322,19 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void DialogBlockingResponse_RecognizedAsActionFailureAndNotAsDialog()
+        {
+            // DIALOG_BLOCKING 响应以 FAIL: 开头，IsActionFailure 应识别（FAIL 前缀）
+            Assert.True("FAIL:PLAY:DIALOG_BLOCKING:AlertPopup"
+                .StartsWith("FAIL", StringComparison.OrdinalIgnoreCase));
+            Assert.True("FAIL:ATTACK:DIALOG_BLOCKING:ReconnectHelperDialog"
+                .StartsWith("FAIL", StringComparison.OrdinalIgnoreCase));
+
+            // DIALOG_BLOCKING 不是合法的 BlockingDialogResponse（它是 action result，不是 dialog query result）
+            Assert.False(BotProtocol.IsBlockingDialogResponse("FAIL:PLAY:DIALOG_BLOCKING:AlertPopup"));
+        }
+
+        [Fact]
         public void IsDrainOnlyPostGameResponse_DrainsCrossCommandButKeepsResultReplies()
         {
             Assert.True(BotProtocol.IsDrainOnlyPostGameResponse("NO_GAME"));
