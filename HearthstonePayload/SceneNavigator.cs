@@ -710,7 +710,7 @@ namespace HearthstonePayload
             if (result.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
                 return result;
 
-            // 2. 尝试鼠标点击
+            // 2. 鼠标点击（最多重试 3 次）
             if (result.StartsWith("MOUSE_CLICK:", StringComparison.Ordinal))
             {
                 var coords = result.Substring("MOUSE_CLICK:".Length).Split(',');
@@ -718,40 +718,45 @@ namespace HearthstonePayload
                     && int.TryParse(coords[0], out var clickX)
                     && int.TryParse(coords[1], out var clickY))
                 {
-                    ClickAt(clickX, clickY, 0.3f);
-
-                    for (var i = 0; i < 6; i++)
+                    for (var attempt = 0; attempt < 3; attempt++)
                     {
-                        Thread.Sleep(150);
-                        if (IsFindingGame())
-                            return "OK:playButton:finding";
-                    }
-                }
-            }
+                        ClickAt(clickX, clickY, 0.3f);
 
-            // 3. 鼠标没触发匹配，回退到 API 直接触发按钮
-            if (capturedBtn != null)
-            {
-                var apiResult = OnMain(() =>
-                {
-                    try
-                    {
-                        CallMethod(capturedBtn, "TriggerPress");
-                        CallMethod(capturedBtn, "TriggerRelease");
-                        return "PENDING:playButton_api";
-                    }
-                    catch { return null; }
-                });
+                        // 每次点击后等待 2 秒（14 * 150ms），检测是否开始匹配
+                        for (var i = 0; i < 14; i++)
+                        {
+                            Thread.Sleep(150);
+                            if (IsFindingGame())
+                                return "OK:playButton:finding";
+                        }
 
-                if (!string.IsNullOrWhiteSpace(apiResult))
-                {
-                    for (var i = 0; i < 6; i++)
-                    {
-                        Thread.Sleep(150);
-                        if (IsFindingGame())
-                            return "OK:playButton_api:finding";
+                        // 重试前重新获取按钮坐标（按钮可能位置微调或仍未就绪）
+                        if (attempt < 2)
+                        {
+                            var refreshed = OnMain(() =>
+                            {
+                                if (!Init()) return null;
+                                var scene = GetSceneInternal();
+                                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                                    return null;
+                                object btn;
+                                return GetPlayButtonInfo(GetDeckPickerTray(), out btn);
+                            }) as string;
+
+                            if (!string.IsNullOrWhiteSpace(refreshed)
+                                && refreshed.StartsWith("MOUSE_CLICK:", StringComparison.Ordinal))
+                            {
+                                var newCoords = refreshed.Substring("MOUSE_CLICK:".Length).Split(',');
+                                if (newCoords.Length == 2
+                                    && int.TryParse(newCoords[0], out var nx)
+                                    && int.TryParse(newCoords[1], out var ny))
+                                {
+                                    clickX = nx;
+                                    clickY = ny;
+                                }
+                            }
+                        }
                     }
-                    return "OK:playButton_api";
                 }
             }
 
