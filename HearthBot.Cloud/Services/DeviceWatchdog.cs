@@ -92,9 +92,14 @@ public class DeviceWatchdog : BackgroundService
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
 
+        // 只清已完成且非今天启动的订单。未完成的订单永远保留，不管跨了多少天，
+        // 直到 BotMain 上报达到目标段位（IsCompleted=true）或用户主动绑定新订单号。
         var today = DateTime.UtcNow.Date;
         var devices = await db.Devices
-            .Where(d => d.StartedAt != null && d.StartedAt.Value.Date < today && d.OrderNumber != "")
+            .Where(d => d.IsCompleted
+                && d.StartedAt != null
+                && d.StartedAt.Value.Date < today
+                && d.OrderNumber != "")
             .ToListAsync();
 
         foreach (var device in devices)
@@ -103,6 +108,9 @@ public class DeviceWatchdog : BackgroundService
             device.StartRank = string.Empty;
             device.StartedAt = null;
             device.TargetRank = string.Empty;
+            device.IsCompleted = false;
+            device.CompletedAt = null;
+            device.CompletedRank = string.Empty;
         }
 
         if (devices.Count > 0)

@@ -52,6 +52,17 @@ public class BotHub : Hub
             await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
     }
 
+    public async Task ReportOrderCompleted(string deviceId, string reachedRank, string modeText)
+    {
+        var device = await _devices.MarkOrderCompleted(deviceId, reachedRank);
+        if (device != null)
+        {
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+            _logger.LogInformation("Device {DeviceId} reported order completed: {Rank} ({Mode})",
+                deviceId, reachedRank, modeText);
+        }
+    }
+
     public async Task ReportGame(string deviceId, string accountName,
         string result, string myClass, string opponentClass, string deckName,
         string profileName, int durationSeconds, string rankBefore, string rankAfter, string gameMode)

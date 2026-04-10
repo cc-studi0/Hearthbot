@@ -1,6 +1,9 @@
 using HearthBot.Cloud.Data;
+using HearthBot.Cloud.Hubs;
+using HearthBot.Cloud.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace HearthBot.Cloud.Controllers;
@@ -11,8 +14,15 @@ namespace HearthBot.Cloud.Controllers;
 public class DeviceController : ControllerBase
 {
     private readonly CloudDbContext _db;
+    private readonly DeviceManager _devices;
+    private readonly IHubContext<DashboardHub> _dashboard;
 
-    public DeviceController(CloudDbContext db) => _db = db;
+    public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard)
+    {
+        _db = db;
+        _devices = devices;
+        _dashboard = dashboard;
+    }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
@@ -33,9 +43,44 @@ public class DeviceController : ControllerBase
     {
         var device = await _db.Devices.FindAsync(deviceId);
         if (device == null) return NotFound();
-        device.OrderNumber = request.OrderNumber ?? string.Empty;
+
+        var newOrderNumber = request.OrderNumber ?? string.Empty;
+        var isNewOrder = newOrderNumber != device.OrderNumber;
+
+        device.OrderNumber = newOrderNumber;
+
+        // 绑定新订单号视为"开始一个新订单"：清空旧订单的完成状态和起始快照，
+        // 下次心跳时 DeviceManager 会重新记录新的 StartRank/StartedAt
+        if (isNewOrder && !string.IsNullOrEmpty(newOrderNumber))
+        {
+            device.IsCompleted = false;
+            device.CompletedAt = null;
+            device.CompletedRank = string.Empty;
+            device.StartRank = string.Empty;
+            device.StartedAt = null;
+        }
+
         await _db.SaveChangesAsync();
         return Ok(device);
+    }
+
+    [HttpPost("{deviceId}/complete")]
+    public async Task<IActionResult> MarkCompleted(string deviceId)
+    {
+        var device = await _db.Devices.FindAsync(deviceId);
+        if (device == null) return NotFound();
+        if (string.IsNullOrEmpty(device.OrderNumber))
+            return BadRequest(new { error = "设备未绑定订单号" });
+
+        // 用设备当前段位作为完成段位；若未知则用目标段位兜底
+        var reachedRank = !string.IsNullOrEmpty(device.CurrentRank)
+            ? device.CurrentRank
+            : device.TargetRank;
+
+        var updated = await _devices.MarkOrderCompleted(deviceId, reachedRank);
+        if (updated != null)
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", updated);
+        return Ok(updated);
     }
 
     [HttpGet("stats")]
@@ -69,9 +114,7 @@ public class DeviceController : ControllerBase
                 d.Status != "Offline" &&
                 d.LastHeartbeat < cutoff),
             CompletedCount = devices.Count(d =>
-                !string.IsNullOrEmpty(d.OrderNumber) &&
-                d.StartedAt.HasValue &&
-                d.StartedAt.Value >= today)
+                !string.IsNullOrEmpty(d.OrderNumber) && d.IsCompleted)
         });
     }
 }

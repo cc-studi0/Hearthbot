@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { rankToNumber } from '../utils/rankMapping'
 import OrderCard from './OrderCard.vue'
 import OrderDetail from './OrderDetail.vue'
 import { deviceApi } from '../api'
@@ -12,38 +11,28 @@ const emit = defineEmits<{ refresh: [] }>()
 const expandedDeviceId = ref<string | null>(null)
 const orderInputs = ref<Record<string, string>>({})
 
-function isCompletedToday(d: Device): boolean {
-  if (!d.startedAt || !d.orderNumber) return false
-  const s = new Date(d.startedAt)
-  const t = new Date()
-  // 统一用 UTC 日期比较，避免时区偏移导致跨天误判
-  return s.getUTCFullYear() === t.getUTCFullYear()
-    && s.getUTCMonth() === t.getUTCMonth()
-    && s.getUTCDate() === t.getUTCDate()
+// 完成判定完全基于后端粘性标志 isCompleted：
+// 只有 BotMain 上报"达到目标段位"时才会置 true，
+// 掉线/跨天/手动停止都不会影响未完成订单的状态。
+function isOrderDone(d: Device): boolean {
+  return !!d.orderNumber && d.isCompleted
 }
 
-function isCompleted(d: Device): boolean {
-  if (!d.orderNumber || !d.targetRank || !d.currentRank) return false
-  const current = rankToNumber(d.currentRank)
-  const target = rankToNumber(d.targetRank)
-  if (current == null || target == null) return false
-  return current >= target
-}
-
-const onlineDevices = computed(() =>
-  props.devices.filter(d => d.status !== 'Offline' || isCompletedToday(d))
+// 已完成的设备即使 Offline 也要显示在看板上（保留到隔天自动归档）
+const visibleDevices = computed(() =>
+  props.devices.filter(d => d.status !== 'Offline' || isOrderDone(d))
 )
 
 const unmarked = computed(() =>
-  onlineDevices.value.filter(d => !d.orderNumber && d.status !== 'Offline')
+  visibleDevices.value.filter(d => !d.orderNumber && d.status !== 'Offline')
 )
 
 const active = computed(() =>
-  onlineDevices.value.filter(d => d.orderNumber && !isCompleted(d) && d.status !== 'Offline')
+  visibleDevices.value.filter(d => d.orderNumber && !d.isCompleted && d.status !== 'Offline')
 )
 
 const completed = computed(() =>
-  onlineDevices.value.filter(d => d.orderNumber && (isCompleted(d) || (d.status === 'Offline' && isCompletedToday(d))))
+  visibleDevices.value.filter(d => isOrderDone(d))
 )
 
 function toggleDetail(device: Device) {
@@ -54,6 +43,11 @@ async function saveOrder(deviceId: string, orderNumber: string) {
   if (!orderNumber.trim()) return
   await deviceApi.setOrderNumber(deviceId, orderNumber.trim())
   orderInputs.value[deviceId] = ''
+  emit('refresh')
+}
+
+async function markCompleted(deviceId: string) {
+  await deviceApi.markCompleted(deviceId)
   emit('refresh')
 }
 </script>
@@ -92,6 +86,7 @@ async function saveOrder(deviceId: string, orderNumber: string) {
           :device="d"
           column="active"
           @click="toggleDetail"
+          @mark-completed="markCompleted"
         />
       </template>
       <div v-if="!active.length" class="column-empty">暂无进行中订单</div>

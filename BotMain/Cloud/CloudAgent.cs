@@ -167,6 +167,23 @@ namespace BotMain.Cloud
             }
         }
 
+        public async Task ReportOrderCompletedAsync(string reachedRank, string modeText)
+        {
+            if (_hub?.State != HubConnectionState.Connected) return;
+            try
+            {
+                await _hub.InvokeCoreAsync("ReportOrderCompleted", new object[]
+                {
+                    _config.DeviceId, reachedRank ?? "", modeText ?? ""
+                });
+                _log($"[云控] 已上报订单完成: {reachedRank} ({modeText})");
+            }
+            catch (Exception ex)
+            {
+                _log($"[云控] 订单完成上报失败: {ex.Message}");
+            }
+        }
+
         public async Task ReportGameAsync(string accountName, string result,
             string myClass, string opponentClass, string deckName, string profileName,
             int durationSeconds, string rankBefore, string rankAfter, string gameMode)

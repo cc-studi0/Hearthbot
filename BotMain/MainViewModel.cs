@@ -225,6 +225,11 @@ namespace BotMain
                         _bot.CurrentRankText ?? "",
                         _bot.ModeIndex == 1 ? "Wild" : "Standard");
                 };
+                // 达到目标段位 → 上报给云控，云端据此标记订单为已完成
+                _bot.OnRankTargetReached += (reachedRank, modeText) =>
+                {
+                    _ = _cloudAgent.ReportOrderCompletedAsync(reachedRank, modeText);
+                };
                 _ = _cloudAgent.StartAsync();
 
                 // 手动更新（不再自动检测）

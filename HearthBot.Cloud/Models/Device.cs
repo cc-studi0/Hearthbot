@@ -21,4 +21,10 @@ public class Device
     public string StartRank { get; set; } = string.Empty;
     public DateTime? StartedAt { get; set; }
     public string CurrentOpponent { get; set; } = string.Empty;
+
+    // 订单完成状态：只有 BotMain 上报"达到目标段位"时才置 true
+    // 清空时机：用户绑定新订单号，或 DeviceWatchdog 隔天清档
+    public bool IsCompleted { get; set; }
+    public DateTime? CompletedAt { get; set; }
+    public string CompletedRank { get; set; } = string.Empty;
 }

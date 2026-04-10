@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, h } from 'vue'
-import { NButton, NSelect, NInput, NSpace, NDataTable, NTag } from 'naive-ui'
+import { NButton, NSelect, NInput, NSpace, NDataTable, NTag, NPopconfirm } from 'naive-ui'
 import RankProgress from './RankProgress.vue'
 import { gameRecordApi, deviceApi, commandApi } from '../api'
 import type { Device } from '../types'
@@ -66,6 +66,15 @@ async function stopBot() {
     opMessage.value = '停止指令已发送'
   } catch { opMessage.value = '发送失败' }
   setTimeout(() => opMessage.value = '', 2000)
+}
+
+async function markCompleted() {
+  try {
+    await deviceApi.markCompleted(props.device.deviceId)
+    opMessage.value = '已标记为完成'
+    // SignalR 推送 DeviceUpdated 后父组件会自动把卡片移到"已完成"列
+    setTimeout(() => emit('close'), 500)
+  } catch { opMessage.value = '标记失败' }
 }
 
 watch(() => props.device.deviceId, () => {
@@ -146,6 +155,16 @@ const recordColumns = [
               style="width:140px"
             />
             <NButton type="primary" size="small" @click="changeDeck">切换卡组</NButton>
+            <NPopconfirm
+              @positive-click="markCompleted"
+              positive-text="确认完成"
+              negative-text="取消"
+            >
+              <template #trigger>
+                <NButton type="success" size="small" ghost>手动完成</NButton>
+              </template>
+              确认将订单 #{{ device.orderNumber }} 标记为已完成？
+            </NPopconfirm>
             <span v-if="opMessage" style="font-size:12px;color:#3b82f6">{{ opMessage }}</span>
           </NSpace>
         </div>

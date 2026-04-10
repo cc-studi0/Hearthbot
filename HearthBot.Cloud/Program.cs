@@ -62,6 +62,9 @@ using (var scope = app.Services.CreateScope())
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartRank TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartedAt TEXT"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CurrentOpponent TEXT NOT NULL DEFAULT ''"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN IsCompleted INTEGER NOT NULL DEFAULT 0"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedAt TEXT"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedRank TEXT NOT NULL DEFAULT ''"); } catch { }
 }
 
 app.UseCors();

@@ -29,7 +29,9 @@ export const deviceApi = {
   getStats: () => api.get('/device/stats'),
   get: (id: string) => api.get(`/device/${id}`),
   setOrderNumber: (id: string, orderNumber: string) =>
-    api.put(`/device/${id}/order-number`, { orderNumber })
+    api.put(`/device/${id}/order-number`, { orderNumber }),
+  markCompleted: (id: string) =>
+    api.post(`/device/${id}/complete`)
 }
 
 export const gameRecordApi = {

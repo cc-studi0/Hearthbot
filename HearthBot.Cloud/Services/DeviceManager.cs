@@ -93,6 +93,28 @@ public class DeviceManager
         return device;
     }
 
+    public async Task<Device?> MarkOrderCompleted(string deviceId, string reachedRank)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
+
+        var device = await db.Devices.FindAsync(deviceId);
+        if (device == null) return null;
+
+        // 粘性标志：一旦完成，除非用户绑新订单或隔天归档，否则不会被清
+        device.IsCompleted = true;
+        device.CompletedAt = DateTime.UtcNow;
+        if (!string.IsNullOrEmpty(reachedRank))
+        {
+            device.CompletedRank = reachedRank;
+            device.CurrentRank = reachedRank;
+        }
+        await db.SaveChangesAsync();
+
+        _logger.LogInformation("Device {DeviceId} order completed at rank {Rank}", deviceId, reachedRank);
+        return device;
+    }
+
     public async Task<GameRecord> RecordGame(string deviceId, string accountName,
         string result, string myClass, string opponentClass, string deckName,
         string profileName, int durationSeconds, string rankBefore, string rankAfter, string gameMode)

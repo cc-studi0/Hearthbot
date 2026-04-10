@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NTag, NInput, NButton, NSpace } from 'naive-ui'
+import { NTag, NInput, NButton, NSpace, NPopconfirm } from 'naive-ui'
 import RankProgress from './RankProgress.vue'
 import type { Device } from '../types'
 
@@ -12,6 +12,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   click: [device: Device]
   saveOrder: [deviceId: string, orderNumber: string]
+  markCompleted: [deviceId: string]
 }>()
 
 const orderInput = defineModel<string>('orderInput', { default: '' })
@@ -94,7 +95,24 @@ const borderColor = computed(() => {
       <div v-else class="game-stats">
         {{ device.sessionWins }}胜{{ device.sessionLosses }}负({{ winRate }}) · 等待下一局...
       </div>
-      <div class="card-expand-hint">点击展开详情 ▸</div>
+      <div class="card-footer">
+        <NPopconfirm
+          @positive-click="emit('markCompleted', device.deviceId)"
+          positive-text="确认完成"
+          negative-text="取消"
+        >
+          <template #trigger>
+            <NButton
+              size="tiny"
+              type="primary"
+              ghost
+              @click.stop
+            >手动完成</NButton>
+          </template>
+          确认将订单 #{{ device.orderNumber }} 标记为已完成？
+        </NPopconfirm>
+        <span class="card-expand-hint">点击展开详情 ▸</span>
+      </div>
     </template>
 
     <!-- 已完成列：最终战绩 -->
@@ -163,11 +181,16 @@ const borderColor = computed(() => {
   color: #64748b;
   margin-top: 4px;
 }
+.card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  gap: 8px;
+}
 .card-expand-hint {
   font-size: 10px;
   color: #94a3b8;
-  text-align: right;
-  margin-top: 6px;
 }
 .completed-info {
   font-size: 11px;

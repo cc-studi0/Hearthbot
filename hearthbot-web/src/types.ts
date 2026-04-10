@@ -17,6 +17,9 @@ export interface Device {
   startRank: string
   startedAt: string | null
   currentOpponent: string
+  isCompleted: boolean
+  completedAt: string | null
+  completedRank: string
 }
 
 export interface Stats {
