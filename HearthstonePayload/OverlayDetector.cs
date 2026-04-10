@@ -89,6 +89,7 @@ namespace HearthstonePayload
         // LoadingScreen 缓存
         private Type _loadingScreenType;
         private MethodInfo _loadingScreenGet;
+        private MethodInfo _loadingScreenIsTransitioning;
 
         // PopupDisplayManager 缓存
         private Type _popupDisplayManagerType;
@@ -140,6 +141,7 @@ namespace HearthstonePayload
             if (_loadingScreenType != null)
             {
                 _loadingScreenGet = _loadingScreenType.GetMethod("Get", BindingFlags.Public | BindingFlags.Static);
+                _loadingScreenIsTransitioning = _loadingScreenType.GetMethod("IsTransitioning", BindingFlags.Public | BindingFlags.Instance);
             }
 
             // PopupDisplayManager
@@ -198,16 +200,24 @@ namespace HearthstonePayload
                     }
                 }
 
-                // 优先级2: 场景过渡
+                // 优先级2: 场景过渡（调用游戏自身的 IsTransitioning()，即 m_phase != INVALID）
                 var loadingScreen = CallStatic(_loadingScreenGet);
-                if (loadingScreen != null && IsUnityObjectActive(loadingScreen))
+                if (loadingScreen != null && _loadingScreenIsTransitioning != null)
                 {
-                    return new OverlayStatus
+                    try
                     {
-                        Action = OverlayAction.Wait,
-                        Type = "LoadingScreen",
-                        Detail = "scene_transition"
-                    };
+                        var transitioning = _loadingScreenIsTransitioning.Invoke(loadingScreen, null);
+                        if (transitioning is bool t && t)
+                        {
+                            return new OverlayStatus
+                            {
+                                Action = OverlayAction.Wait,
+                                Type = "LoadingScreen",
+                                Detail = "scene_transition"
+                            };
+                        }
+                    }
+                    catch { /* 反射失败则忽略此层 */ }
                 }
 
                 // 优先级3: DialogManager 当前弹窗
@@ -348,28 +358,5 @@ namespace HearthstonePayload
             return OverlayAction.CanDismiss;
         }
 
-        private bool IsUnityObjectActive(object obj)
-        {
-            if (obj == null) return false;
-            try
-            {
-                var goProperty = obj.GetType().GetProperty("gameObject");
-                if (goProperty != null)
-                {
-                    var go = goProperty.GetValue(obj);
-                    if (go != null)
-                    {
-                        var activeSelf = go.GetType().GetProperty("activeSelf");
-                        if (activeSelf != null)
-                            return (bool)activeSelf.GetValue(go);
-                    }
-                }
-                var enabledProp = obj.GetType().GetProperty("enabled");
-                if (enabledProp != null)
-                    return (bool)enabledProp.GetValue(obj);
-            }
-            catch { }
-            return true; // 无法确定时假设活跃
-        }
     }
 }
