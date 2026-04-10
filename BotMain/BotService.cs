@@ -2844,6 +2844,36 @@ namespace BotMain
                                     commandToSend = action + "|CHAIN";
                             }
 
+                            // ── IdleGuard 第二层：操作前弹窗检测与关闭 ──
+                            if (!isEndTurn)
+                            {
+                                try
+                                {
+                                    if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, "IdleGuard.PreAction")
+                                        && !string.IsNullOrWhiteSpace(preDialogType))
+                                    {
+                                        if (BotProtocol.IsSafeBlockingDialogButtonLabel(preDialogButton))
+                                        {
+                                            if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.PreAction")
+                                                && !string.IsNullOrWhiteSpace(dismissResp)
+                                                && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                                            {
+                                                Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 -> {dismissResp}");
+                                                SleepOrCancelled(500);
+                                            }
+                                        }
+                                        else
+                                        {
+                                            Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，按钮不安全，跳过操作");
+                                            actionFailed = true;
+                                            actionFailedThisAction = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                catch { }
+                            }
+
                             var sendSw = Stopwatch.StartNew();
                             var result = SendActionCommand(pipe, commandToSend, 5000) ?? "NO_RESPONSE";
                             sendSw.Stop();
@@ -3861,6 +3891,35 @@ namespace BotMain
 
                     // 武装 ChoiceStateWatch —— 如果动作可能触发发现/选择
                     TryArmChoiceStateWatchForAction(action, planningBoard);
+
+                    // ── IdleGuard 第二层：操作前弹窗检测与关闭 (Arena) ──
+                    if (!isEndTurn)
+                    {
+                        try
+                        {
+                            if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, "IdleGuard.ArenaPreAction")
+                                && !string.IsNullOrWhiteSpace(preDialogType))
+                            {
+                                if (BotProtocol.IsSafeBlockingDialogButtonLabel(preDialogButton))
+                                {
+                                    if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.ArenaPreAction")
+                                        && !string.IsNullOrWhiteSpace(dismissResp)
+                                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 (Arena) -> {dismissResp}");
+                                        SleepOrCancelled(500);
+                                    }
+                                }
+                                else
+                                {
+                                    Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，按钮不安全，跳过操作 (Arena)");
+                                    actionFailed = true;
+                                    break;
+                                }
+                            }
+                        }
+                        catch { }
+                    }
 
                     var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
                     Log($"[Arena.Action] {action} -> {result}");
