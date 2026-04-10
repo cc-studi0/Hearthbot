@@ -378,6 +378,15 @@ namespace BotMain
             return string.Equals(resp, NoDialog, StringComparison.Ordinal);
         }
 
+        public enum OverlayActionToken
+        {
+            Unknown,
+            None,
+            CanDismiss,
+            Wait,
+            Fatal
+        }
+
         public static bool IsBlockingDialogResponse(string resp)
         {
             return IsNoDialogResponse(resp)
@@ -386,9 +395,17 @@ namespace BotMain
         }
 
         public static bool TryParseBlockingDialog(string resp, out string dialogType, out string buttonLabel)
+            => TryParseBlockingDialog(resp, out dialogType, out buttonLabel, out _);
+
+        public static bool TryParseBlockingDialog(
+            string resp,
+            out string dialogType,
+            out string buttonLabel,
+            out OverlayActionToken action)
         {
             dialogType = null;
             buttonLabel = string.Empty;
+            action = OverlayActionToken.Unknown;
             if (!IsBlockingDialogResponse(resp) || IsNoDialogResponse(resp))
                 return false;
 
@@ -401,8 +418,50 @@ namespace BotMain
             }
 
             dialogType = payload.Substring(0, idx);
-            buttonLabel = idx + 1 < payload.Length ? payload.Substring(idx + 1) : string.Empty;
-            return !string.IsNullOrWhiteSpace(dialogType);
+            if (string.IsNullOrWhiteSpace(dialogType))
+                return false;
+
+            var tail = idx + 1 < payload.Length ? payload.Substring(idx + 1) : string.Empty;
+
+            // 新协议 4 段格式：DIALOG:Type:ACTION:Detail
+            // 如果 tail 的第一段是已知 action token，按新协议解析，buttonLabel 留空
+            var colonInTail = tail.IndexOf(':');
+            var firstSegment = colonInTail < 0 ? tail : tail.Substring(0, colonInTail);
+            if (TryParseOverlayActionToken(firstSegment, out action))
+                return true;
+
+            // 老协议 2 段格式：DIALOG:Type:ButtonLabel
+            action = OverlayActionToken.Unknown;
+            buttonLabel = tail;
+            return true;
+        }
+
+        private static bool TryParseOverlayActionToken(string token, out OverlayActionToken action)
+        {
+            action = OverlayActionToken.Unknown;
+            if (string.IsNullOrEmpty(token))
+                return false;
+            if (string.Equals(token, "CAN_DISMISS", StringComparison.Ordinal))
+            {
+                action = OverlayActionToken.CanDismiss;
+                return true;
+            }
+            if (string.Equals(token, "WAIT", StringComparison.Ordinal))
+            {
+                action = OverlayActionToken.Wait;
+                return true;
+            }
+            if (string.Equals(token, "FATAL", StringComparison.Ordinal))
+            {
+                action = OverlayActionToken.Fatal;
+                return true;
+            }
+            if (string.Equals(token, "NONE", StringComparison.Ordinal))
+            {
+                action = OverlayActionToken.None;
+                return true;
+            }
+            return false;
         }
 
         public static bool IsYesNoResponse(string resp)
@@ -435,6 +494,32 @@ namespace BotMain
                 || IsDismissedOverlayResponse(resp);
         }
 
+        /// <summary>
+        /// 统一判定 DISMISS_BLOCKING_DIALOG 的响应是否成功。
+        /// 既接受老协议的 "OK:..."，也接受 OverlayDetector 新协议的 "DISMISSED:..."。
+        /// </summary>
+        public static bool IsDismissSuccess(string resp)
+        {
+            if (string.IsNullOrWhiteSpace(resp))
+                return false;
+            return resp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
+                || IsDismissedOverlayResponse(resp);
+        }
+
+        /// <summary>
+        /// 统一判定一个阻塞弹窗是否可以安全关闭。
+        /// 新协议优先看 action token；老协议回退到按钮文本白名单。
+        /// </summary>
+        public static bool IsDismissableBlockingDialog(OverlayActionToken action, string buttonLabel)
+        {
+            if (action == OverlayActionToken.CanDismiss)
+                return true;
+            if (action == OverlayActionToken.Wait || action == OverlayActionToken.Fatal)
+                return false;
+            // action == Unknown/None：回退到老协议按钮白名单
+            return IsSafeBlockingDialogButtonLabel(buttonLabel);
+        }
+
         public static bool IsSafeBlockingDialogButtonLabel(string label)
         {
             var normalized = NormalizeButtonLabel(label);
@@ -445,8 +530,7 @@ namespace BotMain
                 || normalized == NormalizeButtonLabel(OkLabel)
                 || normalized == NormalizeButtonLabel(CloseLabel)
                 || normalized == NormalizeButtonLabel(BackLabel)
-                || normalized == NormalizeButtonLabel(CancelLabel)
-                || normalized == "candismiss";
+                || normalized == NormalizeButtonLabel(CancelLabel);
         }
 
         public static bool IsRetryBlockingDialogButtonLabel(string label)

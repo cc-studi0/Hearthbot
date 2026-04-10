@@ -364,11 +364,24 @@ namespace BotCore.Tests
             Assert.True(BotProtocol.IsDismissedOverlayResponse("DISMISSED:AlertPopup"));
             Assert.False(BotProtocol.IsDismissedOverlayResponse("OK:AlertPopup:OK"));
 
-            // 新格式 TryParse 兼容
+            // 新格式 4 段 TryParse：提取 action token，buttonLabel 留空
             Assert.True(BotProtocol.TryParseBlockingDialog(
                 "DIALOG:AlertPopup:CAN_DISMISS:CanDismiss",
-                out var dtype, out _));
+                out var dtype, out var dbtn, out var daction));
             Assert.Equal("AlertPopup", dtype);
+            Assert.Equal(string.Empty, dbtn);
+            Assert.Equal(BotProtocol.OverlayActionToken.CanDismiss, daction);
+
+            Assert.True(BotProtocol.TryParseBlockingDialog(
+                "DIALOG:LoadingScreen:WAIT:scene_transition",
+                out _, out var waitBtn, out var waitAction));
+            Assert.Equal(string.Empty, waitBtn);
+            Assert.Equal(BotProtocol.OverlayActionToken.Wait, waitAction);
+
+            Assert.True(BotProtocol.TryParseBlockingDialog(
+                "DIALOG:InputDisabled:FATAL:InputManager.m_checkForInput=false",
+                out _, out _, out var fatalAction));
+            Assert.Equal(BotProtocol.OverlayActionToken.Fatal, fatalAction);
         }
 
         [Fact]
@@ -385,19 +398,68 @@ namespace BotCore.Tests
         public void OverlayProtocol_BackwardCompatible_OldFormatStillWorks()
         {
             Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:AlertPopup:OK"));
-            Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dt, out var bl));
+            Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dt, out var bl, out var act));
             Assert.Equal("AlertPopup", dt);
             Assert.Equal("OK", bl);
+            Assert.Equal(BotProtocol.OverlayActionToken.Unknown, act);
             Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("OK"));
+
+            // 旧 2 参数重载保持兼容
+            Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dt2, out var bl2));
+            Assert.Equal("AlertPopup", dt2);
+            Assert.Equal("OK", bl2);
 
             Assert.False(BotProtocol.IsOverlayActionResponse("OK:AlertPopup:OK"));
             Assert.False(BotProtocol.IsOverlayActionResponse("FAIL:NO_DIALOG:no_dialog"));
         }
 
         [Fact]
-        public void OverlayProtocol_NewDismissLabels_RecognizedAsSafe()
+        public void OverlayProtocol_IsDismissableBlockingDialog_CombinesActionAndButton()
         {
-            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("CAN_DISMISS"));
+            // 新协议：action=CanDismiss 直接放行，不看按钮
+            Assert.True(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.CanDismiss, string.Empty));
+            Assert.True(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.CanDismiss, "重试"));
+
+            // 新协议：action=Wait/Fatal 直接拒绝
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Wait, "OK"));
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Fatal, "确定"));
+
+            // 老协议：action=Unknown 回退到按钮白名单
+            Assert.True(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Unknown, "OK"));
+            Assert.True(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Unknown, "确定"));
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Unknown, "重试"));
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.Unknown, "重新连接"));
+        }
+
+        [Fact]
+        public void OverlayProtocol_IsDismissSuccess_AcceptsOldAndNewFormats()
+        {
+            Assert.True(BotProtocol.IsDismissSuccess("OK:AlertPopup:OK"));
+            Assert.True(BotProtocol.IsDismissSuccess("OK:AlertPopup"));
+            Assert.True(BotProtocol.IsDismissSuccess("DISMISSED:AlertPopup"));
+            Assert.False(BotProtocol.IsDismissSuccess("FAIL:AlertPopup:click_failed"));
+            Assert.False(BotProtocol.IsDismissSuccess("WAIT:LoadingScreen"));
+            Assert.False(BotProtocol.IsDismissSuccess("FATAL:InputDisabled"));
+            Assert.False(BotProtocol.IsDismissSuccess(string.Empty));
+            Assert.False(BotProtocol.IsDismissSuccess(null));
+        }
+
+        [Fact]
+        public void OverlayProtocol_CanDismissHackRemoved_RawTokenNotTreatedAsButtonLabel()
+        {
+            // 回归测试：旧假补丁曾把 "candismiss" 当成按钮白名单兜底，
+            // 导致 "CAN_DISMISS:CanDismiss" 被误解析为按钮文本后仍然"碰巧"匹配。
+            // 现在严格通过 action token 识别；原始 CAN_DISMISS 字符串本身不应再被视为按钮。
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("CAN_DISMISS"));
+            Assert.False(BotProtocol.IsSafeBlockingDialogButtonLabel("CAN_DISMISS:CanDismiss"));
         }
 
         [Fact]

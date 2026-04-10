@@ -2849,15 +2849,13 @@ namespace BotMain
                             {
                                 try
                                 {
-                                    if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, "IdleGuard.PreAction")
+                                    if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, out var preDialogAction, "IdleGuard.PreAction")
                                         && !string.IsNullOrWhiteSpace(preDialogType))
                                     {
-                                        if (BotProtocol.IsSafeBlockingDialogButtonLabel(preDialogButton))
+                                        if (BotProtocol.IsDismissableBlockingDialog(preDialogAction, preDialogButton))
                                         {
                                             if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.PreAction")
-                                                && !string.IsNullOrWhiteSpace(dismissResp)
-                                                && (dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
-                                                    || BotProtocol.IsDismissedOverlayResponse(dismissResp)))
+                                                && BotProtocol.IsDismissSuccess(dismissResp))
                                             {
                                                 Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 -> {dismissResp}");
                                                 SleepOrCancelled(500);
@@ -2865,7 +2863,7 @@ namespace BotMain
                                         }
                                         else
                                         {
-                                            Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，按钮不安全，跳过操作");
+                                            Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton}) action={preDialogAction}，不可安全关闭，跳过操作");
                                             actionFailed = true;
                                             actionFailedThisAction = true;
                                             break;
@@ -2918,17 +2916,17 @@ namespace BotMain
                                     Log($"[IdleGuard] 弹窗阻塞操作 {action}，尝试关闭");
                                     try
                                     {
-                                        if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.DialogBlock")
+                                        if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, out var blockDialogAction, "IdleGuard.DialogBlock")
                                             && !string.IsNullOrWhiteSpace(blockDialogType))
                                         {
-                                            if (BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                            if (BotProtocol.IsDismissableBlockingDialog(blockDialogAction, blockDialogButton))
                                             {
                                                 TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.DialogBlock");
                                                 SleepOrCancelled(500);
                                             }
                                             else
                                             {
-                                                Log($"[IdleGuard] 弹窗 {blockDialogType} 不可安全关闭，等待");
+                                                Log($"[IdleGuard] 弹窗 {blockDialogType} action={blockDialogAction} 不可安全关闭，等待");
                                                 SleepOrCancelled(1500);
                                             }
                                         }
@@ -3929,15 +3927,13 @@ namespace BotMain
                     {
                         try
                         {
-                            if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, "IdleGuard.ArenaPreAction")
+                            if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, out var preDialogAction, "IdleGuard.ArenaPreAction")
                                 && !string.IsNullOrWhiteSpace(preDialogType))
                             {
-                                if (BotProtocol.IsSafeBlockingDialogButtonLabel(preDialogButton))
+                                if (BotProtocol.IsDismissableBlockingDialog(preDialogAction, preDialogButton))
                                 {
                                     if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.ArenaPreAction")
-                                        && !string.IsNullOrWhiteSpace(dismissResp)
-                                        && (dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase)
-                                            || BotProtocol.IsDismissedOverlayResponse(dismissResp)))
+                                        && BotProtocol.IsDismissSuccess(dismissResp))
                                     {
                                         Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，已关闭 (Arena) -> {dismissResp}");
                                         SleepOrCancelled(500);
@@ -3945,7 +3941,7 @@ namespace BotMain
                                 }
                                 else
                                 {
-                                    Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton})，按钮不安全，跳过操作 (Arena)");
+                                    Log($"[IdleGuard] 操作前检测到弹窗 {preDialogType}({preDialogButton}) action={preDialogAction}，不可安全关闭，跳过操作 (Arena)");
                                     actionFailed = true;
                                     break;
                                 }
@@ -3993,17 +3989,17 @@ namespace BotMain
                             Log($"[IdleGuard] 弹窗阻塞操作 {action}，尝试关闭 (Arena)");
                             try
                             {
-                                if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.ArenaDialogBlock")
+                                if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, out var blockDialogAction, "IdleGuard.ArenaDialogBlock")
                                     && !string.IsNullOrWhiteSpace(blockDialogType))
                                 {
-                                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                    if (BotProtocol.IsDismissableBlockingDialog(blockDialogAction, blockDialogButton))
                                     {
                                         TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.ArenaDialogBlock");
                                         SleepOrCancelled(500);
                                     }
                                     else
                                     {
-                                        Log($"[IdleGuard] 弹窗 {blockDialogType} 不可安全关闭，等待 (Arena)");
+                                        Log($"[IdleGuard] 弹窗 {blockDialogType} action={blockDialogAction} 不可安全关闭，等待 (Arena)");
                                         SleepOrCancelled(1500);
                                     }
                                 }
@@ -8444,9 +8440,19 @@ namespace BotMain
         }
 
         private bool TryGetBlockingDialog(PipeServer pipe, int timeoutMs, out string dialogType, out string buttonLabel, string scope)
+            => TryGetBlockingDialog(pipe, timeoutMs, out dialogType, out buttonLabel, out _, scope);
+
+        private bool TryGetBlockingDialog(
+            PipeServer pipe,
+            int timeoutMs,
+            out string dialogType,
+            out string buttonLabel,
+            out BotProtocol.OverlayActionToken action,
+            string scope)
         {
             dialogType = null;
             buttonLabel = string.Empty;
+            action = BotProtocol.OverlayActionToken.Unknown;
             var got = TrySendAndReceiveExpected(
                 pipe,
                 "GET_BLOCKING_DIALOG",
@@ -8459,7 +8465,7 @@ namespace BotMain
             if (BotProtocol.IsNoDialogResponse(response))
                 return true;
 
-            return BotProtocol.TryParseBlockingDialog(response, out dialogType, out buttonLabel);
+            return BotProtocol.TryParseBlockingDialog(response, out dialogType, out buttonLabel, out action);
         }
 
         private bool TryDismissBlockingDialog(PipeServer pipe, int timeoutMs, out string response, string scope)
@@ -8624,21 +8630,20 @@ namespace BotMain
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
-                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, scope)
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     stableLobbyConfirmCount = 0;
-                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                    if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
-                        && !string.IsNullOrWhiteSpace(dismissResp)
-                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        && BotProtocol.IsDismissSuccess(dismissResp))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
                         if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
-                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
+                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton}) action={dialogAction}");
                     if (SleepOrCancelled(1000)) break;
                     continue;
                 }
@@ -8768,21 +8773,20 @@ namespace BotMain
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
-                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, scope)
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     confirmCount = 0;
-                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                    if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
-                        && !string.IsNullOrWhiteSpace(dismissResp)
-                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        && BotProtocol.IsDismissSuccess(dismissResp))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
                         if (SleepOrCancelled(800)) break;
                         continue;
                     }
 
-                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton})");
+                    Log($"[{scope}] Blocking dialog still present: {dialogType}({dialogButton}) action={dialogAction}");
                     if (SleepOrCancelled(1000)) break;
                     continue;
                 }
@@ -8839,21 +8843,20 @@ namespace BotMain
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
-                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, scope)
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, scope)
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     readyConfirmCount = 0;
-                    if (BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton)
+                    if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
-                        && !string.IsNullOrWhiteSpace(dismissResp)
-                        && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                        && BotProtocol.IsDismissSuccess(dismissResp))
                     {
                         Log($"[{scope}] Dismissed blocking dialog {dialogType}({dialogButton}) -> {dismissResp}");
                         if (SleepOrCancelled(600)) break;
                         continue;
                     }
 
-                    Log($"[{scope}] Blocking dialog still present before play click: {dialogType}({dialogButton})");
+                    Log($"[{scope}] Blocking dialog still present before play click: {dialogType}({dialogButton}) action={dialogAction}");
                     if (SleepOrCancelled(800)) break;
                     continue;
                 }
@@ -9692,7 +9695,7 @@ namespace BotMain
             {
                 if (!string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, "AutoQueueDialog"))
+                    if (!TryGetBlockingDialog(pipe, 2500, out var lobbyDialogType, out var lobbyDialogButton, out var lobbyDialogAction, "AutoQueueDialog"))
                     {
                         Log("[AutoQueue] GET_BLOCKING_DIALOG 超时/串包，等待重试...");
                         SleepOrCancelled(1000);
@@ -9701,9 +9704,9 @@ namespace BotMain
 
                     if (!string.IsNullOrWhiteSpace(lobbyDialogType))
                     {
-                        if (!BotProtocol.IsSafeBlockingDialogButtonLabel(lobbyDialogButton))
+                        if (!BotProtocol.IsDismissableBlockingDialog(lobbyDialogAction, lobbyDialogButton))
                         {
-                            Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton})，按钮不在安全白名单内，等待后续超时/重试处理。");
+                            Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) action={lobbyDialogAction}，不可安全关闭，等待后续超时/重试处理。");
                             SleepOrCancelled(2000);
                             return;
                         }
@@ -9715,8 +9718,7 @@ namespace BotMain
                         else
                         {
                             Log($"[AutoQueue] 关闭大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) -> {dismissDialogResp}");
-                            if (!string.IsNullOrWhiteSpace(dismissDialogResp)
-                                && dismissDialogResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            if (BotProtocol.IsDismissSuccess(dismissDialogResp))
                             {
                                 ResetMatchmakingTracking();
                             }
@@ -9757,14 +9759,13 @@ namespace BotMain
                     }
 
                     // 匹配等待期间检测阻塞弹窗（如"开始游戏时出现错误"）
-                    if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, "AutoQueueFinding")
+                    if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, out var findingDialogAction, "AutoQueueFinding")
                         && !string.IsNullOrWhiteSpace(findingDialogType))
                     {
-                        if (BotProtocol.IsSafeBlockingDialogButtonLabel(findingDialogButton))
+                        if (BotProtocol.IsDismissableBlockingDialog(findingDialogAction, findingDialogButton))
                         {
                             if (TryDismissBlockingDialog(pipe, 2000, out var findingDismissResp, "AutoQueueFinding")
-                                && !string.IsNullOrWhiteSpace(findingDismissResp)
-                                && findingDismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                                && BotProtocol.IsDismissSuccess(findingDismissResp))
                             {
                                 Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton}) -> {findingDismissResp}，重置匹配状态并准备重新排队。");
                                 ResetMatchmakingTracking();
@@ -9776,7 +9777,7 @@ namespace BotMain
                         }
                         else
                         {
-                            Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                            Log($"[AutoQueue] 匹配期间检测到弹窗 {findingDialogType}({findingDialogButton}) action={findingDialogAction}，不可安全关闭，继续等待超时兜底。");
                         }
                     }
 
@@ -9808,19 +9809,18 @@ namespace BotMain
                         return; // 返回 MainLoop，由主循环正常处理对局
                     }
 
-                    if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, "AutoQueueLoad")
+                    if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, "AutoQueueLoad")
                         && !string.IsNullOrWhiteSpace(dialogType))
                     {
-                        if (!BotProtocol.IsSafeBlockingDialogButtonLabel(dialogButton))
+                        if (!BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton))
                         {
                             stableLobbyConfirmCount = 0;
-                            Log($"[AutoQueue] 检测到阻塞弹窗 {dialogType}({dialogButton})，按钮不在安全白名单内，继续等待超时兜底。");
+                            Log($"[AutoQueue] 检测到阻塞弹窗 {dialogType}({dialogButton}) action={dialogAction}，不可安全关闭，继续等待超时兜底。");
                             continue;
                         }
 
                         if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "AutoQueueLoad")
-                            && !string.IsNullOrWhiteSpace(dismissResp)
-                            && dismissResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            && BotProtocol.IsDismissSuccess(dismissResp))
                         {
                             Log($"[AutoQueue] 匹配失败弹窗 {dialogType}({dialogButton}) -> {dismissResp}，重置匹配状态并准备重新排队。");
                             ResetMatchmakingTracking();
