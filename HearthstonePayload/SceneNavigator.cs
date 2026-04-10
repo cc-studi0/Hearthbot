@@ -710,7 +710,7 @@ namespace HearthstonePayload
             if (result.StartsWith("ERROR:", StringComparison.OrdinalIgnoreCase))
                 return result;
 
-            // 2. 鼠标点击（最多重试 3 次）
+            // 2. 鼠标点击（最多 2 次尝试，总耗时 < 5 秒匹配 BotService pipe 超时）
             if (result.StartsWith("MOUSE_CLICK:", StringComparison.Ordinal))
             {
                 var coords = result.Substring("MOUSE_CLICK:".Length).Split(',');
@@ -718,20 +718,20 @@ namespace HearthstonePayload
                     && int.TryParse(coords[0], out var clickX)
                     && int.TryParse(coords[1], out var clickY))
                 {
-                    for (var attempt = 0; attempt < 3; attempt++)
+                    for (var attempt = 0; attempt < 2; attempt++)
                     {
                         ClickAt(clickX, clickY, 0.3f);
 
-                        // 每次点击后等待 2 秒（14 * 150ms），检测是否开始匹配
-                        for (var i = 0; i < 14; i++)
+                        // 点击后等待 1.2 秒检测是否进入匹配
+                        for (var i = 0; i < 8; i++)
                         {
                             Thread.Sleep(150);
                             if (IsFindingGame())
                                 return "OK:playButton:finding";
                         }
 
-                        // 重试前重新获取按钮坐标（按钮可能位置微调或仍未就绪）
-                        if (attempt < 2)
+                        // 第一次未触发，第二次尝试前刷新坐标（防止按钮位置微调）
+                        if (attempt == 0)
                         {
                             var refreshed = OnMain(() =>
                             {
@@ -3008,8 +3008,11 @@ namespace HearthstonePayload
         {
             InputHook.Simulating = true;
             foreach (var wait in SmoothMove(x, y)) yield return wait;
+            // 显式重置到目标坐标 + 60ms 稳定，确保 PegUI 的 raycast 与鼠标位置一致
+            MouseSimulator.MoveTo(x, y);
+            yield return 0.06f;
             MouseSimulator.LeftDown();
-            yield return 0.05f;
+            yield return 0.08f;
             MouseSimulator.LeftUp();
             yield return delayAfter;
             _coroutine.SetResult("OK");
