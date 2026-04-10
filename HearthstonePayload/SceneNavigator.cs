@@ -679,7 +679,17 @@ namespace HearthstonePayload
                     object btn;
                     if (string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
                     {
-                        var r = GetPlayButtonInfo(GetDeckPickerTray(), out btn);
+                        // 关键：TOURNAMENT 场景下，即使格式已经正确选中（SetFormat 短路为 OK:already），
+                        // PlayButton 的 RELEASE 监听器可能尚未绑定（m_playButtonEnabled 默认 false）。
+                        // 调用 DeckPickerTrayDisplay.ResetCurrentMode() 会触发 SetPlayButtonEnabled(true)
+                        // 和 SetHeroRaised(true)，让按钮真正变成可点击状态。
+                        var dpt = GetDeckPickerTray();
+                        if (dpt != null)
+                        {
+                            try { CallMethod(dpt, "ResetCurrentMode"); } catch { }
+                        }
+
+                        var r = GetPlayButtonInfo(dpt, out btn);
                         capturedBtn = btn;
                         return r;
                     }
