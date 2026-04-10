@@ -2874,6 +2874,13 @@ namespace BotMain
                                 catch { }
                             }
 
+                            // ── IdleGuard 第三层：操作前取状态快照 ──
+                            ActionStateSnapshot preActionSnapshot = null;
+                            if (!isEndTurn)
+                            {
+                                preActionSnapshot = TakeActionStateSnapshot(pipe);
+                            }
+
                             var sendSw = Stopwatch.StartNew();
                             var result = SendActionCommand(pipe, commandToSend, 5000) ?? "NO_RESPONSE";
                             sendSw.Stop();
@@ -2881,9 +2888,26 @@ namespace BotMain
                             actionOutcome = result;
                             Log($"[Action] {action} -> {result}");
 
-                            // IdleGuard: 标记本回合有有效动作
+                            // IdleGuard: 验证操作是否真正生效
                             if (!isEndTurn && !IsActionFailure(result))
-                                _turnHadEffectiveAction = true;
+                            {
+                                if (preActionSnapshot == null)
+                                {
+                                    _turnHadEffectiveAction = true;
+                                }
+                                else
+                                {
+                                    var postActionSnapshot = TakeActionStateSnapshot(pipe);
+                                    if (VerifyActionEffective(action, preActionSnapshot, postActionSnapshot))
+                                    {
+                                        _turnHadEffectiveAction = true;
+                                    }
+                                    else
+                                    {
+                                        Log($"[IdleGuard] 操作 {action} 返回成功但状态未变化，判定为无效操作");
+                                    }
+                                }
+                            }
 
                             if (IsActionFailure(result))
                             {
@@ -3921,12 +3945,36 @@ namespace BotMain
                         catch { }
                     }
 
+                    // ── IdleGuard 第三层：操作前取状态快照 (Arena) ──
+                    ActionStateSnapshot preActionSnapshot = null;
+                    if (!isEndTurn)
+                    {
+                        preActionSnapshot = TakeActionStateSnapshot(pipe);
+                    }
+
                     var result = SendActionCommand(pipe, action, 5000) ?? "NO_RESPONSE";
                     Log($"[Arena.Action] {action} -> {result}");
 
-                    // IdleGuard: 标记本回合有有效动作
+                    // IdleGuard: 验证操作是否真正生效 (Arena)
                     if (!isEndTurn && !IsActionFailure(result))
-                        _turnHadEffectiveAction = true;
+                    {
+                        if (preActionSnapshot == null)
+                        {
+                            _turnHadEffectiveAction = true;
+                        }
+                        else
+                        {
+                            var postActionSnapshot = TakeActionStateSnapshot(pipe);
+                            if (VerifyActionEffective(action, preActionSnapshot, postActionSnapshot))
+                            {
+                                _turnHadEffectiveAction = true;
+                            }
+                            else
+                            {
+                                Log($"[IdleGuard] 操作 {action} 返回成功但状态未变化，判定为无效操作 (Arena)");
+                            }
+                        }
+                    }
 
                     if (IsActionFailure(result))
                     {
@@ -7579,6 +7627,85 @@ namespace BotMain
         {
             return !string.IsNullOrWhiteSpace(result)
                 && result.IndexOf("DIALOG_BLOCKING", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        /// <summary>
+        /// 操作前状态快照，用于操作后验证。
+        /// </summary>
+        private sealed class ActionStateSnapshot
+        {
+            public int HandCount;
+            public int ManaAvailable;
+            public int FriendMinionCount;
+            public int EnemyMinionCount;
+        }
+
+        private ActionStateSnapshot TakeActionStateSnapshot(PipeServer pipe)
+        {
+            try
+            {
+                var seedResp = pipe.SendAndReceive("GET_SEED", 3000);
+                if (string.IsNullOrWhiteSpace(seedResp) || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
+                    return null;
+
+                var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seedResp, out _);
+                var board = Board.FromSeed(compatibleSeed);
+                if (board == null) return null;
+
+                return new ActionStateSnapshot
+                {
+                    HandCount = board.Hand?.Count ?? 0,
+                    ManaAvailable = board.ManaAvailable,
+                    FriendMinionCount = board.MinionFriend?.Count ?? 0,
+                    EnemyMinionCount = board.MinionEnemy?.Count ?? 0
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// 根据操作类型验证状态是否发生变化。
+        /// 返回 true 表示操作确实生效（或无法判断时保守返回 true）。
+        /// </summary>
+        private bool VerifyActionEffective(string action, ActionStateSnapshot before, ActionStateSnapshot after)
+        {
+            if (before == null || after == null)
+                return true;
+
+            if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase))
+            {
+                return after.HandCount < before.HandCount
+                    || after.ManaAvailable < before.ManaAvailable;
+            }
+
+            if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase))
+            {
+                return after.FriendMinionCount != before.FriendMinionCount
+                    || after.EnemyMinionCount != before.EnemyMinionCount
+                    || after.ManaAvailable != before.ManaAvailable;
+            }
+
+            if (action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase))
+            {
+                return after.ManaAvailable < before.ManaAvailable;
+            }
+
+            if (action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase))
+            {
+                return after.ManaAvailable != before.ManaAvailable
+                    || after.FriendMinionCount != before.FriendMinionCount
+                    || after.EnemyMinionCount != before.EnemyMinionCount;
+            }
+
+            if (action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase))
+            {
+                return after.HandCount != before.HandCount;
+            }
+
+            return true;
         }
 
         private void LogActionTimingSummary(
