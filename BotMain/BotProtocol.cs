@@ -410,6 +410,31 @@ namespace BotMain
             return resp == "YES" || resp == "NO";
         }
 
+        public static bool IsWaitOverlayResponse(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && resp.StartsWith("WAIT:", StringComparison.Ordinal);
+        }
+
+        public static bool IsFatalOverlayResponse(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && resp.StartsWith("FATAL:", StringComparison.Ordinal);
+        }
+
+        public static bool IsDismissedOverlayResponse(string resp)
+        {
+            return !string.IsNullOrWhiteSpace(resp)
+                && resp.StartsWith("DISMISSED:", StringComparison.Ordinal);
+        }
+
+        public static bool IsOverlayActionResponse(string resp)
+        {
+            return IsWaitOverlayResponse(resp)
+                || IsFatalOverlayResponse(resp)
+                || IsDismissedOverlayResponse(resp);
+        }
+
         public static bool IsSafeBlockingDialogButtonLabel(string label)
         {
             var normalized = NormalizeButtonLabel(label);
@@ -420,7 +445,8 @@ namespace BotMain
                 || normalized == NormalizeButtonLabel(OkLabel)
                 || normalized == NormalizeButtonLabel(CloseLabel)
                 || normalized == NormalizeButtonLabel(BackLabel)
-                || normalized == NormalizeButtonLabel(CancelLabel);
+                || normalized == NormalizeButtonLabel(CancelLabel)
+                || normalized == "candismiss";
         }
 
         public static bool IsRetryBlockingDialogButtonLabel(string label)
@@ -445,6 +471,8 @@ namespace BotMain
             if (IsYesNoResponse(resp))
                 return true;
             if (IsBlockingDialogResponse(resp))
+                return true;
+            if (IsOverlayActionResponse(resp))
                 return true;
             if (IsSeedProbeResponse(resp) || resp == "NO_MULLIGAN")
                 return true;

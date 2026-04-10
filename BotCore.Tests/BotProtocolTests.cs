@@ -343,5 +343,69 @@ namespace BotCore.Tests
             Assert.False(BotProtocol.IsDrainOnlyPostGameResponse("RESULT:WIN"));
             Assert.False(BotProtocol.IsDrainOnlyPostGameResponse("RESULT:NONE"));
         }
+
+        [Fact]
+        public void OverlayProtocol_ParsesNewFormatResponses()
+        {
+            // 新格式检测响应
+            Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:AlertPopup:CAN_DISMISS:CanDismiss"));
+            Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:LoadingScreen:WAIT:scene_transition"));
+            Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:InputDisabled:FATAL:InputManager.m_checkForInput=false"));
+
+            // 新格式关闭响应
+            Assert.True(BotProtocol.IsWaitOverlayResponse("WAIT:LoadingScreen"));
+            Assert.True(BotProtocol.IsWaitOverlayResponse("WAIT:DialogLoading"));
+            Assert.False(BotProtocol.IsWaitOverlayResponse("DISMISSED:AlertPopup"));
+            Assert.False(BotProtocol.IsWaitOverlayResponse("OK:AlertPopup:OK"));
+
+            Assert.True(BotProtocol.IsFatalOverlayResponse("FATAL:InputDisabled"));
+            Assert.False(BotProtocol.IsFatalOverlayResponse("WAIT:LoadingScreen"));
+
+            Assert.True(BotProtocol.IsDismissedOverlayResponse("DISMISSED:AlertPopup"));
+            Assert.False(BotProtocol.IsDismissedOverlayResponse("OK:AlertPopup:OK"));
+
+            // 新格式 TryParse 兼容
+            Assert.True(BotProtocol.TryParseBlockingDialog(
+                "DIALOG:AlertPopup:CAN_DISMISS:CanDismiss",
+                out var dtype, out _));
+            Assert.Equal("AlertPopup", dtype);
+        }
+
+        [Fact]
+        public void OverlayProtocol_IsOverlayActionResponse_ClassifiesCorrectly()
+        {
+            Assert.True(BotProtocol.IsOverlayActionResponse("WAIT:LoadingScreen"));
+            Assert.True(BotProtocol.IsOverlayActionResponse("FATAL:InputDisabled"));
+            Assert.True(BotProtocol.IsOverlayActionResponse("DISMISSED:AlertPopup"));
+            Assert.False(BotProtocol.IsOverlayActionResponse("OK:AlertPopup:OK"));
+            Assert.False(BotProtocol.IsOverlayActionResponse("FAIL:NO_DIALOG:no_dialog"));
+        }
+
+        [Fact]
+        public void OverlayProtocol_BackwardCompatible_OldFormatStillWorks()
+        {
+            Assert.True(BotProtocol.IsBlockingDialogResponse("DIALOG:AlertPopup:OK"));
+            Assert.True(BotProtocol.TryParseBlockingDialog("DIALOG:AlertPopup:OK", out var dt, out var bl));
+            Assert.Equal("AlertPopup", dt);
+            Assert.Equal("OK", bl);
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("OK"));
+
+            Assert.False(BotProtocol.IsOverlayActionResponse("OK:AlertPopup:OK"));
+            Assert.False(BotProtocol.IsOverlayActionResponse("FAIL:NO_DIALOG:no_dialog"));
+        }
+
+        [Fact]
+        public void OverlayProtocol_NewDismissLabels_RecognizedAsSafe()
+        {
+            Assert.True(BotProtocol.IsSafeBlockingDialogButtonLabel("CAN_DISMISS"));
+        }
+
+        [Fact]
+        public void OverlayProtocol_CrossCommand_RecognizesNewFormats()
+        {
+            Assert.True(BotProtocol.IsCrossCommandResponse("WAIT:LoadingScreen"));
+            Assert.True(BotProtocol.IsCrossCommandResponse("FATAL:InputDisabled"));
+            Assert.True(BotProtocol.IsCrossCommandResponse("DISMISSED:AlertPopup"));
+        }
     }
 }
