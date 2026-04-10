@@ -2857,6 +2857,26 @@ namespace BotMain
 
                             if (IsActionFailure(result))
                             {
+                                // ── DIALOG_BLOCKING 专用处理：操作未执行，跳过 CANCEL ──
+                                if (IsDialogBlockingFailure(result))
+                                {
+                                    Log($"[IdleGuard] 弹窗阻塞操作 {action}，尝试关闭");
+                                    try
+                                    {
+                                        if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.DialogBlock")
+                                            && !string.IsNullOrWhiteSpace(blockDialogType)
+                                            && BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                        {
+                                            TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.DialogBlock");
+                                            SleepOrCancelled(500);
+                                        }
+                                    }
+                                    catch { }
+                                    actionFailed = true;
+                                    actionFailedThisAction = true;
+                                    break;
+                                }
+
                                 if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                     || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                                     || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
@@ -3851,6 +3871,25 @@ namespace BotMain
 
                     if (IsActionFailure(result))
                     {
+                        // ── DIALOG_BLOCKING 专用处理 ──
+                        if (IsDialogBlockingFailure(result))
+                        {
+                            Log($"[IdleGuard] 弹窗阻塞操作 {action}，尝试关闭 (Arena)");
+                            try
+                            {
+                                if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, "IdleGuard.ArenaDialogBlock")
+                                    && !string.IsNullOrWhiteSpace(blockDialogType)
+                                    && BotProtocol.IsSafeBlockingDialogButtonLabel(blockDialogButton))
+                                {
+                                    TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.ArenaDialogBlock");
+                                    SleepOrCancelled(500);
+                                }
+                            }
+                            catch { }
+                            actionFailed = true;
+                            break;
+                        }
+
                         if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
                             || action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
@@ -7475,6 +7514,12 @@ namespace BotMain
             return result.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase)
                 || result.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)
                 || string.Equals(result, "NO_RESPONSE", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsDialogBlockingFailure(string result)
+        {
+            return !string.IsNullOrWhiteSpace(result)
+                && result.IndexOf("DIALOG_BLOCKING", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private void LogActionTimingSummary(
