@@ -412,6 +412,8 @@ namespace HearthstonePayload
 
                     var keepAliveClicker = new BackgroundKeepAliveClicker(reader, nav);
 
+                    ActionExecutor.SetSceneNavigator(nav);
+
                     _reader = reader;
                     _bgReader = bgReader;
                     _nav = nav;

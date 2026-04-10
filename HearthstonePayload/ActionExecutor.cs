@@ -46,6 +46,7 @@ namespace HearthstonePayload
         };
 
         private static CoroutineExecutor _coroutine;
+        private static SceneNavigator _nav;
 
         private sealed class ChoiceSnapshot
         {
@@ -122,6 +123,11 @@ namespace HearthstonePayload
         {
             _coroutine = executor;
             ChoiceController.Init(executor);
+        }
+
+        public static void SetSceneNavigator(SceneNavigator nav)
+        {
+            _nav = nav;
         }
 
         public static string SetHumanizerConfig(string payload)
@@ -1199,6 +1205,31 @@ namespace HearthstonePayload
                 ? actionData.Split('|')
                 : actionData.Split(':');
             var type = parts[0];
+
+            // ── 弹窗前置检查：对棋盘交互操作，检测是否有弹窗遮挡 ──
+            if (_nav != null
+                && type != "END_TURN"
+                && type != "CANCEL"
+                && type != "CONCEDE"
+                && type != "HUMAN_TURN_START")
+            {
+                try
+                {
+                    var dialogResp = _nav.GetBlockingDialog();
+                    if (!string.IsNullOrEmpty(dialogResp)
+                        && !string.Equals(dialogResp, "NO_DIALOG", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var dialogDetail = dialogResp.StartsWith("DIALOG:", StringComparison.Ordinal)
+                            ? dialogResp.Substring("DIALOG:".Length)
+                            : dialogResp;
+                        return "FAIL:" + type + ":DIALOG_BLOCKING:" + dialogDetail;
+                    }
+                }
+                catch
+                {
+                    // 弹窗检测失败不应阻止操作执行，忽略异常继续
+                }
+            }
 
             switch (type)
             {
