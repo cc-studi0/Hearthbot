@@ -463,6 +463,38 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void OverlayProtocol_RestartRequired_ParsedAndNotDismissable()
+        {
+            // 新增 RESTART_REQUIRED action：炉石自身弹窗要求重启客户端的场景。
+            Assert.True(BotProtocol.TryParseBlockingDialog(
+                "DIALOG:AlertPopup:RESTART_REQUIRED:restart_required",
+                out var dtype, out var dbtn, out var daction));
+            Assert.Equal("AlertPopup", dtype);
+            Assert.Equal(string.Empty, dbtn);
+            Assert.Equal(BotProtocol.OverlayActionToken.RestartRequired, daction);
+
+            // 必须被 IsDismissable 拒绝，避免 BotService 走关闭路径浪费时间
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.RestartRequired, string.Empty));
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.RestartRequired, "OK"));
+            Assert.False(BotProtocol.IsDismissableBlockingDialog(
+                BotProtocol.OverlayActionToken.RestartRequired, "确定"));
+
+            // IsRestartRequiredBlockingDialog 只对 RestartRequired 返回 true
+            Assert.True(BotProtocol.IsRestartRequiredBlockingDialog(
+                BotProtocol.OverlayActionToken.RestartRequired));
+            Assert.False(BotProtocol.IsRestartRequiredBlockingDialog(
+                BotProtocol.OverlayActionToken.CanDismiss));
+            Assert.False(BotProtocol.IsRestartRequiredBlockingDialog(
+                BotProtocol.OverlayActionToken.Wait));
+            Assert.False(BotProtocol.IsRestartRequiredBlockingDialog(
+                BotProtocol.OverlayActionToken.Fatal));
+            Assert.False(BotProtocol.IsRestartRequiredBlockingDialog(
+                BotProtocol.OverlayActionToken.Unknown));
+        }
+
+        [Fact]
         public void OverlayProtocol_CrossCommand_RecognizesNewFormats()
         {
             Assert.True(BotProtocol.IsCrossCommandResponse("WAIT:LoadingScreen"));

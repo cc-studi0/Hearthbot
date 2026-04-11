@@ -384,7 +384,8 @@ namespace BotMain
             None,
             CanDismiss,
             Wait,
-            Fatal
+            Fatal,
+            RestartRequired
         }
 
         public static bool IsBlockingDialogResponse(string resp)
@@ -456,6 +457,11 @@ namespace BotMain
                 action = OverlayActionToken.Fatal;
                 return true;
             }
+            if (string.Equals(token, "RESTART_REQUIRED", StringComparison.Ordinal))
+            {
+                action = OverlayActionToken.RestartRequired;
+                return true;
+            }
             if (string.Equals(token, "NONE", StringComparison.Ordinal))
             {
                 action = OverlayActionToken.None;
@@ -514,11 +520,20 @@ namespace BotMain
         {
             if (action == OverlayActionToken.CanDismiss)
                 return true;
-            if (action == OverlayActionToken.Wait || action == OverlayActionToken.Fatal)
+            if (action == OverlayActionToken.Wait
+                || action == OverlayActionToken.Fatal
+                || action == OverlayActionToken.RestartRequired)
                 return false;
             // action == Unknown/None：回退到老协议按钮白名单
             return IsSafeBlockingDialogButtonLabel(buttonLabel);
         }
+
+        /// <summary>
+        /// 判定弹窗是否要求重启炉石客户端（文案含"请重新启动"等关键字）。
+        /// 调用方应当跳过普通 dismiss 流程，直接触发 RestartHearthstone。
+        /// </summary>
+        public static bool IsRestartRequiredBlockingDialog(OverlayActionToken action)
+            => action == OverlayActionToken.RestartRequired;
 
         public static bool IsSafeBlockingDialogButtonLabel(string label)
         {

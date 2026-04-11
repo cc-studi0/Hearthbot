@@ -2852,6 +2852,12 @@ namespace BotMain
                                     if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, out var preDialogAction, "IdleGuard.PreAction")
                                         && !string.IsNullOrWhiteSpace(preDialogType))
                                     {
+                                        if (TryHandleRestartRequiredDialog(preDialogAction, preDialogType, "IdleGuard.PreAction"))
+                                        {
+                                            actionFailed = true;
+                                            actionFailedThisAction = true;
+                                            break;
+                                        }
                                         if (BotProtocol.IsDismissableBlockingDialog(preDialogAction, preDialogButton))
                                         {
                                             if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.PreAction")
@@ -2919,6 +2925,8 @@ namespace BotMain
                                         if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, out var blockDialogAction, "IdleGuard.DialogBlock")
                                             && !string.IsNullOrWhiteSpace(blockDialogType))
                                         {
+                                            if (TryHandleRestartRequiredDialog(blockDialogAction, blockDialogType, "IdleGuard.DialogBlock"))
+                                                break;
                                             if (BotProtocol.IsDismissableBlockingDialog(blockDialogAction, blockDialogButton))
                                             {
                                                 TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.DialogBlock");
@@ -3930,6 +3938,11 @@ namespace BotMain
                             if (TryGetBlockingDialog(pipe, 1500, out var preDialogType, out var preDialogButton, out var preDialogAction, "IdleGuard.ArenaPreAction")
                                 && !string.IsNullOrWhiteSpace(preDialogType))
                             {
+                                if (TryHandleRestartRequiredDialog(preDialogAction, preDialogType, "IdleGuard.ArenaPreAction"))
+                                {
+                                    actionFailed = true;
+                                    break;
+                                }
                                 if (BotProtocol.IsDismissableBlockingDialog(preDialogAction, preDialogButton))
                                 {
                                     if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "IdleGuard.ArenaPreAction")
@@ -3992,6 +4005,8 @@ namespace BotMain
                                 if (TryGetBlockingDialog(pipe, 1500, out var blockDialogType, out var blockDialogButton, out var blockDialogAction, "IdleGuard.ArenaDialogBlock")
                                     && !string.IsNullOrWhiteSpace(blockDialogType))
                                 {
+                                    if (TryHandleRestartRequiredDialog(blockDialogAction, blockDialogType, "IdleGuard.ArenaDialogBlock"))
+                                        break;
                                     if (BotProtocol.IsDismissableBlockingDialog(blockDialogAction, blockDialogButton))
                                     {
                                         TryDismissBlockingDialog(pipe, 2000, out _, "IdleGuard.ArenaDialogBlock");
@@ -8474,6 +8489,22 @@ namespace BotMain
             return TrySendStatusCommand(pipe, "DISMISS_BLOCKING_DIALOG", timeoutMs, out response, scope);
         }
 
+        /// <summary>
+        /// 检查弹窗是否要求重启炉石；若是则立即触发 RestartHearthstone 并返回 true。
+        /// 调用方应在 true 时 return / break 所在循环，避免继续尝试关闭该弹窗造成卡死。
+        /// </summary>
+        private bool TryHandleRestartRequiredDialog(
+            BotProtocol.OverlayActionToken action,
+            string dialogType,
+            string scope)
+        {
+            if (!BotProtocol.IsRestartRequiredBlockingDialog(action))
+                return false;
+            Log($"[{scope}] 检测到需要重启炉石的阻塞弹窗 {dialogType}，触发重启...");
+            RestartHearthstone();
+            return true;
+        }
+
         private bool PrepareBattlegroundsInitialEntry(PipeServer pipe)
         {
             if (pipe == null || !pipe.IsConnected)
@@ -8634,6 +8665,8 @@ namespace BotMain
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     stableLobbyConfirmCount = 0;
+                    if (TryHandleRestartRequiredDialog(dialogAction, dialogType, scope))
+                        return false;
                     if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
                         && BotProtocol.IsDismissSuccess(dismissResp))
@@ -8777,6 +8810,8 @@ namespace BotMain
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     confirmCount = 0;
+                    if (TryHandleRestartRequiredDialog(dialogAction, dialogType, scope))
+                        return false;
                     if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
                         && BotProtocol.IsDismissSuccess(dismissResp))
@@ -8847,6 +8882,8 @@ namespace BotMain
                     && !string.IsNullOrWhiteSpace(dialogType))
                 {
                     readyConfirmCount = 0;
+                    if (TryHandleRestartRequiredDialog(dialogAction, dialogType, scope))
+                        return false;
                     if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
                         && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
                         && BotProtocol.IsDismissSuccess(dismissResp))
@@ -9704,6 +9741,11 @@ namespace BotMain
 
                     if (!string.IsNullOrWhiteSpace(lobbyDialogType))
                     {
+                        if (TryHandleRestartRequiredDialog(lobbyDialogAction, lobbyDialogType, "AutoQueueDialog"))
+                        {
+                            SleepOrCancelled(1000);
+                            return;
+                        }
                         if (!BotProtocol.IsDismissableBlockingDialog(lobbyDialogAction, lobbyDialogButton))
                         {
                             Log($"[AutoQueue] 检测到大厅阻塞弹窗 {lobbyDialogType}({lobbyDialogButton}) action={lobbyDialogAction}，不可安全关闭，等待后续超时/重试处理。");
@@ -9762,6 +9804,12 @@ namespace BotMain
                     if (TryGetBlockingDialog(pipe, 1500, out var findingDialogType, out var findingDialogButton, out var findingDialogAction, "AutoQueueFinding")
                         && !string.IsNullOrWhiteSpace(findingDialogType))
                     {
+                        if (TryHandleRestartRequiredDialog(findingDialogAction, findingDialogType, "AutoQueueFinding"))
+                        {
+                            ResetMatchmakingTracking();
+                            SleepOrCancelled(1000);
+                            return;
+                        }
                         if (BotProtocol.IsDismissableBlockingDialog(findingDialogAction, findingDialogButton))
                         {
                             if (TryDismissBlockingDialog(pipe, 2000, out var findingDismissResp, "AutoQueueFinding")
@@ -9812,6 +9860,12 @@ namespace BotMain
                     if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, "AutoQueueLoad")
                         && !string.IsNullOrWhiteSpace(dialogType))
                     {
+                        if (TryHandleRestartRequiredDialog(dialogAction, dialogType, "AutoQueueLoad"))
+                        {
+                            ResetMatchmakingTracking();
+                            SleepOrCancelled(1000);
+                            return;
+                        }
                         if (!BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton))
                         {
                             stableLobbyConfirmCount = 0;

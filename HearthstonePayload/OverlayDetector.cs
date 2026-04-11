@@ -9,10 +9,11 @@ namespace HearthstonePayload
     {
         public enum OverlayAction
         {
-            None,        // 无覆盖层
-            CanDismiss,  // 可安全关闭
-            Wait,        // 不可关闭，等待
-            Fatal        // 致命，应停止脚本
+            None,             // 无覆盖层
+            CanDismiss,       // 可安全关闭
+            Wait,             // 不可关闭，等待
+            Fatal,            // 致命，应停止脚本
+            RestartRequired   // 弹窗文本指示必须重启炉石才能恢复
         }
 
         public sealed class OverlayStatus
@@ -35,14 +36,32 @@ namespace HearthstonePayload
                 string actionStr;
                 switch (Action)
                 {
-                    case OverlayAction.CanDismiss: actionStr = "CAN_DISMISS"; break;
-                    case OverlayAction.Wait:       actionStr = "WAIT"; break;
-                    case OverlayAction.Fatal:      actionStr = "FATAL"; break;
-                    default:                       actionStr = "WAIT"; break;
+                    case OverlayAction.CanDismiss:      actionStr = "CAN_DISMISS"; break;
+                    case OverlayAction.Wait:            actionStr = "WAIT"; break;
+                    case OverlayAction.Fatal:           actionStr = "FATAL"; break;
+                    case OverlayAction.RestartRequired: actionStr = "RESTART_REQUIRED"; break;
+                    default:                            actionStr = "WAIT"; break;
                 }
                 return "DIALOG:" + Type + ":" + actionStr + ":" + (Detail ?? string.Empty);
             }
         }
+
+        // 弹窗正文文本可能出现在这些成员名上
+        private static readonly string[] DialogBodyMemberNames =
+        {
+            "m_bodyText", "m_messageText", "m_headerText", "m_titleText",
+            "m_body", "m_message", "m_text", "m_content", "m_description"
+        };
+
+        // 出现以下关键字即认为弹窗要求重启炉石客户端
+        private static readonly string[] RestartRequiredKeywords =
+        {
+            "请重新启动",
+            "重新启动后",
+            "progress has been saved",
+            "please restart",
+            "需要重新启动"
+        };
 
         // 可安全关闭的 DialogBase 子类
         private static readonly HashSet<string> DismissableDialogTypes = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
@@ -229,6 +248,22 @@ namespace HearthstonePayload
                     {
                         var typeName = currentDialog.GetType().Name;
                         var action = ClassifyDialogType(typeName);
+
+                        // 内容识别：如果弹窗正文包含"请重新启动"等关键字，
+                        // 说明炉石自身认为必须重启客户端才能恢复，升级为 RestartRequired
+                        var bodyText = TryExtractDialogBodyText(currentDialog);
+                        if (MatchesRestartRequired(bodyText))
+                        {
+                            var bodySnippet = bodyText.Length > 80 ? bodyText.Substring(0, 80) : bodyText;
+                            _log($"[OverlayDetector] 检测到重启提示弹窗 {typeName}: {bodySnippet}");
+                            return new OverlayStatus
+                            {
+                                Action = OverlayAction.RestartRequired,
+                                Type = typeName,
+                                Detail = "restart_required"
+                            };
+                        }
+
                         return new OverlayStatus
                         {
                             Action = action,
@@ -306,6 +341,13 @@ namespace HearthstonePayload
             if (status.Action == OverlayAction.Fatal)
                 return "FATAL:" + status.Type;
 
+            // 需要重启客户端：不尝试关闭，直接上报让 BotService 触发 RestartHearthstone。
+            // 之所以不尝试 GoBack，是因为炉石的 "请重新启动" 这类弹窗经过实测会使
+            // DialogManager 进入半死状态，GoBack/点击 OK 都可能把主线程卡住多秒，
+            // 导致整个 pipe worker 停摆，后续 GET_SEED 连续超时。
+            if (status.Action == OverlayAction.RestartRequired)
+                return "RESTART_REQUIRED:" + status.Type;
+
             // CAN_DISMISS: 尝试 GoBack
             _log($"[OverlayDetector] 尝试关闭 {status.Type} via GoBack()");
 
@@ -356,6 +398,111 @@ namespace HearthstonePayload
                 return OverlayAction.Wait;
             // 未知类型默认尝试关闭（GoBack 是安全操作）
             return OverlayAction.CanDismiss;
+        }
+
+        /// <summary>
+        /// 从弹窗对象中提取正文文本。走有限深度的字段/属性反射，兼容 Hearthstone 的
+        /// UberText（通过 Text 属性暴露字符串）以及其他常见 body text 封装。
+        /// </summary>
+        private string TryExtractDialogBodyText(object dialog)
+        {
+            if (dialog == null) return null;
+            try
+            {
+                var visited = new HashSet<object>(new ReferenceEqualityComparer());
+                return TryExtractDialogBodyTextRecursive(dialog, 0, visited);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private sealed class ReferenceEqualityComparer : IEqualityComparer<object>
+        {
+            public new bool Equals(object x, object y) => ReferenceEquals(x, y);
+            public int GetHashCode(object obj) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(obj);
+        }
+
+        private string TryExtractDialogBodyTextRecursive(object obj, int depth, HashSet<object> visited)
+        {
+            if (obj == null || depth > 3) return null;
+            if (obj is string s) return s;
+            if (!visited.Add(obj)) return null;
+
+            var type = obj.GetType();
+            var bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+
+            foreach (var name in DialogBodyMemberNames)
+            {
+                object value = null;
+                try
+                {
+                    var field = type.GetField(name, bf);
+                    if (field != null)
+                        value = field.GetValue(obj);
+                }
+                catch { }
+                if (value == null)
+                {
+                    try
+                    {
+                        var prop = type.GetProperty(name, bf);
+                        if (prop != null && prop.GetIndexParameters().Length == 0)
+                            value = prop.GetValue(obj, null);
+                    }
+                    catch { }
+                }
+                if (value == null) continue;
+
+                if (value is string text)
+                {
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                    continue;
+                }
+
+                var nested = TryExtractDialogBodyTextRecursive(value, depth + 1, visited);
+                if (!string.IsNullOrWhiteSpace(nested))
+                    return nested;
+            }
+
+            // UberText 之类控件通常通过 Text 属性或 GetText() 方法暴露字符串
+            try
+            {
+                var textProp = type.GetProperty("Text", bf);
+                if (textProp != null && textProp.GetIndexParameters().Length == 0)
+                {
+                    var v = textProp.GetValue(obj, null) as string;
+                    if (!string.IsNullOrWhiteSpace(v))
+                        return v;
+                }
+            }
+            catch { }
+            try
+            {
+                var getText = type.GetMethod("GetText", bf, null, Type.EmptyTypes, null);
+                if (getText != null && getText.ReturnType == typeof(string))
+                {
+                    var v = getText.Invoke(obj, null) as string;
+                    if (!string.IsNullOrWhiteSpace(v))
+                        return v;
+                }
+            }
+            catch { }
+
+            return null;
+        }
+
+        private static bool MatchesRestartRequired(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return false;
+            foreach (var kw in RestartRequiredKeywords)
+            {
+                if (text.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0)
+                    return true;
+            }
+            return false;
         }
 
     }
