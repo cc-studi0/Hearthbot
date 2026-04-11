@@ -101,5 +101,101 @@ namespace BotCore.Tests
             Assert.Empty(snap.Hand);
             Assert.Empty(snap.Board);
         }
+
+        [Fact]
+        public void Resolve_BuyHappyPath_ReturnsAsIs()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|100|1|BG_ABC");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.AsIs, res.Outcome);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", res.RewrittenCommand);
+        }
+
+        [Fact]
+        public void Resolve_BuyStaleEntityId_Retargets()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|999|1|BG_ABC");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Retargeted, res.Outcome);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", res.RewrittenCommand);
+        }
+
+        [Fact]
+        public void Resolve_BuyPositionShifted_Retargets()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|101|1|BG_DEF");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Retargeted, res.Outcome);
+            Assert.Equal("BG_BUY|101|2|BG_DEF", res.RewrittenCommand);
+        }
+
+        [Fact]
+        public void Resolve_BuyDuplicateCard_PicksNearestToOriginalPosition()
+        {
+            // BG_ABC 在 pos=1 和 pos=3；原推荐 pos=2，距离相同取低位 pos=1
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|9999|2|BG_ABC");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Retargeted, res.Outcome);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", res.RewrittenCommand);
+        }
+
+        [Fact]
+        public void Resolve_BuyCardIdMissing_Aborts()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|999|2|BG_GONE");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Aborted, res.Outcome);
+        }
+
+        [Fact]
+        public void Resolve_BuyLegacyNoCardId_Passes()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_BUY|100|1");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.AsIs, res.Outcome);
+            Assert.Equal("BG_BUY|100|1", res.RewrittenCommand);
+        }
+
+        [Fact]
+        public void Resolve_SellHappyPath()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_SELL|300|BG_BOARD_A");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.AsIs, res.Outcome);
+        }
+
+        [Fact]
+        public void Resolve_SellCardIdMissing_Aborts()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_SELL|300|BG_SOLD_ALREADY");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Aborted, res.Outcome);
+        }
+
+        [Fact]
+        public void Resolve_PlayHappyPath()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_PLAY|200|0|1|BG_HAND_A");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.AsIs, res.Outcome);
+        }
+
+        [Fact]
+        public void Resolve_PlayHandCardMissing_Aborts()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_PLAY|200|0|1|BG_NOT_IN_HAND");
+            var snap = BgExecutionGate.ParseZones(SampleState);
+            var res = BgExecutionGate.Resolve(spec, snap);
+            Assert.Equal(BgResolutionOutcome.Aborted, res.Outcome);
+        }
     }
 }

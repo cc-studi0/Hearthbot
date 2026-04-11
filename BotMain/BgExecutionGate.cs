@@ -101,6 +101,27 @@ namespace BotMain
         }
     }
 
+    internal enum BgResolutionOutcome
+    {
+        AsIs,
+        Retargeted,
+        Aborted
+    }
+
+    internal readonly struct BgResolution
+    {
+        public readonly BgResolutionOutcome Outcome;
+        public readonly string RewrittenCommand;
+        public readonly string Detail;
+
+        public BgResolution(BgResolutionOutcome outcome, string rewrittenCommand, string detail)
+        {
+            Outcome = outcome;
+            RewrittenCommand = rewrittenCommand ?? string.Empty;
+            Detail = detail ?? string.Empty;
+        }
+    }
+
     internal static class BgExecutionGate
     {
         public static BgCommandSpec ParseCommand(string raw)
@@ -176,6 +197,81 @@ namespace BotMain
             }
 
             return result;
+        }
+
+        public static BgResolution Resolve(BgCommandSpec spec, BgZoneSnapshot snap)
+        {
+            switch (spec.Kind)
+            {
+                case BgCommandKind.Buy: return ResolveBuy(spec, snap);
+                case BgCommandKind.Sell: return ResolveSell(spec, snap);
+                case BgCommandKind.Play: return ResolvePlay(spec, snap);
+                default: return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "other");
+            }
+        }
+
+        private static BgResolution ResolveBuy(BgCommandSpec spec, BgZoneSnapshot snap)
+        {
+            if (string.IsNullOrEmpty(spec.ExpectedCardId))
+                return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "legacy");
+
+            if (snap.Shop.TryGetValue(spec.Position, out var byPos)
+                && byPos.EntityId == spec.EntityId
+                && string.Equals(byPos.CardId, spec.ExpectedCardId, StringComparison.Ordinal))
+            {
+                return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "match");
+            }
+
+            var hit = snap.FindByCardId(BgZone.Shop, spec.ExpectedCardId, spec.Position);
+            if (!hit.HasValue)
+                return new BgResolution(BgResolutionOutcome.Aborted, string.Empty, "card_missing");
+
+            var rewritten = $"BG_BUY|{hit.Value.EntityId}|{hit.Value.Position}|{spec.ExpectedCardId}";
+            return new BgResolution(BgResolutionOutcome.Retargeted, rewritten, "retarget");
+        }
+
+        private static BgResolution ResolveSell(BgCommandSpec spec, BgZoneSnapshot snap)
+        {
+            if (string.IsNullOrEmpty(spec.ExpectedCardId))
+                return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "legacy");
+
+            foreach (var entry in snap.Board.Values)
+            {
+                if (entry.EntityId == spec.EntityId
+                    && string.Equals(entry.CardId, spec.ExpectedCardId, StringComparison.Ordinal))
+                {
+                    return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "match");
+                }
+            }
+
+            var hit = snap.FindByCardId(BgZone.Board, spec.ExpectedCardId, 0);
+            if (!hit.HasValue)
+                return new BgResolution(BgResolutionOutcome.Aborted, string.Empty, "card_missing");
+
+            var rewritten = $"BG_SELL|{hit.Value.EntityId}|{spec.ExpectedCardId}";
+            return new BgResolution(BgResolutionOutcome.Retargeted, rewritten, "retarget");
+        }
+
+        private static BgResolution ResolvePlay(BgCommandSpec spec, BgZoneSnapshot snap)
+        {
+            if (string.IsNullOrEmpty(spec.ExpectedCardId))
+                return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "legacy");
+
+            foreach (var entry in snap.Hand.Values)
+            {
+                if (entry.EntityId == spec.EntityId
+                    && string.Equals(entry.CardId, spec.ExpectedCardId, StringComparison.Ordinal))
+                {
+                    return new BgResolution(BgResolutionOutcome.AsIs, spec.Raw, "match");
+                }
+            }
+
+            var hit = snap.FindByCardId(BgZone.Hand, spec.ExpectedCardId, spec.Position);
+            if (!hit.HasValue)
+                return new BgResolution(BgResolutionOutcome.Aborted, string.Empty, "card_missing");
+
+            var rewritten = $"BG_PLAY|{hit.Value.EntityId}|{spec.TargetEntityId}|{spec.Position}|{spec.ExpectedCardId}";
+            return new BgResolution(BgResolutionOutcome.Retargeted, rewritten, "retarget");
         }
     }
 }
