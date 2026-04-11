@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using BotMain;
 using Xunit;
 
@@ -5,6 +7,12 @@ namespace BotCore.Tests
 {
     public class BgExecutionGateTests
     {
+        private sealed class FakeState
+        {
+            public string Current;
+            public FakeState(string initial) { Current = initial; }
+        }
+
         private const string SampleState =
             "PHASE=RECRUIT|TURN=5|HERO=1,HERO_01,30,0|HP=2,HERO_POWER_01,1,2" +
             "|SHOP=100,BG_ABC,2,3,1,1,,3,4;101,BG_DEF,4,4,1,2,,3,4;102,BG_ABC,5,5,1,3,,3,4" +
@@ -196,6 +204,109 @@ namespace BotCore.Tests
             var snap = BgExecutionGate.ParseZones(SampleState);
             var res = BgExecutionGate.Resolve(spec, snap);
             Assert.Equal(BgResolutionOutcome.Aborted, res.Outcome);
+        }
+
+        [Fact]
+        public void Execute_BuyHappyPath_ReturnsCompleted()
+        {
+            var state = new FakeState(SampleState);
+            var sendLog = new List<string>();
+            Func<string, string> send = cmd =>
+            {
+                sendLog.Add(cmd);
+                state.Current = state.Current.Replace("100,BG_ABC,2,3,1,1,,3,4;", "");
+                return "OK";
+            };
+            Func<string> read = () => state.Current;
+
+            var gate = new BgExecutionGateRunner(send, read, probeTimeoutMs: 200, probeIntervalMs: 5, fallbackSleepMs: 50, sleep: _ => { });
+            var result = gate.Execute("BG_BUY|100|1|BG_ABC");
+
+            Assert.Equal(BgGateOutcome.Completed, result.Outcome);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", result.ExecutedCommand);
+            Assert.Single(sendLog);
+        }
+
+        [Fact]
+        public void Execute_BuyStaleEntityId_RewritesAndSucceeds()
+        {
+            var state = new FakeState(SampleState);
+            var sendLog = new List<string>();
+            Func<string, string> send = cmd =>
+            {
+                sendLog.Add(cmd);
+                state.Current = state.Current.Replace("100,BG_ABC,2,3,1,1,,3,4;", "");
+                return "OK";
+            };
+            Func<string> read = () => state.Current;
+
+            var gate = new BgExecutionGateRunner(send, read, 200, 5, 50, _ => { });
+            var result = gate.Execute("BG_BUY|9999|1|BG_ABC");
+
+            Assert.Equal(BgGateOutcome.Retargeted, result.Outcome);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", result.ExecutedCommand);
+            Assert.Equal("BG_BUY|100|1|BG_ABC", sendLog[0]);
+        }
+
+        [Fact]
+        public void Execute_CardIdMissing_Aborts()
+        {
+            var state = new FakeState(SampleState);
+            var sendLog = new List<string>();
+            Func<string, string> send = cmd => { sendLog.Add(cmd); return "OK"; };
+            Func<string> read = () => state.Current;
+
+            var gate = new BgExecutionGateRunner(send, read, 200, 5, 50, _ => { });
+            var result = gate.Execute("BG_BUY|100|1|BG_GONE");
+
+            Assert.Equal(BgGateOutcome.Aborted, result.Outcome);
+            Assert.Empty(sendLog);
+        }
+
+        [Fact]
+        public void Execute_SendFails_ReturnsFailed()
+        {
+            var state = new FakeState(SampleState);
+            Func<string, string> send = cmd => "FAIL:bg_test";
+            Func<string> read = () => state.Current;
+
+            var gate = new BgExecutionGateRunner(send, read, 200, 5, 50, _ => { });
+            var result = gate.Execute("BG_BUY|100|1|BG_ABC");
+
+            Assert.Equal(BgGateOutcome.Failed, result.Outcome);
+        }
+
+        [Fact]
+        public void Execute_ProbeTimeout_ReturnsFallbackAndSleeps()
+        {
+            var state = new FakeState(SampleState);
+            var sendLog = new List<string>();
+            var sleeps = new List<int>();
+            Func<string, string> send = cmd => { sendLog.Add(cmd); return "OK"; };
+            Func<string> read = () => state.Current; // 永不变
+
+            var gate = new BgExecutionGateRunner(send, read, probeTimeoutMs: 50, probeIntervalMs: 5, fallbackSleepMs: 50, sleep: ms => sleeps.Add(ms));
+            var result = gate.Execute("BG_BUY|100|1|BG_ABC");
+
+            Assert.Equal(BgGateOutcome.CompletedWithFallback, result.Outcome);
+            Assert.Contains(50, sleeps);
+        }
+
+        [Fact]
+        public void Execute_OtherCommand_StateHashChanges_Completed()
+        {
+            var state = new FakeState(SampleState);
+            Func<string, string> send = cmd =>
+            {
+                state.Current += "|TAVERN_UP=1";
+                return "OK";
+            };
+            Func<string> read = () => state.Current;
+
+            var gate = new BgExecutionGateRunner(send, read, 200, 5, 50, _ => { });
+            var result = gate.Execute("BG_TAVERN_UP");
+
+            Assert.Equal(BgGateOutcome.Completed, result.Outcome);
         }
     }
 }

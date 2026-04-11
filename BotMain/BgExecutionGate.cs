@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace BotMain
 {
@@ -272,6 +273,141 @@ namespace BotMain
 
             var rewritten = $"BG_PLAY|{hit.Value.EntityId}|{spec.TargetEntityId}|{spec.Position}|{spec.ExpectedCardId}";
             return new BgResolution(BgResolutionOutcome.Retargeted, rewritten, "retarget");
+        }
+    }
+
+    internal enum BgGateOutcome
+    {
+        Completed,
+        CompletedWithFallback,
+        Retargeted,
+        Aborted,
+        Failed
+    }
+
+    internal readonly struct BgGateResult
+    {
+        public readonly BgGateOutcome Outcome;
+        public readonly string ExecutedCommand;
+        public readonly string Detail;
+
+        public BgGateResult(BgGateOutcome outcome, string executedCommand, string detail)
+        {
+            Outcome = outcome;
+            ExecutedCommand = executedCommand ?? string.Empty;
+            Detail = detail ?? string.Empty;
+        }
+    }
+
+    internal sealed class BgExecutionGateRunner
+    {
+        private readonly Func<string, string> _send;
+        private readonly Func<string> _readState;
+        private readonly int _probeTimeoutMs;
+        private readonly int _probeIntervalMs;
+        private readonly int _fallbackSleepMs;
+        private readonly Action<int> _sleep;
+
+        public BgExecutionGateRunner(
+            Func<string, string> send,
+            Func<string> readState,
+            int probeTimeoutMs,
+            int probeIntervalMs,
+            int fallbackSleepMs,
+            Action<int> sleep)
+        {
+            _send = send ?? throw new ArgumentNullException(nameof(send));
+            _readState = readState ?? throw new ArgumentNullException(nameof(readState));
+            _probeTimeoutMs = probeTimeoutMs;
+            _probeIntervalMs = probeIntervalMs;
+            _fallbackSleepMs = fallbackSleepMs;
+            _sleep = sleep ?? (_ => { });
+        }
+
+        public BgGateResult Execute(string rawCommand)
+        {
+            var spec = BgExecutionGate.ParseCommand(rawCommand);
+            var beforeState = _readState() ?? string.Empty;
+            var beforeSnap = BgExecutionGate.ParseZones(beforeState);
+            var resolution = BgExecutionGate.Resolve(spec, beforeSnap);
+
+            if (resolution.Outcome == BgResolutionOutcome.Aborted)
+                return new BgGateResult(BgGateOutcome.Aborted, string.Empty, "resolve:" + resolution.Detail);
+
+            var cmdToSend = resolution.RewrittenCommand;
+            var resp = _send(cmdToSend);
+            if (IsFailure(resp))
+                return new BgGateResult(BgGateOutcome.Failed, cmdToSend, "send:" + (resp ?? "null"));
+
+            var probeHit = Probe(spec, beforeSnap, beforeState);
+            var baseOutcome = resolution.Outcome == BgResolutionOutcome.Retargeted
+                ? BgGateOutcome.Retargeted
+                : (probeHit ? BgGateOutcome.Completed : BgGateOutcome.CompletedWithFallback);
+
+            if (!probeHit)
+                _sleep(_fallbackSleepMs);
+
+            return new BgGateResult(baseOutcome, cmdToSend, probeHit ? "probe:hit" : "probe:timeout");
+        }
+
+        private bool Probe(BgCommandSpec spec, BgZoneSnapshot beforeSnap, string beforeState)
+        {
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < _probeTimeoutMs)
+            {
+                var current = _readState() ?? string.Empty;
+                if (!string.Equals(current, beforeState, StringComparison.Ordinal))
+                {
+                    if (spec.Kind == BgCommandKind.Other)
+                        return true;
+
+                    var curSnap = BgExecutionGate.ParseZones(current);
+                    if (HasExpectedChange(spec, beforeSnap, curSnap))
+                        return true;
+                }
+                _sleep(_probeIntervalMs);
+            }
+            return false;
+        }
+
+        private static bool HasExpectedChange(BgCommandSpec spec, BgZoneSnapshot before, BgZoneSnapshot after)
+        {
+            switch (spec.Kind)
+            {
+                case BgCommandKind.Buy:
+                    return !TryFind(after.Shop, spec.Position, spec.ExpectedCardId)
+                        || after.Hand.Count > before.Hand.Count;
+                case BgCommandKind.Sell:
+                    return after.Board.Count < before.Board.Count
+                        || !ContainsEntity(after.Board, spec.EntityId);
+                case BgCommandKind.Play:
+                    return !TryFind(after.Hand, spec.Position, spec.ExpectedCardId)
+                        || after.Board.Count > before.Board.Count;
+                default:
+                    return true;
+            }
+        }
+
+        private static bool TryFind(IReadOnlyDictionary<int, BgZoneEntry> map, int pos, string expectedCardId)
+        {
+            if (!map.TryGetValue(pos, out var entry)) return false;
+            if (string.IsNullOrEmpty(expectedCardId)) return true;
+            return string.Equals(entry.CardId, expectedCardId, StringComparison.Ordinal);
+        }
+
+        private static bool ContainsEntity(IReadOnlyDictionary<int, BgZoneEntry> map, int entityId)
+        {
+            foreach (var e in map.Values)
+                if (e.EntityId == entityId) return true;
+            return false;
+        }
+
+        private static bool IsFailure(string resp)
+        {
+            if (string.IsNullOrWhiteSpace(resp)) return true;
+            return resp.StartsWith("FAIL", StringComparison.OrdinalIgnoreCase)
+                || resp.StartsWith("ERROR", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(resp, "NO_RESPONSE", StringComparison.OrdinalIgnoreCase);
         }
     }
 }
