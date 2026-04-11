@@ -4615,6 +4615,19 @@ namespace BotMain
             var pendingBattlegroundActionIndex = 0;
             var pendingBattlegroundActions = new List<string>();
 
+            var bgGate = new BgExecutionGateRunner(
+                send: cmd => SendActionCommand(pipe, cmd, 3000) ?? "NO_RESPONSE",
+                readState: () =>
+                {
+                    if (!TryGetBgStateResponse(pipe, 1200, out var resp, "BG.GateProbe"))
+                        return string.Empty;
+                    return BotProtocol.TryParseBgState(resp, out var sd) ? sd : string.Empty;
+                },
+                probeTimeoutMs: 200,
+                probeIntervalMs: 20,
+                fallbackSleepMs: 50,
+                sleep: ms => SleepOrCancelled(ms));
+
             // 防止对同一实体反复执行同样的操作（如打出同一张手牌但实际没有效果）
             var staleActionEntityKey = string.Empty;
             var staleActionCount = 0;
@@ -5039,32 +5052,42 @@ namespace BotMain
                             staleActionCount = 0;
                         }
 
-                        var actionResp = SendActionCommand(pipe, nextAction, 3000);
-                        Log($"[BG] 执行 {nextAction} -> {actionResp}");
-                        if (!IsActionFailure(actionResp))
-                        {
-                            if (pendingBattlegroundActionIndex + 1 < actions.Count)
-                            {
-                                pendingBattlegroundActionIndex++;
-                                SleepOrCancelled(180);
-                                continue;
-                            }
+                        var gateResult = bgGate.Execute(nextAction);
+                        Log($"[BG] 执行 {nextAction} -> {gateResult.Outcome} (cmd={gateResult.ExecutedCommand}, {gateResult.Detail})");
 
+                        if (gateResult.Outcome == BgGateOutcome.Aborted)
+                        {
+                            Log($"[BG] 推荐作废: cardId 未命中，清空队列 ({gateResult.Detail})");
                             pendingBattlegroundRecommendationKey = string.Empty;
                             pendingBattlegroundActionIndex = 0;
                             pendingBattlegroundActions.Clear();
-                            RememberConsumedBattlegroundRecommendation(
-                                recommendation,
-                                ref lastConsumedBattlegroundUpdatedAtMs,
-                                ref lastConsumedBattlegroundPayloadSignature,
-                                ref lastConsumedBattlegroundCommandSummary,
-                                ref repeatedConsumedBattlegroundRecommendationCount);
+                            SleepOrCancelled(180);
+                            continue;
                         }
-                        else
+
+                        if (gateResult.Outcome == BgGateOutcome.Failed)
                         {
                             SleepOrCancelled(220);
                             continue;
                         }
+
+                        // Completed / CompletedWithFallback / Retargeted 均视为成功
+                        if (pendingBattlegroundActionIndex + 1 < actions.Count)
+                        {
+                            pendingBattlegroundActionIndex++;
+                            continue;
+                        }
+
+                        pendingBattlegroundRecommendationKey = string.Empty;
+                        pendingBattlegroundActionIndex = 0;
+                        pendingBattlegroundActions.Clear();
+                        RememberConsumedBattlegroundRecommendation(
+                            recommendation,
+                            ref lastConsumedBattlegroundUpdatedAtMs,
+                            ref lastConsumedBattlegroundPayloadSignature,
+                            ref lastConsumedBattlegroundCommandSummary,
+                            ref repeatedConsumedBattlegroundRecommendationCount);
+
                         if (nextAction.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
                             || nextAction.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
                             || nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase))
@@ -5079,11 +5102,10 @@ namespace BotMain
                                 SleepOrCancelled(150);
                             }
                         }
-                        SleepOrCancelled(220);
                     }
                 }
 
-                if (SleepOrCancelled(500)) return;
+                if (SleepOrCancelled(50)) return;
             }
 
             Log("[BG] 战旗模式结束");
