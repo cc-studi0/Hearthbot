@@ -2108,7 +2108,7 @@ namespace BotCore.Tests
                 ActionName = "buy",
                 CardToken = JToken.FromObject(new { cardId = "BG_001", position = 2 })
             };
-            Assert.Equal("BG_BUY|402|2", HsBoxBattlegroundsBridge.ConvertStepToCommand(buyStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_BUY|402|2|BG_001", HsBoxBattlegroundsBridge.ConvertStepToCommand(buyStep, shopMap, boardMap, handMap));
 
             var playStep = new HsBoxActionStep
             {
@@ -2116,7 +2116,7 @@ namespace BotCore.Tests
                 CardToken = JToken.FromObject(new { cardId = "BG_002", position = 1 }),
                 Target = new HsBoxCardRef { CardId = "BG_003", Position = 4 }
             };
-            Assert.Equal("BG_PLAY|503|601|1", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_PLAY|503|601|1|BG_002", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
 
             var heroPowerStep = new HsBoxActionStep
             {
@@ -2151,7 +2151,7 @@ namespace BotCore.Tests
                 ActionName = "sell_minion",
                 CardToken = JToken.FromObject(new { cardId = "BG_010", position = 2 })
             };
-            Assert.Equal("BG_SELL|802", HsBoxBattlegroundsBridge.ConvertStepToCommand(sellStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_SELL|802|BG_010", HsBoxBattlegroundsBridge.ConvertStepToCommand(sellStep, shopMap, boardMap, handMap));
 
             var moveStep = new HsBoxActionStep
             {
@@ -2236,7 +2236,7 @@ namespace BotCore.Tests
                 Position = 1
             };
 
-            Assert.Equal("BG_PLAY|504|0|1", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_PLAY|504|0|1|BG_002", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -2258,7 +2258,7 @@ namespace BotCore.Tests
                 })
             };
 
-            Assert.Equal("BG_BUY|404|4", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_BUY|404|4|BG_SPELL_001", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -2279,7 +2279,7 @@ namespace BotCore.Tests
                 })
             };
 
-            Assert.Equal("BG_BUY|404|4", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_BUY|404|4|BG_SPELL_001", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -2347,7 +2347,7 @@ namespace BotCore.Tests
                 }
             };
 
-            Assert.Equal("BG_PLAY|9009|7007|7", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_PLAY|9009|7007|7|BG_DEEP_015", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -2377,7 +2377,7 @@ namespace BotCore.Tests
                 }
             };
 
-            Assert.Equal("BG_PLAY|9009|7007|2", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
+            Assert.Equal("BG_PLAY|9009|7007|2|BG_DEEP_015", HsBoxBattlegroundsBridge.ConvertStepToCommand(playStep, shopMap, boardMap, handMap));
         }
 
         [Fact]
@@ -2439,7 +2439,7 @@ namespace BotCore.Tests
 
             var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(steps, shopMap, boardMap, handMap);
 
-            Assert.Equal(new[] { "BG_BUY|905|5", "OPTION|905|0|0|BG_020a" }, commands);
+            Assert.Equal(new[] { "BG_BUY|905|5|BG_020", "OPTION|905|0|0|BG_020a" }, commands);
         }
 
         [Fact]
@@ -2471,7 +2471,7 @@ namespace BotCore.Tests
                 boardMap,
                 handMap);
 
-            Assert.Equal(new[] { "BG_BUY|906|5", "OPTION|906|0|0|BG_021a" }, commands);
+            Assert.Equal(new[] { "BG_BUY|906|5|BG_021", "OPTION|906|0|0|BG_021a" }, commands);
         }
 
         [Fact]
@@ -2510,7 +2510,7 @@ namespace BotCore.Tests
                 boardMap,
                 handMap);
 
-            Assert.Equal(new[] { "BG_PLAY|8635|0|1", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
+            Assert.Equal(new[] { "BG_PLAY|8635|0|1|BG27_084", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
         }
 
         [Fact]
@@ -2552,7 +2552,7 @@ namespace BotCore.Tests
 
             var commands = HsBoxBattlegroundsBridge.MapStructuredCommands(steps, shopMap, boardMap, handMap);
 
-            Assert.Equal(new[] { "BG_PLAY|8635|0|1", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
+            Assert.Equal(new[] { "BG_PLAY|8635|0|1|BG27_084", "OPTION|8635|0|0|BG27_084t2", "OPTION|11257|0|0" }, commands);
         }
 
         [Fact]
@@ -2591,7 +2591,7 @@ namespace BotCore.Tests
                 boardMap,
                 handMap);
 
-            Assert.Equal(new[] { "BG_PLAY|3686|0|1", "OPTION|3686|0|0|BG27_084t", "OPTION|4979|0|0" }, commands);
+            Assert.Equal(new[] { "BG_PLAY|3686|0|1|BG27_084", "OPTION|3686|0|0|BG27_084t", "OPTION|4979|0|0" }, commands);
         }
 
         [Fact]

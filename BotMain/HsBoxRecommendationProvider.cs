@@ -1280,7 +1280,12 @@ namespace BotMain
                 {
                     var pos = card?.GetZonePosition() ?? 0;
                     if (pos > 0 && shopMap.TryGetValue(pos, out var entityId))
-                        return $"BG_BUY|{entityId}|{pos}";
+                    {
+                        var cardId = card?.CardId ?? string.Empty;
+                        return string.IsNullOrEmpty(cardId)
+                            ? $"BG_BUY|{entityId}|{pos}"
+                            : $"BG_BUY|{entityId}|{pos}|{cardId}";
+                    }
                     return null;
                 }
                 case "sell":
@@ -1288,7 +1293,12 @@ namespace BotMain
                 {
                     var pos = card?.GetZonePosition() ?? 0;
                     if (pos > 0 && boardMap.TryGetValue(pos, out var entityId))
-                        return $"BG_SELL|{entityId}";
+                    {
+                        var cardId = card?.CardId ?? string.Empty;
+                        return string.IsNullOrEmpty(cardId)
+                            ? $"BG_SELL|{entityId}"
+                            : $"BG_SELL|{entityId}|{cardId}";
+                    }
                     return null;
                 }
                 case "play":
@@ -1315,7 +1325,12 @@ namespace BotMain
                         {
                             // 只有 special / play_special 才允许明确从商店区映射成购买。
                             if (isSpecialPlay && hasShopMatch)
-                                return $"BG_BUY|{shopEntityId}|{pos}";
+                            {
+                                var specialCardId = card?.CardId ?? string.Empty;
+                                return string.IsNullOrEmpty(specialCardId)
+                                    ? $"BG_BUY|{shopEntityId}|{pos}"
+                                    : $"BG_BUY|{shopEntityId}|{pos}|{specialCardId}";
+                            }
                             cardEntityId = 0;
                         }
                         else
@@ -1327,7 +1342,10 @@ namespace BotMain
                             else if (isSpecialPlay && hasShopMatch)
                             {
                                 // special / play_special 在区域缺失时保留旧兼容逻辑。
-                                return $"BG_BUY|{shopEntityId}|{pos}";
+                                var specialCardId = card?.CardId ?? string.Empty;
+                                return string.IsNullOrEmpty(specialCardId)
+                                    ? $"BG_BUY|{shopEntityId}|{pos}"
+                                    : $"BG_BUY|{shopEntityId}|{pos}|{specialCardId}";
                             }
                         }
 
@@ -1349,7 +1367,12 @@ namespace BotMain
                     // 磁力的"贴到目标左侧"最终落点由 payload 执行层按运行时坐标再解析。
                     var dropPositionReference = ResolveBattlegroundPlayPosition(step, target, fallbackPosition: pos);
                     if (cardEntityId > 0)
-                        return $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}";
+                    {
+                        var sourceCardId = card?.CardId ?? string.Empty;
+                        return string.IsNullOrEmpty(sourceCardId)
+                            ? $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}"
+                            : $"BG_PLAY|{cardEntityId}|{targetEntityId}|{dropPositionReference}|{sourceCardId}";
+                    }
                     return null;
                 }
                 case "hero_skill":
@@ -5031,7 +5054,10 @@ namespace BotMain
             if (entityId <= 0)
                 entityId = card.GetZonePosition(); // 兜底用 position 作为 entityId 占位
 
-            command = $"BG_BUY|{entityId}|{position}";
+            var cardId = card.CardId ?? string.Empty;
+            command = string.IsNullOrEmpty(cardId)
+                ? $"BG_BUY|{entityId}|{position}"
+                : $"BG_BUY|{entityId}|{position}|{cardId}";
             reason = "ok";
             return true;
         }
@@ -5050,7 +5076,10 @@ namespace BotMain
             if (entityId <= 0)
                 entityId = card.GetZonePosition();
 
-            command = $"BG_SELL|{entityId}";
+            var cardId = card.CardId ?? string.Empty;
+            command = string.IsNullOrEmpty(cardId)
+                ? $"BG_SELL|{entityId}"
+                : $"BG_SELL|{entityId}|{cardId}";
             reason = "ok";
             return true;
         }
@@ -5142,7 +5171,10 @@ namespace BotMain
                         entityId = card.GetZonePosition();
                     var target = TryGetExtraEntityId(step, "target");
                     var position = ResolveBattlegroundPlayPosition(step, step.Target, fallbackPosition: 0);
-                    actions.Add($"BG_PLAY|{entityId}|{target}|{position}");
+                    var sourceCardId = card?.CardId ?? string.Empty;
+                    actions.Add(string.IsNullOrEmpty(sourceCardId)
+                        ? $"BG_PLAY|{entityId}|{target}|{position}"
+                        : $"BG_PLAY|{entityId}|{target}|{position}|{sourceCardId}");
                 }
                 else
                 {
