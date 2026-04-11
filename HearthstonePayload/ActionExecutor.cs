@@ -1532,11 +1532,27 @@ namespace HearthstonePayload
                     {
                         int shopEntityId = int.Parse(parts[1]);
                         int position = parts.Length > 2 ? int.Parse(parts[2]) : 0;
+                        string expectedCardId = parts.Length > 3 ? parts[3] : null;
+                        if (!string.IsNullOrEmpty(expectedCardId))
+                        {
+                            var gsCheck = GetGameState();
+                            var actualCardId = ResolveEntityCardId(gsCheck, shopEntityId);
+                            if (!string.Equals(actualCardId, expectedCardId, StringComparison.Ordinal))
+                                return "FAIL:bg_card_mismatch";
+                        }
                         return _coroutine.RunAndWait(BgMouseBuy(shopEntityId, position));
                     }
                 case "BG_SELL":
                     {
                         int boardEntityId = int.Parse(parts[1]);
+                        string expectedCardId = parts.Length > 2 ? parts[2] : null;
+                        if (!string.IsNullOrEmpty(expectedCardId))
+                        {
+                            var gsCheck = GetGameState();
+                            var actualCardId = ResolveEntityCardId(gsCheck, boardEntityId);
+                            if (!string.Equals(actualCardId, expectedCardId, StringComparison.Ordinal))
+                                return "FAIL:bg_card_mismatch";
+                        }
                         return _coroutine.RunAndWait(BgMouseSell(boardEntityId));
                     }
                 case "BG_MOVE":
@@ -1568,6 +1584,14 @@ namespace HearthstonePayload
                         int handEntityId = int.Parse(parts[1]);
                         int targetEntityId = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                         int position = parts.Length > 3 ? int.Parse(parts[3]) : 0;
+                        string expectedCardId = parts.Length > 4 ? parts[4] : null;
+                        if (!string.IsNullOrEmpty(expectedCardId))
+                        {
+                            var gsCheck = GetGameState();
+                            var actualCardId = ResolveEntityCardId(gsCheck, handEntityId);
+                            if (!string.Equals(actualCardId, expectedCardId, StringComparison.Ordinal))
+                                return "FAIL:bg_card_mismatch";
+                        }
                         int targetHeroSide = -1; // -1: 非英雄目标, 0: 我方英雄, 1: 敌方英雄
                         bool sourceUsesBoardDrop = false;
                         bool isMagneticPlay = false;
