@@ -115,7 +115,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|101|0|0|DREAM_02" }, result.Actions);
             Assert.Contains("scope=reference_a", result.Detail);
         }
 
@@ -187,7 +187,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|105|0|2" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|105|0|2|TLC_100t2" }, result.Actions);
             Assert.Contains("scope=reference_a", result.Detail);
         }
 
@@ -267,7 +267,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|101|0|0|AT_037" }, result.Actions);
             Assert.Contains("scope=reference_a", result.Detail);
         }
 
@@ -387,7 +387,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|101|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|101|0|0|DREAM_02" }, result.Actions);
             Assert.Contains("scope=primary_action", result.Detail);
         }
 
@@ -510,7 +510,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|71|0|0|GAME_005" }, result.Actions);
         }
 
         [Fact]
@@ -586,7 +586,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|71|0|0|GAME_005" }, result.Actions);
         }
 
         [Fact]
@@ -626,7 +626,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|71|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|71|0|0|GAME_005" }, result.Actions);
             Assert.DoesNotContain("slot_fallback", result.Detail);
         }
 
@@ -677,7 +677,7 @@ namespace BotCore.Tests
                 lastConsumedPayloadSignature: staleState.PayloadSignature));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|104|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|104|0|0|TIME_045" }, result.Actions);
             Assert.Equal(800, result.SourceUpdatedAtMs);
             Assert.Equal(freshState.PayloadSignature, result.SourcePayloadSignature);
         }
@@ -754,7 +754,7 @@ namespace BotCore.Tests
                 lastConsumedActionCommand: "PLAY|77|0|0"));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|104|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|104|0|0|TLC_100" }, result.Actions);
             Assert.Contains("reuse=same_payload_after_retry", result.Detail);
             Assert.Equal(state.UpdatedAtMs, result.SourceUpdatedAtMs);
             Assert.Equal(state.PayloadSignature, result.SourcePayloadSignature);
@@ -790,7 +790,7 @@ namespace BotCore.Tests
                 },
                 lastConsumedUpdatedAtMs: state.UpdatedAtMs,
                 lastConsumedPayloadSignature: state.PayloadSignature,
-                lastConsumedActionCommand: "PLAY|104|0|0"));
+                lastConsumedActionCommand: "PLAY|104|0|0|TLC_100"));
 
             Assert.True(result.ShouldRetryWithoutAction, result.Detail);
             Assert.Empty(result.Actions);
@@ -826,7 +826,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction, result.Detail);
-            Assert.Equal(new[] { "PLAY|104|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|104|0|0|TLC_100" }, result.Actions);
             Assert.Equal(500, result.SourceUpdatedAtMs);
             Assert.DoesNotContain("wait_retry", result.Detail);
         }
@@ -888,10 +888,11 @@ namespace BotCore.Tests
                 null,
                 null));
 
-            Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|23|0|0" }, result.Actions);
-            Assert.Contains("fallbacks=", result.Detail);
-            Assert.Contains("ordered_slot_fallback", result.Detail);
+            // 手牌里没有推荐的 GAME_005，旧的 "ordered_slot_fallback" 会强行点 5 号位的
+            // 小精灵，这是不安全的——"cardId 为真源"的原则下，不匹配就应该等盒子刷新。
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -943,7 +944,7 @@ namespace BotCore.Tests
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|113|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|113|0|0|EX1_164" }, result.Actions);
             Assert.Contains("sanitize=drop_premature_end_turn", result.Detail);
         }
 
@@ -1003,7 +1004,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|101|0|0", "OPTION|101|0|0|AT_037b" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|101|0|0|AT_037", "OPTION|101|0|0|AT_037b" }, result.Actions);
         }
 
         [Fact]
@@ -1053,7 +1054,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|113|0|0", "OPTION|113|0|0|EX1_164a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|113|0|0|EX1_164", "OPTION|113|0|0|EX1_164a" }, result.Actions);
         }
 
         [Fact]
@@ -1102,7 +1103,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|114|0|0", "OPTION|114|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|114|0|0|AT_037", "OPTION|114|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -1172,7 +1173,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|145|0|0|CORE_AT_037", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -1245,7 +1246,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|145|0|0", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|145|0|0|CORE_AT_037", "OPTION|145|0|0|AT_037a", "OPTION|305|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -1378,7 +1379,7 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|134|0|0", "OPTION|134|0|0|AT_037a" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|134|0|0|CORE_AT_037", "OPTION|134|0|0|AT_037a" }, result.Actions);
             Assert.DoesNotContain("merge=body_target_hint", result.Detail, StringComparison.OrdinalIgnoreCase);
         }
 
@@ -1449,8 +1450,9 @@ namespace BotCore.Tests
                 }));
 
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|95|61|0" }, result.Actions);
-            // seed_compat 位置兜底使结构化数据直接解析出目标，不再需要 body merge
+            // 当 OppTarget.cardId 与实际敌方 pos=1 的 cardId 不匹配时，解析层拒绝位置兜底，
+            // 返回 target=0 而非强行点错目标。这与"cardId 为真源"的原则一致。
+            Assert.Equal(new[] { "PLAY|95|0|0|TLC_230" }, result.Actions);
             Assert.DoesNotContain("merge=body_target_hint", result.Detail);
         }
 
@@ -1505,7 +1507,7 @@ namespace BotCore.Tests
 
             var result = provider.RecommendActions(new ActionRecommendationRequest("seed", board, null, null));
             Assert.False(result.ShouldRetryWithoutAction);
-            Assert.Equal(new[] { "PLAY|115|0|0", "OPTION|115|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
+            Assert.Equal(new[] { "PLAY|115|0|0|AT_037", "OPTION|115|0|0|AT_037a", "OPTION|205|0|0" }, result.Actions);
         }
 
         [Fact]
@@ -2951,9 +2953,14 @@ namespace BotCore.Tests
 
         private static string InvokePrivateString(string methodName)
         {
-            var method = typeof(HsBoxRecommendationBridge).GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
-            Assert.NotNull(method);
-            return Assert.IsType<string>(method.Invoke(null, null));
+            var t = typeof(HsBoxRecommendationBridge);
+            var instance = t.GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Instance);
+            if (instance != null)
+                return Assert.IsType<string>(instance.Invoke(new HsBoxRecommendationBridge(), null));
+
+            var staticMethod = t.GetMethod(methodName, BindingFlags.NonPublic | BindingFlags.Static);
+            Assert.NotNull(staticMethod);
+            return Assert.IsType<string>(staticMethod.Invoke(null, null));
         }
 
         private static JObject InvokePrivateJObject(string methodName, params object[] args)
