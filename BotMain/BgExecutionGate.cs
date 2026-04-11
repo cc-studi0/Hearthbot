@@ -1,7 +1,78 @@
 using System;
+using System.Collections.Generic;
 
 namespace BotMain
 {
+    internal enum BgZone { Shop, Hand, Board }
+
+    internal readonly struct BgZoneEntry
+    {
+        public readonly int Position;
+        public readonly int EntityId;
+        public readonly string CardId;
+
+        public BgZoneEntry(int position, int entityId, string cardId)
+        {
+            Position = position;
+            EntityId = entityId;
+            CardId = cardId ?? string.Empty;
+        }
+    }
+
+    internal sealed class BgZoneSnapshot
+    {
+        public IReadOnlyDictionary<int, BgZoneEntry> Shop { get; }
+        public IReadOnlyDictionary<int, BgZoneEntry> Hand { get; }
+        public IReadOnlyDictionary<int, BgZoneEntry> Board { get; }
+
+        public BgZoneSnapshot(
+            IReadOnlyDictionary<int, BgZoneEntry> shop,
+            IReadOnlyDictionary<int, BgZoneEntry> hand,
+            IReadOnlyDictionary<int, BgZoneEntry> board)
+        {
+            Shop = shop;
+            Hand = hand;
+            Board = board;
+        }
+
+        private IReadOnlyDictionary<int, BgZoneEntry> GetZone(BgZone zone)
+        {
+            switch (zone)
+            {
+                case BgZone.Shop: return Shop;
+                case BgZone.Hand: return Hand;
+                case BgZone.Board: return Board;
+                default: return Shop;
+            }
+        }
+
+        public BgZoneEntry? FindByCardId(BgZone zone, string cardId, int originalPosition)
+        {
+            if (string.IsNullOrWhiteSpace(cardId))
+                return null;
+
+            var map = GetZone(zone);
+            BgZoneEntry? best = null;
+            var bestDistance = int.MaxValue;
+
+            foreach (var entry in map.Values)
+            {
+                if (!string.Equals(entry.CardId, cardId, StringComparison.Ordinal))
+                    continue;
+
+                var distance = Math.Abs(entry.Position - originalPosition);
+                if (distance < bestDistance
+                    || (distance == bestDistance && (best == null || entry.Position < best.Value.Position)))
+                {
+                    best = entry;
+                    bestDistance = distance;
+                }
+            }
+
+            return best;
+        }
+    }
+
     internal enum BgCommandKind
     {
         Buy,
@@ -69,6 +140,42 @@ namespace BotMain
                 default:
                     return new BgCommandSpec(BgCommandKind.Other, 0, 0, 0, string.Empty, raw);
             }
+        }
+
+        public static BgZoneSnapshot ParseZones(string stateData)
+        {
+            var shop = ExtractZone(stateData, "|SHOP=");
+            var hand = ExtractZone(stateData, "|HAND=");
+            var board = ExtractZone(stateData, "|BOARD=");
+            return new BgZoneSnapshot(shop, hand, board);
+        }
+
+        private static IReadOnlyDictionary<int, BgZoneEntry> ExtractZone(string stateData, string prefix)
+        {
+            var result = new Dictionary<int, BgZoneEntry>();
+            if (string.IsNullOrEmpty(stateData))
+                return result;
+
+            var start = stateData.IndexOf(prefix, StringComparison.Ordinal);
+            if (start < 0)
+                return result;
+
+            start += prefix.Length;
+            var end = stateData.IndexOf('|', start);
+            var segment = end >= 0 ? stateData.Substring(start, end - start) : stateData.Substring(start);
+
+            var items = segment.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var item in items)
+            {
+                var fields = item.Split(',');
+                if (fields.Length < 6) continue;
+                if (!int.TryParse(fields[0], out var entityId)) continue;
+                var cardId = fields[1];
+                if (!int.TryParse(fields[5], out var pos) || pos <= 0) continue;
+                result[pos] = new BgZoneEntry(pos, entityId, cardId);
+            }
+
+            return result;
         }
     }
 }
