@@ -45,5 +45,15 @@ export const gameRecordApi = {
 
 export const commandApi = {
   send: (deviceId: string, commandType: string, payload: Record<string, any>) =>
-    api.post('/command', { deviceId, commandType, payload: JSON.stringify(payload) })
+    api.post('/command', { deviceId, commandType, payload: JSON.stringify(payload) }),
+  start: (deviceId: string) =>
+    api.post('/command', { deviceId, commandType: 'Start', payload: '{}' }),
+  stop: (deviceId: string) =>
+    api.post('/command', { deviceId, commandType: 'Stop', payload: '{}' }),
+  changeDeck: (deviceId: string, deckName: string) =>
+    api.post('/command', { deviceId, commandType: 'ChangeDeck', payload: JSON.stringify({ DeckName: deckName }) }),
+  changeProfile: (deviceId: string, profileName: string) =>
+    api.post('/command', { deviceId, commandType: 'ChangeProfile', payload: JSON.stringify({ ProfileName: profileName }) }),
+  changeTarget: (deviceId: string, targetRankStarLevel: number) =>
+    api.post('/command', { deviceId, commandType: 'ChangeTarget', payload: JSON.stringify({ TargetRankStarLevel: targetRankStarLevel }) })
 }

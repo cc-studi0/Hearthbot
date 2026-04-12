@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace HearthBot.Cloud.Models;
 
 public static class CloudCommandTypes
