@@ -17,6 +17,7 @@ public class Device
     public string AvailableDecksJson { get; set; } = "[]";
     public string AvailableProfilesJson { get; set; } = "[]";
     public string OrderNumber { get; set; } = string.Empty;
+    public string OrderAccountName { get; set; } = string.Empty;
     public string TargetRank { get; set; } = string.Empty;
     public string StartRank { get; set; } = string.Empty;
     public DateTime? StartedAt { get; set; }

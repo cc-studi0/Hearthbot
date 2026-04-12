@@ -105,6 +105,7 @@ public class DeviceWatchdog : BackgroundService
         foreach (var device in devices)
         {
             device.OrderNumber = string.Empty;
+            device.OrderAccountName = string.Empty;
             device.StartRank = string.Empty;
             device.StartedAt = null;
             device.TargetRank = string.Empty;

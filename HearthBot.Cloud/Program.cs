@@ -73,6 +73,7 @@ using (var scope = app.Services.CreateScope())
     db.Database.EnsureCreated();
     // 兼容已有数据库：尝试添加新列
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN OrderNumber TEXT NOT NULL DEFAULT ''"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN OrderAccountName TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN TargetRank TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartRank TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartedAt TEXT"); } catch { }

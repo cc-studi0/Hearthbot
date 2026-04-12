@@ -55,6 +55,38 @@ public class DeviceManager
         _logger.LogInformation("Device {DeviceId} ({DisplayName}) registered", deviceId, displayName);
     }
 
+    public async Task<Device?> SetOrderNumber(string deviceId, string? orderNumber)
+    {
+        using var scope = _scopeFactory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
+
+        var device = await db.Devices.FindAsync(deviceId);
+        if (device == null) return null;
+
+        var normalizedOrderNumber = orderNumber?.Trim() ?? string.Empty;
+        var orderChanged = !string.Equals(device.OrderNumber, normalizedOrderNumber, StringComparison.Ordinal);
+
+        device.OrderNumber = normalizedOrderNumber;
+        device.OrderAccountName = string.IsNullOrEmpty(normalizedOrderNumber)
+            ? string.Empty
+            : device.CurrentAccount;
+
+        if (orderChanged)
+        {
+            device.IsCompleted = false;
+            device.CompletedAt = null;
+            device.CompletedRank = string.Empty;
+            device.StartRank = string.Empty;
+            device.StartedAt = null;
+
+            if (string.IsNullOrEmpty(normalizedOrderNumber))
+                device.TargetRank = string.Empty;
+        }
+
+        await db.SaveChangesAsync();
+        return device;
+    }
+
     public async Task<Device?> UpdateHeartbeat(string deviceId, string status,
         string currentAccount, string currentRank, string currentDeck,
         string currentProfile, string gameMode, int sessionWins, int sessionLosses,
@@ -77,12 +109,37 @@ public class DeviceManager
         device.LastHeartbeat = DateTime.UtcNow;
         device.CurrentOpponent = currentOpponent;
 
+        var orderAccountChanged = !string.IsNullOrWhiteSpace(device.OrderNumber)
+            && !string.IsNullOrWhiteSpace(device.OrderAccountName)
+            && !string.IsNullOrWhiteSpace(currentAccount)
+            && !string.Equals(currentAccount, device.OrderAccountName, StringComparison.Ordinal);
+
+        if (orderAccountChanged)
+        {
+            device.OrderNumber = string.Empty;
+            device.OrderAccountName = string.Empty;
+            device.TargetRank = string.Empty;
+            device.StartRank = string.Empty;
+            device.StartedAt = null;
+            device.IsCompleted = false;
+            device.CompletedAt = null;
+            device.CompletedRank = string.Empty;
+        }
+        else if (!string.IsNullOrWhiteSpace(device.OrderNumber)
+            && string.IsNullOrWhiteSpace(device.OrderAccountName)
+            && !string.IsNullOrWhiteSpace(currentAccount))
+        {
+            device.OrderAccountName = currentAccount;
+        }
+
         // 只在有值时更新目标段位，防止账号完成后心跳用空值覆盖
-        if (!string.IsNullOrEmpty(targetRank))
+        if (!orderAccountChanged && !string.IsNullOrEmpty(targetRank))
             device.TargetRank = targetRank;
 
-        // 首次心跳时记录起始段位和开始时间
-        if (string.IsNullOrEmpty(device.StartRank) && !string.IsNullOrEmpty(currentRank))
+        // 只为已绑定订单的账号记录起始段位和开始时间
+        if (!string.IsNullOrWhiteSpace(device.OrderNumber)
+            && string.IsNullOrEmpty(device.StartRank)
+            && !string.IsNullOrEmpty(currentRank))
         {
             device.StartRank = currentRank;
             device.StartedAt = DateTime.UtcNow;

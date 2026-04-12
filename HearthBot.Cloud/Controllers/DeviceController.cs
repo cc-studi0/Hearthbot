@@ -41,26 +41,10 @@ public class DeviceController : ControllerBase
     [HttpPut("{deviceId}/order-number")]
     public async Task<IActionResult> SetOrderNumber(string deviceId, [FromBody] SetOrderNumberRequest request)
     {
-        var device = await _db.Devices.FindAsync(deviceId);
+        var device = await _devices.SetOrderNumber(deviceId, request.OrderNumber);
         if (device == null) return NotFound();
 
-        var newOrderNumber = request.OrderNumber ?? string.Empty;
-        var isNewOrder = newOrderNumber != device.OrderNumber;
-
-        device.OrderNumber = newOrderNumber;
-
-        // 绑定新订单号视为"开始一个新订单"：清空旧订单的完成状态和起始快照，
-        // 下次心跳时 DeviceManager 会重新记录新的 StartRank/StartedAt
-        if (isNewOrder && !string.IsNullOrEmpty(newOrderNumber))
-        {
-            device.IsCompleted = false;
-            device.CompletedAt = null;
-            device.CompletedRank = string.Empty;
-            device.StartRank = string.Empty;
-            device.StartedAt = null;
-        }
-
-        await _db.SaveChangesAsync();
+        await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
         return Ok(device);
     }
 
