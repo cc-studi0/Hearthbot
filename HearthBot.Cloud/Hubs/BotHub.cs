@@ -7,12 +7,15 @@ public class BotHub : Hub
 {
     private readonly DeviceManager _devices;
     private readonly IHubContext<DashboardHub> _dashboard;
+    private readonly OrderCompletionNotifier _completionNotifier;
     private readonly ILogger<BotHub> _logger;
 
-    public BotHub(DeviceManager devices, IHubContext<DashboardHub> dashboard, ILogger<BotHub> logger)
+    public BotHub(DeviceManager devices, IHubContext<DashboardHub> dashboard,
+        OrderCompletionNotifier completionNotifier, ILogger<BotHub> logger)
     {
         _devices = devices;
         _dashboard = dashboard;
+        _completionNotifier = completionNotifier;
         _logger = logger;
     }
 
@@ -54,10 +57,13 @@ public class BotHub : Hub
 
     public async Task ReportOrderCompleted(string deviceId, string reachedRank, string modeText)
     {
-        var device = await _devices.MarkOrderCompleted(deviceId, reachedRank);
-        if (device != null)
+        var result = await _devices.MarkOrderCompleted(deviceId, reachedRank);
+        if (result != null)
         {
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", result.Device);
+            if (result.WasNewlyCompleted)
+                await _completionNotifier.NotifyAsync(result.Device);
+
             _logger.LogInformation("Device {DeviceId} reported order completed: {Rank} ({Mode})",
                 deviceId, reachedRank, modeText);
         }

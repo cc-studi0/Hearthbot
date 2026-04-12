@@ -2,7 +2,7 @@ using System.Text.Json;
 
 namespace HearthBot.Cloud.Services;
 
-public class AlertService
+public class AlertService : IAlertService
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(10) };
     private readonly string _sendKey;

@@ -16,12 +16,15 @@ public class DeviceController : ControllerBase
     private readonly CloudDbContext _db;
     private readonly DeviceManager _devices;
     private readonly IHubContext<DashboardHub> _dashboard;
+    private readonly OrderCompletionNotifier _completionNotifier;
 
-    public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard)
+    public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard,
+        OrderCompletionNotifier completionNotifier)
     {
         _db = db;
         _devices = devices;
         _dashboard = dashboard;
+        _completionNotifier = completionNotifier;
     }
 
     [HttpGet]
@@ -61,10 +64,15 @@ public class DeviceController : ControllerBase
             ? device.CurrentRank
             : device.TargetRank;
 
-        var updated = await _devices.MarkOrderCompleted(deviceId, reachedRank);
-        if (updated != null)
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", updated);
-        return Ok(updated);
+        var result = await _devices.MarkOrderCompleted(deviceId, reachedRank);
+        if (result != null)
+        {
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", result.Device);
+            if (result.WasNewlyCompleted)
+                await _completionNotifier.NotifyAsync(result.Device);
+        }
+
+        return Ok(result?.Device);
     }
 
     [HttpGet("stats")]

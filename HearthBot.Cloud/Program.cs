@@ -44,6 +44,8 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<DeviceManager>();
 builder.Services.AddSingleton<AlertService>();
+builder.Services.AddSingleton<IAlertService>(sp => sp.GetRequiredService<AlertService>());
+builder.Services.AddSingleton<OrderCompletionNotifier>();
 builder.Services.AddHostedService<DeviceWatchdog>();
 
 builder.Services.AddResponseCompression(o =>

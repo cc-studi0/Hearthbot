@@ -56,6 +56,9 @@
     <Compile Include="..\HearthBot.Cloud\Models\GameRecord.cs" Link="Cloud\GameRecord.cs" />
     <Compile Include="..\HearthBot.Cloud\Models\PendingCommand.cs" Link="Cloud\PendingCommand.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceManager.cs" Link="Cloud\DeviceManager.cs" />
+    <Compile Include="..\HearthBot.Cloud\Services\IAlertService.cs" Link="Cloud\IAlertService.cs" />
+    <Compile Include="..\HearthBot.Cloud\Services\OrderCompletionNotifier.cs" Link="Cloud\OrderCompletionNotifier.cs" />
+    <Compile Include="..\HearthBot.Cloud\Services\OrderCompletionUpdate.cs" Link="Cloud\OrderCompletionUpdate.cs" />
     <Compile Include="..\HearthstonePayload\PipeClient.cs" Link="HearthstonePayload\PipeClient.cs" />
     <Compile Include="..\HearthstonePayload\BattlegroundsMagneticDropMath.cs" Link="HearthstonePayload\BattlegroundsMagneticDropMath.cs" />
     <Compile Include="..\HearthstonePayload\GameStateData.cs" Link="HearthstonePayload\GameStateData.cs" />
