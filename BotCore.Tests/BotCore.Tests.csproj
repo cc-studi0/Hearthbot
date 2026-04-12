@@ -55,6 +55,7 @@
     <Compile Include="..\HearthBot.Cloud\Models\Device.cs" Link="Cloud\Device.cs" />
     <Compile Include="..\HearthBot.Cloud\Models\GameRecord.cs" Link="Cloud\GameRecord.cs" />
     <Compile Include="..\HearthBot.Cloud\Models\PendingCommand.cs" Link="Cloud\PendingCommand.cs" />
+    <Compile Include="..\HearthBot.Cloud\Models\CloudCommandTypes.cs" Link="Cloud\CloudCommandTypes.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceManager.cs" Link="Cloud\DeviceManager.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\IAlertService.cs" Link="Cloud\IAlertService.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\OrderCompletionNotifier.cs" Link="Cloud\OrderCompletionNotifier.cs" />

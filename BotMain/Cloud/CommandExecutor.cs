@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Text.Json;
+using HearthBot.Cloud.Models;
 
 namespace BotMain.Cloud
 {
@@ -48,15 +49,15 @@ namespace BotMain.Cloud
         {
             switch (type)
             {
-                case "Start":
+                case CloudCommandTypes.Start:
                     _bot.Start();
                     break;
 
-                case "Stop":
+                case CloudCommandTypes.Stop:
                     _bot.Stop();
                     break;
 
-                case "ChangeDeck":
+                case CloudCommandTypes.ChangeDeck:
                 {
                     using var doc = JsonDocument.Parse(payload);
                     var deckName = doc.RootElement.GetProperty("DeckName").GetString() ?? "";
@@ -74,7 +75,21 @@ namespace BotMain.Cloud
                     break;
                 }
 
-                case "ChangeTarget":
+                case CloudCommandTypes.ChangeProfile:
+                {
+                    using var doc = JsonDocument.Parse(payload);
+                    var profileName = doc.RootElement.GetProperty("ProfileName").GetString() ?? "";
+                    var account = _accounts.CurrentAccount;
+                    if (account != null)
+                    {
+                        account.ProfileName = profileName;
+                        _accounts.Save();
+                        _log($"[云控] 策略已切换为: {profileName}");
+                    }
+                    break;
+                }
+
+                case CloudCommandTypes.ChangeTarget:
                 {
                     using var doc = JsonDocument.Parse(payload);
                     var targetStarLevel = doc.RootElement.GetProperty("TargetRankStarLevel").GetInt32();

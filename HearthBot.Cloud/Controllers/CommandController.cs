@@ -29,15 +29,12 @@ public class CommandController : ControllerBase
 
     public record SendCommandRequest(string DeviceId, string CommandType, string Payload);
 
-    private static readonly HashSet<string> ValidCommandTypes = new(StringComparer.OrdinalIgnoreCase)
-        { "Stop", "ChangeDeck", "ChangeProfile", "Concede", "Restart" };
-
     [HttpPost]
     public async Task<IActionResult> Send([FromBody] SendCommandRequest req)
     {
         if (string.IsNullOrWhiteSpace(req.DeviceId))
             return BadRequest(new { error = "DeviceId is required" });
-        if (string.IsNullOrWhiteSpace(req.CommandType) || !ValidCommandTypes.Contains(req.CommandType))
+        if (string.IsNullOrWhiteSpace(req.CommandType) || !CloudCommandTypes.Valid.Contains(req.CommandType))
             return BadRequest(new { error = $"Invalid CommandType: {req.CommandType}" });
         if (req.Payload?.Length > 10000)
             return BadRequest(new { error = "Payload too large" });

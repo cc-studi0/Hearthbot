@@ -29,6 +29,9 @@
     <ProjectReference Include="..\BotCore\BotCore.csproj" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\HearthBot.Cloud\Models\CloudCommandTypes.cs" Link="Cloud\CloudCommandTypes.cs" />
+  </ItemGroup>
+  <ItemGroup>
     <Compile Remove="AI\**\*.cs" />
     <Compile Remove="SimpleAI.cs" />
   </ItemGroup>
