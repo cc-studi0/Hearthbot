@@ -13,6 +13,7 @@ export interface Device {
   availableDecksJson: string
   availableProfilesJson: string
   orderNumber: string
+  orderAccountName: string
   targetRank: string
   startRank: string
   startedAt: string | null
@@ -20,6 +21,20 @@ export interface Device {
   isCompleted: boolean
   completedAt: string | null
   completedRank: string
+}
+
+export type DashboardBucket = 'active' | 'pending' | 'abnormal' | 'completed'
+
+export interface DashboardCounts {
+  active: number
+  pending: number
+  abnormal: number
+  completed: number
+}
+
+export interface DashboardDeviceState {
+  bucket: DashboardBucket
+  suspectedCompletion: boolean
 }
 
 export interface Stats {
