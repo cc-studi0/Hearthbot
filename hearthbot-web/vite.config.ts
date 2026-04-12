@@ -11,6 +11,15 @@ export default defineConfig({
   },
   build: {
     outDir: '../HearthBot.Cloud/wwwroot',
-    emptyOutDir: true
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/naive-ui')) return 'naive-ui'
+          if (id.includes('node_modules/@microsoft/signalr')) return 'signalr'
+          if (id.includes('node_modules/chart.js') || id.includes('node_modules/vue-chartjs')) return 'chart'
+        }
+      }
+    }
   }
 })

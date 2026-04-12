@@ -1,8 +1,10 @@
+using System.IO.Compression;
 using System.Text;
 using HearthBot.Cloud.Data;
 using HearthBot.Cloud.Hubs;
 using HearthBot.Cloud.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
@@ -44,6 +46,19 @@ builder.Services.AddSingleton<DeviceManager>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddHostedService<DeviceWatchdog>();
 
+builder.Services.AddResponseCompression(o =>
+{
+    o.EnableForHttps = true;
+    o.Providers.Add<BrotliCompressionProvider>();
+    o.Providers.Add<GzipCompressionProvider>();
+    o.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(new[]
+    {
+        "application/javascript", "text/css", "application/json"
+    });
+});
+builder.Services.Configure<BrotliCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+builder.Services.Configure<GzipCompressionProviderOptions>(o => o.Level = CompressionLevel.Fastest);
+
 builder.Services.AddControllers();
 builder.Services.AddSignalR();
 builder.Services.AddCors(o => o.AddDefaultPolicy(p =>
@@ -67,9 +82,16 @@ using (var scope = app.Services.CreateScope())
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedRank TEXT NOT NULL DEFAULT ''"); } catch { }
 }
 
+app.UseResponseCompression();
 app.UseCors();
 app.UseDefaultFiles();
-app.UseStaticFiles();
+app.UseStaticFiles(new StaticFileOptions
+{
+    OnPrepareResponse = ctx =>
+    {
+        ctx.Context.Response.Headers.Append("Cache-Control", "public, max-age=31536000, immutable");
+    }
+});
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
