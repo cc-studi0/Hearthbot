@@ -4626,7 +4626,12 @@ namespace BotMain
                 probeTimeoutMs: 200,
                 probeIntervalMs: 20,
                 fallbackSleepMs: 50,
-                sleep: ms => SleepOrCancelled(ms));
+                sleep: ms => SleepOrCancelled(ms),
+                isGameReady: () =>
+                {
+                    var resp = pipe?.SendAndReceive("WAIT_READY", 1200);
+                    return string.Equals(resp, "READY", StringComparison.OrdinalIgnoreCase);
+                });
 
             // 防止对同一实体反复执行同样的操作（如打出同一张手牌但实际没有效果）
             var staleActionEntityKey = string.Empty;

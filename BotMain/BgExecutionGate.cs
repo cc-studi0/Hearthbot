@@ -303,6 +303,7 @@ namespace BotMain
     {
         private readonly Func<string, string> _send;
         private readonly Func<string> _readState;
+        private readonly Func<bool> _isGameReady;
         private readonly int _probeTimeoutMs;
         private readonly int _probeIntervalMs;
         private readonly int _fallbackSleepMs;
@@ -314,10 +315,12 @@ namespace BotMain
             int probeTimeoutMs,
             int probeIntervalMs,
             int fallbackSleepMs,
-            Action<int> sleep)
+            Action<int> sleep,
+            Func<bool> isGameReady = null)
         {
             _send = send ?? throw new ArgumentNullException(nameof(send));
             _readState = readState ?? throw new ArgumentNullException(nameof(readState));
+            _isGameReady = isGameReady;
             _probeTimeoutMs = probeTimeoutMs;
             _probeIntervalMs = probeIntervalMs;
             _fallbackSleepMs = fallbackSleepMs;
@@ -378,17 +381,30 @@ namespace BotMain
         {
             _sleep(80);
             var check = _readState() ?? string.Empty;
-            if (string.Equals(check, stateAfterAction, StringComparison.Ordinal))
-                return;
+            var stateChanged = !string.Equals(check, stateAfterAction, StringComparison.Ordinal);
 
-            // 商店在买成功后又变了（游戏特效自动刷新），等它稳定
-            for (var i = 0; i < 10; i++)
+            if (stateChanged)
             {
-                _sleep(50);
-                var next = _readState() ?? string.Empty;
-                if (string.Equals(next, check, StringComparison.Ordinal))
-                    return;
-                check = next;
+                // 商店在买成功后又变了（游戏特效自动刷新），等 stateData 稳定
+                for (var i = 0; i < 10; i++)
+                {
+                    _sleep(50);
+                    var next = _readState() ?? string.Empty;
+                    if (string.Equals(next, check, StringComparison.Ordinal))
+                        break;
+                    check = next;
+                }
+            }
+
+            // stateData 稳定后，还要等游戏内部就绪（zone change 队列清空、spawn 动画播完）
+            if (_isGameReady != null)
+            {
+                for (var i = 0; i < 15; i++)
+                {
+                    if (_isGameReady())
+                        return;
+                    _sleep(50);
+                }
             }
         }
 

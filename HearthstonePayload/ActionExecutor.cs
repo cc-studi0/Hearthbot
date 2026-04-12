@@ -7880,6 +7880,26 @@ namespace HearthstonePayload
                 return CreateBusyReadyState("blocking_power_processor");
             }
 
+            // Zone 变更队列检查——买随从后触发自动刷新等场景，zone change 正在处理新商店实体
+            var zoneMgrType = _asm?.GetType("ZoneMgr");
+            if (zoneMgrType != null)
+            {
+                var zoneMgr = GetSingleton(zoneMgrType);
+                if (zoneMgr != null)
+                {
+                    if (TryInvokeBoolMethod(zoneMgr, "HasActiveServerChange", out var activeChange) && activeChange)
+                    {
+                        TouchLastRealBusyReasonTick();
+                        return CreateBusyReadyState("zone_active_server_change");
+                    }
+                    if (TryInvokeBoolMethod(zoneMgr, "HasPendingServerChange", out var pendingChange) && pendingChange)
+                    {
+                        TouchLastRealBusyReasonTick();
+                        return CreateBusyReadyState("zone_pending_server_change");
+                    }
+                }
+            }
+
             var ppType = _asm?.GetType("PowerProcessor");
             if (ppType != null)
             {
