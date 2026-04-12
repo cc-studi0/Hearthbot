@@ -5072,6 +5072,13 @@ namespace BotMain
                         }
 
                         // Completed / CompletedWithFallback / Retargeted 均视为成功
+                        // 刷新/升级酒馆后，新商店实体需要动画时间才可操作
+                        if (nextAction.StartsWith("BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                            || nextAction.StartsWith("BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase))
+                        {
+                            SleepOrCancelled(300);
+                        }
+
                         if (pendingBattlegroundActionIndex + 1 < actions.Count)
                         {
                             pendingBattlegroundActionIndex++;
