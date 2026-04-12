@@ -363,11 +363,33 @@ namespace BotMain
 
                     var curSnap = BgExecutionGate.ParseZones(current);
                     if (HasExpectedChange(spec, beforeSnap, curSnap))
+                    {
+                        if (spec.Kind == BgCommandKind.Buy)
+                            WaitForShopStability(current);
                         return true;
+                    }
                 }
                 _sleep(_probeIntervalMs);
             }
             return false;
+        }
+
+        private void WaitForShopStability(string stateAfterAction)
+        {
+            _sleep(80);
+            var check = _readState() ?? string.Empty;
+            if (string.Equals(check, stateAfterAction, StringComparison.Ordinal))
+                return;
+
+            // 商店在买成功后又变了（游戏特效自动刷新），等它稳定
+            for (var i = 0; i < 10; i++)
+            {
+                _sleep(50);
+                var next = _readState() ?? string.Empty;
+                if (string.Equals(next, check, StringComparison.Ordinal))
+                    return;
+                check = next;
+            }
         }
 
         private static bool HasExpectedChange(BgCommandSpec spec, BgZoneSnapshot before, BgZoneSnapshot after)
