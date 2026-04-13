@@ -12,6 +12,7 @@ public class Device
     public string GameMode { get; set; } = "Standard";
     public int SessionWins { get; set; }
     public int SessionLosses { get; set; }
+    public DateTime StatusChangedAt { get; set; }
     public DateTime LastHeartbeat { get; set; }
     public DateTime RegisteredAt { get; set; }
     public string AvailableDecksJson { get; set; } = "[]";

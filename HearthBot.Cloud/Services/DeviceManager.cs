@@ -27,6 +27,7 @@ public class DeviceManager
         string[] availableDecks, string[] availableProfiles, string connectionId)
     {
         _deviceConnections[deviceId] = connectionId;
+        var utcNow = DateTime.UtcNow;
 
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
@@ -38,7 +39,7 @@ public class DeviceManager
             {
                 DeviceId = deviceId,
                 DisplayName = displayName,
-                RegisteredAt = DateTime.UtcNow
+                RegisteredAt = utcNow
             };
             db.Devices.Add(device);
         }
@@ -48,7 +49,8 @@ public class DeviceManager
         }
 
         device.Status = "Idle";
-        device.LastHeartbeat = DateTime.UtcNow;
+        device.StatusChangedAt = utcNow;
+        device.LastHeartbeat = utcNow;
         device.AvailableDecksJson = System.Text.Json.JsonSerializer.Serialize(availableDecks);
         device.AvailableProfilesJson = System.Text.Json.JsonSerializer.Serialize(availableProfiles);
         await db.SaveChangesAsync();
@@ -93,11 +95,18 @@ public class DeviceManager
         string currentProfile, string gameMode, int sessionWins, int sessionLosses,
         string targetRank = "", string currentOpponent = "")
     {
+        var utcNow = DateTime.UtcNow;
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
 
         var device = await db.Devices.FindAsync(deviceId);
         if (device == null) return null;
+
+        if (!string.Equals(device.Status, status, StringComparison.Ordinal)
+            || device.StatusChangedAt == default)
+        {
+            device.StatusChangedAt = utcNow;
+        }
 
         device.Status = status;
         device.CurrentAccount = currentAccount;
@@ -107,7 +116,7 @@ public class DeviceManager
         device.GameMode = gameMode;
         device.SessionWins = sessionWins;
         device.SessionLosses = sessionLosses;
-        device.LastHeartbeat = DateTime.UtcNow;
+        device.LastHeartbeat = utcNow;
         device.CurrentOpponent = currentOpponent;
 
         var orderAccountChanged = !string.IsNullOrWhiteSpace(device.OrderNumber)
@@ -143,7 +152,7 @@ public class DeviceManager
             && !string.IsNullOrEmpty(currentRank))
         {
             device.StartRank = currentRank;
-            device.StartedAt = DateTime.UtcNow;
+            device.StartedAt = utcNow;
         }
 
         await db.SaveChangesAsync();
