@@ -296,7 +296,14 @@ onMounted(async () => {
   hub.on('DeviceOffline', (deviceId: string) => {
     const device = devices.value.find(item => item.deviceId === deviceId)
     if (!device) return
-    mergeSingleDevice({ ...device, status: 'Offline' }, false)
+    mergeSingleDevice({
+      ...device,
+      status: 'Offline',
+      displayStatus: 'Offline',
+      bucket: 'abnormal',
+      abnormalReason: 'HeartbeatTimeout',
+      isHeartbeatStale: true
+    }, false)
   })
 
   hub.on('NewGameRecord', () => {

@@ -43,6 +43,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<DeviceManager>();
+builder.Services.AddSingleton<DeviceDisplayStateEvaluator>();
+builder.Services.AddSingleton<DeviceDashboardProjectionService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<IAlertService>(sp => sp.GetRequiredService<AlertService>());
 builder.Services.AddSingleton<OrderCompletionNotifier>();
@@ -81,6 +83,7 @@ using (var scope = app.Services.CreateScope())
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN TargetRank TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartRank TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StartedAt TEXT"); } catch { }
+    try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN StatusChangedAt TEXT"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CurrentOpponent TEXT NOT NULL DEFAULT ''"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN IsCompleted INTEGER NOT NULL DEFAULT 0"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedAt TEXT"); } catch { }

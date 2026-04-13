@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDeviceBucket, isCompletionSuspected } from './dashboardState'
+import { getDeviceBucket, getDisplayStatus, isAbnormalDevice, isCompletionSuspected } from './dashboardState'
 
 describe('dashboardState', () => {
   it('puts a device without an order into pending', () => {
@@ -25,5 +25,38 @@ describe('dashboardState', () => {
       currentRank: '传说',
       targetRank: '钻石5'
     } as any)).toBe(true)
+  })
+
+  it('prefers backend bucket when present', () => {
+    expect(getDeviceBucket({
+      bucket: 'active',
+      orderNumber: '',
+      status: 'Offline',
+      isCompleted: false
+    } as any)).toBe('active')
+  })
+
+  it('treats switching as normal when backend says active', () => {
+    expect(isAbnormalDevice({
+      bucket: 'active',
+      displayStatus: 'Switching',
+      status: 'Switching',
+      isCompleted: false
+    } as any)).toBe(false)
+  })
+
+  it('falls back to legacy timeout logic when backend fields are missing', () => {
+    expect(getDeviceBucket({
+      orderNumber: 'A-1',
+      status: 'Offline',
+      isCompleted: false
+    } as any)).toBe('abnormal')
+  })
+
+  it('prefers backend display status over raw status', () => {
+    expect(getDisplayStatus({
+      displayStatus: 'Offline',
+      status: 'Running'
+    } as any)).toBe('Offline')
   })
 })

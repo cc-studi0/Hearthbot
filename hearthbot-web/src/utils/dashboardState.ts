@@ -10,14 +10,20 @@ function parseHeartbeat(value: string): number | null {
 }
 
 export function isHeartbeatStale(device: Device, now = Date.now()): boolean {
+  if (typeof device.isHeartbeatStale === 'boolean') return device.isHeartbeatStale
   if (!device.lastHeartbeat || device.status === 'Offline' || device.isCompleted) return false
   const lastHeartbeat = parseHeartbeat(device.lastHeartbeat)
   if (lastHeartbeat === null) return false
   return now - lastHeartbeat > HEARTBEAT_TIMEOUT_MS
 }
 
+export function getDisplayStatus(device: Device): string {
+  return device.displayStatus || device.status || 'Unknown'
+}
+
 export function isAbnormalDevice(device: Device, now = Date.now()): boolean {
   if (device.isCompleted) return false
+  if (device.bucket) return device.bucket === 'abnormal'
   return device.status === 'Offline' || device.status === 'Switching' || isHeartbeatStale(device, now)
 }
 
@@ -33,6 +39,7 @@ export function isCompletionSuspected(device: Device): boolean {
 }
 
 export function getDeviceBucket(device: Device, now = Date.now()): DashboardBucket {
+  if (device.bucket) return device.bucket
   if (device.isCompleted) return 'completed'
   if (isAbnormalDevice(device, now)) return 'abnormal'
   if (!device.orderNumber) return 'pending'

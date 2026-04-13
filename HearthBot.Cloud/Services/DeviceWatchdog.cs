@@ -15,7 +15,6 @@ public class DeviceWatchdog : BackgroundService
     private DateTime _lastArchiveCheck = DateTime.MinValue;
 
     private const int CheckIntervalSeconds = 30;
-    private const int TimeoutSeconds = 90;
 
     public DeviceWatchdog(IServiceScopeFactory scopeFactory, AlertService alert,
         IHubContext<DashboardHub> dashboard, ILogger<DeviceWatchdog> logger)
@@ -53,8 +52,9 @@ public class DeviceWatchdog : BackgroundService
     {
         using var scope = _scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
+        var utcNow = DateTime.UtcNow;
 
-        var cutoff = DateTime.UtcNow.AddSeconds(-TimeoutSeconds);
+        var cutoff = utcNow - DeviceStatusPolicy.OfflineTimeout;
         var timedOut = await db.Devices
             .Where(d => d.Status != "Offline" && d.LastHeartbeat < cutoff)
             .ToListAsync();
@@ -62,13 +62,14 @@ public class DeviceWatchdog : BackgroundService
         foreach (var device in timedOut)
         {
             device.Status = "Offline";
+            device.StatusChangedAt = utcNow;
 
             if (_alreadyAlerted.Add(device.DeviceId))
             {
                 _logger.LogWarning("Device {DeviceId} ({DisplayName}) timed out", device.DeviceId, device.DisplayName);
                 await _alert.SendAlert(
                     $"设备掉线: {device.DisplayName}",
-                    $"设备 **{device.DisplayName}** ({device.DeviceId}) 已超过 {TimeoutSeconds} 秒无心跳。\n\n" +
+                    $"设备 **{device.DisplayName}** ({device.DeviceId}) 已超过 {(int)DeviceStatusPolicy.OfflineTimeout.TotalSeconds} 秒无心跳。\n\n" +
                     $"- 最后心跳: {device.LastHeartbeat:yyyy-MM-dd HH:mm:ss} UTC\n" +
                     $"- 最后账号: {device.CurrentAccount}\n" +
                     $"- 最后段位: {device.CurrentRank}");
