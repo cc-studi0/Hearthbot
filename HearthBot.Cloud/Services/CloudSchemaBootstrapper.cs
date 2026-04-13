@@ -14,7 +14,7 @@ public static class CloudSchemaBootstrapper
         ("TargetRank", "TEXT NOT NULL DEFAULT ''"),
         ("StartRank", "TEXT NOT NULL DEFAULT ''"),
         ("StartedAt", "TEXT"),
-        ("StatusChangedAt", "TEXT"),
+        ("StatusChangedAt", "TEXT NOT NULL DEFAULT '0001-01-01 00:00:00'"),
         ("CurrentOpponent", "TEXT NOT NULL DEFAULT ''"),
         ("IsCompleted", "INTEGER NOT NULL DEFAULT 0"),
         ("CompletedAt", "TEXT"),
@@ -27,6 +27,11 @@ public static class CloudSchemaBootstrapper
 
         foreach (var (name, definition) in DeviceColumns)
             await EnsureColumnAsync(db, "Devices", name, definition, cancellationToken);
+
+        // 修复旧数据中 NOT NULL 列的 NULL 值
+        await db.Database.ExecuteSqlRawAsync(
+            "UPDATE Devices SET StatusChangedAt = '0001-01-01 00:00:00' WHERE StatusChangedAt IS NULL",
+            cancellationToken);
 
         await db.Database.ExecuteSqlRawAsync(
             """
