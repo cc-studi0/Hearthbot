@@ -68,4 +68,66 @@ public class CompletedOrderSnapshotTests
         Assert.Equal("账号B", snapshot.AccountName);
         Assert.Equal("法师", snapshot.DeckName);
     }
+
+    [Fact]
+    public async Task GetVisibleCompletedOrders_ReturnsOnlyNonDeletedAndNonExpiredRows()
+    {
+        await using var env = await CloudTestEnvironment.CreateAsync();
+        env.Db.CompletedOrderSnapshots.AddRange(
+            new CompletedOrderSnapshot
+            {
+                DeviceId = "pc-11",
+                OrderNumber = "DONE-1",
+                AccountName = "账号1",
+                CompletedAt = DateTime.UtcNow.AddHours(-1),
+                ExpiresAt = DateTime.UtcNow.AddDays(6)
+            },
+            new CompletedOrderSnapshot
+            {
+                DeviceId = "pc-12",
+                OrderNumber = "DONE-2",
+                AccountName = "账号2",
+                CompletedAt = DateTime.UtcNow.AddHours(-2),
+                ExpiresAt = DateTime.UtcNow.AddDays(6),
+                DeletedAt = DateTime.UtcNow
+            },
+            new CompletedOrderSnapshot
+            {
+                DeviceId = "pc-13",
+                OrderNumber = "DONE-3",
+                AccountName = "账号3",
+                CompletedAt = DateTime.UtcNow.AddDays(-8),
+                ExpiresAt = DateTime.UtcNow.AddMinutes(-1)
+            });
+        await env.Db.SaveChangesAsync();
+
+        var completedOrders = env.CreateCompletedOrders();
+        var rows = await completedOrders.GetVisibleAsync(DateTime.UtcNow);
+
+        var only = Assert.Single(rows);
+        Assert.Equal("DONE-1", only.OrderNumber);
+    }
+
+    [Fact]
+    public async Task HideCompletedSnapshot_SetsDeletedAtWithoutRemovingRow()
+    {
+        await using var env = await CloudTestEnvironment.CreateAsync();
+        env.Db.CompletedOrderSnapshots.Add(new CompletedOrderSnapshot
+        {
+            DeviceId = "pc-14",
+            OrderNumber = "DONE-4",
+            AccountName = "账号4",
+            CompletedAt = DateTime.UtcNow,
+            ExpiresAt = DateTime.UtcNow.AddDays(7)
+        });
+        await env.Db.SaveChangesAsync();
+
+        var completedOrders = env.CreateCompletedOrders();
+        var snapshot = env.Db.CompletedOrderSnapshots.Single();
+        var hidden = await completedOrders.HideAsync(snapshot.Id, DateTime.UtcNow);
+
+        Assert.NotNull(hidden);
+        Assert.NotNull(hidden!.DeletedAt);
+        Assert.Single(env.Db.CompletedOrderSnapshots);
+    }
 }
