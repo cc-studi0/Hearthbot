@@ -146,6 +146,7 @@ namespace BotMain
         internal static ConstructedActionReadyState Evaluate(ConstructedActionReadyProbe probe)
         {
             var commandKind = probe.CommandKind ?? string.Empty;
+            var tolerateCosmeticPowerProcessor = probe.Kind == ConstructedActionReadyKind.Attack;
 
             if (probe.InputDenied)
                 return Busy("input_denied", commandKind);
@@ -153,10 +154,10 @@ namespace BotMain
             if (probe.ResponsePacketBlocked)
                 return Busy("response_packet_blocked", commandKind);
 
-            if (probe.BlockingPowerProcessor)
+            if (probe.BlockingPowerProcessor && !tolerateCosmeticPowerProcessor)
                 return Busy("blocking_power_processor", commandKind);
 
-            if (probe.PowerProcessorRunning)
+            if (probe.PowerProcessorRunning && !tolerateCosmeticPowerProcessor)
                 return Busy("power_processor_running", commandKind);
 
             if (probe.HasActiveServerChange)

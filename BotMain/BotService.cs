@@ -53,10 +53,14 @@ namespace BotMain
         private const int PlanningBoardProbeTimeoutMs = 1200;
         private const int PlanningBoardRecoveryRetries = 8;
         private const int PlanningBoardRecoveryDelayMs = 120;
+        private const int FastPlanningBoardRecoveryRetries = 12;
+        private const int FastPlanningBoardRecoveryDelayMs = 20;
         private const int ReadyWaitSlowLogThresholdMs = 1000;
         private const int ActionTimingSlowLogThresholdMs = 1000;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
+        private const int HsBoxPayloadAdvanceTimeoutMs = 260;
+        private const int HsBoxPayloadAdvancePollMs = 20;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -104,6 +108,7 @@ namespace BotMain
         // 空回合紧急刹车
         private int _consecutiveIdleTurns;
         private bool _turnHadEffectiveAction;
+        private bool _skipNextTurnStartReadyWait;
 
         // 延迟监控
         private int _latencyAvg;
@@ -2535,18 +2540,29 @@ namespace BotMain
                     continue;
                 }
 
-                var turnStartReadyIntervalMs = lastRecommendationWasAttackOnly ? 80 : 300;
-                if (!WaitForGameReady(pipe, 30, turnStartReadyIntervalMs, 3000, waitScope: "TurnStart"))
+                var skippedTurnStartReadyWait = false;
+                if (_skipNextTurnStartReadyWait && _followHsBoxRecommendations)
                 {
-                    gameReadyWaitStreak++;
-                    if (gameReadyWaitStreak % 8 == 1)
-                        Log("[MainLoop] waiting game ready (draw/animation/input lock)...");
-                    Thread.Sleep(120);
-                    continue;
+                    _skipNextTurnStartReadyWait = false;
+                    skippedTurnStartReadyWait = true;
+                    gameReadyWaitStreak = 0;
+                    Log("[Action] skipped TurnStart ready wait (hsbox payload advanced)");
                 }
+                else
+                {
+                    var turnStartReadyIntervalMs = lastRecommendationWasAttackOnly ? 80 : 300;
+                    if (!WaitForGameReady(pipe, 30, turnStartReadyIntervalMs, 3000, waitScope: "TurnStart"))
+                    {
+                        gameReadyWaitStreak++;
+                        if (gameReadyWaitStreak % 8 == 1)
+                            Log("[MainLoop] waiting game ready (draw/animation/input lock)...");
+                        Thread.Sleep(120);
+                        continue;
+                    }
 
-                gameReadyWaitStreak = 0;
-                Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
+                    gameReadyWaitStreak = 0;
+                    Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
+                }
 
                 if (lastRecommendationWasAttackOnly && planningBoard != null)
                 {
@@ -2554,7 +2570,11 @@ namespace BotMain
                 }
                 else
                 {
-                    var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                    var refreshResult = RefreshPlanningBoardAfterReady(
+                        pipe,
+                        ref seed,
+                        ref planningBoard,
+                        preferFastRecovery: skippedTurnStartReadyWait);
                     if (refreshResult.BoardChanged && planningBoard != null)
                     {
                         ApplyPlanningBoard(
@@ -2920,8 +2940,9 @@ namespace BotMain
                             }
 
                             // ── IdleGuard 第三层：操作前取状态快照 ──
+                            var useHsBoxPayloadConfirmation = ShouldUseHsBoxPayloadConfirmation(recommendation, isEndTurn);
                             ActionStateSnapshot preActionSnapshot = null;
-                            if (!isEndTurn)
+                            if (!isEndTurn && !useHsBoxPayloadConfirmation)
                             {
                                 preActionSnapshot = TakeActionStateSnapshot(pipe);
                             }
@@ -2936,7 +2957,38 @@ namespace BotMain
                             // IdleGuard: 验证操作是否真正生效
                             if (!isEndTurn && !IsActionFailure(result))
                             {
-                                if (preActionSnapshot == null)
+                                var hsBoxAdvanceConfirmed = false;
+                                if (useHsBoxPayloadConfirmation)
+                                {
+                                    var advance = _hsBoxRecommendationProvider.WaitForActionPayloadAdvance(
+                                        recommendation?.SourceUpdatedAtMs ?? 0,
+                                        recommendation?.SourcePayloadSignature,
+                                        HsBoxPayloadAdvanceTimeoutMs,
+                                        HsBoxPayloadAdvancePollMs);
+                                    if (advance.HasAdvanced)
+                                    {
+                                        hsBoxAdvanceConfirmed = true;
+                                        _turnHadEffectiveAction = true;
+                                        _skipNextTurnStartReadyWait = true;
+                                        Log(
+                                            $"[Action] hsbox payload advanced after {action}: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
+                                    }
+                                    else
+                                    {
+                                        Log(
+                                            $"[Action] hsbox payload unchanged after {action}: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
+                                    }
+                                }
+
+                                if (hsBoxAdvanceConfirmed)
+                                {
+                                    RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                                }
+                                else if (useHsBoxPayloadConfirmation)
+                                {
+                                    Log($"[Action] waiting hsbox advance confirmation for {action}, keeping recommendation unconsumed.");
+                                }
+                                else if (preActionSnapshot == null)
                                 {
                                     _turnHadEffectiveAction = true;
                                 }
@@ -3040,7 +3092,8 @@ namespace BotMain
                                 break;
                             }
 
-                            RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                            if (!useHsBoxPayloadConfirmation)
+                                RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
@@ -3234,6 +3287,7 @@ namespace BotMain
                     {
                         // 动作失败时重置连续攻击标志，避免下次循环跳过 board recovery
                         lastRecommendationWasAttackOnly = false;
+                        _skipNextTurnStartReadyWait = false;
                         actionFailStreak++;
 
                         var failureRecovery = GetConstructedActionFailureRecovery(_followHsBoxRecommendations, actionFailStreak);
@@ -3268,7 +3322,7 @@ namespace BotMain
                     && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     actionFailStreak = 0;
-                    if (!lastRecommendationWasAttackOnly)
+                    if (!lastRecommendationWasAttackOnly && !_skipNextTurnStartReadyWait)
                         Thread.Sleep(200);
                     continue;
                 }
@@ -6466,6 +6520,7 @@ namespace BotMain
             _postGameLobbyConfirmCount = 0;
             _postGameLeftGameplayConfirmed = false;
             _currentMatchResultHandled = false;
+            _skipNextTurnStartReadyWait = false;
             _alternateConcedeState.BeginMatch(_autoConcedeAlternativeMode);
             _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
             _currentLearningMatchId = Guid.NewGuid().ToString("N");
@@ -6501,6 +6556,7 @@ namespace BotMain
                     _pluginSystem?.FireOnTurnEnd();
                 lastTurnNumber = turnNumber;
                 currentTurnStartedUtc = DateTime.UtcNow;
+                _skipNextTurnStartReadyWait = false;
                 ClearChoiceStateWatch("turn_changed");
                 ResetDiscoverLogState();
                 ResetChoiceLogState();
@@ -6515,7 +6571,11 @@ namespace BotMain
             }
         }
 
-        private PlanningBoardRefreshResult RefreshPlanningBoardAfterReady(PipeServer pipe, ref string seed, ref Board planningBoard)
+        private PlanningBoardRefreshResult RefreshPlanningBoardAfterReady(
+            PipeServer pipe,
+            ref string seed,
+            ref Board planningBoard,
+            bool preferFastRecovery = false)
         {
             var result = new PlanningBoardRefreshResult
             {
@@ -6529,8 +6589,12 @@ namespace BotMain
             }
 
             var hadPlanningBoard = planningBoard != null;
-            var attempts = hadPlanningBoard ? 1 : PlanningBoardRecoveryRetries;
-            var retryDelayMs = hadPlanningBoard ? 0 : PlanningBoardRecoveryDelayMs;
+            var attempts = hadPlanningBoard
+                ? (preferFastRecovery ? FastPlanningBoardRecoveryRetries : 1)
+                : PlanningBoardRecoveryRetries;
+            var retryDelayMs = hadPlanningBoard
+                ? (preferFastRecovery ? FastPlanningBoardRecoveryDelayMs : 0)
+                : PlanningBoardRecoveryDelayMs;
             var previousHandCount = planningBoard?.Hand?.Count ?? 0;
             var previousMana = planningBoard?.ManaAvailable ?? 0;
             PlanningBoardRefreshStatus finalStatus = hadPlanningBoard
@@ -8088,6 +8152,15 @@ namespace BotMain
             {
                 return null;
             }
+        }
+
+        private bool ShouldUseHsBoxPayloadConfirmation(ActionRecommendationResult recommendation, bool isEndTurn)
+        {
+            if (!_followHsBoxRecommendations || isEndTurn || recommendation == null)
+                return false;
+
+            return recommendation.SourceUpdatedAtMs > 0
+                || !string.IsNullOrWhiteSpace(recommendation.SourcePayloadSignature);
         }
 
         /// <summary>

@@ -50,6 +50,70 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void WaitForActionPayloadAdvance_ReturnsAdvanced_WhenUpdatedAtIncreases()
+        {
+            var baseline = CreateState(500, raw: "baseline", actionName: "attack");
+            var advanced = CreateState(501, raw: "advanced", actionName: "hero_power");
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(baseline, advanced),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            var result = provider.WaitForActionPayloadAdvance(
+                baseline.UpdatedAtMs,
+                baseline.PayloadSignature,
+                timeoutMs: 20,
+                pollIntervalMs: 1);
+
+            Assert.True(result.HasAdvanced);
+            Assert.Equal("updated_at_advanced", result.Reason);
+            Assert.Equal(advanced.UpdatedAtMs, result.LatestUpdatedAtMs);
+            Assert.Equal(advanced.PayloadSignature, result.LatestPayloadSignature);
+        }
+
+        [Fact]
+        public void WaitForActionPayloadAdvance_ReturnsAdvanced_WhenPayloadSignatureChangesAtSameUpdatedAt()
+        {
+            var baseline = CreateState(600, raw: "baseline-same-updated", actionName: "attack");
+            var advanced = CreateState(600, raw: "advanced-same-updated", actionName: "hero_power");
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(baseline, advanced),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            var result = provider.WaitForActionPayloadAdvance(
+                baseline.UpdatedAtMs,
+                baseline.PayloadSignature,
+                timeoutMs: 20,
+                pollIntervalMs: 1);
+
+            Assert.True(result.HasAdvanced);
+            Assert.Equal("payload_signature_advanced", result.Reason);
+            Assert.Equal(advanced.PayloadSignature, result.LatestPayloadSignature);
+        }
+
+        [Fact]
+        public void WaitForActionPayloadAdvance_ReturnsNotAdvanced_WhenPayloadDoesNotChange()
+        {
+            var baseline = CreateState(700, raw: "baseline-unchanged", actionName: "attack");
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(baseline, baseline, baseline),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            var result = provider.WaitForActionPayloadAdvance(
+                baseline.UpdatedAtMs,
+                baseline.PayloadSignature,
+                timeoutMs: 10,
+                pollIntervalMs: 1);
+
+            Assert.False(result.HasAdvanced);
+            Assert.Equal("payload_unchanged", result.Reason);
+            Assert.Equal(baseline.UpdatedAtMs, result.LatestUpdatedAtMs);
+            Assert.Equal(baseline.PayloadSignature, result.LatestPayloadSignature);
+        }
+
+        [Fact]
         public void RecommendActions_UsesOnlyReferenceA_WhenStructuredDataContainsAlternativeRecommendations()
         {
             var state = new HsBoxRecommendationState

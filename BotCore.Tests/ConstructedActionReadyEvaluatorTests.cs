@@ -52,6 +52,34 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void Evaluate_AttackReadyWhenPowerProcessorBusyButObjectsAreReady()
+        {
+            var probe = ConstructedActionReadyProbe.ForAttack(
+                source: new ConstructedObjectReadySnapshot
+                {
+                    Exists = true,
+                    HasScreenPosition = true,
+                    PositionStableKnown = true,
+                    IsPositionStable = true,
+                    IsActionReadyKnown = true,
+                    IsActionReady = true
+                },
+                target: new ConstructedObjectReadySnapshot
+                {
+                    Exists = true,
+                    HasScreenPosition = true,
+                    PositionStableKnown = true,
+                    IsPositionStable = true
+                });
+            probe.BlockingPowerProcessor = true;
+            probe.PowerProcessorRunning = true;
+
+            var result = ConstructedActionReadyEvaluator.Evaluate(probe);
+
+            Assert.True(result.IsReady);
+        }
+
+        [Fact]
         public void Evaluate_OptionWaitsWhenChoiceNotReady()
         {
             var probe = ConstructedActionReadyProbe.ForOption(choiceReady: false, sourceEntityId: 55);

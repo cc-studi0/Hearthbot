@@ -27,6 +27,15 @@ namespace BotMain
         BattlegroundActionRecommendationResult GetRecommendedActionResult(string bgStateData);
     }
 
+    internal sealed class HsBoxActionPayloadAdvanceResult
+    {
+        public bool HasAdvanced { get; set; }
+        public string Reason { get; set; } = string.Empty;
+        public long LatestUpdatedAtMs { get; set; }
+        public string LatestPayloadSignature { get; set; } = string.Empty;
+        public HsBoxRecommendationState LatestState { get; set; }
+    }
+
     internal sealed class HsBoxGameRecommendationProvider : IGameRecommendationProvider
     {
         private sealed class EvaluatedActionState
@@ -81,6 +90,56 @@ namespace BotMain
 
             _nextPrimeAllowedUtc = DateTime.UtcNow.AddMilliseconds(400);
             _bridge.TryReadState(out _, out _);
+        }
+
+        internal HsBoxActionPayloadAdvanceResult WaitForActionPayloadAdvance(
+            long previousUpdatedAtMs,
+            string previousPayloadSignature,
+            int timeoutMs,
+            int pollIntervalMs)
+        {
+            var result = new HsBoxActionPayloadAdvanceResult
+            {
+                Reason = "state_unavailable"
+            };
+
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < Math.Max(1, timeoutMs))
+            {
+                if (_bridge.TryReadState(out var state, out _)
+                    && state != null)
+                {
+                    result.LatestState = state;
+                    result.LatestUpdatedAtMs = state.UpdatedAtMs;
+                    result.LatestPayloadSignature = state.PayloadSignature ?? string.Empty;
+
+                    if (state.UpdatedAtMs > previousUpdatedAtMs && state.UpdatedAtMs > 0)
+                    {
+                        result.HasAdvanced = true;
+                        result.Reason = "updated_at_advanced";
+                        return result;
+                    }
+
+                    if (state.UpdatedAtMs == previousUpdatedAtMs
+                        && previousUpdatedAtMs > 0
+                        && !string.Equals(
+                            state.PayloadSignature ?? string.Empty,
+                            previousPayloadSignature ?? string.Empty,
+                            StringComparison.Ordinal))
+                    {
+                        result.HasAdvanced = true;
+                        result.Reason = "payload_signature_advanced";
+                        return result;
+                    }
+
+                    result.Reason = "payload_unchanged";
+                }
+
+                if (sw.ElapsedMilliseconds + pollIntervalMs < timeoutMs && pollIntervalMs > 0)
+                    Thread.Sleep(pollIntervalMs);
+            }
+
+            return result;
         }
 
         public ActionRecommendationResult RecommendActions(ActionRecommendationRequest request)
