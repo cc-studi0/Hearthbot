@@ -4342,6 +4342,114 @@ namespace BotMain
             return ReadyWaitDiagnostics.TryParseResponse(response, out diagnosticState);
         }
 
+        private bool TryGetBattlegroundActionReadyDiagnostic(PipeServer pipe, string action, int commandTimeoutMs, out BgActionReadyState diagnosticState)
+        {
+            diagnosticState = null;
+            if (pipe == null || string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var response = pipe.SendAndReceive("WAIT_BG_ACTION_READY_DETAIL:" + action, Math.Max(100, commandTimeoutMs));
+            return BgActionReadyDiagnostics.TryParseResponse(response, out diagnosticState);
+        }
+
+        private bool WaitForBattlegroundActionReady(
+            PipeServer pipe,
+            string action,
+            int maxPolls,
+            int pollIntervalMs,
+            int commandTimeoutMs,
+            out BgActionReadyState diagnosticState)
+        {
+            diagnosticState = null;
+            BgActionReadyState lastState = null;
+
+            for (var i = 0; i < maxPolls; i++)
+            {
+                if (_cts?.IsCancellationRequested == true)
+                    return false;
+
+                if (TryGetBattlegroundActionReadyDiagnostic(pipe, action, commandTimeoutMs, out var currentState)
+                    && currentState != null)
+                {
+                    lastState = currentState;
+                    if (currentState.IsReady)
+                    {
+                        diagnosticState = currentState;
+                        return true;
+                    }
+                }
+
+                if (i < maxPolls - 1 && pollIntervalMs > 0)
+                {
+                    if (SleepOrCancelled(pollIntervalMs))
+                        return false;
+                }
+            }
+
+            diagnosticState = lastState ?? new BgActionReadyState
+            {
+                IsReady = false,
+                PrimaryReason = "not_ready_timeout",
+                Flags = new[] { "not_ready_timeout" },
+                CommandKind = GetCommandKindToken(action)
+            };
+            return false;
+        }
+
+        private static bool ShouldUseBattlegroundActionReadyWait(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            return action.StartsWith("BG_BUY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_SELL|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_MOVE|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_FREEZE", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TryResolveBattlegroundPreActionCommand(string rawAction, string stateData, out string resolvedAction, out string detail)
+        {
+            resolvedAction = rawAction ?? string.Empty;
+            detail = string.Empty;
+            if (string.IsNullOrWhiteSpace(rawAction))
+                return true;
+
+            var spec = BgExecutionGate.ParseCommand(rawAction);
+            if (spec.Kind == BgCommandKind.Other)
+                return true;
+
+            var snapshot = BgExecutionGate.ParseZones(stateData ?? string.Empty);
+            var resolution = BgExecutionGate.Resolve(spec, snapshot);
+            detail = resolution.Detail;
+
+            if (resolution.Outcome == BgResolutionOutcome.Aborted)
+            {
+                resolvedAction = string.Empty;
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(resolution.RewrittenCommand))
+                resolvedAction = resolution.RewrittenCommand;
+
+            return true;
+        }
+
+        private static string GetCommandKindToken(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return string.Empty;
+
+            var separatorIndex = action.IndexOf('|');
+            return separatorIndex > 0
+                ? action.Substring(0, separatorIndex)
+                : action.Trim();
+        }
+
         private static bool ShouldBypassReadyWait(string waitScope, string reason)
         {
             if (!string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase))
@@ -5016,13 +5124,6 @@ namespace BotMain
                     var isContinuationAction = pendingBattlegroundActionIndex > 0;
                     if (!string.IsNullOrWhiteSpace(nextAction))
                     {
-                        if (!WaitForGameReady(pipe, 10, 120, 1200))
-                        {
-                            Log("[BG] 招募界面尚未就绪，稍后重试");
-                            SleepOrCancelled(200);
-                            continue;
-                        }
-
                         var releasedRecruitRecommendation = false;
                         if (!isContinuationAction
                             && ShouldTreatBattlegroundRecommendationAsConsumed(
@@ -5059,9 +5160,37 @@ namespace BotMain
                             : string.Empty;
                         Log($"[BG] 招募阶段推荐: 收到 {actions.Count} 条动作{actionOrdinalText} (shop={shopCount}, hand={handCount}, board={boardCount})");
 
+                        if (!TryResolveBattlegroundPreActionCommand(nextAction, stateData, out var actionToExecute, out var preResolveDetail))
+                        {
+                            Log($"[BG] 推荐作废: cardId 未命中，清空队列 (resolve:{preResolveDetail})");
+                            pendingBattlegroundRecommendationKey = string.Empty;
+                            pendingBattlegroundActionIndex = 0;
+                            pendingBattlegroundActions.Clear();
+                            SleepOrCancelled(180);
+                            continue;
+                        }
+
+                        if (!string.Equals(actionToExecute, nextAction, StringComparison.Ordinal))
+                            Log($"[BG] 预解析重定向: {nextAction} -> {actionToExecute} ({preResolveDetail})");
+
+                        if (ShouldUseBattlegroundActionReadyWait(actionToExecute))
+                        {
+                            if (!WaitForBattlegroundActionReady(pipe, actionToExecute, 10, 20, 1200, out var actionReadyState))
+                            {
+                                Log($"[BG] 动作对象尚未就绪，稍后重试: {actionToExecute} ({actionReadyState?.PrimaryReason ?? "not_ready_timeout"})");
+                                continue;
+                            }
+                        }
+                        else if (!WaitForGameReady(pipe, 10, 120, 1200, waitScope: "BG.UnsupportedActionPreReady", action: actionToExecute))
+                        {
+                            Log("[BG] 招募界面尚未就绪，稍后重试");
+                            SleepOrCancelled(200);
+                            continue;
+                        }
+
                         // 检测同一实体被反复操作的死循环
                         // 提取动作中的主实体 ID（BG_PLAY|entityId|..., BG_BUY|entityId|..., etc.）
-                        var entityKey = ExtractActionEntityKey(nextAction);
+                        var entityKey = ExtractActionEntityKey(actionToExecute);
                         if (!string.IsNullOrEmpty(entityKey))
                         {
                             if (string.Equals(staleActionEntityKey, entityKey, StringComparison.Ordinal))
@@ -5097,7 +5226,7 @@ namespace BotMain
                             staleActionCount = 0;
                         }
 
-                        var gateResult = bgGate.Execute(nextAction);
+                        var gateResult = bgGate.Execute(actionToExecute);
                         Log($"[BG] 执行 {nextAction} -> {gateResult.Outcome} (cmd={gateResult.ExecutedCommand}, {gateResult.Detail})");
 
                         if (gateResult.Outcome == BgGateOutcome.Aborted)
@@ -5114,14 +5243,6 @@ namespace BotMain
                         {
                             SleepOrCancelled(220);
                             continue;
-                        }
-
-                        // Completed / CompletedWithFallback / Retargeted 均视为成功
-                        // 刷新/升级酒馆后，新商店实体需要动画时间才可操作
-                        if (nextAction.StartsWith("BG_REROLL", StringComparison.OrdinalIgnoreCase)
-                            || nextAction.StartsWith("BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase))
-                        {
-                            SleepOrCancelled(300);
                         }
 
                         if (pendingBattlegroundActionIndex + 1 < actions.Count)
