@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { NButton, NInput, NTag } from 'naive-ui'
 import type { DashboardBucket, Device } from '../../types'
+import { getDisplayStatus } from '../../utils/dashboardState'
 import { rankToNumber } from '../../utils/rankMapping'
 
 const props = defineProps<{
@@ -19,6 +20,8 @@ const emit = defineEmits<{
 
 const orderInput = ref('')
 
+const displayStatus = computed(() => getDisplayStatus(props.device))
+
 watch(() => props.device.deviceId, () => {
   orderInput.value = ''
 }, { immediate: true })
@@ -29,9 +32,10 @@ const statusInfo = computed(() => {
     Running: { label: '运行中', type: 'success' },
     Switching: { label: '切换中', type: 'warning' },
     Idle: { label: '空闲', type: 'info' },
-    Offline: { label: '离线', type: 'error' }
+    Offline: { label: '离线', type: 'error' },
+    Completed: { label: '已完成', type: 'success' }
   }
-  return map[props.device.status] ?? { label: props.device.status || '未知', type: 'default' as const }
+  return map[displayStatus.value] ?? { label: displayStatus.value || '未知', type: 'default' as const }
 })
 
 const winRate = computed(() => {
@@ -56,8 +60,13 @@ const warningText = computed(() => {
     return '已达到目标段位，等待脚本正式确认'
   }
   if (props.bucket === 'abnormal') {
-    if (props.device.status === 'Offline') return '设备离线或心跳超时，请优先检查'
-    if (props.device.status === 'Switching') return '当前处于账号切换阶段'
+    if (props.device.abnormalReason === 'HeartbeatTimeout' || displayStatus.value === 'Offline') {
+      return '设备离线或心跳超时，请优先检查'
+    }
+    if (props.device.abnormalReason === 'SwitchingTooLong') {
+      return '切号耗时过长，请检查脚本是否卡住'
+    }
+    if (displayStatus.value === 'Switching') return '当前处于账号切换阶段'
   }
   return ''
 })

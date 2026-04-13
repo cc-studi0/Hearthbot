@@ -2,6 +2,13 @@ export interface Device {
   deviceId: string
   displayName: string
   status: string
+  rawStatus?: string
+  displayStatus?: string
+  bucket?: DashboardBucket
+  abnormalReason?: string | null
+  heartbeatAgeSeconds?: number
+  isHeartbeatStale?: boolean
+  isSwitchingTooLong?: boolean
   currentAccount: string
   currentRank: string
   currentDeck: string

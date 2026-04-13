@@ -14,6 +14,7 @@ import {
 } from 'naive-ui'
 import { commandApi, deviceApi, gameRecordApi } from '../../api'
 import type { Device } from '../../types'
+import { getDisplayStatus } from '../../utils/dashboardState'
 import { buildTargetRankOptions } from '../../utils/rankOptions'
 import { rankToNumber } from '../../utils/rankMapping'
 
@@ -49,6 +50,8 @@ const drawerSize = computed(() => isMobile.value ? '90vh' : 440)
 const titleText = computed(() => props.device?.orderNumber
   ? `订单 #${props.device.orderNumber}`
   : props.device?.displayName ?? '设备详情')
+
+const displayStatus = computed(() => props.device ? getDisplayStatus(props.device) : 'Unknown')
 
 const winRate = computed(() => {
   if (!props.device) return '-'
@@ -256,8 +259,8 @@ const recordColumns = [
               <div class="device-name">{{ device.displayName }}</div>
               <div class="device-account">{{ device.currentAccount || '未识别账号' }}</div>
             </div>
-            <NTag :type="device.isCompleted ? 'success' : device.status === 'Offline' ? 'error' : device.status === 'Switching' ? 'warning' : 'info'" round>
-              {{ device.isCompleted ? '已完成' : device.status }}
+            <NTag :type="device.isCompleted || displayStatus === 'Completed' ? 'success' : displayStatus === 'Offline' ? 'error' : displayStatus === 'Switching' ? 'warning' : 'info'" round>
+              {{ device.isCompleted || displayStatus === 'Completed' ? '已完成' : displayStatus }}
             </NTag>
           </div>
 
