@@ -7841,6 +7841,75 @@ namespace HearthstonePayload
                 state.DrawCount);
         }
 
+        public static bool IsBattlegroundActionReady(string rawCommand)
+        {
+            return EvaluateBattlegroundActionReadyState(rawCommand).IsReady;
+        }
+
+        public static string DescribeBattlegroundActionReady(string rawCommand)
+        {
+            return BgActionReadyDiagnostics.FormatResponse(EvaluateBattlegroundActionReadyState(rawCommand));
+        }
+
+        private static BgActionReadyState EvaluateBattlegroundActionReadyState(string rawCommand)
+        {
+            var commandKind = GetBattlegroundActionCommandKind(rawCommand);
+            var probe = new BgActionReadyProbe
+            {
+                Kind = MapBattlegroundActionReadyKind(rawCommand),
+                CommandKind = commandKind
+            };
+
+            return BgActionReadyEvaluator.Evaluate(probe);
+        }
+
+        private static string GetBattlegroundActionCommandKind(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return string.Empty;
+
+            var separatorIndex = rawCommand.IndexOf('|');
+            return separatorIndex > 0
+                ? rawCommand.Substring(0, separatorIndex).Trim()
+                : rawCommand.Trim();
+        }
+
+        private static BgActionReadyKind MapBattlegroundActionReadyKind(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return BgActionReadyKind.Unknown;
+
+            var spec = BgExecutionGate.ParseCommand(rawCommand);
+            switch (spec.Kind)
+            {
+                case BgCommandKind.Buy:
+                    return BgActionReadyKind.Buy;
+                case BgCommandKind.Sell:
+                    return BgActionReadyKind.Sell;
+                case BgCommandKind.Play:
+                    return BgActionReadyKind.Play;
+            }
+
+            var commandKind = GetBattlegroundActionCommandKind(rawCommand);
+            if (string.Equals(commandKind, "BG_MOVE", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.Move;
+
+            if (string.Equals(commandKind, "BG_HERO_POWER", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.HeroPower;
+
+            if (string.Equals(commandKind, "OPTION", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.Option;
+
+            if (string.Equals(commandKind, "BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(commandKind, "BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(commandKind, "BG_FREEZE", StringComparison.OrdinalIgnoreCase))
+            {
+                return BgActionReadyKind.Button;
+            }
+
+            return BgActionReadyKind.Unknown;
+        }
+
         private static ReadyWaitDiagnosticState EvaluateGameReadyState()
         {
             if (!EnsureTypes())
