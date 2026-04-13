@@ -7423,6 +7423,7 @@ namespace HearthstonePayload
         private static IEnumerator<float> MouseClickScreenCoroutine(float ratioX, float ratioY)
         {
             InputHook.Simulating = true;
+            InputHook.ForcePegUIFocus();
             int w = MouseSimulator.GetScreenWidth();
             int h = MouseSimulator.GetScreenHeight();
             int x = (int)(w * ratioX);

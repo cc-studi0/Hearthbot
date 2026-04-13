@@ -1834,8 +1834,16 @@ namespace BotMain
                     }
                 }
 
-                // 自动推门：如果卡在 STARTUP/LOGIN，循环点击屏幕中央直到进入大厅
-                WaitForLoginToHub(_pipe, "StartBot");
+                // 自动推门：如果卡在登录入口，持续处理弹窗/点击直到真正进入大厅
+                while (_running && _pipe != null && _pipe.IsConnected && !WaitForLoginToHub(_pipe, "StartBot"))
+                {
+                    TouchEffectiveAction();
+                    if (SleepOrCancelled(3000))
+                        return;
+                }
+
+                if (!_running || _pipe == null || !_pipe.IsConnected)
+                    return;
 
                 var profileName = _selectedProfile?.GetType().Name ?? "None";
                 Log($"Run config: mode={_modeIndex}, deck={_selectedDeck}, profile={profileName}, mulligan={_mulliganProfile}");
@@ -8209,27 +8217,57 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 若当前场景为 STARTUP/LOGIN，等待大厅加载完成。
-        /// STARTUP 阶段每轮点击屏幕中央加速推门，LOGIN 阶段仅等待。
+        /// 若当前场景仍处于登录入口，等待大厅加载完成。
+        /// 期间优先关闭安全弹窗，否则按场景执行推门点击。
         /// </summary>
-        private void WaitForLoginToHub(PipeServer pipe, string scope, int timeoutSeconds = 90)
+        private bool WaitForLoginToHub(PipeServer pipe, string scope, int timeoutSeconds = 90)
         {
-            if (pipe == null || !pipe.IsConnected) return;
+            if (pipe == null || !pipe.IsConnected) return false;
 
             if (!TryGetSceneValue(pipe, 2000, out var scene, scope))
-                return;
+                scene = "UNKNOWN";
             if (!BotProtocol.IsNavigationBlockedScene(scene)
                 || string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase))
-                return;
+                return true;
 
             Log($"[{scope}] 当前场景={scene}，等待大厅加载...");
             var deadline = DateTime.UtcNow.AddSeconds(timeoutSeconds);
 
             while (_running && pipe.IsConnected && DateTime.UtcNow < deadline)
             {
-                // STARTUP 阶段点击屏幕中央推门
-                if (string.Equals(scene, "STARTUP", StringComparison.OrdinalIgnoreCase))
-                    pipe.SendAndReceive("CLICK_SCREEN:0.5,0.5", 2000);
+                if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, scope)
+                    && !string.IsNullOrWhiteSpace(dialogType))
+                {
+                    if (TryHandleRestartRequiredDialog(dialogAction, dialogType, scope))
+                        return false;
+
+                    if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton)
+                        && TryDismissBlockingDialog(pipe, 2000, out var dismissResp, scope)
+                        && BotProtocol.IsDismissSuccess(dismissResp))
+                    {
+                        Log($"[{scope}] 已关闭登录阻塞弹窗 {dialogType}({dialogButton}) -> {dismissResp}");
+                        TouchEffectiveAction();
+                        if (SleepOrCancelled(800)) break;
+                        if (!TryGetSceneValue(pipe, 2000, out scene, scope))
+                            scene = "UNKNOWN";
+                        continue;
+                    }
+
+                    Log($"[{scope}] 登录阻塞弹窗仍存在: {dialogType}({dialogButton}) action={dialogAction}");
+                    TouchEffectiveAction();
+                    if (SleepOrCancelled(1000)) break;
+                    if (!TryGetSceneValue(pipe, 2000, out scene, scope))
+                        scene = "UNKNOWN";
+                    continue;
+                }
+
+                if (ShouldPushLoginDoor(scene))
+                {
+                    var clickResp = pipe.SendAndReceive("CLICK_SCREEN:0.5,0.5", 2000);
+                    if (!string.IsNullOrWhiteSpace(clickResp))
+                        Log($"[{scope}] 推门点击 -> {clickResp}");
+                    TouchEffectiveAction();
+                }
 
                 SleepOrCancelled(3000);
 
@@ -8237,11 +8275,31 @@ namespace BotMain
                     && !BotProtocol.IsNavigationBlockedScene(scene))
                 {
                     Log($"[{scope}] 大厅已加载，当前场景={scene}");
-                    return;
+                    return true;
                 }
+
+                if (string.IsNullOrWhiteSpace(scene))
+                    scene = "UNKNOWN";
             }
 
             Log($"[{scope}] 等待大厅加载超时({timeoutSeconds}s)，当前场景={scene}");
+            return !ShouldAbortAfterLoginWaitTimeout(scene);
+        }
+
+        private static bool ShouldPushLoginDoor(string scene)
+        {
+            if (string.IsNullOrWhiteSpace(scene))
+                return true;
+
+            return string.Equals(scene, "STARTUP", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "LOGIN", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(scene, "UNKNOWN", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldAbortAfterLoginWaitTimeout(string scene)
+        {
+            return BotProtocol.IsNavigationBlockedScene(scene)
+                && !string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase);
         }
 
         private bool TryGetSceneValue(PipeServer pipe, int timeoutMs, out string scene, string scope)
@@ -10157,7 +10215,16 @@ namespace BotMain
                 if (EnsurePreparedAndConnected())
                 {
                     Log($"[Restart] 重连成功（第 {attempt} 次）。");
-                    WaitForLoginToHub(_pipe, "Reconnect");
+                    while (_running && _pipe != null && _pipe.IsConnected && !WaitForLoginToHub(_pipe, "Reconnect"))
+                    {
+                        TouchEffectiveAction();
+                        if (SleepOrCancelled(3000))
+                            return false;
+                    }
+
+                    if (!_running || _pipe == null || !_pipe.IsConnected)
+                        return false;
+
                     StatusChanged("Running");
                     TouchEffectiveAction();
                     return true;
