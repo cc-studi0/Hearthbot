@@ -364,8 +364,8 @@ git commit -m "修复：构筑模式 CDP 预注入 hook 脚本"
 ### Task 5: Mirror the same hook lifecycle in the standalone Python debugger
 
 **Files:**
-- Modify: `H:\桌面\炉石脚本\tools\hsbox_standard.py`
-- Test: `H:\桌面\炉石脚本\tools\hsbox_standard.py`
+- Modify: `tools/hsbox_standard.py`
+- Test: `tools/hsbox_standard.py`
 
 - [ ] **Step 1: Add a helper that sends arbitrary CDP commands by id**
 
@@ -423,14 +423,14 @@ print(f"  原因:         {state.get('reason', '?')}")
 
 - [ ] **Step 5: Run a Python syntax check**
 
-Run: `python -m py_compile H:\桌面\炉石脚本\tools\hsbox_standard.py`
+Run: `python -m py_compile tools/hsbox_standard.py`
 
 Expected: no output
 
 - [ ] **Step 6: Commit the debugger alignment**
 
 ```bash
-git add -- "H:\桌面\炉石脚本\tools\hsbox_standard.py"
+git add -- tools/hsbox_standard.py
 git commit -m "修复：同步构筑模式 hook 调试脚本"
 ```
 
@@ -439,7 +439,7 @@ git commit -m "修复：同步构筑模式 hook 调试脚本"
 **Files:**
 - Modify: `BotMain/HsBoxRecommendationProvider.cs`
 - Modify: `BotCore.Tests/HsBoxRecommendationProviderTests.cs`
-- Modify: `H:\桌面\炉石脚本\tools\hsbox_standard.py`
+- Modify: `tools/hsbox_standard.py`
 
 - [ ] **Step 1: Run the focused unit tests for the provider**
 
@@ -455,13 +455,13 @@ Expected: PASS
 
 - [ ] **Step 3: Run the Python syntax check one more time**
 
-Run: `python -m py_compile H:\桌面\炉石脚本\tools\hsbox_standard.py`
+Run: `python -m py_compile tools/hsbox_standard.py`
 
 Expected: no output
 
 - [ ] **Step 4: Manually verify the hook in a live constructed match**
 
-Run: `python H:\桌面\炉石脚本\tools\hsbox_standard.py`
+Run: `python tools/hsbox_standard.py`
 
 Expected progression:
 - before callback: `reason=waiting_for_box_payload`
@@ -469,7 +469,7 @@ Expected progression:
 
 - [ ] **Step 5: Manually verify callback replacement resilience**
 
-Run: `python H:\桌面\炉石脚本\tools\hsbox_standard.py`
+Run: `python tools/hsbox_standard.py`
 
 Expected:
 - after switching modules or after page-side re-render, callback capture still resumes
@@ -479,6 +479,6 @@ Expected:
 
 ```bash
 git add BotMain/HsBoxRecommendationProvider.cs BotCore.Tests/HsBoxRecommendationProviderTests.cs
-git add -- "H:\桌面\炉石脚本\tools\hsbox_standard.py"
+git add -- tools/hsbox_standard.py
 git commit -m "完成构筑模式 HSBox hook 链路修复"
 ```

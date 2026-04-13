@@ -46,6 +46,7 @@ publish/
 obj_codex/
 *.tmp
 *.temp
+__pycache__/
 Scripts/decompiled_sb/
 Scripts/-SkipObfuscation/
 Scripts/effects_data.json
@@ -53,3 +54,7 @@ Data/HsBoxTeacher/*.db
 Data/HsBoxTeacher/*.db-wal
 Data/HsBoxTeacher/*.db-shm
 Data/HsBoxTeacher/*.db-journal
+references/
+tools/bg_output.txt
+tools/ilspy/
+tools/jq

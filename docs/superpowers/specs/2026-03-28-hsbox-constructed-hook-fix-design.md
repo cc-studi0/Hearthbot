@@ -7,7 +7,7 @@
 当前仓库已经具备通过 CDP 连接盒子内嵌浏览器、读取构筑模式 `client-jipaiqi/ladder-opp` 推荐数据的能力，主要入口包括：
 
 - `BotMain/HsBoxRecommendationProvider.cs`
-- `H:\桌面\炉石脚本\tools\hsbox_standard.py`
+- `tools/hsbox_standard.py`
 
 现有实现的核心策略是：
 
@@ -263,7 +263,7 @@ hook 成功后，仍沿用当前的全局缓存变量，但语义更明确：
 
 ### 6.2 Python 调试工具链路
 
-`H:\桌面\炉石脚本\tools\hsbox_standard.py` 必须与 C# 侧保持同一套脚本语义：
+`tools/hsbox_standard.py` 必须与 C# 侧保持同一套脚本语义：
 
 1. 连接目标页面
 2. 先预注册 hook
@@ -318,7 +318,7 @@ hook 成功后，仍沿用当前的全局缓存变量，但语义更明确：
 - 状态返回逻辑：`reason` 改为 hook-only 语义
 - 保留 `bodyText` 字段，但不再把它作为“ready”的信号
 
-### 8.2 `H:\桌面\炉石脚本\tools\hsbox_standard.py`
+### 8.2 `tools/hsbox_standard.py`
 
 需要改动：
 
