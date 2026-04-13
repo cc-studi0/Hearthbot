@@ -7,6 +7,9 @@
     <DefaultItemExcludes>$(DefaultItemExcludes);obj_*\**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="..\BotMain\BgActionReadyDiagnostics.cs" Link="BgActionReadyDiagnostics.cs" />
+    <Compile Include="..\BotMain\BgActionReadyEvaluator.cs" Link="BgActionReadyEvaluator.cs" />
+    <Compile Include="..\BotMain\BgExecutionGate.cs" Link="BgExecutionGate.cs" />
     <Compile Include="..\BotMain\ReadyWaitDiagnostics.cs" Link="ReadyWaitDiagnostics.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
     <Compile Include="..\BotMain\PostGameResultHelper.cs" Link="PostGameResultHelper.cs" />

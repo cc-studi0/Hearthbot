@@ -31,6 +31,8 @@
     <Compile Include="..\BotMain\ActionStringParser.cs" Link="ActionStringParser.cs" />
     <Compile Include="..\BotMain\AppPaths.cs" Link="AppPaths.cs" />
     <Compile Include="..\BotMain\BattleNetRestartState.cs" Link="BattleNetRestartState.cs" />
+    <Compile Include="..\BotMain\BgActionReadyDiagnostics.cs" Link="BgActionReadyDiagnostics.cs" />
+    <Compile Include="..\BotMain\BgActionReadyEvaluator.cs" Link="BgActionReadyEvaluator.cs" />
     <Compile Include="..\BotMain\BgExecutionGate.cs" Link="BgExecutionGate.cs" />
     <Compile Include="..\BotMain\BotProtocol.cs" Link="BotProtocol.cs" />
     <Compile Include="..\BotMain\BotService.cs" Link="BotService.cs" />

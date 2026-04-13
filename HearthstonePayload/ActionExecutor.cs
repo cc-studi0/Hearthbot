@@ -7841,6 +7841,554 @@ namespace HearthstonePayload
                 state.DrawCount);
         }
 
+        public static bool IsBattlegroundActionReady(string rawCommand)
+        {
+            return EvaluateBattlegroundActionReadyState(rawCommand).IsReady;
+        }
+
+        public static string DescribeBattlegroundActionReady(string rawCommand)
+        {
+            return BgActionReadyDiagnostics.FormatResponse(EvaluateBattlegroundActionReadyState(rawCommand));
+        }
+
+        private static BgActionReadyState EvaluateBattlegroundActionReadyState(string rawCommand)
+        {
+            var commandKind = GetBattlegroundActionCommandKind(rawCommand);
+            var kind = MapBattlegroundActionReadyKind(rawCommand);
+            if (string.IsNullOrWhiteSpace(commandKind))
+                return CreateBattlegroundBusyReadyState(commandKind, BgActionReadyDiagnostics.UnknownBusyReason);
+
+            if (!EnsureTypes())
+                return CreateBattlegroundBusyReadyState(commandKind, "types_unavailable");
+
+            var gameState = GetGameState();
+            if (gameState == null)
+                return CreateBattlegroundBusyReadyState(commandKind, "game_state_null");
+
+            if (kind == BgActionReadyKind.Unknown)
+                return CreateBattlegroundBusyReadyState(commandKind, BgActionReadyDiagnostics.UnknownBusyReason);
+
+            var probe = new BgActionReadyProbe
+            {
+                Kind = kind,
+                CommandKind = commandKind
+            };
+
+            PopulateBattlegroundHardBlockFlags(gameState, ref probe);
+
+            switch (kind)
+            {
+                case BgActionReadyKind.Button:
+                    probe.Source = BuildBattlegroundButtonReadySnapshot(commandKind);
+                    break;
+                case BgActionReadyKind.Buy:
+                    {
+                        var spec = BgExecutionGate.ParseCommand(rawCommand);
+                        probe.Source = BuildShopCardReadySnapshot(gameState, spec.EntityId, spec.Position, spec.ExpectedCardId);
+                        break;
+                    }
+                case BgActionReadyKind.Sell:
+                case BgActionReadyKind.Move:
+                    {
+                        var parts = SplitCommandParts(rawCommand);
+                        probe.Source = BuildBoardCardReadySnapshot(gameState, ParseCommandInt(parts, 1));
+                        break;
+                    }
+                case BgActionReadyKind.Play:
+                    {
+                        var spec = BgExecutionGate.ParseCommand(rawCommand);
+                        probe.Source = BuildHandCardReadySnapshot(gameState, spec.EntityId);
+                        probe.HandLayoutReason = GetHandZoneBlockingReason(gameState) ?? string.Empty;
+                        if (spec.TargetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildTargetReadySnapshot(gameState, spec.TargetEntityId);
+                        }
+                        break;
+                    }
+                case BgActionReadyKind.HeroPower:
+                    {
+                        var parts = SplitCommandParts(rawCommand);
+                        var sourceEntityId = parts.Length > 2 ? ParseCommandInt(parts, 1) : 0;
+                        var targetEntityId = parts.Length > 2 ? ParseCommandInt(parts, 2) : ParseCommandInt(parts, 1);
+                        probe.Source = BuildHeroPowerReadySnapshot(gameState, sourceEntityId);
+                        if (targetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildTargetReadySnapshot(gameState, targetEntityId);
+                        }
+                        break;
+                    }
+                case BgActionReadyKind.Option:
+                    {
+                        var parts = SplitCommandParts(rawCommand);
+                        var sourceEntityId = ParseCommandInt(parts, 1);
+                        var targetEntityId = ParseCommandInt(parts, 2);
+                        probe.Source = BuildOptionSourceReadySnapshot(gameState, sourceEntityId);
+                        if (targetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildTargetReadySnapshot(gameState, targetEntityId);
+                        }
+                        break;
+                    }
+            }
+
+            return BgActionReadyEvaluator.Evaluate(probe);
+        }
+
+        private static string GetBattlegroundActionCommandKind(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return string.Empty;
+
+            var separatorIndex = rawCommand.IndexOf('|');
+            return separatorIndex > 0
+                ? rawCommand.Substring(0, separatorIndex).Trim()
+                : rawCommand.Trim();
+        }
+
+        private static BgActionReadyKind MapBattlegroundActionReadyKind(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return BgActionReadyKind.Unknown;
+
+            var spec = BgExecutionGate.ParseCommand(rawCommand);
+            switch (spec.Kind)
+            {
+                case BgCommandKind.Buy:
+                    return BgActionReadyKind.Buy;
+                case BgCommandKind.Sell:
+                    return BgActionReadyKind.Sell;
+                case BgCommandKind.Play:
+                    return BgActionReadyKind.Play;
+            }
+
+            var commandKind = GetBattlegroundActionCommandKind(rawCommand);
+            if (string.Equals(commandKind, "BG_MOVE", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.Move;
+
+            if (string.Equals(commandKind, "BG_HERO_POWER", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.HeroPower;
+
+            if (string.Equals(commandKind, "OPTION", StringComparison.OrdinalIgnoreCase))
+                return BgActionReadyKind.Option;
+
+            if (string.Equals(commandKind, "BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(commandKind, "BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(commandKind, "BG_FREEZE", StringComparison.OrdinalIgnoreCase))
+            {
+                return BgActionReadyKind.Button;
+            }
+
+            return BgActionReadyKind.Unknown;
+        }
+
+        private static BgActionReadyState CreateBattlegroundBusyReadyState(string commandKind, string reason)
+        {
+            var normalizedReason = string.IsNullOrWhiteSpace(reason)
+                ? BgActionReadyDiagnostics.UnknownBusyReason
+                : reason.Trim();
+
+            return new BgActionReadyState
+            {
+                IsReady = false,
+                PrimaryReason = normalizedReason,
+                Flags = new[] { normalizedReason },
+                CommandKind = commandKind ?? string.Empty
+            };
+        }
+
+        private static void PopulateBattlegroundHardBlockFlags(object gameState, ref BgActionReadyProbe probe)
+        {
+            if (gameState == null)
+                return;
+
+            if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var blocked) && blocked)
+                probe.ResponsePacketBlocked = true;
+
+            var inputMgr = GetSingleton(_inputMgrType);
+            if (inputMgr != null
+                && TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permit)
+                && !permit)
+            {
+                probe.InputDenied = true;
+            }
+
+            if (TryInvokeBoolMethod(gameState, "IsBlockingPowerProcessor", out var blockingPowerProcessor)
+                && blockingPowerProcessor)
+            {
+                probe.BlockingPowerProcessor = true;
+            }
+
+            var zoneMgrType = _asm != null ? _asm.GetType("ZoneMgr") : null;
+            if (zoneMgrType != null)
+            {
+                var zoneMgr = GetSingleton(zoneMgrType);
+                if (zoneMgr != null
+                    && TryInvokeBoolMethod(zoneMgr, "HasActiveServerChange", out var activeServerChange)
+                    && activeServerChange)
+                {
+                    probe.HasActiveServerChange = true;
+                }
+            }
+        }
+
+        private static string[] SplitCommandParts(string rawCommand)
+        {
+            return string.IsNullOrWhiteSpace(rawCommand)
+                ? Array.Empty<string>()
+                : rawCommand.Split('|');
+        }
+
+        private static int ParseCommandInt(string[] parts, int index)
+        {
+            if (parts == null || index < 0 || index >= parts.Length)
+                return 0;
+
+            int value;
+            return int.TryParse(parts[index], out value) ? value : 0;
+        }
+
+        private static BgObjectReadySnapshot BuildBattlegroundButtonReadySnapshot(string commandKind)
+        {
+            var slot = ResolveBattlegroundButtonSlot(commandKind);
+            if (slot <= 0)
+                return default(BgObjectReadySnapshot);
+
+            if (!TryGetBattlegroundsGameModeButtonCard(slot, out var card, out var entity, out _))
+                return default(BgObjectReadySnapshot);
+
+            var snapshot = BuildCardReadySnapshot(GetGameState(), card, ResolveEntityId(entity));
+
+            if (TryReadKnownGameObjectActive(card, out var active))
+            {
+                snapshot.ActiveKnown = true;
+                snapshot.IsActive = active;
+            }
+
+            if (TryReadKnownEnabledState(card, out var enabled))
+            {
+                snapshot.EnabledKnown = true;
+                snapshot.IsEnabled = enabled;
+            }
+
+            return snapshot;
+        }
+
+        private static int ResolveBattlegroundButtonSlot(string commandKind)
+        {
+            if (string.Equals(commandKind, "BG_FREEZE", StringComparison.OrdinalIgnoreCase))
+                return 1;
+
+            if (string.Equals(commandKind, "BG_REROLL", StringComparison.OrdinalIgnoreCase))
+                return 2;
+
+            if (string.Equals(commandKind, "BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase))
+                return 3;
+
+            return 0;
+        }
+
+        private static BgObjectReadySnapshot BuildShopCardReadySnapshot(
+            object gameState,
+            int entityId,
+            int position,
+            string expectedCardId)
+        {
+            if (TryResolveBattlegroundShopCardObject(gameState, entityId, position, expectedCardId, out var card))
+                return BuildCardReadySnapshot(gameState, card, entityId);
+
+            return BuildCardReadySnapshot(gameState, null, entityId);
+        }
+
+        private static BgObjectReadySnapshot BuildHandCardReadySnapshot(object gameState, int entityId)
+        {
+            return BuildCardReadySnapshot(gameState, ResolveFriendlyHandCardObject(gameState, entityId), entityId);
+        }
+
+        private static BgObjectReadySnapshot BuildBoardCardReadySnapshot(object gameState, int entityId)
+        {
+            if (TryResolveFriendlyBattlefieldCardObject(gameState, entityId, out var card))
+                return BuildCardReadySnapshot(gameState, card, entityId);
+
+            return BuildCardReadySnapshot(gameState, null, entityId);
+        }
+
+        private static BgObjectReadySnapshot BuildHeroPowerReadySnapshot(object gameState, int sourceHeroPowerEntityId)
+        {
+            var snapshot = new BgObjectReadySnapshot
+            {
+                Exists = sourceHeroPowerEntityId > 0
+                    ? GetEntity(gameState, sourceHeroPowerEntityId) != null
+                    : true
+            };
+
+            snapshot.HasScreenPosition = sourceHeroPowerEntityId > 0
+                ? GameObjectFinder.GetHeroPowerScreenPos(sourceHeroPowerEntityId, out _, out _)
+                : GameObjectFinder.GetHeroPowerScreenPos(out _, out _);
+
+            return snapshot;
+        }
+
+        private static BgObjectReadySnapshot BuildOptionSourceReadySnapshot(object gameState, int sourceEntityId)
+        {
+            if (sourceEntityId <= 0)
+                return default(BgObjectReadySnapshot);
+
+            if (TryGetFriendlyChoiceCardObject(sourceEntityId, out var choiceCard))
+                return BuildCardReadySnapshot(gameState, choiceCard, sourceEntityId);
+
+            if (TryResolveRuntimeCardObject(gameState, sourceEntityId, out var card))
+                return BuildCardReadySnapshot(gameState, card, sourceEntityId);
+
+            return BuildCardReadySnapshot(gameState, null, sourceEntityId);
+        }
+
+        private static BgObjectReadySnapshot BuildTargetReadySnapshot(object gameState, int targetEntityId)
+        {
+            if (targetEntityId <= 0)
+                return default(BgObjectReadySnapshot);
+
+            if (TryGetFriendlyChoiceCardObject(targetEntityId, out var choiceCard))
+                return BuildCardReadySnapshot(gameState, choiceCard, targetEntityId);
+
+            if (TryResolveRuntimeCardObject(gameState, targetEntityId, out var runtimeCard))
+                return BuildCardReadySnapshot(gameState, runtimeCard, targetEntityId);
+
+            var snapshot = BuildCardReadySnapshot(gameState, null, targetEntityId);
+            var targetHeroSide = -1;
+            if (IsFriendlyHeroEntityId(targetEntityId))
+                targetHeroSide = 0;
+            else if (IsEnemyHeroEntityId(targetEntityId))
+                targetHeroSide = 1;
+
+            if (!snapshot.HasScreenPosition)
+                snapshot.HasScreenPosition = TryResolvePlayTargetScreenPos(targetEntityId, targetHeroSide, out _, out _);
+
+            if (!snapshot.Exists && targetHeroSide >= 0)
+                snapshot.Exists = true;
+
+            return snapshot;
+        }
+
+        private static BgObjectReadySnapshot BuildCardReadySnapshot(object gameState, object card, int fallbackEntityId)
+        {
+            var snapshot = new BgObjectReadySnapshot();
+            var entity = card != null
+                ? (Invoke(card, "GetEntity")
+                    ?? GetFieldOrProp(card, "Entity")
+                    ?? GetFieldOrProp(card, "m_entity"))
+                : null;
+
+            if (entity == null && fallbackEntityId > 0)
+                entity = GetEntity(gameState, fallbackEntityId);
+
+            var resolvedEntityId = fallbackEntityId > 0 ? fallbackEntityId : ResolveEntityId(entity);
+
+            snapshot.Exists = card != null || entity != null;
+
+            if (card != null && GameObjectFinder.GetObjectScreenPos(card, out _, out _))
+            {
+                snapshot.HasScreenPosition = true;
+            }
+            else if (resolvedEntityId > 0 && GameObjectFinder.GetEntityScreenPos(resolvedEntityId, out _, out _))
+            {
+                snapshot.HasScreenPosition = true;
+            }
+
+            if (card != null)
+            {
+                if (TryReadCardActorReady(card, out var actorReady))
+                {
+                    snapshot.ActorReadyKnown = true;
+                    snapshot.ActorReady = actorReady;
+                }
+
+                if (TryReadCardStandInIsInteractive(card, out var interactive))
+                {
+                    snapshot.InteractiveKnown = true;
+                    snapshot.IsInteractive = interactive;
+                }
+
+                if (TryReadCardHasActiveTweens(card, out var hasActiveTween))
+                {
+                    snapshot.TweenKnown = true;
+                    snapshot.HasActiveTween = hasActiveTween;
+                }
+            }
+
+            return snapshot;
+        }
+
+        private static bool TryResolveRuntimeCardObject(object gameState, int entityId, out object card)
+        {
+            card = null;
+            if (entityId <= 0)
+                return false;
+
+            if (TryGetFriendlyChoiceCardObject(entityId, out card) && card != null)
+                return true;
+
+            card = ResolveFriendlyHandCardObject(gameState, entityId);
+            if (card != null)
+                return true;
+
+            if (TryResolveFriendlyBattlefieldCardObject(gameState, entityId, out card) && card != null)
+                return true;
+
+            if (TryResolveBattlegroundShopCardObject(gameState, entityId, 0, string.Empty, out card) && card != null)
+                return true;
+
+            return false;
+        }
+
+        private static bool TryResolveFriendlyBattlefieldCardObject(object gameState, int entityId, out object card)
+        {
+            card = null;
+            if (entityId <= 0 || !TryGetFriendlyBattlefieldCards(gameState, out var cards) || cards == null)
+                return false;
+
+            foreach (var rawCard in cards)
+            {
+                if (rawCard == null)
+                    continue;
+
+                var entity = Invoke(rawCard, "GetEntity")
+                    ?? GetFieldOrProp(rawCard, "Entity")
+                    ?? GetFieldOrProp(rawCard, "m_entity")
+                    ?? rawCard;
+                if (entity == null || ResolveEntityId(entity) != entityId)
+                    continue;
+
+                card = rawCard;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryResolveBattlegroundShopCardObject(
+            object gameState,
+            int shopEntityId,
+            int shopPosition,
+            string expectedCardId,
+            out object card)
+        {
+            card = null;
+            if (gameState == null)
+                return false;
+
+            var opposing = Invoke(gameState, "GetOpposingSidePlayer") ?? Invoke(gameState, "GetOpposingPlayer");
+            if (opposing == null)
+                return false;
+
+            var zone = Invoke(opposing, "GetBattlefieldZone") ?? Invoke(opposing, "GetPlayZone");
+            if (zone == null)
+                return false;
+
+            var cards = Invoke(zone, "GetCards") as IEnumerable
+                ?? GetFieldOrProp(zone, "m_cards") as IEnumerable;
+            if (cards == null)
+                return false;
+
+            object fallbackMatch = null;
+            foreach (var rawCard in cards)
+            {
+                if (rawCard == null)
+                    continue;
+
+                var entity = Invoke(rawCard, "GetEntity") ?? GetFieldOrProp(rawCard, "Entity") ?? GetFieldOrProp(rawCard, "m_entity");
+                var entityId = ResolveEntityId(entity);
+                var zonePosition = entityId > 0
+                    ? ResolveEntityZonePosition(gameState, entityId)
+                    : GetIntFieldOrProp(entity ?? rawCard, "ZonePosition");
+                var cardId = entityId > 0
+                    ? ResolveEntityCardId(gameState, entityId)
+                    : ResolveCardIdFromObject(entity ?? rawCard);
+
+                var matchesEntity = shopEntityId > 0 && entityId == shopEntityId;
+                var matchesPosition = shopPosition > 0 && zonePosition == shopPosition;
+                var matchesCardId = string.IsNullOrWhiteSpace(expectedCardId)
+                    || string.Equals(cardId, expectedCardId, StringComparison.Ordinal);
+
+                if ((matchesEntity || matchesPosition) && matchesCardId)
+                {
+                    card = rawCard;
+                    return true;
+                }
+
+                if (fallbackMatch == null && matchesEntity)
+                    fallbackMatch = rawCard;
+
+                if (fallbackMatch == null && matchesPosition && matchesCardId)
+                    fallbackMatch = rawCard;
+            }
+
+            card = fallbackMatch;
+            return card != null;
+        }
+
+        private static bool TryReadKnownEnabledState(object target, out bool enabled)
+        {
+            enabled = false;
+            if (target == null)
+                return false;
+
+            var direct = GetFieldOrProp(target, "m_enabled")
+                ?? GetFieldOrProp(target, "enabled")
+                ?? GetFieldOrProp(target, "Active");
+            if (direct != null)
+            {
+                enabled = ReadBoolValue(direct);
+                return true;
+            }
+
+            if (TryInvokeMethod(target, "GetEnabled", Array.Empty<object>(), out var enabledObj))
+            {
+                enabled = ReadBoolValue(enabledObj);
+                return true;
+            }
+
+            if (TryInvokeMethod(target, "IsEnabled", Array.Empty<object>(), out enabledObj))
+            {
+                enabled = ReadBoolValue(enabledObj);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool TryReadKnownGameObjectActive(object target, out bool active)
+        {
+            active = false;
+            if (target == null)
+                return false;
+
+            var gameObject = GetFieldOrProp(target, "gameObject") ?? target;
+            var activeObj = GetFieldOrProp(gameObject, "activeSelf")
+                ?? GetFieldOrProp(gameObject, "activeInHierarchy");
+            if (activeObj != null)
+            {
+                active = ReadBoolValue(activeObj);
+                return true;
+            }
+
+            if (TryInvokeMethod(gameObject, "get_activeSelf", Array.Empty<object>(), out activeObj))
+            {
+                active = ReadBoolValue(activeObj);
+                return true;
+            }
+
+            if (TryInvokeMethod(gameObject, "get_activeInHierarchy", Array.Empty<object>(), out activeObj))
+            {
+                active = ReadBoolValue(activeObj);
+                return true;
+            }
+
+            return false;
+        }
+
         private static ReadyWaitDiagnosticState EvaluateGameReadyState()
         {
             if (!EnsureTypes())

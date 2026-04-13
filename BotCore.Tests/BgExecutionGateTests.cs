@@ -67,6 +67,13 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void Parse_RerollStillUsesOtherKind()
+        {
+            var spec = BgExecutionGate.ParseCommand("BG_REROLL");
+            Assert.Equal(BgCommandKind.Other, spec.Kind);
+        }
+
+        [Fact]
         public void Snapshot_ParsesShopHandBoard()
         {
             var snap = BgExecutionGate.ParseZones(SampleState);
