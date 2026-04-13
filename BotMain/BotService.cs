@@ -1424,6 +1424,20 @@ namespace BotMain
             return true;
         }
 
+        private bool TryBypassTurnStartReadyWithPendingHsBoxAdvance(string waitScope, out string resultReason)
+        {
+            resultReason = null;
+            if (!string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!TryPromotePendingHsBoxActionConfirmation())
+                return false;
+
+            _skipNextTurnStartReadyWait = false;
+            resultReason = "ready_hsbox_advanced";
+            return true;
+        }
+
         private static string BuildBoardFingerprint(Board board)
         {
             if (board == null) return string.Empty;
@@ -4446,6 +4460,22 @@ namespace BotMain
             for (int i = 0; i < maxRetries; i++)
             {
                 if (_cts?.IsCancellationRequested == true) return false;
+                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out var hsBoxBypassResult))
+                {
+                    LogReadyWaitSummary(
+                        waitScope,
+                        action,
+                        sw.ElapsedMilliseconds,
+                        polls,
+                        busyPolls,
+                        firstBusyReason,
+                        lastBusyReason,
+                        uniqueReasons,
+                        timedOut: false,
+                        resultOverride: hsBoxBypassResult);
+                    return true;
+                }
+
                 polls++;
                 var resp = pipe.SendAndReceive("WAIT_READY", Math.Max(100, commandTimeoutMs));
                 if (resp == "READY")
@@ -4476,6 +4506,22 @@ namespace BotMain
                         uniqueReasons,
                         timedOut: false,
                         resultOverride: "ready_bypass_non_draw");
+                    return true;
+                }
+
+                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out hsBoxBypassResult))
+                {
+                    LogReadyWaitSummary(
+                        waitScope,
+                        action,
+                        sw.ElapsedMilliseconds,
+                        polls,
+                        busyPolls,
+                        firstBusyReason,
+                        lastBusyReason,
+                        uniqueReasons,
+                        timedOut: false,
+                        resultOverride: hsBoxBypassResult);
                     return true;
                 }
 

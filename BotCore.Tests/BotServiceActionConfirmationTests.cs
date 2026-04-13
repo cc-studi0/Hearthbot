@@ -1,4 +1,5 @@
 using BotMain;
+using System.Reflection;
 using Xunit;
 
 namespace BotCore.Tests
@@ -101,6 +102,95 @@ namespace BotCore.Tests
             Assert.False(result.ConsumeRecommendation);
             Assert.False(result.SkipNextTurnStartReadyWait);
             Assert.Equal("action_result_ok", result.Reason);
+        }
+
+        [Fact]
+        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
+        {
+            var service = new BotService();
+            SetPrivateField(
+                service,
+                "_hsBoxRecommendationProvider",
+                new HsBoxGameRecommendationProvider(
+                    new StubHsBoxBridge(
+                        new HsBoxRecommendationState
+                        {
+                            Ok = true,
+                            UpdatedAtMs = 200,
+                            Raw = "advanced",
+                            Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp"
+                        }),
+                    actionWaitTimeoutMs: 1,
+                    actionPollIntervalMs: 0));
+            SetPrivateField(service, "_followHsBoxRecommendations", true);
+            SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 100L);
+            SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", "old-signature");
+            SetPrivateField(service, "_pendingHsBoxActionCommand", "ATTACK|1|2");
+            SetPrivateField(service, "_pendingHsBoxBoardFingerprint", "board-fp");
+
+            var method = typeof(BotService).GetMethod(
+                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var args = new object[] { "TurnStart", null };
+            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+
+            Assert.True(bypassed);
+            Assert.Equal("ready_hsbox_advanced", Assert.IsType<string>(args[1]));
+            Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+            Assert.False(Assert.IsType<bool>(GetPrivateField(service, "_skipNextTurnStartReadyWait")));
+        }
+
+        [Fact]
+        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsFalse_ForNonTurnStartScope()
+        {
+            var service = new BotService();
+            SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 100L);
+            SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", "old-signature");
+
+            var method = typeof(BotService).GetMethod(
+                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var args = new object[] { "ActionPostReady", null };
+            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+
+            Assert.False(bypassed);
+            Assert.Null(args[1]);
+            Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+        }
+
+        private sealed class StubHsBoxBridge : IHsBoxRecommendationBridge
+        {
+            private readonly HsBoxRecommendationState _state;
+
+            public StubHsBoxBridge(HsBoxRecommendationState state)
+            {
+                _state = state;
+            }
+
+            public bool TryReadState(out HsBoxRecommendationState state, out string detail)
+            {
+                state = _state;
+                detail = _state?.Detail ?? "hsbox_state_null";
+                return state != null;
+            }
+        }
+
+        private static void SetPrivateField(object target, string name, object value)
+        {
+            var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            field.SetValue(target, value);
+        }
+
+        private static object GetPrivateField(object target, string name)
+        {
+            var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.NotNull(field);
+            return field.GetValue(target);
         }
     }
 }
