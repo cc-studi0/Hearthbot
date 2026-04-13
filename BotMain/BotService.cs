@@ -2106,7 +2106,6 @@ namespace BotMain
             DateTime currentTurnStartedUtc = DateTime.MinValue;
             int resimulationCount = 0;
             int actionFailStreak = 0;
-            int actionFailResetCycles = 0;
             int sameBoardStalledCount = 0;
             string sameBoardStalledFingerprint = string.Empty;
             DateTime nextPostGameDismissUtc = DateTime.MinValue;
@@ -3237,32 +3236,21 @@ namespace BotMain
                         lastRecommendationWasAttackOnly = false;
                         actionFailStreak++;
 
-                        if (actionFailStreak >= 3)
+                        var failureRecovery = GetConstructedActionFailureRecovery(_followHsBoxRecommendations, actionFailStreak);
+                        if (failureRecovery.ResetHsBoxTracking)
                         {
-                            if (_followHsBoxRecommendations)
-                            {
-                                actionFailResetCycles++;
-                                Log($"[Action] {actionFailStreak} consecutive failures while following hsbox (cycle {actionFailResetCycles}); clearing consumed state.");
-                                ResetHsBoxActionRecommendationTracking();
-                                if (actionFailResetCycles >= 2)
-                                {
-                                    Log($"[Action] {actionFailResetCycles} reset cycles, forcing END_TURN to avoid infinite loop.");
-                                    try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
-                                    actionFailResetCycles = 0;
-                                }
-                            }
-                            else
-                            {
-                                Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
-                                try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
-                            }
+                            Log($"[Action] failure streak={actionFailStreak} while following hsbox; clearing consumed state and retrying.");
+                            ResetHsBoxActionRecommendationTracking();
+                        }
+
+                        if (failureRecovery.ForceEndTurn)
+                        {
+                            Log($"[Action] {actionFailStreak} consecutive failures, forcing END_TURN to avoid infinite loop.");
+                            try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
                             actionFailStreak = 0;
-                            if (SleepOrCancelled(2000)) break;
                         }
-                        else
-                        {
-                            if (SleepOrCancelled(1000)) break;
-                        }
+
+                        if (SleepOrCancelled(failureRecovery.DelayMs)) break;
                         continue;
                     }
                 }
@@ -3280,7 +3268,6 @@ namespace BotMain
                     && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     actionFailStreak = 0;
-                    actionFailResetCycles = 0;
                     if (!lastRecommendationWasAttackOnly)
                         Thread.Sleep(200);
                     continue;
@@ -5859,6 +5846,36 @@ namespace BotMain
             }
 
             return planningBoard.HeroEnemy.Id == targetEntityId;
+        }
+
+        internal readonly struct ConstructedActionFailureRecoveryPlan
+        {
+            public bool ResetHsBoxTracking { get; init; }
+            public bool ForceEndTurn { get; init; }
+            public int DelayMs { get; init; }
+        }
+
+        internal static ConstructedActionFailureRecoveryPlan GetConstructedActionFailureRecovery(
+            bool followHsBoxRecommendations,
+            int actionFailStreak)
+        {
+            var normalizedStreak = Math.Max(1, actionFailStreak);
+            if (followHsBoxRecommendations)
+            {
+                return new ConstructedActionFailureRecoveryPlan
+                {
+                    ResetHsBoxTracking = true,
+                    ForceEndTurn = false,
+                    DelayMs = normalizedStreak >= 3 ? 2000 : 1000
+                };
+            }
+
+            return new ConstructedActionFailureRecoveryPlan
+            {
+                ResetHsBoxTracking = false,
+                ForceEndTurn = normalizedStreak >= 3,
+                DelayMs = normalizedStreak >= 3 ? 2000 : 1000
+            };
         }
 
         private static bool TryGetActionTargetEntityId(string action, out int targetEntityId)

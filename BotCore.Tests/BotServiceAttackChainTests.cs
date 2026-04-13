@@ -59,6 +59,30 @@ namespace BotCore.Tests
             Assert.False(result);
         }
 
+        [Fact]
+        public void GetConstructedActionFailureRecovery_ReturnsRetryPlan_WhenFollowingHsBoxAfterRepeatedFailure()
+        {
+            var plan = BotService.GetConstructedActionFailureRecovery(
+                followHsBoxRecommendations: true,
+                actionFailStreak: 6);
+
+            Assert.True(plan.ResetHsBoxTracking);
+            Assert.False(plan.ForceEndTurn);
+            Assert.Equal(2000, plan.DelayMs);
+        }
+
+        [Fact]
+        public void GetConstructedActionFailureRecovery_StillForcesEndTurn_WhenNotFollowingHsBox()
+        {
+            var plan = BotService.GetConstructedActionFailureRecovery(
+                followHsBoxRecommendations: false,
+                actionFailStreak: 3);
+
+            Assert.False(plan.ResetHsBoxTracking);
+            Assert.True(plan.ForceEndTurn);
+            Assert.Equal(2000, plan.DelayMs);
+        }
+
         private static Card CreateHero(int entityId, bool isFriend)
         {
             return new Card
