@@ -171,7 +171,7 @@ namespace BotMain
             if (!source.HasScreenPosition)
                 return Busy("source_pos_not_found", commandKind);
 
-            if (requireActorReady && source.ActorReadyKnown && !source.ActorReady)
+            if (source.ActorReadyKnown && !source.ActorReady)
                 return Busy("source_actor_not_ready", commandKind);
 
             if (source.TweenKnown && source.HasActiveTween)
