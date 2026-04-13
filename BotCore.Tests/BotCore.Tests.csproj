@@ -65,6 +65,7 @@
     <Compile Include="..\HearthBot.Cloud\Services\DeviceDisplayStateEvaluator.cs" Link="Cloud\DeviceDisplayStateEvaluator.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceDashboardProjectionService.cs" Link="Cloud\DeviceDashboardProjectionService.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceManager.cs" Link="Cloud\DeviceManager.cs" />
+    <Compile Include="..\HearthBot.Cloud\Services\CloudSchemaBootstrapper.cs" Link="Cloud\CloudSchemaBootstrapper.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceStatusPolicy.cs" Link="Cloud\DeviceStatusPolicy.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\CompletedOrderService.cs" Link="Cloud\CompletedOrderService.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\HiddenDeviceService.cs" Link="Cloud\HiddenDeviceService.cs" />
