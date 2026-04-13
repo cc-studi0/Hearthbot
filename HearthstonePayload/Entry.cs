@@ -775,6 +775,16 @@ namespace HearthstonePayload
                 var action = cmd.Substring("WAIT_BG_ACTION_READY_DETAIL:".Length);
                 _pipe.Write(ActionExecutor.DescribeBattlegroundActionReady(action));
             }
+            else if (cmd.StartsWith("WAIT_CONSTRUCTED_ACTION_READY:", StringComparison.Ordinal))
+            {
+                var action = cmd.Substring("WAIT_CONSTRUCTED_ACTION_READY:".Length);
+                _pipe.Write(ActionExecutor.IsConstructedActionReady(action) ? "READY" : "BUSY");
+            }
+            else if (cmd.StartsWith("WAIT_CONSTRUCTED_ACTION_READY_DETAIL:", StringComparison.Ordinal))
+            {
+                var action = cmd.Substring("WAIT_CONSTRUCTED_ACTION_READY_DETAIL:".Length);
+                _pipe.Write(ActionExecutor.DescribeConstructedActionReady(action));
+            }
             else if (cmd == "TOGGLE_CLICK_OVERLAY")
             {
                 _clickOverlayEnabled = !_clickOverlayEnabled;

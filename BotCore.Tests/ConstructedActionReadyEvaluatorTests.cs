@@ -50,5 +50,50 @@ namespace BotCore.Tests
 
             Assert.True(result.IsReady);
         }
+
+        [Fact]
+        public void Evaluate_OptionWaitsWhenChoiceNotReady()
+        {
+            var probe = ConstructedActionReadyProbe.ForOption(choiceReady: false, sourceEntityId: 55);
+
+            var result = ConstructedActionReadyEvaluator.Evaluate(probe);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("choice_not_ready", result.PrimaryReason);
+        }
+
+        [Fact]
+        public void Evaluate_PlayWaitsWhenPendingTargetConfirmationStillActive()
+        {
+            var probe = ConstructedActionReadyProbe.ForPlay(
+                source: new ConstructedObjectReadySnapshot
+                {
+                    Exists = true,
+                    HasScreenPosition = true,
+                    PositionStableKnown = true,
+                    IsPositionStable = true,
+                    IsInteractiveKnown = true,
+                    IsInteractive = true
+                },
+                target: default(ConstructedObjectReadySnapshot),
+                requiresTarget: false);
+            probe.PendingTargetConfirmation = true;
+
+            var result = ConstructedActionReadyEvaluator.Evaluate(probe);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("pending_target_confirmation", result.PrimaryReason);
+        }
+
+        [Fact]
+        public void Evaluate_EndTurnWaitsWhenButtonNotReady()
+        {
+            var probe = ConstructedActionReadyProbe.ForEndTurn(endTurnButtonReady: false);
+
+            var result = ConstructedActionReadyEvaluator.Evaluate(probe);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("end_turn_button_disabled", result.PrimaryReason);
+        }
     }
 }

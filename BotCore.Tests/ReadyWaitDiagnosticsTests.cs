@@ -76,6 +76,7 @@ namespace BotCore.Tests
         [InlineData("blocking_power_processor", true)]
         [InlineData("response_packet_blocked", true)]
         [InlineData("hand_layout_updating", true)]
+        [InlineData("pending_target_confirmation", false)]
         [InlineData("friendly_draw", false)]
         [InlineData("unknown", false)]
         public void ShouldBypassActionPostReadyBusyReason_MatchesExpectedReasons(string reason, bool expected)

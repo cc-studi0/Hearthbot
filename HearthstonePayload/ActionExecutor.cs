@@ -1912,7 +1912,7 @@ namespace HearthstonePayload
 
             // 鼠标点击后追加反射调用，确保结束回合生效
             EndTurn();
-            yield return 0.3f;
+            yield return 0.05f;
             _coroutine.SetResult("OK:END_TURN");
         }
 
@@ -1990,7 +1990,6 @@ namespace HearthstonePayload
                     yield break;
                 }
 
-                yield return 0.10f;
                 _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":click");
                 yield break;
             }
@@ -2047,7 +2046,6 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            yield return 0.10f;
             _coroutine.SetResult("OK:USE_LOCATION:" + entityId + ":drag");
         }
 
@@ -2650,14 +2648,43 @@ namespace HearthstonePayload
                 MouseSimulator.LeftUp();
             }
 
-            yield return 0.25f;
-
-            var gsAfterPlay = GetGameState();
-            var hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterPlay, out var afterHandIds);
+            var submissionObserved = false;
             var resolvedStillInHand = false;
             var stillInHand = false;
-            if (gsAfterPlay != null && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out stillInHand))
-                resolvedStillInHand = true;
+            object gsAfterPlay = null;
+            HashSet<int> afterHandIds = null;
+            var hasAfterHand = false;
+            for (int retry = 0; retry < 8; retry++)
+            {
+                gsAfterPlay = GetGameState();
+                hasAfterHand = TryReadFriendlyHandEntityIds(gsAfterPlay, out afterHandIds);
+                if (gsAfterPlay != null && TryIsEntityInFriendlyHand(gsAfterPlay, entityId, out stillInHand))
+                {
+                    resolvedStillInHand = true;
+                    if (!stillInHand)
+                    {
+                        submissionObserved = true;
+                        break;
+                    }
+                }
+
+                if (targetEntityId > 0 && IsPlayTargetConfirmationPending(entityId))
+                {
+                    submissionObserved = true;
+                    break;
+                }
+
+                if (HasBusyPlayResolutionSignal(gsAfterPlay))
+                {
+                    submissionObserved = true;
+                }
+                else if (submissionObserved)
+                {
+                    break;
+                }
+
+                yield return 0.05f;
+            }
 
             if (resolvedStillInHand && stillInHand)
             {
@@ -2763,7 +2790,6 @@ namespace HearthstonePayload
                 }
             }
 
-            yield return 0.2f;
             _coroutine.SetResult("OK:PLAY:" + entityId + ":mouse_drag");
         }
 
@@ -3363,7 +3389,34 @@ namespace HearthstonePayload
 
             foreach (var w in MoveCursorConstructed(dx, dy, 18, 0.012f, true)) yield return w;
             MouseSimulator.LeftUp();
-            yield return 0.35f;
+
+            bool tradeApplied = false;
+            for (int retry = 0; retry < 8; retry++)
+            {
+                var gsAfterTrade = GetGameState();
+                if (gsAfterTrade != null
+                    && TryIsEntityInFriendlyHand(gsAfterTrade, entityId, out var inHandAfterTrade))
+                {
+                    if (!inHandAfterTrade)
+                    {
+                        tradeApplied = true;
+                        break;
+                    }
+                }
+
+                if (HasBusyPlayResolutionSignal(gsAfterTrade))
+                    tradeApplied = true;
+                else if (tradeApplied)
+                    break;
+
+                yield return 0.05f;
+            }
+
+            if (!tradeApplied)
+            {
+                _coroutine.SetResult("FAIL:TRADE:not_confirmed:" + entityId);
+                yield break;
+            }
 
             _coroutine.SetResult("OK:TRADE:" + entityId + ":mouse_drag");
         }
@@ -4071,6 +4124,8 @@ namespace HearthstonePayload
         private static IEnumerator<float> MouseHeroPower(int sourceHeroPowerEntityId, int targetEntityId)
         {
             InputHook.Simulating = true;
+            var gsBeforeHeroPower = GetGameState();
+            var selectedBefore = GetSelectedOptionValue(gsBeforeHeroPower);
             if (!GameObjectFinder.GetHeroPowerScreenPos(sourceHeroPowerEntityId, out var hx, out var hy))
             {
                 _coroutine.SetResult(sourceHeroPowerEntityId > 0
@@ -4112,7 +4167,6 @@ namespace HearthstonePayload
 
                 // 松开完成释放
                 MouseSimulator.LeftUp();
-                yield return 0.3f;
             }
             else
             {
@@ -4122,7 +4176,26 @@ namespace HearthstonePayload
                 MouseSimulator.LeftDown();
                 yield return 0.05f;
                 MouseSimulator.LeftUp();
-                yield return 0.3f;
+            }
+
+            bool heroPowerConfirmed = false;
+            for (int poll = 0; poll < 8; poll++)
+            {
+                yield return 0.05f;
+                var gsAfterHeroPower = GetGameState();
+                if (DidSubmissionStart(gsAfterHeroPower, selectedBefore, assumeSuccessWhenNoSignal: false))
+                {
+                    heroPowerConfirmed = true;
+                    break;
+                }
+            }
+
+            if (!heroPowerConfirmed)
+            {
+                _coroutine.SetResult(targetEntityId > 0
+                    ? "FAIL:HP:not_confirmed:" + targetEntityId
+                    : "FAIL:HP:not_confirmed");
+                yield break;
             }
 
             _coroutine.SetResult("OK:HP");
@@ -7851,6 +7924,16 @@ namespace HearthstonePayload
             return BgActionReadyDiagnostics.FormatResponse(EvaluateBattlegroundActionReadyState(rawCommand));
         }
 
+        public static bool IsConstructedActionReady(string rawCommand)
+        {
+            return EvaluateConstructedActionReadyState(rawCommand).IsReady;
+        }
+
+        public static string DescribeConstructedActionReady(string rawCommand)
+        {
+            return ConstructedActionReadyDiagnostics.FormatResponse(EvaluateConstructedActionReadyState(rawCommand));
+        }
+
         private static BgActionReadyState EvaluateBattlegroundActionReadyState(string rawCommand)
         {
             var commandKind = GetBattlegroundActionCommandKind(rawCommand);
@@ -7937,7 +8020,445 @@ namespace HearthstonePayload
             return BgActionReadyEvaluator.Evaluate(probe);
         }
 
+        private static ConstructedActionReadyState EvaluateConstructedActionReadyState(string rawCommand)
+        {
+            var commandKind = GetConstructedActionCommandKind(rawCommand);
+            if (string.IsNullOrWhiteSpace(commandKind))
+            {
+                return new ConstructedActionReadyState
+                {
+                    IsReady = false,
+                    PrimaryReason = ConstructedActionReadyDiagnostics.UnknownBusyReason,
+                    Flags = new[] { ConstructedActionReadyDiagnostics.UnknownBusyReason },
+                    CommandKind = string.Empty
+                };
+            }
+
+            if (!EnsureTypes())
+                return CreateConstructedBusyReadyState(commandKind, "types_unavailable");
+
+            var gameState = GetGameState();
+            if (gameState == null)
+                return CreateConstructedBusyReadyState(commandKind, "game_state_null");
+
+            var probe = new ConstructedActionReadyProbe
+            {
+                Kind = MapConstructedActionReadyKind(rawCommand),
+                CommandKind = commandKind
+            };
+
+            PopulateConstructedHardBlockFlags(gameState, ref probe);
+            if (probe.Kind == ConstructedActionReadyKind.Unknown)
+                return CreateConstructedBusyReadyState(commandKind, ConstructedActionReadyDiagnostics.UnknownBusyReason);
+
+            var parts = SplitCommandParts(rawCommand);
+            switch (probe.Kind)
+            {
+                case ConstructedActionReadyKind.Play:
+                    {
+                        var sourceEntityId = ParseCommandInt(parts, 1);
+                        var targetEntityId = ParseCommandInt(parts, 2);
+                        probe.Source = BuildConstructedHandCardReadySnapshot(gameState, sourceEntityId);
+                        probe.PendingTargetConfirmation = sourceEntityId > 0 && IsPlayTargetConfirmationPending(sourceEntityId);
+                        if (targetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildConstructedTargetReadySnapshot(gameState, targetEntityId);
+                        }
+
+                        break;
+                    }
+                case ConstructedActionReadyKind.Attack:
+                    {
+                        var sourceEntityId = ParseCommandInt(parts, 1);
+                        var targetEntityId = ParseCommandInt(parts, 2);
+                        probe.Source = BuildConstructedAttackSourceReadySnapshot(gameState, sourceEntityId, targetEntityId);
+                        probe.RequiresTarget = targetEntityId > 0;
+                        if (probe.RequiresTarget)
+                            probe.Target = BuildConstructedTargetReadySnapshot(gameState, targetEntityId);
+                        break;
+                    }
+                case ConstructedActionReadyKind.HeroPower:
+                    {
+                        var sourceEntityId = parts.Length > 2 ? ParseCommandInt(parts, 1) : 0;
+                        var targetEntityId = parts.Length > 2 ? ParseCommandInt(parts, 2) : ParseCommandInt(parts, 1);
+                        probe.Source = BuildConstructedHeroPowerReadySnapshot(gameState, sourceEntityId);
+                        if (targetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildConstructedTargetReadySnapshot(gameState, targetEntityId);
+                        }
+
+                        break;
+                    }
+                case ConstructedActionReadyKind.UseLocation:
+                    {
+                        var sourceEntityId = ParseCommandInt(parts, 1);
+                        var targetEntityId = ParseCommandInt(parts, 2);
+                        probe.Source = BuildConstructedBoardEntityReadySnapshot(gameState, sourceEntityId);
+                        if (targetEntityId > 0)
+                        {
+                            probe.RequiresTarget = true;
+                            probe.Target = BuildConstructedTargetReadySnapshot(gameState, targetEntityId);
+                        }
+
+                        break;
+                    }
+                case ConstructedActionReadyKind.Option:
+                    probe.ChoiceReady = IsEntityChoiceUiReady() || IsSubOptionUiReady();
+                    break;
+                case ConstructedActionReadyKind.Trade:
+                    {
+                        var sourceEntityId = ParseCommandInt(parts, 1);
+                        probe.Source = BuildConstructedHandCardReadySnapshot(gameState, sourceEntityId);
+                        break;
+                    }
+                case ConstructedActionReadyKind.EndTurn:
+                    probe.EndTurnButtonReady = IsConstructedEndTurnButtonReady(gameState);
+                    break;
+            }
+
+            return ConstructedActionReadyEvaluator.Evaluate(probe);
+        }
+
+        private static ConstructedActionReadyKind MapConstructedActionReadyKind(string rawCommand)
+        {
+            var commandKind = GetConstructedActionCommandKind(rawCommand);
+            if (string.IsNullOrWhiteSpace(commandKind))
+                return ConstructedActionReadyKind.Unknown;
+
+            if (string.Equals(commandKind, "PLAY", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.Play;
+            if (string.Equals(commandKind, "ATTACK", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.Attack;
+            if (string.Equals(commandKind, "HERO_POWER", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.HeroPower;
+            if (string.Equals(commandKind, "USE_LOCATION", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.UseLocation;
+            if (string.Equals(commandKind, "OPTION", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.Option;
+            if (string.Equals(commandKind, "TRADE", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.Trade;
+            if (string.Equals(commandKind, "END_TURN", StringComparison.OrdinalIgnoreCase))
+                return ConstructedActionReadyKind.EndTurn;
+
+            return ConstructedActionReadyKind.Unknown;
+        }
+
+        private static ConstructedActionReadyState CreateConstructedBusyReadyState(string commandKind, string reason)
+        {
+            var normalizedReason = string.IsNullOrWhiteSpace(reason)
+                ? ConstructedActionReadyDiagnostics.UnknownBusyReason
+                : reason.Trim();
+
+            return new ConstructedActionReadyState
+            {
+                IsReady = false,
+                PrimaryReason = normalizedReason,
+                Flags = new[] { normalizedReason },
+                CommandKind = commandKind ?? string.Empty
+            };
+        }
+
+        private static void PopulateConstructedHardBlockFlags(object gameState, ref ConstructedActionReadyProbe probe)
+        {
+            if (gameState == null)
+                return;
+
+            if (TryInvokeBoolMethod(gameState, "IsResponsePacketBlocked", out var blocked) && blocked)
+                probe.ResponsePacketBlocked = true;
+
+            var inputMgr = GetSingleton(_inputMgrType);
+            if (inputMgr != null
+                && TryInvokeBoolMethod(inputMgr, "PermitDecisionMakingInput", out var permit)
+                && !permit)
+            {
+                probe.InputDenied = true;
+            }
+
+            if (TryInvokeBoolMethod(gameState, "IsBlockingPowerProcessor", out var blockingPowerProcessor)
+                && blockingPowerProcessor)
+            {
+                probe.BlockingPowerProcessor = true;
+            }
+
+            var ppType = _asm?.GetType("PowerProcessor");
+            if (ppType != null)
+            {
+                var pp = GetSingleton(ppType);
+                if (pp != null && TryInvokeBoolMethod(pp, "IsRunning", out var running) && running)
+                    probe.PowerProcessorRunning = true;
+            }
+
+            var zoneMgrType = _asm?.GetType("ZoneMgr");
+            if (zoneMgrType != null)
+            {
+                var zoneMgr = GetSingleton(zoneMgrType);
+                if (zoneMgr != null)
+                {
+                    if (TryInvokeBoolMethod(zoneMgr, "HasActiveServerChange", out var activeChange) && activeChange)
+                        probe.HasActiveServerChange = true;
+                    else if (TryInvokeBoolMethod(zoneMgr, "HasPendingServerChange", out var pendingChange) && pendingChange)
+                        probe.HasActiveServerChange = true;
+                }
+            }
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedHandCardReadySnapshot(object gameState, int entityId)
+        {
+            var card = ResolveFriendlyHandCardObject(gameState, entityId);
+            var snapshot = BuildConstructedCardReadySnapshot(gameState, card, entityId, targetHeroSide: -1);
+
+            if (TryReadRecentDrawCardInteractive(entityId, gameState, out var interactive))
+            {
+                snapshot.IsInteractiveKnown = true;
+                snapshot.IsInteractive = interactive;
+            }
+
+            if (snapshot.PositionStableKnown && !snapshot.IsPositionStable)
+                return snapshot;
+
+            if (!snapshot.PositionStableKnown && !string.IsNullOrWhiteSpace(GetHandZoneBlockingReason(gameState)))
+            {
+                snapshot.PositionStableKnown = true;
+                snapshot.IsPositionStable = false;
+            }
+
+            return snapshot;
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedAttackSourceReadySnapshot(object gameState, int sourceEntityId, int targetEntityId)
+        {
+            var snapshot = BuildConstructedBoardEntityReadySnapshot(gameState, sourceEntityId);
+            try
+            {
+                var state = SafeReadGameState();
+                if (state != null)
+                {
+                    snapshot.IsActionReadyKnown = true;
+                    snapshot.IsActionReady = CanEntityAttackNow(state, sourceEntityId, targetEntityId, out _);
+                }
+            }
+            catch
+            {
+            }
+
+            return snapshot;
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedBoardEntityReadySnapshot(object gameState, int entityId)
+        {
+            object card;
+            if (!TryResolveFriendlyBattlefieldCardObject(gameState, entityId, out card))
+                card = null;
+
+            var targetHeroSide = -1;
+            if (IsFriendlyHeroEntityId(entityId))
+                targetHeroSide = 0;
+            else if (IsEnemyHeroEntityId(entityId))
+                targetHeroSide = 1;
+
+            return BuildConstructedCardReadySnapshot(gameState, card, entityId, targetHeroSide);
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedHeroPowerReadySnapshot(object gameState, int sourceHeroPowerEntityId)
+        {
+            var snapshot = new ConstructedObjectReadySnapshot
+            {
+                Exists = sourceHeroPowerEntityId <= 0 || GetEntity(gameState, sourceHeroPowerEntityId) != null
+            };
+
+            snapshot.HasScreenPosition = sourceHeroPowerEntityId > 0
+                ? GameObjectFinder.GetHeroPowerScreenPos(sourceHeroPowerEntityId, out _, out _)
+                : GameObjectFinder.GetHeroPowerScreenPos(out _, out _);
+
+            if (TryReadHeroPowerPositionStability(sourceHeroPowerEntityId, out var stable))
+            {
+                snapshot.PositionStableKnown = true;
+                snapshot.IsPositionStable = stable;
+            }
+
+            return snapshot;
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedTargetReadySnapshot(object gameState, int targetEntityId)
+        {
+            if (targetEntityId <= 0)
+                return default(ConstructedObjectReadySnapshot);
+
+            if (TryGetFriendlyChoiceCardObject(targetEntityId, out var choiceCard))
+                return BuildConstructedCardReadySnapshot(gameState, choiceCard, targetEntityId, targetHeroSide: -1);
+
+            if (TryResolveRuntimeCardObject(gameState, targetEntityId, out var runtimeCard))
+                return BuildConstructedCardReadySnapshot(gameState, runtimeCard, targetEntityId, targetHeroSide: -1);
+
+            var targetHeroSide = -1;
+            if (IsFriendlyHeroEntityId(targetEntityId))
+                targetHeroSide = 0;
+            else if (IsEnemyHeroEntityId(targetEntityId))
+                targetHeroSide = 1;
+
+            return BuildConstructedCardReadySnapshot(gameState, null, targetEntityId, targetHeroSide);
+        }
+
+        private static ConstructedObjectReadySnapshot BuildConstructedCardReadySnapshot(object gameState, object card, int fallbackEntityId, int targetHeroSide)
+        {
+            var snapshot = new ConstructedObjectReadySnapshot();
+            var entity = card != null
+                ? (Invoke(card, "GetEntity")
+                    ?? GetFieldOrProp(card, "Entity")
+                    ?? GetFieldOrProp(card, "m_entity"))
+                : null;
+
+            if (entity == null && fallbackEntityId > 0)
+                entity = GetEntity(gameState, fallbackEntityId);
+
+            var resolvedEntityId = fallbackEntityId > 0 ? fallbackEntityId : ResolveEntityId(entity);
+            snapshot.Exists = card != null || entity != null || targetHeroSide >= 0;
+
+            if (card != null && GameObjectFinder.GetObjectScreenPos(card, out _, out _))
+            {
+                snapshot.HasScreenPosition = true;
+            }
+            else if (resolvedEntityId > 0 && targetHeroSide >= 0)
+            {
+                snapshot.HasScreenPosition = targetHeroSide == 0
+                    ? GameObjectFinder.GetHeroScreenPos(true, out _, out _)
+                    : GameObjectFinder.GetHeroScreenPos(false, out _, out _);
+            }
+            else if (resolvedEntityId > 0 && GameObjectFinder.GetEntityScreenPos(resolvedEntityId, out _, out _))
+            {
+                snapshot.HasScreenPosition = true;
+            }
+
+            if (card != null && TryReadCardStandInIsInteractive(card, out var interactive))
+            {
+                snapshot.IsInteractiveKnown = true;
+                snapshot.IsInteractive = interactive;
+            }
+
+            if (card != null && TryReadCardHasActiveTweens(card, out var hasActiveTween))
+            {
+                snapshot.PositionStableKnown = true;
+                snapshot.IsPositionStable = !hasActiveTween;
+            }
+            else
+            {
+                bool stable;
+                if (targetHeroSide == 0 || targetHeroSide == 1)
+                {
+                    if (TryReadHeroScreenPositionStability(targetHeroSide == 0, out stable))
+                    {
+                        snapshot.PositionStableKnown = true;
+                        snapshot.IsPositionStable = stable;
+                    }
+                }
+                else if (resolvedEntityId > 0 && TryReadEntityScreenPositionStability(resolvedEntityId, out stable))
+                {
+                    snapshot.PositionStableKnown = true;
+                    snapshot.IsPositionStable = stable;
+                }
+            }
+
+            return snapshot;
+        }
+
+        private static bool IsConstructedEndTurnButtonReady(object gameState)
+        {
+            if (IsChoiceModeActive(gameState) || IsEntityChoiceUiReady() || IsSubOptionUiReady())
+                return false;
+
+            if (!GameObjectFinder.GetEndTurnButtonScreenPos(out _, out _))
+                return false;
+
+            var endTurnButtonType = _asm?.GetType("EndTurnButton");
+            if (endTurnButtonType == null)
+                return true;
+
+            var button = InvokeStatic(endTurnButtonType, "Get");
+            if (button == null)
+                return true;
+
+            if (!TryReadGameObjectActive(button))
+                return false;
+
+            return TryReadEnabledState(button);
+        }
+
+        private static bool TryReadHeroPowerPositionStability(int sourceHeroPowerEntityId, out bool stable)
+        {
+            return TryReadScreenPositionStability(
+                () =>
+                {
+                    int x;
+                    int y;
+                    var ok = sourceHeroPowerEntityId > 0
+                        ? GameObjectFinder.GetHeroPowerScreenPos(sourceHeroPowerEntityId, out x, out y)
+                        : GameObjectFinder.GetHeroPowerScreenPos(out x, out y);
+                    return (ok, x, y);
+                },
+                out stable);
+        }
+
+        private static bool TryReadHeroScreenPositionStability(bool own, out bool stable)
+        {
+            return TryReadScreenPositionStability(
+                () =>
+                {
+                    int x;
+                    int y;
+                    var ok = GameObjectFinder.GetHeroScreenPos(own, out x, out y);
+                    return (ok, x, y);
+                },
+                out stable);
+        }
+
+        private static bool TryReadEntityScreenPositionStability(int entityId, out bool stable)
+        {
+            return TryReadScreenPositionStability(
+                () =>
+                {
+                    int x;
+                    int y;
+                    var ok = GameObjectFinder.GetEntityScreenPos(entityId, out x, out y);
+                    return (ok, x, y);
+                },
+                out stable);
+        }
+
+        private static bool TryReadScreenPositionStability(Func<(bool ok, int x, int y)> resolver, out bool stable)
+        {
+            stable = false;
+            if (resolver == null)
+                return false;
+
+            var first = resolver();
+            if (!first.ok)
+                return false;
+
+            Thread.Sleep(15);
+
+            var second = resolver();
+            if (!second.ok)
+                return false;
+
+            stable = Math.Abs(first.x - second.x) <= 4
+                && Math.Abs(first.y - second.y) <= 4;
+            return true;
+        }
+
         private static string GetBattlegroundActionCommandKind(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return string.Empty;
+
+            var separatorIndex = rawCommand.IndexOf('|');
+            return separatorIndex > 0
+                ? rawCommand.Substring(0, separatorIndex).Trim()
+                : rawCommand.Trim();
+        }
+
+        private static string GetConstructedActionCommandKind(string rawCommand)
         {
             if (string.IsNullOrWhiteSpace(rawCommand))
                 return string.Empty;

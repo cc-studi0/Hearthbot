@@ -2824,16 +2824,44 @@ namespace BotMain
                             else
                             {
                                 var preReadySw = Stopwatch.StartNew();
-                                var preReadyOk = WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action);
+                                var preReadyOk = false;
+                                ConstructedActionReadyState constructedPreReadyState = null;
+                                if (ShouldUseConstructedActionReadyWait(action))
+                                {
+                                    preReadyOk = WaitForConstructedActionReady(pipe, action, 15, 20, readyTimeoutMs, out constructedPreReadyState);
+                                    if (preReadyOk)
+                                    {
+                                        preReadyStatus = "ready_constructed";
+                                    }
+                                    else
+                                    {
+                                        preReadyOk = WaitForGameReady(
+                                            pipe,
+                                            preReadyRetries,
+                                            preReadyIntervalMs,
+                                            readyTimeoutMs,
+                                            waitScope: "ActionPreReadyFallback",
+                                            action: action);
+                                        preReadyStatus = preReadyOk ? "ready_fallback" : "timeout_constructed";
+                                    }
+                                }
+                                else
+                                {
+                                    preReadyOk = WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action);
+                                    preReadyStatus = preReadyOk ? "ready" : "timeout";
+                                }
+
                                 preReadySw.Stop();
                                 preReadyMs = preReadySw.ElapsedMilliseconds;
-                                preReadyStatus = preReadyOk ? "ready" : "timeout";
                                 if (!preReadyOk)
                                 {
                                     actionOutcome = "WAIT_READY_TIMEOUT";
                                     actionFailed = true;
                                     actionFailedThisAction = true;
-                                    Log($"[Action] wait ready timeout before {action}");
+                                    var detail = constructedPreReadyState != null && !string.IsNullOrWhiteSpace(constructedPreReadyState.PrimaryReason)
+                                        ? $" constructed={constructedPreReadyState.PrimaryReason}"
+                                        : string.Empty;
+                                    Log($"[Action] wait ready timeout before {action}{detail}");
                                     break;
                                 }
                             }
@@ -3056,10 +3084,20 @@ namespace BotMain
                             if (isAttack && (nextIsAttack || lastRecommendationWasAttackOnly))
                             {
                                 var postReadySw = Stopwatch.StartNew();
-                                var postReadyOk = WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
+                                var postReadyOk = false;
+                                if (nextIsAttack && !string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
+                                {
+                                    postReadyOk = WaitForConstructedActionReady(pipe, nextAction, 20, 20, readyTimeoutMs, out _)
+                                        || WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReadyFallback", action: action);
+                                    postReadyStatus = postReadyOk ? "ready_chain_attack_constructed" : "timeout_chain_attack_constructed";
+                                }
+                                else
+                                {
+                                    postReadyOk = WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
+                                    postReadyStatus = postReadyOk ? "ready_chain_attack" : "timeout_chain_attack";
+                                }
                                 postReadySw.Stop();
                                 postReadyMs = postReadySw.ElapsedMilliseconds;
-                                postReadyStatus = postReadyOk ? "ready_chain_attack" : "timeout_chain_attack";
                             }
                             else if (nextIsOption)
                             {
@@ -3098,10 +3136,34 @@ namespace BotMain
                                 }
 
                                 var postReadySw = Stopwatch.StartNew();
-                                var postReadyOk = WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
+                                var postReadyOk = false;
+                                if (!string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
+                                {
+                                    postReadyOk = WaitForConstructedActionReady(pipe, nextAction, 15, 20, readyTimeoutMs, out _);
+                                    if (postReadyOk)
+                                    {
+                                        postReadyStatus = "ready_next_constructed";
+                                    }
+                                    else
+                                    {
+                                        postReadyOk = WaitForGameReady(
+                                            pipe,
+                                            postReadyRetries,
+                                            postReadyIntervalMs,
+                                            readyTimeoutMs,
+                                            waitScope: "ActionPostReadyFallback",
+                                            action: action);
+                                        postReadyStatus = postReadyOk ? "ready_fallback" : "timeout_constructed";
+                                    }
+                                }
+                                else
+                                {
+                                    postReadyOk = WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
+                                    postReadyStatus = postReadyOk ? "ready" : "timeout";
+                                }
+
                                 postReadySw.Stop();
                                 postReadyMs = postReadySw.ElapsedMilliseconds;
-                                postReadyStatus = postReadyOk ? "ready" : "timeout";
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_settled_no_choice");
                             }
@@ -4352,6 +4414,16 @@ namespace BotMain
             return BgActionReadyDiagnostics.TryParseResponse(response, out diagnosticState);
         }
 
+        private bool TryGetConstructedActionReadyDiagnostic(PipeServer pipe, string action, int commandTimeoutMs, out ConstructedActionReadyState diagnosticState)
+        {
+            diagnosticState = null;
+            if (pipe == null || string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var response = pipe.SendAndReceive("WAIT_CONSTRUCTED_ACTION_READY_DETAIL:" + action, Math.Max(100, commandTimeoutMs));
+            return ConstructedActionReadyDiagnostics.TryParseResponse(response, out diagnosticState);
+        }
+
         private bool WaitForBattlegroundActionReady(
             PipeServer pipe,
             string action,
@@ -4396,6 +4468,50 @@ namespace BotMain
             return false;
         }
 
+        private bool WaitForConstructedActionReady(
+            PipeServer pipe,
+            string action,
+            int maxPolls,
+            int pollIntervalMs,
+            int commandTimeoutMs,
+            out ConstructedActionReadyState diagnosticState)
+        {
+            diagnosticState = null;
+            ConstructedActionReadyState lastState = null;
+
+            for (var i = 0; i < maxPolls; i++)
+            {
+                if (_cts?.IsCancellationRequested == true)
+                    return false;
+
+                if (TryGetConstructedActionReadyDiagnostic(pipe, action, commandTimeoutMs, out var currentState)
+                    && currentState != null)
+                {
+                    lastState = currentState;
+                    if (currentState.IsReady)
+                    {
+                        diagnosticState = currentState;
+                        return true;
+                    }
+                }
+
+                if (i < maxPolls - 1 && pollIntervalMs > 0)
+                {
+                    if (SleepOrCancelled(pollIntervalMs))
+                        return false;
+                }
+            }
+
+            diagnosticState = lastState ?? new ConstructedActionReadyState
+            {
+                IsReady = false,
+                PrimaryReason = "not_ready_timeout",
+                Flags = new[] { "not_ready_timeout" },
+                CommandKind = GetCommandKindToken(action)
+            };
+            return false;
+        }
+
         private static bool ShouldUseBattlegroundActionReadyWait(string action)
         {
             if (string.IsNullOrWhiteSpace(action))
@@ -4410,6 +4526,20 @@ namespace BotMain
                 || action.StartsWith("BG_FREEZE", StringComparison.OrdinalIgnoreCase)
                 || action.StartsWith("BG_HERO_POWER", StringComparison.OrdinalIgnoreCase)
                 || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool ShouldUseConstructedActionReadyWait(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            return action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
         }
 
         private static bool TryResolveBattlegroundPreActionCommand(string rawAction, string stateData, out string resolvedAction, out string detail)

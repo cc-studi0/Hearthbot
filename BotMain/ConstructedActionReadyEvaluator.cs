@@ -80,6 +80,36 @@ namespace BotMain
             };
         }
 
+        public static ConstructedActionReadyProbe ForHeroPower(
+            ConstructedObjectReadySnapshot source,
+            ConstructedObjectReadySnapshot target,
+            bool requiresTarget)
+        {
+            return new ConstructedActionReadyProbe
+            {
+                Kind = ConstructedActionReadyKind.HeroPower,
+                CommandKind = "HERO_POWER",
+                Source = source,
+                Target = target,
+                RequiresTarget = requiresTarget
+            };
+        }
+
+        public static ConstructedActionReadyProbe ForUseLocation(
+            ConstructedObjectReadySnapshot source,
+            ConstructedObjectReadySnapshot target,
+            bool requiresTarget)
+        {
+            return new ConstructedActionReadyProbe
+            {
+                Kind = ConstructedActionReadyKind.UseLocation,
+                CommandKind = "USE_LOCATION",
+                Source = source,
+                Target = target,
+                RequiresTarget = requiresTarget
+            };
+        }
+
         public static ConstructedActionReadyProbe ForOption(bool choiceReady, int sourceEntityId)
         {
             return new ConstructedActionReadyProbe
@@ -87,6 +117,16 @@ namespace BotMain
                 Kind = ConstructedActionReadyKind.Option,
                 CommandKind = "OPTION",
                 ChoiceReady = choiceReady
+            };
+        }
+
+        public static ConstructedActionReadyProbe ForTrade(ConstructedObjectReadySnapshot source)
+        {
+            return new ConstructedActionReadyProbe
+            {
+                Kind = ConstructedActionReadyKind.Trade,
+                CommandKind = "TRADE",
+                Source = source
             };
         }
 
@@ -130,8 +170,13 @@ namespace BotMain
                     return EvaluateSourceAndTarget(probe, commandKind, requireActionReady: false, requireInteractive: true);
                 case ConstructedActionReadyKind.Attack:
                     return EvaluateSourceAndTarget(probe, commandKind, requireActionReady: true, requireInteractive: false);
+                case ConstructedActionReadyKind.HeroPower:
+                case ConstructedActionReadyKind.UseLocation:
+                    return EvaluateSourceAndTarget(probe, commandKind, requireActionReady: false, requireInteractive: false);
                 case ConstructedActionReadyKind.Option:
                     return probe.ChoiceReady ? Ready(commandKind) : Busy("choice_not_ready", commandKind);
+                case ConstructedActionReadyKind.Trade:
+                    return EvaluateSourceAndTarget(probe, commandKind, requireActionReady: false, requireInteractive: true);
                 case ConstructedActionReadyKind.EndTurn:
                     return probe.EndTurnButtonReady ? Ready(commandKind) : Busy("end_turn_button_disabled", commandKind);
                 default:
