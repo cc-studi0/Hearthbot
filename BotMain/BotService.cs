@@ -2987,6 +2987,7 @@ namespace BotMain
                                 var confirmation = ResolveActionEffectConfirmation(
                                     useHsBoxPayloadConfirmation,
                                     hsBoxAdvanceConfirmed,
+                                    actionReportedSuccess: true,
                                     action,
                                     preActionSnapshot,
                                     postActionSnapshot);
@@ -8180,6 +8181,7 @@ namespace BotMain
         internal static ActionEffectConfirmationResult ResolveActionEffectConfirmation(
             bool useHsBoxPayloadConfirmation,
             bool hsBoxAdvanceConfirmed,
+            bool actionReportedSuccess,
             string action,
             ActionStateSnapshot before,
             ActionStateSnapshot after)
@@ -8201,6 +8203,15 @@ namespace BotMain
                 {
                     MarkTurnHadEffectiveAction = true,
                     Reason = "local_state_advanced"
+                };
+            }
+
+            if (useHsBoxPayloadConfirmation && actionReportedSuccess)
+            {
+                return new ActionEffectConfirmationResult
+                {
+                    MarkTurnHadEffectiveAction = true,
+                    Reason = "action_result_ok"
                 };
             }
 

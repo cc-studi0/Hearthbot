@@ -26,6 +26,7 @@ namespace BotCore.Tests
             var result = BotService.ResolveActionEffectConfirmation(
                 useHsBoxPayloadConfirmation: true,
                 hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
                 action: "PLAY|43|0|1|CATA_556",
                 before: before,
                 after: after);
@@ -42,6 +43,7 @@ namespace BotCore.Tests
             var result = BotService.ResolveActionEffectConfirmation(
                 useHsBoxPayloadConfirmation: true,
                 hsBoxAdvanceConfirmed: true,
+                actionReportedSuccess: true,
                 action: "PLAY|43|0|1|CATA_556",
                 before: null,
                 after: null);
@@ -58,6 +60,7 @@ namespace BotCore.Tests
             var result = BotService.ResolveActionEffectConfirmation(
                 useHsBoxPayloadConfirmation: false,
                 hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
                 action: "PLAY|43|0|1|CATA_556",
                 before: null,
                 after: null);
@@ -66,6 +69,38 @@ namespace BotCore.Tests
             Assert.False(result.ConsumeRecommendation);
             Assert.False(result.SkipNextTurnStartReadyWait);
             Assert.Equal("snapshot_unavailable", result.Reason);
+        }
+
+        [Fact]
+        public void ResolveActionEffectConfirmation_MarksEffectiveAction_WhenHsBoxUnchangedButActionReportedSuccess()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 7,
+                ManaAvailable = 3,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 2
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 7,
+                ManaAvailable = 3,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 2
+            };
+
+            var result = BotService.ResolveActionEffectConfirmation(
+                useHsBoxPayloadConfirmation: true,
+                hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
+                action: "PLAY|43|0|1|CATA_556",
+                before: before,
+                after: after);
+
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.False(result.ConsumeRecommendation);
+            Assert.False(result.SkipNextTurnStartReadyWait);
+            Assert.Equal("action_result_ok", result.Reason);
         }
     }
 }
