@@ -59,8 +59,6 @@ namespace BotMain
         private const int ActionTimingSlowLogThresholdMs = 1000;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
-        private const int HsBoxPayloadAdvanceTimeoutMs = 260;
-        private const int HsBoxPayloadAdvancePollMs = 20;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -163,6 +161,10 @@ namespace BotMain
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
         private string _lastConsumedHsBoxActionCommand = string.Empty;
         private string _lastConsumedBoardFingerprint = string.Empty;
+        private long _pendingHsBoxActionUpdatedAtMs;
+        private string _pendingHsBoxActionPayloadSignature = string.Empty;
+        private string _pendingHsBoxActionCommand = string.Empty;
+        private string _pendingHsBoxBoardFingerprint = string.Empty;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
@@ -1330,9 +1332,44 @@ namespace BotMain
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
             _lastConsumedHsBoxActionCommand = string.Empty;
             _lastConsumedBoardFingerprint = string.Empty;
+            ClearPendingHsBoxActionConfirmation();
         }
 
         private void RememberConsumedHsBoxActionRecommendation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint = null)
+        {
+            if (recommendation == null)
+                return;
+
+            RememberConsumedHsBoxActionRecommendation(
+                recommendation.SourceUpdatedAtMs,
+                recommendation.SourcePayloadSignature,
+                string.IsNullOrWhiteSpace(executedAction)
+                    ? ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(recommendation.Actions)
+                    : executedAction.Trim(),
+                boardFingerprint);
+        }
+
+        private void RememberConsumedHsBoxActionRecommendation(
+            long sourceUpdatedAtMs,
+            string sourcePayloadSignature,
+            string executedAction,
+            string boardFingerprint = null)
+        {
+            if (sourceUpdatedAtMs <= 0
+                && string.IsNullOrWhiteSpace(sourcePayloadSignature))
+            {
+                return;
+            }
+
+            _lastConsumedHsBoxActionUpdatedAtMs = sourceUpdatedAtMs;
+            _lastConsumedHsBoxActionPayloadSignature = sourcePayloadSignature ?? string.Empty;
+            _lastConsumedHsBoxActionCommand = executedAction?.Trim() ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(boardFingerprint))
+                _lastConsumedBoardFingerprint = boardFingerprint;
+            ClearPendingHsBoxActionConfirmation();
+        }
+
+        private void RememberPendingHsBoxActionConfirmation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint)
         {
             if (recommendation == null)
                 return;
@@ -1343,13 +1380,48 @@ namespace BotMain
                 return;
             }
 
-            _lastConsumedHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
-            _lastConsumedHsBoxActionPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
-            _lastConsumedHsBoxActionCommand = string.IsNullOrWhiteSpace(executedAction)
-                ? ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(recommendation.Actions)
-                : executedAction.Trim();
-            if (!string.IsNullOrWhiteSpace(boardFingerprint))
-                _lastConsumedBoardFingerprint = boardFingerprint;
+            _pendingHsBoxActionUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+            _pendingHsBoxActionPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+            _pendingHsBoxActionCommand = executedAction?.Trim() ?? string.Empty;
+            _pendingHsBoxBoardFingerprint = boardFingerprint ?? string.Empty;
+        }
+
+        private void ClearPendingHsBoxActionConfirmation()
+        {
+            _pendingHsBoxActionUpdatedAtMs = 0;
+            _pendingHsBoxActionPayloadSignature = string.Empty;
+            _pendingHsBoxActionCommand = string.Empty;
+            _pendingHsBoxBoardFingerprint = string.Empty;
+        }
+
+        private bool TryPromotePendingHsBoxActionConfirmation()
+        {
+            if (!_followHsBoxRecommendations)
+                return false;
+
+            if (_pendingHsBoxActionUpdatedAtMs <= 0
+                && string.IsNullOrWhiteSpace(_pendingHsBoxActionPayloadSignature))
+            {
+                return false;
+            }
+
+            var advance = _hsBoxRecommendationProvider.WaitForActionPayloadAdvance(
+                _pendingHsBoxActionUpdatedAtMs,
+                _pendingHsBoxActionPayloadSignature,
+                timeoutMs: 1,
+                pollIntervalMs: 0);
+            if (!advance.HasAdvanced)
+                return false;
+
+            RememberConsumedHsBoxActionRecommendation(
+                _pendingHsBoxActionUpdatedAtMs,
+                _pendingHsBoxActionPayloadSignature,
+                _pendingHsBoxActionCommand,
+                _pendingHsBoxBoardFingerprint);
+            _skipNextTurnStartReadyWait = true;
+            Log(
+                $"[Action] hsbox payload advanced before TurnStart: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
+            return true;
         }
 
         private static string BuildBoardFingerprint(Board board)
@@ -2540,6 +2612,9 @@ namespace BotMain
                     continue;
                 }
 
+                if (!_skipNextTurnStartReadyWait)
+                    TryPromotePendingHsBoxActionConfirmation();
+
                 var skippedTurnStartReadyWait = false;
                 if (_skipNextTurnStartReadyWait && _followHsBoxRecommendations)
                 {
@@ -2955,38 +3030,18 @@ namespace BotMain
                             // IdleGuard: 验证操作是否真正生效
                             if (!isEndTurn && !IsActionFailure(result))
                             {
-                                var hsBoxAdvanceConfirmed = false;
                                 ActionStateSnapshot postActionSnapshot = null;
                                 if (useHsBoxPayloadConfirmation)
-                                {
-                                    var advance = _hsBoxRecommendationProvider.WaitForActionPayloadAdvance(
-                                        recommendation?.SourceUpdatedAtMs ?? 0,
-                                        recommendation?.SourcePayloadSignature,
-                                        HsBoxPayloadAdvanceTimeoutMs,
-                                        HsBoxPayloadAdvancePollMs);
-                                    if (advance.HasAdvanced)
-                                    {
-                                        hsBoxAdvanceConfirmed = true;
-                                        _turnHadEffectiveAction = true;
-                                        _skipNextTurnStartReadyWait = true;
-                                        Log(
-                                            $"[Action] hsbox payload advanced after {action}: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
-                                    }
-                                    else
-                                    {
-                                        Log(
-                                            $"[Action] hsbox payload unchanged after {action}: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
-                                    }
-                                }
+                                    RememberPendingHsBoxActionConfirmation(recommendation, action, currentBoardFingerprint);
 
-                                if (!hsBoxAdvanceConfirmed && preActionSnapshot != null)
+                                if (preActionSnapshot != null)
                                 {
                                     postActionSnapshot = TakeActionStateSnapshot(pipe);
                                 }
 
                                 var confirmation = ResolveActionEffectConfirmation(
                                     useHsBoxPayloadConfirmation,
-                                    hsBoxAdvanceConfirmed,
+                                    hsBoxAdvanceConfirmed: false,
                                     actionReportedSuccess: true,
                                     action,
                                     preActionSnapshot,
@@ -3004,7 +3059,7 @@ namespace BotMain
                                 }
                                 else if (useHsBoxPayloadConfirmation && string.Equals(confirmation.Reason, "awaiting_hsbox_advance", StringComparison.Ordinal))
                                 {
-                                    Log($"[Action] waiting hsbox advance confirmation for {action}, keeping recommendation unconsumed.");
+                                    Log($"[Action] deferred hsbox advance check for {action}, keeping recommendation unconsumed.");
                                 }
                                 else if (useHsBoxPayloadConfirmation && string.Equals(confirmation.Reason, "local_state_advanced", StringComparison.Ordinal))
                                 {
