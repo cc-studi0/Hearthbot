@@ -2876,8 +2876,13 @@ namespace BotMain
                             {
                                 bool prevInBatchIsAttack = ai > 0
                                     && actions[ai - 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                                if (prevInBatchIsAttack || lastRecommendationWasAttackOnly)
+                                if (ShouldUseAttackChainFastPath(
+                                    action,
+                                    planningBoard,
+                                    prevInBatchIsAttack || lastRecommendationWasAttackOnly))
+                                {
                                     commandToSend = action + "|CHAIN";
+                                }
                             }
 
                             // ── IdleGuard 第二层：操作前弹窗检测与关闭 ──
@@ -5831,6 +5836,43 @@ namespace BotMain
                 || sourceEntityId <= 0)
             {
                 sourceEntityId = 0;
+                return false;
+            }
+
+            return true;
+        }
+
+        internal static bool ShouldUseAttackChainFastPath(string action, Board planningBoard, bool hasAttackChainContext)
+        {
+            if (!hasAttackChainContext
+                || string.IsNullOrWhiteSpace(action)
+                || !action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            if (!TryGetActionTargetEntityId(action, out var targetEntityId)
+                || targetEntityId <= 0
+                || planningBoard?.HeroEnemy == null)
+            {
+                return false;
+            }
+
+            return planningBoard.HeroEnemy.Id == targetEntityId;
+        }
+
+        private static bool TryGetActionTargetEntityId(string action, out int targetEntityId)
+        {
+            targetEntityId = 0;
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var parts = action.Split('|');
+            if (parts.Length < 3
+                || !int.TryParse(parts[2], out targetEntityId)
+                || targetEntityId <= 0)
+            {
+                targetEntityId = 0;
                 return false;
             }
 
