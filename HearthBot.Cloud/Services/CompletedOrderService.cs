@@ -1,3 +1,4 @@
+#nullable enable
 using HearthBot.Cloud.Data;
 using HearthBot.Cloud.Models;
 using Microsoft.EntityFrameworkCore;

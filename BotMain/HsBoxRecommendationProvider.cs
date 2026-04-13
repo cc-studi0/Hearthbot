@@ -2850,7 +2850,6 @@ namespace BotMain
             string payloadSignature,
             ChoiceRecommendationRequest request)
         {
-            var minimumUpdatedAtMs = 0;
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
             var lastConsumedPayloadSignature = request?.LastConsumedPayloadSignature ?? string.Empty;
 

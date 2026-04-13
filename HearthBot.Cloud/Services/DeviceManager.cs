@@ -1,3 +1,4 @@
+#nullable enable
 using System.Collections.Concurrent;
 using HearthBot.Cloud.Data;
 using HearthBot.Cloud.Models;
