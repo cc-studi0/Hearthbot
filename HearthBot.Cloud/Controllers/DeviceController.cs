@@ -17,14 +17,16 @@ public class DeviceController : ControllerBase
     private readonly DeviceManager _devices;
     private readonly IHubContext<DashboardHub> _dashboard;
     private readonly OrderCompletionNotifier _completionNotifier;
+    private readonly HiddenDeviceService _hiddenDevices;
 
     public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard,
-        OrderCompletionNotifier completionNotifier)
+        OrderCompletionNotifier completionNotifier, HiddenDeviceService hiddenDevices)
     {
         _db = db;
         _devices = devices;
         _dashboard = dashboard;
         _completionNotifier = completionNotifier;
+        _hiddenDevices = hiddenDevices;
     }
 
     [HttpGet]
@@ -49,6 +51,13 @@ public class DeviceController : ControllerBase
 
         await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
         return Ok(device);
+    }
+
+    [HttpPost("{deviceId}/hide")]
+    public async Task<IActionResult> Hide(string deviceId, [FromBody] HideDeviceRequest request)
+    {
+        await _hiddenDevices.HideAsync(deviceId, request.CurrentAccount ?? string.Empty, request.OrderNumber ?? string.Empty);
+        return NoContent();
     }
 
     [HttpPost("{deviceId}/complete")]
@@ -113,5 +122,11 @@ public class DeviceController : ControllerBase
 
 public class SetOrderNumberRequest
 {
+    public string? OrderNumber { get; set; }
+}
+
+public class HideDeviceRequest
+{
+    public string? CurrentAccount { get; set; }
     public string? OrderNumber { get; set; }
 }

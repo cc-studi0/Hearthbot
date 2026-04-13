@@ -9,6 +9,7 @@ public class CloudDbContext : DbContext
 
     public DbSet<Device> Devices => Set<Device>();
     public DbSet<CompletedOrderSnapshot> CompletedOrderSnapshots => Set<CompletedOrderSnapshot>();
+    public DbSet<HiddenDeviceEntry> HiddenDeviceEntries => Set<HiddenDeviceEntry>();
     public DbSet<GameRecord> GameRecords => Set<GameRecord>();
     public DbSet<PendingCommand> PendingCommands => Set<PendingCommand>();
 
@@ -36,6 +37,14 @@ public class CloudDbContext : DbContext
             e.HasIndex(snapshot => snapshot.DeviceId);
             e.HasIndex(snapshot => snapshot.CompletedAt);
             e.HasIndex(snapshot => snapshot.ExpiresAt);
+        });
+
+        b.Entity<HiddenDeviceEntry>(e =>
+        {
+            e.HasKey(entry => entry.Id);
+            e.Property(entry => entry.Id).ValueGeneratedOnAdd();
+            e.HasIndex(entry => entry.DeviceId);
+            e.HasIndex(entry => new { entry.DeviceId, entry.CurrentAccount, entry.OrderNumber }).IsUnique();
         });
 
         b.Entity<PendingCommand>(e =>

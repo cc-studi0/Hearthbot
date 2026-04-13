@@ -43,6 +43,10 @@ internal sealed class CloudTestEnvironment : IAsyncDisposable
     public DeviceManager CreateDeviceManager() =>
         _serviceProvider.GetRequiredService<DeviceManager>();
 
+    public CompletedOrderService CreateCompletedOrders() => new(Db);
+
+    public HiddenDeviceService CreateHiddenDevices() => new(Db);
+
     public async ValueTask DisposeAsync()
     {
         await Db.DisposeAsync();

@@ -106,6 +106,18 @@ using (var scope = app.Services.CreateScope())
             )");
     }
     catch { }
+    try
+    {
+        db.Database.ExecuteSqlRaw(
+            @"CREATE TABLE IF NOT EXISTS HiddenDeviceEntries (
+                Id INTEGER NOT NULL CONSTRAINT PK_HiddenDeviceEntries PRIMARY KEY AUTOINCREMENT,
+                DeviceId TEXT NOT NULL DEFAULT '',
+                CurrentAccount TEXT NOT NULL DEFAULT '',
+                OrderNumber TEXT NOT NULL DEFAULT '',
+                HiddenAt TEXT NOT NULL
+            )");
+    }
+    catch { }
 }
 
 app.UseResponseCompression();
