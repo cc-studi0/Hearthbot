@@ -4,6 +4,7 @@
 .vscode/
 .gemini/
 .superpowers/
+.agents/
 
 # ========== 临时/构建目录 ==========
 _tmp*/
