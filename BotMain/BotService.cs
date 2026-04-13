@@ -2941,11 +2941,9 @@ namespace BotMain
 
                             // ── IdleGuard 第三层：操作前取状态快照 ──
                             var useHsBoxPayloadConfirmation = ShouldUseHsBoxPayloadConfirmation(recommendation, isEndTurn);
-                            ActionStateSnapshot preActionSnapshot = null;
-                            if (!isEndTurn && !useHsBoxPayloadConfirmation)
-                            {
-                                preActionSnapshot = TakeActionStateSnapshot(pipe);
-                            }
+                            var preActionSnapshot = isEndTurn
+                                ? null
+                                : BuildActionStateSnapshot(planningBoard);
 
                             var sendSw = Stopwatch.StartNew();
                             var result = SendActionCommand(pipe, commandToSend, 5000) ?? "NO_RESPONSE";
@@ -2958,6 +2956,7 @@ namespace BotMain
                             if (!isEndTurn && !IsActionFailure(result))
                             {
                                 var hsBoxAdvanceConfirmed = false;
+                                ActionStateSnapshot postActionSnapshot = null;
                                 if (useHsBoxPayloadConfirmation)
                                 {
                                     var advance = _hsBoxRecommendationProvider.WaitForActionPayloadAdvance(
@@ -2980,29 +2979,39 @@ namespace BotMain
                                     }
                                 }
 
-                                if (hsBoxAdvanceConfirmed)
+                                if (!hsBoxAdvanceConfirmed && preActionSnapshot != null)
+                                {
+                                    postActionSnapshot = TakeActionStateSnapshot(pipe);
+                                }
+
+                                var confirmation = ResolveActionEffectConfirmation(
+                                    useHsBoxPayloadConfirmation,
+                                    hsBoxAdvanceConfirmed,
+                                    action,
+                                    preActionSnapshot,
+                                    postActionSnapshot);
+
+                                if (confirmation.MarkTurnHadEffectiveAction)
+                                    _turnHadEffectiveAction = true;
+
+                                if (confirmation.SkipNextTurnStartReadyWait)
+                                    _skipNextTurnStartReadyWait = true;
+
+                                if (confirmation.ConsumeRecommendation)
                                 {
                                     RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
                                 }
-                                else if (useHsBoxPayloadConfirmation)
+                                else if (useHsBoxPayloadConfirmation && string.Equals(confirmation.Reason, "awaiting_hsbox_advance", StringComparison.Ordinal))
                                 {
                                     Log($"[Action] waiting hsbox advance confirmation for {action}, keeping recommendation unconsumed.");
                                 }
-                                else if (preActionSnapshot == null)
+                                else if (useHsBoxPayloadConfirmation && string.Equals(confirmation.Reason, "local_state_advanced", StringComparison.Ordinal))
                                 {
-                                    _turnHadEffectiveAction = true;
+                                    Log($"[Action] local state advanced after {action}, marked effective action without consuming hsbox recommendation.");
                                 }
-                                else
+                                else if (!confirmation.MarkTurnHadEffectiveAction)
                                 {
-                                    var postActionSnapshot = TakeActionStateSnapshot(pipe);
-                                    if (VerifyActionEffective(action, preActionSnapshot, postActionSnapshot))
-                                    {
-                                        _turnHadEffectiveAction = true;
-                                    }
-                                    else
-                                    {
-                                        Log($"[IdleGuard] 操作 {action} 返回成功但状态未变化，判定为无效操作");
-                                    }
+                                    Log($"[IdleGuard] 操作 {action} 返回成功但状态未变化，判定为无效操作");
                                 }
                             }
 
@@ -8120,12 +8129,34 @@ namespace BotMain
         /// <summary>
         /// 操作前状态快照，用于操作后验证。
         /// </summary>
-        private sealed class ActionStateSnapshot
+        internal sealed class ActionStateSnapshot
         {
             public int HandCount;
             public int ManaAvailable;
             public int FriendMinionCount;
             public int EnemyMinionCount;
+        }
+
+        internal sealed class ActionEffectConfirmationResult
+        {
+            public bool MarkTurnHadEffectiveAction;
+            public bool ConsumeRecommendation;
+            public bool SkipNextTurnStartReadyWait;
+            public string Reason = string.Empty;
+        }
+
+        internal static ActionStateSnapshot BuildActionStateSnapshot(Board board)
+        {
+            if (board == null)
+                return null;
+
+            return new ActionStateSnapshot
+            {
+                HandCount = board.Hand?.Count ?? 0,
+                ManaAvailable = board.ManaAvailable,
+                FriendMinionCount = board.MinionFriend?.Count ?? 0,
+                EnemyMinionCount = board.MinionEnemy?.Count ?? 0
+            };
         }
 
         private ActionStateSnapshot TakeActionStateSnapshot(PipeServer pipe)
@@ -8138,20 +8169,56 @@ namespace BotMain
 
                 var compatibleSeed = SeedCompatibility.GetCompatibleSeed(seedResp, out _);
                 var board = Board.FromSeed(compatibleSeed);
-                if (board == null) return null;
-
-                return new ActionStateSnapshot
-                {
-                    HandCount = board.Hand?.Count ?? 0,
-                    ManaAvailable = board.ManaAvailable,
-                    FriendMinionCount = board.MinionFriend?.Count ?? 0,
-                    EnemyMinionCount = board.MinionEnemy?.Count ?? 0
-                };
+                return BuildActionStateSnapshot(board);
             }
             catch
             {
                 return null;
             }
+        }
+
+        internal static ActionEffectConfirmationResult ResolveActionEffectConfirmation(
+            bool useHsBoxPayloadConfirmation,
+            bool hsBoxAdvanceConfirmed,
+            string action,
+            ActionStateSnapshot before,
+            ActionStateSnapshot after)
+        {
+            if (hsBoxAdvanceConfirmed)
+            {
+                return new ActionEffectConfirmationResult
+                {
+                    MarkTurnHadEffectiveAction = true,
+                    ConsumeRecommendation = true,
+                    SkipNextTurnStartReadyWait = true,
+                    Reason = "hsbox_advanced"
+                };
+            }
+
+            if (before != null && after != null && VerifyActionEffective(action, before, after))
+            {
+                return new ActionEffectConfirmationResult
+                {
+                    MarkTurnHadEffectiveAction = true,
+                    Reason = "local_state_advanced"
+                };
+            }
+
+            if (!useHsBoxPayloadConfirmation && (before == null || after == null))
+            {
+                return new ActionEffectConfirmationResult
+                {
+                    MarkTurnHadEffectiveAction = true,
+                    Reason = "snapshot_unavailable"
+                };
+            }
+
+            return new ActionEffectConfirmationResult
+            {
+                Reason = useHsBoxPayloadConfirmation
+                    ? "awaiting_hsbox_advance"
+                    : "state_unchanged"
+            };
         }
 
         private bool ShouldUseHsBoxPayloadConfirmation(ActionRecommendationResult recommendation, bool isEndTurn)
@@ -8167,7 +8234,7 @@ namespace BotMain
         /// 根据操作类型验证状态是否发生变化。
         /// 返回 true 表示操作确实生效（或无法判断时保守返回 true）。
         /// </summary>
-        private bool VerifyActionEffective(string action, ActionStateSnapshot before, ActionStateSnapshot after)
+        internal static bool VerifyActionEffective(string action, ActionStateSnapshot before, ActionStateSnapshot after)
         {
             if (before == null || after == null)
                 return true;
