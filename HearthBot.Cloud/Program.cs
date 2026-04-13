@@ -43,6 +43,8 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 builder.Services.AddSingleton<DeviceManager>();
+builder.Services.AddSingleton<DeviceDisplayStateEvaluator>();
+builder.Services.AddSingleton<DeviceDashboardProjectionService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<IAlertService>(sp => sp.GetRequiredService<AlertService>());
 builder.Services.AddSingleton<OrderCompletionNotifier>();

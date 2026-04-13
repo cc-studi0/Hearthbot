@@ -19,10 +19,11 @@ public class DeviceController : ControllerBase
     private readonly OrderCompletionNotifier _completionNotifier;
     private readonly HiddenDeviceService _hiddenDevices;
     private readonly CompletedOrderService _completedOrders;
+    private readonly DeviceDashboardProjectionService _projection;
 
     public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard,
         OrderCompletionNotifier completionNotifier, HiddenDeviceService hiddenDevices,
-        CompletedOrderService completedOrders)
+        CompletedOrderService completedOrders, DeviceDashboardProjectionService projection)
     {
         _db = db;
         _devices = devices;
@@ -30,6 +31,7 @@ public class DeviceController : ControllerBase
         _completionNotifier = completionNotifier;
         _hiddenDevices = hiddenDevices;
         _completedOrders = completedOrders;
+        _projection = projection;
     }
 
     [HttpGet]
@@ -37,14 +39,14 @@ public class DeviceController : ControllerBase
     {
         var devices = await _db.Devices.OrderBy(d => d.DisplayName).ToListAsync();
         var visibleDevices = await _hiddenDevices.FilterVisibleAsync(devices);
-        return Ok(visibleDevices);
+        return Ok(_projection.ProjectMany(visibleDevices, DateTime.UtcNow));
     }
 
     [HttpGet("{deviceId}")]
     public async Task<IActionResult> Get(string deviceId)
     {
         var device = await _db.Devices.FindAsync(deviceId);
-        return device == null ? NotFound() : Ok(device);
+        return device == null ? NotFound() : Ok(_projection.Project(device, DateTime.UtcNow));
     }
 
     [HttpPut("{deviceId}/order-number")]
@@ -53,8 +55,9 @@ public class DeviceController : ControllerBase
         var device = await _devices.SetOrderNumber(deviceId, request.OrderNumber);
         if (device == null) return NotFound();
 
-        await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
-        return Ok(device);
+        var view = _projection.Project(device, DateTime.UtcNow);
+        await _dashboard.Clients.All.SendAsync("DeviceUpdated", view);
+        return Ok(view);
     }
 
     [HttpPost("{deviceId}/hide")]
@@ -80,22 +83,26 @@ public class DeviceController : ControllerBase
         var result = await _devices.MarkOrderCompleted(deviceId, reachedRank);
         if (result != null)
         {
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", result.Device);
+            var view = _projection.Project(result.Device, DateTime.UtcNow);
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", view);
             if (result.WasNewlyCompleted)
                 await _completionNotifier.NotifyAsync(result.Device);
+
+            return Ok(view);
         }
 
-        return Ok(result?.Device);
+        return Ok(null);
     }
 
     [HttpGet("stats")]
     public async Task<IActionResult> GetStats()
     {
-        var today = DateTime.UtcNow.Date;
-        var cutoff = DateTime.UtcNow.AddSeconds(-90);
+        var utcNow = DateTime.UtcNow;
+        var today = utcNow.Date;
 
         var allDevices = await _db.Devices.ToListAsync();
         var visibleDevices = await _hiddenDevices.FilterVisibleAsync(allDevices);
+        var projected = _projection.ProjectMany(visibleDevices, utcNow);
 
         // 在数据库层聚合今日对局统计，避免全表加载
         var todayGames = await _db.GameRecords
@@ -109,20 +116,16 @@ public class DeviceController : ControllerBase
             })
             .FirstOrDefaultAsync();
 
-        var completedSnapshots = await _completedOrders.GetVisibleAsync(DateTime.UtcNow);
+        var completedSnapshots = await _completedOrders.GetVisibleAsync(utcNow);
 
-        return Ok(new
-        {
-            OnlineCount = visibleDevices.Count(d => d.Status != "Offline"),
-            TotalCount = visibleDevices.Count,
-            TodayGames = todayGames?.Count ?? 0,
-            TodayWins = todayGames?.Wins ?? 0,
-            TodayLosses = todayGames?.Losses ?? 0,
-            AbnormalCount = visibleDevices.Count(d =>
-                d.Status != "Offline" &&
-                d.LastHeartbeat < cutoff),
-            CompletedCount = completedSnapshots.Count
-        });
+        var stats = _projection.BuildStats(
+            projected,
+            todayGames?.Count ?? 0,
+            todayGames?.Wins ?? 0,
+            todayGames?.Losses ?? 0,
+            completedSnapshots.Count);
+
+        return Ok(stats);
     }
 }
 

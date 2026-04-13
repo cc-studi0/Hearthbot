@@ -30,6 +30,8 @@ internal sealed class CloudTestEnvironment : IAsyncDisposable
         var services = new ServiceCollection();
         services.AddLogging();
         services.AddDbContext<CloudDbContext>(options => options.UseSqlite(connection));
+        services.AddSingleton<DeviceDisplayStateEvaluator>();
+        services.AddSingleton<DeviceDashboardProjectionService>();
         services.AddSingleton<DeviceManager>();
 
         var serviceProvider = services.BuildServiceProvider();
@@ -42,6 +44,9 @@ internal sealed class CloudTestEnvironment : IAsyncDisposable
 
     public DeviceManager CreateDeviceManager() =>
         _serviceProvider.GetRequiredService<DeviceManager>();
+
+    public DeviceDashboardProjectionService CreateProjectionService() =>
+        _serviceProvider.GetRequiredService<DeviceDashboardProjectionService>();
 
     public CompletedOrderService CreateCompletedOrders() => new(Db);
 

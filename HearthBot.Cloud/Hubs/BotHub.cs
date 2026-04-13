@@ -6,14 +6,16 @@ namespace HearthBot.Cloud.Hubs;
 public class BotHub : Hub
 {
     private readonly DeviceManager _devices;
+    private readonly DeviceDashboardProjectionService _projection;
     private readonly IHubContext<DashboardHub> _dashboard;
     private readonly OrderCompletionNotifier _completionNotifier;
     private readonly ILogger<BotHub> _logger;
 
-    public BotHub(DeviceManager devices, IHubContext<DashboardHub> dashboard,
+    public BotHub(DeviceManager devices, DeviceDashboardProjectionService projection, IHubContext<DashboardHub> dashboard,
         OrderCompletionNotifier completionNotifier, ILogger<BotHub> logger)
     {
         _devices = devices;
+        _projection = projection;
         _dashboard = dashboard;
         _completionNotifier = completionNotifier;
         _logger = logger;
@@ -28,7 +30,7 @@ public class BotHub : Hub
         // 推送完整设备对象，避免前端收到不完整数据
         var device = await _devices.GetDevice(deviceId);
         if (device != null)
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
         else
             await _dashboard.Clients.All.SendAsync("DeviceOnline", deviceId, displayName);
 
@@ -52,7 +54,7 @@ public class BotHub : Hub
             targetRank, currentOpponent);
 
         if (device != null)
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
     }
 
     public async Task ReportOrderCompleted(string deviceId, string reachedRank, string modeText)
@@ -60,7 +62,7 @@ public class BotHub : Hub
         var result = await _devices.MarkOrderCompleted(deviceId, reachedRank);
         if (result != null)
         {
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", result.Device);
+            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(result.Device, DateTime.UtcNow));
             if (result.WasNewlyCompleted)
                 await _completionNotifier.NotifyAsync(result.Device);
 
@@ -97,7 +99,7 @@ public class BotHub : Hub
         {
             var device = await _devices.GetDevice(deviceId);
             if (device != null)
-                await _dashboard.Clients.All.SendAsync("DeviceUpdated", device);
+                await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
         }
 
         await base.OnDisconnectedAsync(exception);
