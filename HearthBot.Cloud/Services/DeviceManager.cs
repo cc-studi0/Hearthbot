@@ -178,6 +178,26 @@ public class DeviceManager
             device.CompletedRank = reachedRank;
             device.CurrentRank = reachedRank;
         }
+
+        var completedAt = device.CompletedAt.Value;
+        db.CompletedOrderSnapshots.Add(new CompletedOrderSnapshot
+        {
+            DeviceId = device.DeviceId,
+            DisplayName = device.DisplayName,
+            OrderNumber = device.OrderNumber,
+            AccountName = device.CurrentAccount,
+            StartRank = device.StartRank,
+            TargetRank = device.TargetRank,
+            CompletedRank = device.CompletedRank,
+            DeckName = device.CurrentDeck,
+            ProfileName = device.CurrentProfile,
+            GameMode = device.GameMode,
+            Wins = device.SessionWins,
+            Losses = device.SessionLosses,
+            CompletedAt = completedAt,
+            ExpiresAt = completedAt.AddDays(7)
+        });
+
         await db.SaveChangesAsync();
 
         _logger.LogInformation("Device {DeviceId} order completed at rank {Rank}", deviceId, reachedRank);

@@ -83,6 +83,29 @@ using (var scope = app.Services.CreateScope())
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN IsCompleted INTEGER NOT NULL DEFAULT 0"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedAt TEXT"); } catch { }
     try { db.Database.ExecuteSqlRaw("ALTER TABLE Devices ADD COLUMN CompletedRank TEXT NOT NULL DEFAULT ''"); } catch { }
+    try
+    {
+        db.Database.ExecuteSqlRaw(
+            @"CREATE TABLE IF NOT EXISTS CompletedOrderSnapshots (
+                Id INTEGER NOT NULL CONSTRAINT PK_CompletedOrderSnapshots PRIMARY KEY AUTOINCREMENT,
+                DeviceId TEXT NOT NULL DEFAULT '',
+                DisplayName TEXT NOT NULL DEFAULT '',
+                OrderNumber TEXT NOT NULL DEFAULT '',
+                AccountName TEXT NOT NULL DEFAULT '',
+                StartRank TEXT NOT NULL DEFAULT '',
+                TargetRank TEXT NOT NULL DEFAULT '',
+                CompletedRank TEXT NOT NULL DEFAULT '',
+                DeckName TEXT NOT NULL DEFAULT '',
+                ProfileName TEXT NOT NULL DEFAULT '',
+                GameMode TEXT NOT NULL DEFAULT '',
+                Wins INTEGER NOT NULL DEFAULT 0,
+                Losses INTEGER NOT NULL DEFAULT 0,
+                CompletedAt TEXT NOT NULL,
+                ExpiresAt TEXT NOT NULL,
+                DeletedAt TEXT NULL
+            )");
+    }
+    catch { }
 }
 
 app.UseResponseCompression();
