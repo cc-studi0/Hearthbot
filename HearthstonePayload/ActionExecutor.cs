@@ -8232,6 +8232,19 @@ namespace HearthstonePayload
             var snapshot = BuildConstructedBoardEntityReadySnapshot(gameState, sourceEntityId);
             try
             {
+                if (TryBuildConstructedAttackRuntimeState(gameState, sourceEntityId, targetEntityId, out var runtimeState, out var targetIsEnemyHero, out var targetIsEnemyMinion)
+                    && ConstructedActionReadyEvaluator.TryEvaluateAttackReadinessFromRuntimeTags(
+                        runtimeState,
+                        targetIsEnemyHero,
+                        targetIsEnemyMinion,
+                        out var runtimeReady,
+                        out _))
+                {
+                    snapshot.IsActionReadyKnown = true;
+                    snapshot.IsActionReady = runtimeReady;
+                    return snapshot;
+                }
+
                 var state = SafeReadGameState();
                 if (state != null)
                 {
@@ -8244,6 +8257,127 @@ namespace HearthstonePayload
             }
 
             return snapshot;
+        }
+
+        private static bool TryBuildConstructedAttackRuntimeState(
+            object gameState,
+            int sourceEntityId,
+            int targetEntityId,
+            out ConstructedAttackRuntimeState runtime,
+            out bool targetIsEnemyHero,
+            out bool targetIsEnemyMinion)
+        {
+            runtime = default;
+            targetIsEnemyHero = false;
+            targetIsEnemyMinion = false;
+
+            if (gameState == null || sourceEntityId <= 0)
+                return false;
+
+            var ctx = ReflectionContext.Instance;
+            if (!ctx.Init())
+                return false;
+
+            var sourceEntity = GetEntity(gameState, sourceEntityId);
+            if (sourceEntity == null)
+                return false;
+
+            runtime = new ConstructedAttackRuntimeState
+            {
+                AttackValueKnown = true,
+                AttackValue = ctx.GetTagValue(sourceEntity, "ATK"),
+                FrozenKnown = true,
+                IsFrozen = ctx.GetTagValue(sourceEntity, "FROZEN") == 1 || ctx.GetTagValue(sourceEntity, "FREEZE") == 1,
+                AttackCountKnown = true,
+                AttackCount = Math.Max(0, ctx.GetTagValue(sourceEntity, "NUM_ATTACKS_THIS_TURN")),
+                WindfuryKnown = true,
+                HasWindfury = ctx.GetTagValue(sourceEntity, "WINDFURY") > 0,
+                ExhaustedKnown = true,
+                IsExhausted = ctx.GetTagValue(sourceEntity, "EXHAUSTED") == 1,
+                ChargeKnown = true,
+                HasCharge = ctx.GetTagValue(sourceEntity, "CHARGE") == 1,
+                RushKnown = true,
+                HasRush = ctx.GetTagValue(sourceEntity, "RUSH") == 1
+            };
+
+            if (targetEntityId <= 0)
+                return true;
+
+            var targetEntity = GetEntity(gameState, targetEntityId);
+            if (targetEntity == null)
+                return true;
+
+            if (!TryGetFriendlyPlayerId(gameState, ctx, out var friendlyPlayerId) || friendlyPlayerId <= 0)
+                return true;
+
+            var targetController = ctx.GetTagValue(targetEntity, "CONTROLLER");
+            if (targetController <= 0 || targetController == friendlyPlayerId)
+                return true;
+
+            var targetCardType = ctx.GetTagValue(targetEntity, "CARDTYPE");
+            if (TryGetRuntimeCardTypeValue("HERO", out var heroTypeValue) && targetCardType == heroTypeValue)
+            {
+                targetIsEnemyHero = true;
+                return true;
+            }
+
+            if (TryGetRuntimeCardTypeValue("MINION", out var minionTypeValue) && targetCardType == minionTypeValue)
+            {
+                targetIsEnemyMinion = true;
+                return true;
+            }
+
+            return true;
+        }
+
+        private static bool TryGetFriendlyPlayerId(object gameState, ReflectionContext ctx, out int playerId)
+        {
+            playerId = 0;
+            if (gameState == null || ctx == null)
+                return false;
+
+            try
+            {
+                var friendly = Invoke(gameState, "GetFriendlySidePlayer") ?? Invoke(gameState, "GetFriendlyPlayer");
+                if (friendly == null)
+                    return false;
+
+                playerId = ctx.GetTagValue(friendly, "PLAYER_ID");
+                if (playerId > 0)
+                    return true;
+
+                playerId = GetIntFieldOrProp(friendly, "PlayerID");
+                if (playerId > 0)
+                    return true;
+
+                playerId = GetIntFieldOrProp(friendly, "PlayerId");
+                return playerId > 0;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool TryGetRuntimeCardTypeValue(string name, out int value)
+        {
+            value = 0;
+            if (_asm == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            try
+            {
+                var cardTypeEnum = _asm.GetType("TAG_CARDTYPE");
+                if (cardTypeEnum == null)
+                    return false;
+
+                value = Convert.ToInt32(Enum.Parse(cardTypeEnum, name, true));
+                return value > 0;
+            }
+            catch
+            {
+                return false;
+            }
         }
 
         private static ConstructedObjectReadySnapshot BuildConstructedBoardEntityReadySnapshot(object gameState, int entityId)

@@ -80,6 +80,101 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TryEvaluateAttackReadinessFromRuntimeTags_ReturnsReady_ForUnexhaustedMinion()
+        {
+            var runtime = new ConstructedAttackRuntimeState
+            {
+                AttackValueKnown = true,
+                AttackValue = 3,
+                FrozenKnown = true,
+                IsFrozen = false,
+                AttackCountKnown = true,
+                AttackCount = 0,
+                WindfuryKnown = true,
+                HasWindfury = false,
+                ExhaustedKnown = true,
+                IsExhausted = false
+            };
+
+            var ok = ConstructedActionReadyEvaluator.TryEvaluateAttackReadinessFromRuntimeTags(
+                runtime,
+                targetIsEnemyHero: true,
+                targetIsEnemyMinion: false,
+                out var isReady,
+                out var reason);
+
+            Assert.True(ok);
+            Assert.True(isReady);
+            Assert.Equal("ok_runtime", reason);
+        }
+
+        [Fact]
+        public void TryEvaluateAttackReadinessFromRuntimeTags_ReturnsBusy_ForExhaustedMinionWithoutChargeOrRush()
+        {
+            var runtime = new ConstructedAttackRuntimeState
+            {
+                AttackValueKnown = true,
+                AttackValue = 3,
+                FrozenKnown = true,
+                IsFrozen = false,
+                AttackCountKnown = true,
+                AttackCount = 0,
+                WindfuryKnown = true,
+                HasWindfury = false,
+                ExhaustedKnown = true,
+                IsExhausted = true,
+                ChargeKnown = true,
+                HasCharge = false,
+                RushKnown = true,
+                HasRush = false
+            };
+
+            var ok = ConstructedActionReadyEvaluator.TryEvaluateAttackReadinessFromRuntimeTags(
+                runtime,
+                targetIsEnemyHero: false,
+                targetIsEnemyMinion: true,
+                out var isReady,
+                out var reason);
+
+            Assert.True(ok);
+            Assert.False(isReady);
+            Assert.Equal("exhausted_runtime", reason);
+        }
+
+        [Fact]
+        public void TryEvaluateAttackReadinessFromRuntimeTags_ReturnsUnknown_ForRushTargetHeroCase()
+        {
+            var runtime = new ConstructedAttackRuntimeState
+            {
+                AttackValueKnown = true,
+                AttackValue = 3,
+                FrozenKnown = true,
+                IsFrozen = false,
+                AttackCountKnown = true,
+                AttackCount = 0,
+                WindfuryKnown = true,
+                HasWindfury = false,
+                ExhaustedKnown = true,
+                IsExhausted = true,
+                ChargeKnown = true,
+                HasCharge = false,
+                RushKnown = true,
+                HasRush = true
+            };
+
+            var ok = ConstructedActionReadyEvaluator.TryEvaluateAttackReadinessFromRuntimeTags(
+                runtime,
+                targetIsEnemyHero: true,
+                targetIsEnemyMinion: false,
+                out var isReady,
+                out var reason);
+
+            Assert.False(ok);
+            Assert.False(isReady);
+            Assert.Equal("rush_target_classification_required", reason);
+        }
+
+        [Fact]
         public void Evaluate_OptionWaitsWhenChoiceNotReady()
         {
             var probe = ConstructedActionReadyProbe.ForOption(choiceReady: false, sourceEntityId: 55);

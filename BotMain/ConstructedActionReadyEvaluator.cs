@@ -35,6 +35,24 @@ namespace BotMain
         }
     }
 
+    internal struct ConstructedAttackRuntimeState
+    {
+        public bool AttackValueKnown { get; set; }
+        public int AttackValue { get; set; }
+        public bool FrozenKnown { get; set; }
+        public bool IsFrozen { get; set; }
+        public bool AttackCountKnown { get; set; }
+        public int AttackCount { get; set; }
+        public bool WindfuryKnown { get; set; }
+        public bool HasWindfury { get; set; }
+        public bool ExhaustedKnown { get; set; }
+        public bool IsExhausted { get; set; }
+        public bool ChargeKnown { get; set; }
+        public bool HasCharge { get; set; }
+        public bool RushKnown { get; set; }
+        public bool HasRush { get; set; }
+    }
+
     internal struct ConstructedActionReadyProbe
     {
         public ConstructedActionReadyKind Kind { get; set; }
@@ -143,6 +161,88 @@ namespace BotMain
 
     internal static class ConstructedActionReadyEvaluator
     {
+        internal static bool TryEvaluateAttackReadinessFromRuntimeTags(
+            ConstructedAttackRuntimeState runtime,
+            bool targetIsEnemyHero,
+            bool targetIsEnemyMinion,
+            out bool isReady,
+            out string reason)
+        {
+            isReady = false;
+            reason = "runtime_unknown";
+
+            if (!runtime.AttackValueKnown
+                || !runtime.FrozenKnown
+                || !runtime.AttackCountKnown
+                || !runtime.WindfuryKnown
+                || !runtime.ExhaustedKnown)
+            {
+                reason = "runtime_tags_incomplete";
+                return false;
+            }
+
+            if (runtime.AttackValue <= 0)
+            {
+                reason = "atk_le_0_runtime";
+                return true;
+            }
+
+            if (runtime.IsFrozen)
+            {
+                reason = "frozen_runtime";
+                return true;
+            }
+
+            var maxAttackCount = runtime.HasWindfury ? 2 : 1;
+            if (runtime.AttackCount >= maxAttackCount)
+            {
+                reason = "attack_count_limit_runtime";
+                return true;
+            }
+
+            if (!runtime.IsExhausted)
+            {
+                isReady = true;
+                reason = "ok_runtime";
+                return true;
+            }
+
+            if (!runtime.ChargeKnown || !runtime.RushKnown)
+            {
+                reason = "charge_or_rush_unknown";
+                return false;
+            }
+
+            if (runtime.HasCharge)
+            {
+                isReady = true;
+                reason = "ok_charge_runtime";
+                return true;
+            }
+
+            if (!runtime.HasRush)
+            {
+                reason = "exhausted_runtime";
+                return true;
+            }
+
+            if (targetIsEnemyMinion)
+            {
+                isReady = true;
+                reason = "ok_rush_vs_minion_runtime";
+                return true;
+            }
+
+            if (targetIsEnemyHero)
+            {
+                reason = "rush_target_classification_required";
+                return false;
+            }
+
+            reason = "rush_target_unknown";
+            return false;
+        }
+
         internal static ConstructedActionReadyState Evaluate(ConstructedActionReadyProbe probe)
         {
             var commandKind = probe.CommandKind ?? string.Empty;
