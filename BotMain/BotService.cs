@@ -4592,11 +4592,43 @@ namespace BotMain
                     {
                         var gotCheckBgResp = TryGetBgStateResponse(pipe, 2000, out var checkBgResp, "BG.MatchmakingState");
                         checkBgResp = gotCheckBgResp ? checkBgResp ?? "NO_RESPONSE" : "NO_RESPONSE";
-                        if (checkBgResp != "NO_BG_STATE")
+                        var matchmakingStage = ResolveBattlegroundMatchmakingPollStage(findingResp, checkBgResp);
+                        if (string.Equals(matchmakingStage, "entered_game", StringComparison.Ordinal))
                         {
                             Log("[BG] 匹配成功，进入游戏");
                             break;
                         }
+
+                        if (string.Equals(matchmakingStage, "probe_dialog", StringComparison.Ordinal))
+                        {
+                            if (TryGetBlockingDialog(pipe, 1500, out var dialogType, out var dialogButton, out var dialogAction, "BG.MatchmakingDialog")
+                                && !string.IsNullOrWhiteSpace(dialogType))
+                            {
+                                if (TryHandleRestartRequiredDialog(dialogAction, dialogType, "BG.MatchmakingDialog"))
+                                    return;
+
+                                if (BotProtocol.IsDismissableBlockingDialog(dialogAction, dialogButton))
+                                {
+                                    if (TryDismissBlockingDialog(pipe, 2000, out var dismissResp, "BG.MatchmakingDialog")
+                                        && BotProtocol.IsDismissSuccess(dismissResp))
+                                    {
+                                        Log($"[BG] 匹配失败弹窗 {dialogType}({dialogButton}) -> {dismissResp}，准备重新点击开始");
+                                        matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
+                                        if (SleepOrCancelled(1000)) return;
+                                        continue;
+                                    }
+
+                                    Log($"[BG] 匹配失败弹窗 {dialogType}({dialogButton}) 点击失败/超时 -> {dismissResp ?? "NO_RESPONSE"}，继续等待。");
+                                    if (SleepOrCancelled(1000)) return;
+                                    continue;
+                                }
+
+                                Log($"[BG] 匹配期间检测到弹窗 {dialogType}({dialogButton}) action={dialogAction}，不可安全关闭，继续等待超时兜底。");
+                                if (SleepOrCancelled(1000)) return;
+                                continue;
+                            }
+                        }
+
                         Log("[BG] 匹配已取消，重新点击开始");
                         if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, "BG.RematchClickPlay"))
                             playResp = "NO_RESPONSE";
@@ -5140,6 +5172,19 @@ namespace BotMain
             }
 
             return string.Empty;
+        }
+
+        private static string ResolveBattlegroundMatchmakingPollStage(string findingResponse, string bgStateResponse)
+        {
+            if (string.Equals(findingResponse, "YES", StringComparison.Ordinal))
+                return "wait";
+
+            if (!string.Equals(findingResponse, "NO", StringComparison.Ordinal))
+                return "wait";
+
+            return string.Equals(bgStateResponse, "NO_BG_STATE", StringComparison.Ordinal)
+                ? "probe_dialog"
+                : "entered_game";
         }
 
         private static int CountBattlegroundStateEntries(string stateData, string fieldPrefix)
