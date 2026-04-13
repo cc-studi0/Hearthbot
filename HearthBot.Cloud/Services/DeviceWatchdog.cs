@@ -119,5 +119,31 @@ public class DeviceWatchdog : BackgroundService
             await db.SaveChangesAsync();
             _logger.LogInformation("Archived {Count} completed orders from previous days", devices.Count);
         }
+
+        var now = DateTime.UtcNow;
+        var expiredSnapshots = await db.CompletedOrderSnapshots
+            .Where(snapshot => snapshot.ExpiresAt <= now)
+            .ToListAsync();
+        if (expiredSnapshots.Count > 0)
+        {
+            db.CompletedOrderSnapshots.RemoveRange(expiredSnapshots);
+        }
+
+        var staleHiddenEntries = await db.HiddenDeviceEntries
+            .Where(entry => entry.HiddenAt <= now.AddDays(-7))
+            .ToListAsync();
+        if (staleHiddenEntries.Count > 0)
+        {
+            db.HiddenDeviceEntries.RemoveRange(staleHiddenEntries);
+        }
+
+        if (expiredSnapshots.Count > 0 || staleHiddenEntries.Count > 0)
+        {
+            await db.SaveChangesAsync();
+            _logger.LogInformation(
+                "Cleaned up {SnapshotCount} expired completed snapshots and {HiddenCount} stale hidden device entries",
+                expiredSnapshots.Count,
+                staleHiddenEntries.Count);
+        }
     }
 }

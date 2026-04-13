@@ -45,4 +45,22 @@ public class HiddenDeviceService
 
         return !hidden;
     }
+
+    public async Task<List<Device>> FilterVisibleAsync(IEnumerable<Device> devices)
+    {
+        var deviceList = devices.ToList();
+        if (deviceList.Count == 0) return deviceList;
+
+        var deviceIds = deviceList.Select(device => device.DeviceId).Distinct().ToList();
+        var hiddenEntries = await _db.HiddenDeviceEntries
+            .Where(entry => deviceIds.Contains(entry.DeviceId))
+            .ToListAsync();
+
+        return deviceList
+            .Where(device => !hiddenEntries.Any(entry =>
+                entry.DeviceId == device.DeviceId
+                && entry.CurrentAccount == (device.CurrentAccount ?? string.Empty)
+                && entry.OrderNumber == (device.OrderNumber ?? string.Empty)))
+            .ToList();
+    }
 }

@@ -14,6 +14,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   open: [device: Device]
   saveOrder: [deviceId: string, orderNumber: string]
+  hide: [device: Device]
 }>()
 
 const orderInput = ref('')
@@ -135,7 +136,8 @@ function submitOrder() {
     </div>
 
     <div v-else class="open-hint">
-      查看详情与操作
+      <span>查看详情与操作</span>
+      <NButton text type="error" @click.stop="emit('hide', device)">隐藏</NButton>
     </div>
   </article>
 </template>
@@ -290,6 +292,10 @@ function submitOrder() {
 
 .open-hint {
   margin-top: 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
   color: #2563eb;
   font-size: 12px;
   font-weight: 600;

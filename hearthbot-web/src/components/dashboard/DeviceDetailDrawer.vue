@@ -25,6 +25,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:show': [show: boolean]
   refresh: []
+  hide: [device: Device]
 }>()
 
 const drawerWidth = ref(typeof window === 'undefined' ? 420 : window.innerWidth)
@@ -180,6 +181,12 @@ async function markCompleted() {
   }
 }
 
+function hideDevice() {
+  if (!props.device) return
+  emit('hide', props.device)
+  emit('update:show', false)
+}
+
 function handleResize() {
   drawerWidth.value = window.innerWidth
 }
@@ -307,6 +314,7 @@ const recordColumns = [
           <div class="action-grid">
             <NButton type="error" @click="stopDevice">停止</NButton>
             <NButton type="primary" ghost @click="startDevice">继续运行</NButton>
+            <NButton type="error" secondary @click="hideDevice">隐藏当前卡片</NButton>
             <NPopconfirm
               positive-text="确认完成"
               negative-text="取消"

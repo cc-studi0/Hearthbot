@@ -11,7 +11,7 @@ const props = defineProps<{
 const cards = computed(() => [
   { key: 'online', label: '在线设备', value: `${props.stats.onlineCount}/${props.stats.totalCount}`, tone: 'blue' },
   { key: 'games', label: '今日对局', value: String(props.stats.todayGames), tone: 'green' },
-  { key: 'done', label: '今日完成', value: String(props.stats.completedCount), tone: 'amber' },
+  { key: 'done', label: '7天完成', value: String(props.stats.completedCount), tone: 'amber' },
   { key: 'bad', label: '异常设备', value: String(props.stats.abnormalCount), tone: 'red' }
 ])
 </script>

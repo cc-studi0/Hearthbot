@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { NButton, NEmpty } from 'naive-ui'
-import { deviceApi } from '../api'
+import { completedOrderApi, deviceApi } from '../api'
 import { useSignalR } from '../composables/useSignalR'
-import type { DashboardBucket, Device, Stats } from '../types'
+import type { CompletedOrderSnapshot, DashboardBucket, Device, Stats } from '../types'
 import DashboardHeaderStats from '../components/dashboard/DashboardHeaderStats.vue'
 import CompletionBanner from '../components/dashboard/CompletionBanner.vue'
 import DeviceOverviewTabs from '../components/dashboard/DeviceOverviewTabs.vue'
 import DeviceStatusCard from '../components/dashboard/DeviceStatusCard.vue'
 import DeviceDetailDrawer from '../components/dashboard/DeviceDetailDrawer.vue'
+import CompletedOrderCard from '../components/dashboard/CompletedOrderCard.vue'
 import { completionNoticeKey, notifyCompletion, shouldNotifyCompletion } from '../utils/browserNotifications'
 import { countDevicesByBucket, getDeviceBucket, isCompletionSuspected, sortDevicesForBucket } from '../utils/dashboardState'
 
@@ -22,6 +23,7 @@ interface CompletionBannerItem {
 const NOTIFIED_COMPLETION_STORAGE_KEY = 'hearthbot-cloud.notified-completions'
 
 const devices = ref<Device[]>([])
+const completedSnapshots = ref<CompletedOrderSnapshot[]>([])
 const stats = ref<Stats>({
   onlineCount: 0,
   totalCount: 0,
@@ -39,6 +41,7 @@ const detailOpen = ref(false)
 const pendingHints = ref<Record<string, string>>({})
 const recentCompletions = ref<CompletionBannerItem[]>([])
 const nowTick = ref(Date.now())
+const hiddenLiveKeys = ref<string[]>([])
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
@@ -117,6 +120,7 @@ async function maybeNotifyCompletion(device: Device, allowNotify: boolean) {
 
 function mergeSingleDevice(incoming: Device, allowNotify: boolean) {
   const previous = devices.value.find(device => device.deviceId === incoming.deviceId)
+  const hideKey = liveHideKey(incoming)
 
   if (
     previous &&
@@ -132,6 +136,11 @@ function mergeSingleDevice(incoming: Device, allowNotify: boolean) {
   }
 
   void maybeNotifyCompletion(incoming, allowNotify)
+
+  if (hiddenLiveKeys.value.includes(hideKey)) {
+    devices.value = devices.value.filter(device => device.deviceId !== incoming.deviceId)
+    return
+  }
 
   const index = devices.value.findIndex(device => device.deviceId === incoming.deviceId)
   if (index >= 0) {
@@ -172,20 +181,40 @@ async function loadData(allowNotify = false) {
   isLoading.value = true
 
   try {
-    const [deviceResponse, statsResponse] = await Promise.all([
+    const [deviceResponse, statsResponse, completedOrderResponse] = await Promise.all([
       deviceApi.getAll(),
-      deviceApi.getStats()
+      deviceApi.getStats(),
+      completedOrderApi.getAll()
     ])
 
     replaceDevices(deviceResponse.data, allowNotify && !firstLoad.value)
     stats.value = statsResponse.data
+    completedSnapshots.value = completedOrderApiResponseToList(completedOrderResponse.data)
   } finally {
     isLoading.value = false
     firstLoad.value = false
   }
 }
 
-const counts = computed(() => countDevicesByBucket(devices.value, nowTick.value))
+function liveHideKey(device: Pick<Device, 'deviceId' | 'currentAccount' | 'orderNumber'>): string {
+  return [device.deviceId, device.currentAccount ?? '', device.orderNumber ?? ''].join('|')
+}
+
+function completedOrderApiResponseToList(data: unknown): CompletedOrderSnapshot[] {
+  return Array.isArray(data) ? data as CompletedOrderSnapshot[] : []
+}
+const counts = computed(() => {
+  const liveCounts = countDevicesByBucket(devices.value, nowTick.value)
+  return {
+    ...liveCounts,
+    completed: completedSnapshots.value.length
+  }
+})
+
+const headerStats = computed<Stats>(() => ({
+  ...stats.value,
+  completedCount: completedSnapshots.value.length
+}))
 
 const filteredDevices = computed(() => {
   const bucketDevices = devices.value.filter(device => getDeviceBucket(device, nowTick.value) === activeTab.value)
@@ -197,6 +226,10 @@ const filteredDevices = computed(() => {
 
   return sorted
 })
+
+const filteredCompletedSnapshots = computed(() =>
+  [...completedSnapshots.value].sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+)
 
 const selectedDevice = computed(() =>
   devices.value.find(device => device.deviceId === detailDeviceId.value) ?? null
@@ -225,6 +258,25 @@ async function saveOrder(deviceId: string, orderNumber: string) {
 
 async function refreshFromDrawer() {
   await loadData(true)
+}
+
+async function hideLiveDevice(device: Device) {
+  await deviceApi.hide(device.deviceId, device.currentAccount, device.orderNumber)
+  hiddenLiveKeys.value = [
+    ...hiddenLiveKeys.value.filter(key => !key.startsWith(`${device.deviceId}|`)),
+    liveHideKey(device)
+  ]
+  devices.value = devices.value.filter(item => item.deviceId !== device.deviceId)
+  await loadData(false)
+}
+
+async function hideCompletedSnapshot(id: number) {
+  await completedOrderApi.hide(id)
+  completedSnapshots.value = completedSnapshots.value.filter(snapshot => snapshot.id !== id)
+  stats.value = {
+    ...stats.value,
+    completedCount: Math.max(0, stats.value.completedCount - 1)
+  }
 }
 
 onMounted(async () => {
@@ -277,7 +329,7 @@ onUnmounted(() => {
       <NButton tertiary type="primary" @click="loadData(true)">立即刷新</NButton>
     </section>
 
-    <DashboardHeaderStats :stats="stats" :loading="firstLoad" />
+    <DashboardHeaderStats :stats="headerStats" :loading="firstLoad" />
 
     <CompletionBanner
       :items="recentCompletions"
@@ -292,19 +344,35 @@ onUnmounted(() => {
     />
 
     <section class="list-shell">
-      <DeviceStatusCard
-        v-for="device in filteredDevices"
-        :key="device.deviceId"
-        :device="device"
-        :bucket="getDeviceBucket(device, nowTick)"
-        :suspected-completion="isCompletionSuspected(device)"
-        :hint-text="pendingHints[device.deviceId]"
-        @open="openDevice"
-        @save-order="saveOrder"
-      />
+      <template v-if="activeTab !== 'completed'">
+        <DeviceStatusCard
+          v-for="device in filteredDevices"
+          :key="device.deviceId"
+          :device="device"
+          :bucket="getDeviceBucket(device, nowTick)"
+          :suspected-completion="isCompletionSuspected(device)"
+          :hint-text="pendingHints[device.deviceId]"
+          @open="openDevice"
+          @save-order="saveOrder"
+          @hide="hideLiveDevice"
+        />
+      </template>
 
-      <div v-if="!filteredDevices.length" class="empty-state">
-        <NEmpty :description="activeTab === 'active' ? '当前没有进行中的设备' : activeTab === 'pending' ? '当前没有待录单设备' : activeTab === 'abnormal' ? '当前没有异常设备' : '当前没有已完成订单'" />
+      <template v-else>
+        <CompletedOrderCard
+          v-for="snapshot in filteredCompletedSnapshots"
+          :key="snapshot.id"
+          :snapshot="snapshot"
+          @hide="hideCompletedSnapshot"
+        />
+      </template>
+
+      <div v-if="activeTab !== 'completed' && !filteredDevices.length" class="empty-state">
+        <NEmpty :description="activeTab === 'active' ? '当前没有进行中的设备' : activeTab === 'pending' ? '当前没有待录单设备' : '当前没有异常设备'" />
+      </div>
+
+      <div v-if="activeTab === 'completed' && !filteredCompletedSnapshots.length" class="empty-state">
+        <NEmpty description="最近7天没有已完成订单" />
       </div>
     </section>
 
@@ -312,6 +380,7 @@ onUnmounted(() => {
       v-model:show="detailOpen"
       :device="selectedDevice"
       @refresh="refreshFromDrawer"
+      @hide="hideLiveDevice"
     />
   </div>
 </template>

@@ -23,6 +23,25 @@ export interface Device {
   completedRank: string
 }
 
+export interface CompletedOrderSnapshot {
+  id: number
+  deviceId: string
+  displayName: string
+  orderNumber: string
+  accountName: string
+  startRank: string
+  targetRank: string
+  completedRank: string
+  deckName: string
+  profileName: string
+  gameMode: string
+  wins: number
+  losses: number
+  completedAt: string
+  expiresAt: string
+  deletedAt: string | null
+}
+
 export type DashboardBucket = 'active' | 'pending' | 'abnormal' | 'completed'
 
 export interface DashboardCounts {

@@ -30,6 +30,8 @@ export const deviceApi = {
   get: (id: string) => api.get(`/device/${id}`),
   setOrderNumber: (id: string, orderNumber: string) =>
     api.put(`/device/${id}/order-number`, { orderNumber }),
+  hide: (id: string, currentAccount: string, orderNumber: string) =>
+    api.post(`/device/${id}/hide`, { currentAccount, orderNumber }),
   markCompleted: (id: string) =>
     api.post(`/device/${id}/complete`)
 }
@@ -56,4 +58,9 @@ export const commandApi = {
     api.post('/command', { deviceId, commandType: 'ChangeProfile', payload: JSON.stringify({ ProfileName: profileName }) }),
   changeTarget: (deviceId: string, targetRankStarLevel: number) =>
     api.post('/command', { deviceId, commandType: 'ChangeTarget', payload: JSON.stringify({ TargetRankStarLevel: targetRankStarLevel }) })
+}
+
+export const completedOrderApi = {
+  getAll: () => api.get('/completedorder'),
+  hide: (id: number) => api.post(`/completedorder/${id}/hide`)
 }

@@ -18,22 +18,26 @@ public class DeviceController : ControllerBase
     private readonly IHubContext<DashboardHub> _dashboard;
     private readonly OrderCompletionNotifier _completionNotifier;
     private readonly HiddenDeviceService _hiddenDevices;
+    private readonly CompletedOrderService _completedOrders;
 
     public DeviceController(CloudDbContext db, DeviceManager devices, IHubContext<DashboardHub> dashboard,
-        OrderCompletionNotifier completionNotifier, HiddenDeviceService hiddenDevices)
+        OrderCompletionNotifier completionNotifier, HiddenDeviceService hiddenDevices,
+        CompletedOrderService completedOrders)
     {
         _db = db;
         _devices = devices;
         _dashboard = dashboard;
         _completionNotifier = completionNotifier;
         _hiddenDevices = hiddenDevices;
+        _completedOrders = completedOrders;
     }
 
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
         var devices = await _db.Devices.OrderBy(d => d.DisplayName).ToListAsync();
-        return Ok(devices);
+        var visibleDevices = await _hiddenDevices.FilterVisibleAsync(devices);
+        return Ok(visibleDevices);
     }
 
     [HttpGet("{deviceId}")]
@@ -90,7 +94,8 @@ public class DeviceController : ControllerBase
         var today = DateTime.UtcNow.Date;
         var cutoff = DateTime.UtcNow.AddSeconds(-90);
 
-        var devices = await _db.Devices.ToListAsync();
+        var allDevices = await _db.Devices.ToListAsync();
+        var visibleDevices = await _hiddenDevices.FilterVisibleAsync(allDevices);
 
         // 在数据库层聚合今日对局统计，避免全表加载
         var todayGames = await _db.GameRecords
@@ -104,18 +109,19 @@ public class DeviceController : ControllerBase
             })
             .FirstOrDefaultAsync();
 
+        var completedSnapshots = await _completedOrders.GetVisibleAsync(DateTime.UtcNow);
+
         return Ok(new
         {
-            OnlineCount = devices.Count(d => d.Status != "Offline"),
-            TotalCount = devices.Count,
+            OnlineCount = visibleDevices.Count(d => d.Status != "Offline"),
+            TotalCount = visibleDevices.Count,
             TodayGames = todayGames?.Count ?? 0,
             TodayWins = todayGames?.Wins ?? 0,
             TodayLosses = todayGames?.Losses ?? 0,
-            AbnormalCount = devices.Count(d =>
+            AbnormalCount = visibleDevices.Count(d =>
                 d.Status != "Offline" &&
                 d.LastHeartbeat < cutoff),
-            CompletedCount = devices.Count(d =>
-                !string.IsNullOrEmpty(d.OrderNumber) && d.IsCompleted)
+            CompletedCount = completedSnapshots.Count
         });
     }
 }
