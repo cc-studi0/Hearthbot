@@ -3,7 +3,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>disable</Nullable>
-    <DefaultItemExcludes>$(DefaultItemExcludes);_tmp_*\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);_tmp_*\**;_tmp*\**</DefaultItemExcludes>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
@@ -17,6 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Remove="_tmp*\**\*.cs" />
     <Compile Include="..\BotMain\AI\**\*.cs" Link="AI\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
     <Compile Include="..\BotMain\SimpleAI.cs" Link="SimpleAI.cs" />
