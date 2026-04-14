@@ -6654,6 +6654,12 @@ namespace HearthstonePayload
             if (entityId <= 0)
                 return false;
 
+            if (TryGetTimelineChoiceButtonScreenPos(entityId, out x, out y))
+                return true;
+
+            if (TryResolveTimelineChoiceCardId(entityId, out _))
+                return false;
+
             if (TryGetFriendlyChoiceCardScreenPos(entityId, out x, out y))
                 return true;
 
@@ -6664,6 +6670,56 @@ namespace HearthstonePayload
                 return GameObjectFinder.GetHeroScreenPos(false, out x, out y);
 
             return GameObjectFinder.GetEntityScreenPos(entityId, out x, out y);
+        }
+
+        private static bool TryGetTimelineChoiceButtonScreenPos(int entityId, out int x, out int y)
+        {
+            x = y = 0;
+            if (!TryResolveTimelineChoiceCardId(entityId, out var choiceCardId))
+                return false;
+
+            var choiceCardMgr = TryGetChoiceCardMgr();
+            var rewindHudManager = choiceCardMgr != null
+                ? (GetFieldOrProp(choiceCardMgr, "m_rewindHUDManager")
+                    ?? GetFieldOrProp(choiceCardMgr, "rewindHUDManager")
+                    ?? GetFieldOrProp(choiceCardMgr, "RewindHUDManager"))
+                : null;
+
+            if (rewindHudManager == null)
+            {
+                var rewindUiManagerType = _asm?.GetType("RewindUIManager");
+                if (rewindUiManagerType != null)
+                    rewindHudManager = InvokeStatic(rewindUiManagerType, "Get");
+            }
+
+            if (!TimelineChoiceUiResolver.TryResolveButtonSource(rewindHudManager, choiceCardId, out var buttonSource))
+                return false;
+
+            return TryGetObjectScreenPos(buttonSource, out x, out y);
+        }
+
+        private static bool TryResolveTimelineChoiceCardId(int entityId, out string cardId)
+        {
+            cardId = string.Empty;
+            if (entityId <= 0)
+                return false;
+
+            var gameState = GetGameState();
+            cardId = ResolveEntityCardId(gameState, entityId) ?? string.Empty;
+            if (TimelineChoiceUiResolver.IsTimelineChoiceCardId(cardId))
+                return true;
+
+            if (gameState != null
+                && TryBuildChoiceSnapshot(gameState, out var snapshot)
+                && snapshot?.ChoiceEntityIds != null
+                && snapshot.ChoiceCardIds != null)
+            {
+                var index = snapshot.ChoiceEntityIds.IndexOf(entityId);
+                if (index >= 0 && index < snapshot.ChoiceCardIds.Count)
+                    cardId = snapshot.ChoiceCardIds[index] ?? string.Empty;
+            }
+
+            return TimelineChoiceUiResolver.IsTimelineChoiceCardId(cardId);
         }
 
         private static bool IsTargetChoiceSnapshot(ChoiceSnapshot snapshot)

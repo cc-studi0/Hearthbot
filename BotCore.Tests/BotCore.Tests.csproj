@@ -83,6 +83,7 @@
     <Compile Include="..\HearthstonePayload\PlayRuntimeTargetResolver.cs" Link="HearthstonePayload\PlayRuntimeTargetResolver.cs" />
     <Compile Include="..\HearthstonePayload\PlayTargetConfirmation.cs" Link="HearthstonePayload\PlayTargetConfirmation.cs" />
     <Compile Include="..\HearthstonePayload\SeedBuilder.cs" Link="HearthstonePayload\SeedBuilder.cs" />
+    <Compile Include="..\HearthstonePayload\TimelineChoiceUiResolver.cs" Link="HearthstonePayload\TimelineChoiceUiResolver.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="SBAPI">
