@@ -88,9 +88,9 @@ namespace BotCore.Tests
         }
 
         [Theory]
-        [InlineData("friendly_draw", true)]
-        [InlineData("pending_draw_task", true)]
-        [InlineData("turn_start_draw_count", true)]
+        [InlineData("friendly_draw", false)]
+        [InlineData("pending_draw_task", false)]
+        [InlineData("turn_start_draw_count", false)]
         [InlineData("hand_layout_updating", true)]
         [InlineData("hand_layout_dirty", true)]
         [InlineData("game_busy", true)]

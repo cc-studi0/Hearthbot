@@ -39,9 +39,6 @@ namespace BotMain
         };
         private static readonly HashSet<string> TurnStartBypassReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            "friendly_draw",
-            "pending_draw_task",
-            "turn_start_draw_count",
             "hand_layout_updating",
             "hand_layout_dirty",
             "game_busy",
