@@ -76,12 +76,32 @@ namespace BotCore.Tests
         [InlineData("blocking_power_processor", true)]
         [InlineData("response_packet_blocked", true)]
         [InlineData("hand_layout_updating", true)]
+        [InlineData("friendly_draw", true)]
+        [InlineData("pending_draw_task", true)]
+        [InlineData("turn_start_draw_count", true)]
+        [InlineData("post_animation_grace", true)]
         [InlineData("pending_target_confirmation", false)]
-        [InlineData("friendly_draw", false)]
         [InlineData("unknown", false)]
         public void ShouldBypassActionPostReadyBusyReason_MatchesExpectedReasons(string reason, bool expected)
         {
             Assert.Equal(expected, ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason));
+        }
+
+        [Theory]
+        [InlineData("friendly_draw", true)]
+        [InlineData("pending_draw_task", true)]
+        [InlineData("turn_start_draw_count", true)]
+        [InlineData("hand_layout_updating", true)]
+        [InlineData("hand_layout_dirty", true)]
+        [InlineData("game_busy", true)]
+        [InlineData("post_animation_grace", true)]
+        [InlineData("blocking_power_processor", false)]
+        [InlineData("response_packet_blocked", false)]
+        [InlineData("zone_active_server_change", false)]
+        [InlineData("input_denied", false)]
+        public void ShouldBypassTurnStartBusyReason_MatchesExpectedReasons(string reason, bool expected)
+        {
+            Assert.Equal(expected, ReadyWaitDiagnostics.ShouldBypassTurnStartBusyReason(reason));
         }
     }
 }

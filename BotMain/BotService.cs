@@ -3959,8 +3959,14 @@ namespace BotMain
                         ref resimCount, ref actionFailStreak, playActionFailStreakByEntity);
                 }
 
-                // 等待游戏就绪
-                if (!WaitForGameReady(pipe, 30, waitScope: "Arena.TurnStart"))
+                var skippedArenaTurnStartReadyWait = false;
+                if (_skipNextTurnStartReadyWait && _followHsBoxRecommendations)
+                {
+                    _skipNextTurnStartReadyWait = false;
+                    skippedArenaTurnStartReadyWait = true;
+                    Log("[Arena.Action] skipped TurnStart ready wait");
+                }
+                else if (!WaitForGameReady(pipe, 30, waitScope: "Arena.TurnStart"))
                 {
                     Thread.Sleep(120);
                     continue;
@@ -3968,7 +3974,11 @@ namespace BotMain
 
                 // 刷新 board
                 {
-                    var refreshResult = RefreshPlanningBoardAfterReady(pipe, ref seed, ref planningBoard);
+                    var refreshResult = RefreshPlanningBoardAfterReady(
+                        pipe,
+                        ref seed,
+                        ref planningBoard,
+                        preferFastRecovery: skippedArenaTurnStartReadyWait);
                     if (planningBoard == null)
                     {
                         Thread.Sleep(120);
@@ -4049,6 +4059,12 @@ namespace BotMain
 
                     bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
                     bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
+                    var nextAction = ai < actions.Count - 1 ? actions[ai + 1] : null;
+                    bool nextIsOption = !string.IsNullOrWhiteSpace(nextAction)
+                        && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                    const int arenaActionDelayMs = 80;
+                    const int readyTimeoutMs = 3000;
+                    var skipArenaPostActionReadyWait = false;
 
                     // 回合末投降：竞技场对局同样检测是否下回合必死
                     if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
@@ -4059,7 +4075,27 @@ namespace BotMain
 
                     if (!isOption)
                     {
-                        if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PreReady", action: action))
+                        var preReadyOk = false;
+                        if (ShouldUseConstructedActionReadyWait(action))
+                        {
+                            preReadyOk = WaitForConstructedActionReady(pipe, action, 15, 20, readyTimeoutMs, out _);
+                            if (!preReadyOk)
+                            {
+                                preReadyOk = WaitForGameReady(
+                                    pipe,
+                                    30,
+                                    300,
+                                    readyTimeoutMs,
+                                    waitScope: "Arena.PreReadyFallback",
+                                    action: action);
+                            }
+                        }
+                        else
+                        {
+                            preReadyOk = WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PreReady", action: action);
+                        }
+
+                        if (!preReadyOk)
                         {
                             Log($"[Arena] 等待就绪超时: {action}");
                             actionFailed = true;
@@ -4123,9 +4159,20 @@ namespace BotMain
                         else
                         {
                             var postActionSnapshot = TakeActionStateSnapshot(pipe);
-                            if (VerifyActionEffective(action, preActionSnapshot, postActionSnapshot))
+                            var confirmation = ResolveActionEffectConfirmation(
+                                useHsBoxPayloadConfirmation: false,
+                                hsBoxAdvanceConfirmed: false,
+                                actionReportedSuccess: true,
+                                action,
+                                preActionSnapshot,
+                                postActionSnapshot);
+                            if (confirmation.MarkTurnHadEffectiveAction)
                             {
                                 _turnHadEffectiveAction = true;
+                                if (confirmation.SkipNextTurnStartReadyWait)
+                                    _skipNextTurnStartReadyWait = true;
+                                if (confirmation.SkipPostActionReadyWait)
+                                    skipArenaPostActionReadyWait = true;
                             }
                             else
                             {
@@ -4188,11 +4235,9 @@ namespace BotMain
                     RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
 
                     // 检查动作后是否触发了发现/选择界面
-                    bool nextIsOption = ai < actions.Count - 1
-                        && actions[ai + 1].StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
-                    if (!nextIsOption)
+                    if (!nextIsOption && !skipArenaPostActionReadyWait)
                     {
-                        SleepOrCancelled(300);
+                        SleepOrCancelled(arenaActionDelayMs);
                         if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimReason))
                         {
                             Log($"[Arena] 动作后检测到发现/选择: {choiceResimReason}");
@@ -4200,12 +4245,26 @@ namespace BotMain
                             break; // 跳出动作循环，回到主循环重新获取推荐
                         }
                     }
+                    else if (nextIsOption)
+                    {
+                        SleepOrCancelled(arenaActionDelayMs);
+                    }
 
                     // 非最后动作时等待就绪
-                    if (ai < actions.Count - 1 && !nextIsOption)
+                    if (ai < actions.Count - 1 && !nextIsOption && !skipArenaPostActionReadyWait)
                     {
-                        SleepOrCancelled(80);
-                        WaitForGameReady(pipe, 30, 300, 3000, waitScope: "Arena.PostReady", action: action);
+                        if (!string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
+                        {
+                            var arenaPostReadyOk = WaitForConstructedActionReady(pipe, nextAction, 15, 20, readyTimeoutMs, out _);
+                            if (!arenaPostReadyOk)
+                            {
+                                WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PostReadyFallback", action: action);
+                            }
+                        }
+                        else
+                        {
+                            WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PostReady", action: action);
+                        }
                     }
                 }
 
@@ -4450,7 +4509,7 @@ namespace BotMain
                         lastBusyReason,
                         uniqueReasons,
                         timedOut: false,
-                        resultOverride: "ready_bypass_non_draw");
+                        resultOverride: "ready_bypass_soft_busy");
                     return true;
                 }
 
@@ -4684,13 +4743,30 @@ namespace BotMain
 
         private static bool ShouldBypassReadyWait(string waitScope, string reason)
         {
-            if (!string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(waitScope))
                 return false;
 
-            if (ReadyWaitDiagnostics.IsDrawBlockingReason(reason))
+            if (IsTurnStartReadyWaitScope(waitScope))
+                return ReadyWaitDiagnostics.ShouldBypassTurnStartBusyReason(reason);
+
+            if (!IsPostActionReadyWaitScope(waitScope))
                 return false;
 
             return ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason);
+        }
+
+        private static bool IsTurnStartReadyWaitScope(string waitScope)
+        {
+            return string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(waitScope, "Arena.TurnStart", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool IsPostActionReadyWaitScope(string waitScope)
+        {
+            return string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(waitScope, "ActionPostReadyFallback", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(waitScope, "Arena.PostReady", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(waitScope, "Arena.PostReadyFallback", StringComparison.OrdinalIgnoreCase);
         }
 
         private void LogReadyWaitSummary(

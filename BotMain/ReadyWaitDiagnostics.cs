@@ -25,13 +25,27 @@ namespace BotMain
         };
         private static readonly HashSet<string> ActionPostReadyBypassReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
+            "friendly_draw",
+            "pending_draw_task",
+            "turn_start_draw_count",
             "response_packet_blocked",
             "input_denied",
             "blocking_power_processor",
             "power_processor_running",
             "hand_layout_updating",
             "hand_layout_dirty",
-            "game_busy"
+            "game_busy",
+            "post_animation_grace"
+        };
+        private static readonly HashSet<string> TurnStartBypassReasons = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "friendly_draw",
+            "pending_draw_task",
+            "turn_start_draw_count",
+            "hand_layout_updating",
+            "hand_layout_dirty",
+            "game_busy",
+            "post_animation_grace"
         };
 
         internal static string FormatReadyResponse()
@@ -180,6 +194,11 @@ namespace BotMain
         internal static bool ShouldBypassActionPostReadyBusyReason(string reason)
         {
             return ActionPostReadyBypassReasons.Contains(NormalizeBusyReason(reason));
+        }
+
+        internal static bool ShouldBypassTurnStartBusyReason(string reason)
+        {
+            return TurnStartBypassReasons.Contains(NormalizeBusyReason(reason));
         }
 
         private static IReadOnlyList<string> NormalizeFlags(IEnumerable<string> flags, string fallback)
