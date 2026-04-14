@@ -2207,9 +2207,6 @@ namespace BotMain
             string lastSeedNotReadySignature = string.Empty;
             string lastPlanningBoardUnavailableSignature = string.Empty;
             var playActionFailStreakByEntity = new Dictionary<int, int>();
-            bool lastRecommendationWasAttackOnly = false;
-            IReadOnlyList<EntityContextSnapshot> cachedFriendlyEntities = null;
-            List<Card.Cards> cachedDeckCards = null;
             bool cardComponentsProbed = false;
 
             while (_running && pipe != null && pipe.IsConnected)
@@ -2639,8 +2636,7 @@ namespace BotMain
                 }
                 else
                 {
-                    var turnStartReadyIntervalMs = lastRecommendationWasAttackOnly ? 80 : 300;
-                    if (!WaitForGameReady(pipe, 30, turnStartReadyIntervalMs, 3000, waitScope: "TurnStart"))
+                    if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "TurnStart"))
                     {
                         gameReadyWaitStreak++;
                         if (gameReadyWaitStreak % 8 == 1)
@@ -2653,56 +2649,49 @@ namespace BotMain
                     Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
                 }
 
-                if (lastRecommendationWasAttackOnly && planningBoard != null)
+                var refreshResult = RefreshPlanningBoardAfterReady(
+                    pipe,
+                    ref seed,
+                    ref planningBoard,
+                    preferFastRecovery: skippedTurnStartReadyWait);
+                if (refreshResult.BoardChanged && planningBoard != null)
                 {
-                    Log("[Action] skipped board recovery (consecutive attack cycle)");
+                    ApplyPlanningBoard(
+                        planningBoard,
+                        ref lastTurnNumber,
+                        ref currentTurnStartedUtc,
+                        ref resimulationCount,
+                        ref actionFailStreak,
+                        playActionFailStreakByEntity);
                 }
-                else
+
+                if (planningBoard == null)
                 {
-                    var refreshResult = RefreshPlanningBoardAfterReady(
-                        pipe,
-                        ref seed,
-                        ref planningBoard,
-                        preferFastRecovery: skippedTurnStartReadyWait);
-                    if (refreshResult.BoardChanged && planningBoard != null)
+                    var failureParts = new List<string>();
+                    if (!string.IsNullOrWhiteSpace(initialBoardParseDetail))
+                        failureParts.Add($"initial={initialBoardParseDetail}");
+                    if (!string.IsNullOrWhiteSpace(refreshResult.Detail))
+                        failureParts.Add($"refresh={refreshResult.Detail}");
+                    if (!string.IsNullOrWhiteSpace(refreshResult.Response))
+                        failureParts.Add($"response={TrimForLog(refreshResult.Response, 80)}");
+                    failureParts.Add($"status={refreshResult.Status}");
+                    failureParts.Add($"attempts={refreshResult.Attempts}");
+                    failureParts.Add($"seedLength={(seed?.Length ?? 0)}");
+                    failureParts.Add($"seed={SummarizeSeedForLog(seed)}");
+                    var failureSignature = string.Join("|", failureParts);
+                    if (ShouldLogRepeatedIssue(ref planningBoardUnavailableStreak, ref lastPlanningBoardUnavailableSignature, failureSignature))
                     {
-                        ApplyPlanningBoard(
-                            planningBoard,
-                            ref lastTurnNumber,
-                            ref currentTurnStartedUtc,
-                            ref resimulationCount,
-                            ref actionFailStreak,
-                            playActionFailStreakByEntity);
+                        Log("[MainLoop] planning board unavailable after ready; " + string.Join("; ", failureParts));
                     }
 
-                    if (planningBoard == null)
-                    {
-                        var failureParts = new List<string>();
-                        if (!string.IsNullOrWhiteSpace(initialBoardParseDetail))
-                            failureParts.Add($"initial={initialBoardParseDetail}");
-                        if (!string.IsNullOrWhiteSpace(refreshResult.Detail))
-                            failureParts.Add($"refresh={refreshResult.Detail}");
-                        if (!string.IsNullOrWhiteSpace(refreshResult.Response))
-                            failureParts.Add($"response={TrimForLog(refreshResult.Response, 80)}");
-                        failureParts.Add($"status={refreshResult.Status}");
-                        failureParts.Add($"attempts={refreshResult.Attempts}");
-                        failureParts.Add($"seedLength={(seed?.Length ?? 0)}");
-                        failureParts.Add($"seed={SummarizeSeedForLog(seed)}");
-                        var failureSignature = string.Join("|", failureParts);
-                        if (ShouldLogRepeatedIssue(ref planningBoardUnavailableStreak, ref lastPlanningBoardUnavailableSignature, failureSignature))
-                        {
-                            Log("[MainLoop] planning board unavailable after ready; " + string.Join("; ", failureParts));
-                        }
+                    Thread.Sleep(120);
+                    continue;
+                }
 
-                        Thread.Sleep(120);
-                        continue;
-                    }
-
-                    if (!string.IsNullOrWhiteSpace(initialBoardParseDetail)
-                        && refreshResult.Status == PlanningBoardRefreshStatus.Refreshed)
-                    {
-                        Log($"[Action] planning board recovered after ready; initial={initialBoardParseDetail}; refresh={refreshResult.Detail}");
-                    }
+                if (!string.IsNullOrWhiteSpace(initialBoardParseDetail)
+                    && refreshResult.Status == PlanningBoardRefreshStatus.Refreshed)
+                {
+                    Log($"[Action] planning board recovered after ready; initial={initialBoardParseDetail}; refresh={refreshResult.Detail}");
                 }
 
                 planningBoardUnavailableStreak = 0;
@@ -2712,48 +2701,34 @@ namespace BotMain
                 List<Card.Cards> deckCards = null;
                 IReadOnlyList<EntityContextSnapshot> friendlyEntities = null;
 
-                if (lastRecommendationWasAttackOnly && planningBoard != null)
-                {
-                    // 连续攻击快速通道：跳过牌库查询、牌组上下文、友方实体刷新
-                    deckCards = cachedDeckCards;
-                    friendlyEntities = cachedFriendlyEntities;
-                    Log("[Action] skipped preparation (consecutive attack cycle)");
-                }
-                else
-                {
-                    _pluginSystem?.FireOnSimulation();
+                _pluginSystem?.FireOnSimulation();
 
-                    // 查询牌库剩余卡牌
-                    try
+                // 查询牌库剩余卡牌
+                try
+                {
+                    recommendationStage = "deck_state";
+                    var deckResp = pipe.SendAndReceive("GET_DECK_STATE", 3000);
+                    if (deckResp != null && deckResp.StartsWith("DECK_STATE:", StringComparison.Ordinal))
                     {
-                        recommendationStage = "deck_state";
-                        var deckResp = pipe.SendAndReceive("GET_DECK_STATE", 3000);
-                        if (deckResp != null && deckResp.StartsWith("DECK_STATE:", StringComparison.Ordinal))
+                        var raw = deckResp.Substring("DECK_STATE:".Length);
+                        if (!string.IsNullOrWhiteSpace(raw))
                         {
-                            var raw = deckResp.Substring("DECK_STATE:".Length);
-                            if (!string.IsNullOrWhiteSpace(raw))
+                            deckCards = new List<Card.Cards>();
+                            foreach (var part in raw.Split('|'))
                             {
-                                deckCards = new List<Card.Cards>();
-                                foreach (var part in raw.Split('|'))
-                                {
-                                    if (TryParseCardId(part, out var cid))
-                                        deckCards.Add(cid);
-                                }
-                                Log($"[Deck] remaining cards: {deckCards.Count}");
+                                if (TryParseCardId(part, out var cid))
+                                    deckCards.Add(cid);
                             }
+                            Log($"[Deck] remaining cards: {deckCards.Count}");
                         }
                     }
-                    catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
-
-                    recommendationStage = "resolve_deck_context";
-                    _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
-                    recommendationStage = "friendly_entity_context";
-                    friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
                 }
+                catch { /* 查询失败时 deckCards 保持 null，不影响 AI 运行 */ }
 
-                // 更新缓存供下次连续攻击使用
-                cachedDeckCards = deckCards;
-                cachedFriendlyEntities = friendlyEntities;
+                recommendationStage = "resolve_deck_context";
+                _currentDeckContext = ResolveDeckContext(deckCards) ?? _currentDeckContext;
+                recommendationStage = "friendly_entity_context";
+                friendlyEntities = RefreshFriendlyEntityContext(pipe, planningBoard?.TurnCount ?? 0, "Action");
                 recommendationStage = "build_action_request";
                 var currentBoardFingerprint = BuildBoardFingerprint(planningBoard);
                 var actionRequest = new ActionRecommendationRequest(
@@ -2836,7 +2811,7 @@ namespace BotMain
                     catch (Exception ex) { Log($"[Probe] card_components error: {ex.Message}"); }
                 }
 
-                if (actions != null && actions.Count > 0 && !lastRecommendationWasAttackOnly)
+                if (actions != null && actions.Count > 0)
                     TryRunHumanizedTurnPrelude(pipe, planningBoard, friendlyEntities, actions.Count);
 
                 InvokeDebugEvent("OnActionsReceived", string.Join(";", actions));
@@ -2977,21 +2952,7 @@ namespace BotMain
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
 
-                            // 连续攻击快速路径：向 Payload 传递 CHAIN 标记，
-                            // 跳过慢速 ReadGameState 和确认轮询（节省 ~1100ms）。
                             var commandToSend = action;
-                            if (isAttack)
-                            {
-                                bool prevInBatchIsAttack = ai > 0
-                                    && actions[ai - 1].StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
-                                if (ShouldUseAttackChainFastPath(
-                                    action,
-                                    planningBoard,
-                                    prevInBatchIsAttack || lastRecommendationWasAttackOnly))
-                                {
-                                    commandToSend = action + "|CHAIN";
-                                }
-                            }
 
                             // ── IdleGuard 第二层：操作前弹窗检测与关闭 ──
                             if (!isEndTurn)
@@ -3215,27 +3176,7 @@ namespace BotMain
                             }
                             catch { }
 
-                            // 连续攻击：快速轮询就绪，跳过固定延迟
-                            // 扩展条件：批次内下一个是攻击，或上一批全部为攻击（跨批次连续攻击）
-                            if (isAttack && (nextIsAttack || lastRecommendationWasAttackOnly))
-                            {
-                                var postReadySw = Stopwatch.StartNew();
-                                var postReadyOk = false;
-                                if (nextIsAttack && !string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
-                                {
-                                    postReadyOk = WaitForConstructedActionReady(pipe, nextAction, 20, 20, readyTimeoutMs, out _)
-                                        || WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReadyFallback", action: action);
-                                    postReadyStatus = postReadyOk ? "ready_chain_attack_constructed" : "timeout_chain_attack_constructed";
-                                }
-                                else
-                                {
-                                    postReadyOk = WaitForGameReady(pipe, 40, 50, waitScope: "ActionPostReady", action: action);
-                                    postReadyStatus = postReadyOk ? "ready_chain_attack" : "timeout_chain_attack";
-                                }
-                                postReadySw.Stop();
-                                postReadyMs = postReadySw.ElapsedMilliseconds;
-                            }
-                            else if (nextIsOption)
+                            if (nextIsOption)
                             {
                                 // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
                                 // Choose One UI 已弹出，游戏不处于"就绪"状态，
@@ -3364,8 +3305,6 @@ namespace BotMain
 
                     if (actionFailed)
                     {
-                        // 动作失败时重置连续攻击标志，避免下次循环跳过 board recovery
-                        lastRecommendationWasAttackOnly = false;
                         _skipNextTurnStartReadyWait = false;
                         actionFailStreak++;
 
@@ -3391,17 +3330,13 @@ namespace BotMain
                 {
                 }
 
-                // 判断本轮推荐是否全部为 ATTACK（用于下一轮加速外层循环）
-                lastRecommendationWasAttackOnly = actions != null && actions.Count > 0
-                    && actions.All(a => a.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase));
-
                 var lastAction = actions.Count > 0 ? actions[actions.Count - 1] : null;
                 if (_followHsBoxRecommendations
                     && !string.IsNullOrWhiteSpace(lastAction)
                     && !lastAction.Equals("END_TURN", StringComparison.OrdinalIgnoreCase))
                 {
                     actionFailStreak = 0;
-                    if (!lastRecommendationWasAttackOnly && !_skipNextTurnStartReadyWait)
+                    if (!_skipNextTurnStartReadyWait)
                         Thread.Sleep(200);
                     continue;
                 }
@@ -5992,25 +5927,6 @@ namespace BotMain
             }
 
             return true;
-        }
-
-        internal static bool ShouldUseAttackChainFastPath(string action, Board planningBoard, bool hasAttackChainContext)
-        {
-            if (!hasAttackChainContext
-                || string.IsNullOrWhiteSpace(action)
-                || !action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (!TryGetActionTargetEntityId(action, out var targetEntityId)
-                || targetEntityId <= 0
-                || planningBoard?.HeroEnemy == null)
-            {
-                return false;
-            }
-
-            return planningBoard.HeroEnemy.Id == targetEntityId;
         }
 
         internal readonly struct ConstructedActionFailureRecoveryPlan

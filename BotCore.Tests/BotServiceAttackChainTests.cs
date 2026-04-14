@@ -1,6 +1,6 @@
-using System.Collections.Generic;
+using System;
+using System.IO;
 using BotMain;
-using SmartBot.Plugins.API;
 using Xunit;
 
 namespace BotCore.Tests
@@ -8,55 +8,15 @@ namespace BotCore.Tests
     public class BotServiceAttackChainTests
     {
         [Fact]
-        public void ShouldUseAttackChainFastPath_ReturnsFalse_WhenTargetIsEnemyMinion()
+        public void BotServiceSource_DoesNotContainConstructedAttackChainMarkers()
         {
-            var board = new Board
-            {
-                HeroEnemy = CreateHero(900, false),
-                MinionEnemy = new List<Card>
-                {
-                    CreateMinion(201, false)
-                }
-            };
+            var source = File.ReadAllText(GetBotServiceSourcePath());
 
-            var result = BotService.ShouldUseAttackChainFastPath(
-                "ATTACK|101|201",
-                board,
-                hasAttackChainContext: true);
-
-            Assert.False(result);
-        }
-
-        [Fact]
-        public void ShouldUseAttackChainFastPath_ReturnsTrue_WhenTargetIsEnemyHero()
-        {
-            var board = new Board
-            {
-                HeroEnemy = CreateHero(900, false)
-            };
-
-            var result = BotService.ShouldUseAttackChainFastPath(
-                "ATTACK|101|900",
-                board,
-                hasAttackChainContext: true);
-
-            Assert.True(result);
-        }
-
-        [Fact]
-        public void ShouldUseAttackChainFastPath_ReturnsFalse_WhenAttackIsNotInChainContext()
-        {
-            var board = new Board
-            {
-                HeroEnemy = CreateHero(900, false)
-            };
-
-            var result = BotService.ShouldUseAttackChainFastPath(
-                "ATTACK|101|900",
-                board,
-                hasAttackChainContext: false);
-
-            Assert.False(result);
+            Assert.DoesNotContain("|CHAIN", source);
+            Assert.DoesNotContain("lastRecommendationWasAttackOnly", source);
+            Assert.DoesNotContain("ShouldUseAttackChainFastPath", source);
+            Assert.DoesNotContain("ready_chain_attack", source);
+            Assert.DoesNotContain("consecutive attack cycle", source);
         }
 
         [Fact]
@@ -83,28 +43,16 @@ namespace BotCore.Tests
             Assert.Equal(2000, plan.DelayMs);
         }
 
-        private static Card CreateHero(int entityId, bool isFriend)
+        private static string GetBotServiceSourcePath()
         {
-            return new Card
-            {
-                Id = entityId,
-                IsFriend = isFriend,
-                Type = Card.CType.HERO,
-                CurrentHealth = 30,
-                CurrentAtk = 0
-            };
-        }
-
-        private static Card CreateMinion(int entityId, bool isFriend)
-        {
-            return new Card
-            {
-                Id = entityId,
-                IsFriend = isFriend,
-                Type = Card.CType.MINION,
-                CurrentHealth = 3,
-                CurrentAtk = 2
-            };
+            return Path.GetFullPath(Path.Combine(
+                AppContext.BaseDirectory,
+                "..",
+                "..",
+                "..",
+                "..",
+                "BotMain",
+                "BotService.cs"));
         }
     }
 }
