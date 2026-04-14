@@ -22,6 +22,26 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void TryResolveButtonSource_PrefersContainer_WhenContainerHasOwnUiRoot()
+        {
+            var expected = new FakeScreenButtonContainer
+            {
+                gameObject = new object(),
+                m_button = new FakeButton()
+            };
+            var manager = new FakeHudManager
+            {
+                m_rewindButton = expected,
+                m_keepButton = new FakeButtonContainer { m_button = new FakeButton() }
+            };
+
+            var ok = TimelineChoiceUiResolver.TryResolveButtonSource(manager, "TIME_000tb", out var source);
+
+            Assert.True(ok);
+            Assert.Same(expected, source);
+        }
+
+        [Fact]
         public void TryResolveButtonSource_ReturnsWrappedKeepButton_ForKeepCard()
         {
             var expected = new FakeButton();
@@ -54,9 +74,14 @@ namespace BotCore.Tests
             public FakeButtonContainer m_keepButton;
         }
 
-        private sealed class FakeButtonContainer
+        private class FakeButtonContainer
         {
             public FakeButton m_button;
+        }
+
+        private sealed class FakeScreenButtonContainer : FakeButtonContainer
+        {
+            public object gameObject;
         }
 
         private sealed class FakeButton

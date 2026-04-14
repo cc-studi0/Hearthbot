@@ -142,6 +142,12 @@ namespace HearthstonePayload
             if (candidate == null)
                 return null;
 
+            if (TryGetMemberValue(candidate, "gameObject") != null
+                || TryGetMemberValue(candidate, "transform") != null)
+            {
+                return candidate;
+            }
+
             foreach (var memberName in WrapperMemberNames)
             {
                 var nested = TryGetMemberValue(candidate, memberName);
