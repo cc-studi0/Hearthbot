@@ -14,7 +14,7 @@ public class HSBoxClickProfile : ClickProfile
 {
     private static string _lastActedJson;
     private static int _waitCount;
-    private const int MaxWaitBeforeEndTurn = 20; // ~20 seconds of no new rec → auto end turn
+    private const int MaxWaitBeforeEndTurn = 25; // ~25 × 200ms = 5s of no new rec → auto end turn
 
     public ClickInstruction GetNextClick(Board board)
     {
@@ -88,17 +88,17 @@ public class HSBoxClickProfile : ClickProfile
                 return ClickInstruction.Wait(500);
             }
 
-            // Dedup — same recommendation already acted on, just wait
+            // Dedup — same recommendation already acted on, poll quickly for next rec
             if (json == _lastActedJson)
             {
                 _waitCount++;
                 if (_waitCount >= MaxWaitBeforeEndTurn)
                 {
-                    Log("[HSBox] No new recommendation for " + _waitCount + "s, auto end turn");
+                    Log("[HSBox] No new recommendation for " + _waitCount + " polls, auto end turn");
                     _waitCount = 0;
                     return ClickInstruction.End();
                 }
-                return ClickInstruction.Wait(500);
+                return ClickInstruction.Wait(200);
             }
 
             // New recommendation — act on it
@@ -208,6 +208,7 @@ public class HSBoxClickProfile : ClickProfile
             case "hero_skill":
             case "heropower":
             case "hero_power":
+            case "titan_power":
                 result = BuildHeroPower(board, targetCardId, targetPos, targetKind);
                 break;
 
@@ -273,7 +274,10 @@ public class HSBoxClickProfile : ClickProfile
             + " type=" + card.Type + " cost=" + card.CurrentCost + " mana=" + board.ManaAvailable);
 
         if (card.CurrentCost > board.ManaAvailable)
-            Log("[HSBox-WARN] PlayCard: not enough mana (cost=" + card.CurrentCost + " mana=" + board.ManaAvailable + ")");
+        {
+            Log("[HSBox-WARN] PlayCard: not enough mana (cost=" + card.CurrentCost + " mana=" + board.ManaAvailable + "), skipping");
+            return null; // skip — HSAng recommended a card we can't afford (stale rec)
+        }
 
         int boardIdx = board.MinionFriend != null ? board.MinionFriend.Count : 0;
 

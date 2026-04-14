@@ -1,6 +1,5 @@
 Active mulligan runtime files
-\MulliganProfiles\HSAngMulligan.cs
-\MulliganProfiles\通用盒子学习留牌.cs
+\MulliganProfiles\Default.cs
 \MulliganProfiles\DecisionMulliganMemory.cs
 \MulliganProfiles\PublishedLearning\*.json
 
