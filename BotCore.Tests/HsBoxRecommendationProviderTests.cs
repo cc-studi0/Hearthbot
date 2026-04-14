@@ -695,6 +695,72 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_NormalizesCosmeticCoinCardIdToBaseCoinId()
+        {
+            var state = CreateState(
+                4131,
+                raw: "cosmetic-coin-cardid-normalization",
+                actionName: "play_special",
+                cardId: "MUDAN_COIN1",
+                cardName: "幸运币",
+                zonePosition: 5,
+                bodyText: "推荐打法 打出5号位法术 幸运币");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(19, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(20, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(21, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(22, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(23, Card.Cards.GAME_005, "幸运币", "The Coin")
+                }
+            };
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 101,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 1
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 102,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 2
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 103,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 3
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 104,
+                        CardId = "CORE_CS2_231",
+                        Zone = "HAND",
+                        ZonePosition = 4
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "PLAY|23|0|0|GAME_005" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_RejectsConsumedStructuredActionAndWaitsForFreshReplacement()
         {
             var staleState = CreateState(

@@ -5315,7 +5315,7 @@ namespace BotMain
                     position = targetZonePos;
             }
 
-            var sourceCardId = step.GetPrimaryCard()?.CardId ?? string.Empty;
+            var sourceCardId = NormalizeEquivalentCardId(step.GetPrimaryCard()?.CardId);
             command = $"PLAY|{source}|{target}|{position}|{sourceCardId}";
             reason = NormalizeSuccessfulMappingReason(sourceResolutionDetail);
             return true;
@@ -6192,7 +6192,48 @@ namespace BotMain
             if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
                 return false;
 
-            return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
+            return string.Equals(
+                NormalizeEquivalentCardId(left),
+                NormalizeEquivalentCardId(right),
+                StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static string NormalizeEquivalentCardId(string cardId)
+        {
+            if (string.IsNullOrWhiteSpace(cardId))
+                return string.Empty;
+
+            var normalized = cardId.Trim();
+            if (string.Equals(normalized, "GAME_005", StringComparison.OrdinalIgnoreCase))
+                return "GAME_005";
+
+            return IsCosmeticCoinCardId(normalized) ? "GAME_005" : normalized;
+        }
+
+        private static bool IsCosmeticCoinCardId(string cardId)
+        {
+            if (string.IsNullOrWhiteSpace(cardId))
+                return false;
+
+            var normalized = cardId.Trim();
+            var coinMarkerIndex = normalized.LastIndexOf("_COIN", StringComparison.OrdinalIgnoreCase);
+            if (coinMarkerIndex <= 0 || coinMarkerIndex + 5 >= normalized.Length)
+                return false;
+
+            for (var i = 0; i < coinMarkerIndex; i++)
+            {
+                var ch = normalized[i];
+                if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+                    return false;
+            }
+
+            for (var i = coinMarkerIndex + 5; i < normalized.Length; i++)
+            {
+                if (!char.IsDigit(normalized[i]))
+                    return false;
+            }
+
+            return true;
         }
 
         /// <summary>
