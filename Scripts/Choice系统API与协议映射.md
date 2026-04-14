@@ -148,13 +148,13 @@ payload 内部统一按以下顺序判定 `mode`：
 - `DISCOVER`
 - `DREDGE`
 - `ADAPT`
+- `TIMELINE`
 - `GENERAL` 单选卡牌式界面
 
 ### 网络提交优先
 
 以下模式优先走 `SendChoices/Network.SendChoices`：
 
-- `TIMELINE`
 - `TRINKET_DISCOVER`
 - `SHOP_CHOICE`
 - 任意 `countMax > 1` 的多选界面

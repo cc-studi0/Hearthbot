@@ -6747,8 +6747,9 @@ namespace HearthstonePayload
         private static bool IsMouseOnlyChoiceSnapshot(ChoiceSnapshot snapshot, ChoiceExecutionMechanismKind mechanism)
         {
             return snapshot != null
-                && mechanism == ChoiceExecutionMechanismKind.EntityChoice
-                && string.Equals(snapshot.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase);
+                && ChoiceExecutionPolicy.IsMouseOnlyChoice(
+                    snapshot.Mode,
+                    mechanism == ChoiceExecutionMechanismKind.EntityChoice);
         }
 
         private static bool WaitForChoiceEntityReady(
@@ -7637,31 +7638,15 @@ namespace HearthstonePayload
 
         private static bool ShouldUseMouseForChoice(ChoiceSnapshot snapshot, List<int> entityIds)
         {
-            if (snapshot == null || entityIds == null || entityIds.Count != 1)
-                return false;
-
-            if (snapshot.CountMax > 1
-                || snapshot.IsRewindChoice
-                || snapshot.IsMagicItemDiscover
-                || snapshot.IsShopChoice
-                || snapshot.IsLaunchpadAbility)
-            {
-                return false;
-            }
-
-            switch ((snapshot.Mode ?? string.Empty).ToUpperInvariant())
-            {
-                case "DISCOVER":
-                case "DREDGE":
-                case "ADAPT":
-                case "GENERAL":
-                case "CHOOSE_ONE":
-                case "TARGET":
-                case "OPTION_TARGET":
-                    return true;
-                default:
-                    return false;
-            }
+            return snapshot != null
+                && entityIds != null
+                && ChoiceExecutionPolicy.ShouldUseMouseForChoice(
+                    snapshot.Mode,
+                    snapshot.CountMax,
+                    entityIds.Count,
+                    snapshot.IsMagicItemDiscover,
+                    snapshot.IsShopChoice,
+                    snapshot.IsLaunchpadAbility);
         }
 
         private static string ConfirmChoiceSubmission(ChoiceSnapshot previousSnapshot, List<int> picks)
@@ -7793,6 +7778,7 @@ namespace HearthstonePayload
                     break;
                 }
 
+                InputHook.ForcePegUIFocus();
                 foreach (var w in SmoothMove(x, y, 10, 0.012f)) yield return w;
                 yield return 0.04f; // 悬停一帧，避免刚出现时第一击丢失
                 MouseSimulator.LeftDown();
