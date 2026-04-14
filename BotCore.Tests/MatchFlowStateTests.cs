@@ -106,5 +106,24 @@ namespace BotCore.Tests
             Assert.False(state.NextMatchShouldConcedeAfterMulligan);
             Assert.False(state.CurrentMatchConcedeAfterMulliganArmed);
         }
+
+        [Theory]
+        [InlineData(false, true, true, false)]
+        [InlineData(true, false, true, false)]
+        [InlineData(true, true, false, false)]
+        [InlineData(true, true, true, true)]
+        public void AlternateConcedeExecutionPolicy_AttemptsStableMulliganConcede_OnlyWhenArmedHandledAndUiReady(
+            bool armed,
+            bool mulliganHandled,
+            bool mulliganUiReady,
+            bool expected)
+        {
+            var actual = AlternateConcedeExecutionPolicy.ShouldAttemptDuringStableMulligan(
+                armed,
+                mulliganHandled,
+                mulliganUiReady);
+
+            Assert.Equal(expected, actual);
+        }
     }
 }

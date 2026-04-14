@@ -2481,6 +2481,24 @@ namespace BotMain
                             }
                         }
 
+                        var alternateConcedeArmed = _alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed;
+                        if (alternateConcedeArmed && mulliganHandled)
+                        {
+                            var mulliganUiReady = IsMulliganStateActive(pipe, "MainLoopMulliganStableConcede", out var mulliganReadyDetail);
+                            if (AlternateConcedeExecutionPolicy.ShouldAttemptDuringStableMulligan(
+                                alternateConcedeArmed,
+                                mulliganHandled,
+                                mulliganUiReady))
+                            {
+                                TryExecuteScheduledAlternateConcede(pipe, "MulliganStable", out _);
+                                if (SleepOrCancelled(300)) break;
+                                continue;
+                            }
+
+                            if (mulliganStreak % 5 == 0)
+                                Log($"[AutoConcedeAlt] 等待留牌界面稳定后再投降: {mulliganReadyDetail}");
+                        }
+
                         if (mulliganStreak % 10 == 1)
                             Log("[MainLoop] mulligan phase detected; waiting...");
                         if (SleepOrCancelled(1000)) break;
@@ -10297,12 +10315,6 @@ namespace BotMain
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
                 result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
-                if (applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase)
-                    && _alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
-                {
-                    TryExecuteScheduledAlternateConcede(pipe, "Mulligan", out var concedeResp, force: true);
-                    result += $"; autoConcede={concedeResp}";
-                }
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)

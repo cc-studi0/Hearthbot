@@ -136,4 +136,17 @@ namespace BotMain
             NextMatchShouldConcedeAfterMulligan = string.Equals(result, "WIN", StringComparison.OrdinalIgnoreCase);
         }
     }
+
+    internal static class AlternateConcedeExecutionPolicy
+    {
+        internal static bool ShouldAttemptDuringStableMulligan(
+            bool currentMatchConcedeAfterMulliganArmed,
+            bool mulliganHandled,
+            bool mulliganUiReady)
+        {
+            return currentMatchConcedeAfterMulliganArmed
+                && mulliganHandled
+                && mulliganUiReady;
+        }
+    }
 }
