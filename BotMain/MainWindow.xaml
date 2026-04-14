@@ -540,7 +540,7 @@
                                     Padding="6,2" FontSize="11" IsEnabled="False"/>
                         </StackPanel>
                         <TextBox x:Name="LogBox" Grid.Row="1"
-                                 Text="{Binding LogText, Mode=OneWay}" IsReadOnly="True"
+                                 IsReadOnly="True"
                                  Background="White" Foreground="#222" BorderThickness="0"
                                  FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
                                  VerticalScrollBarVisibility="Auto"/>
