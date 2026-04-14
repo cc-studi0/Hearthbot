@@ -3067,6 +3067,42 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_AcceptsNewerActionablePayload_AfterTurnChanged()
+        {
+            var board = new Board
+            {
+                TurnCount = 12,
+                Ability = new Card
+                {
+                    Id = 901,
+                    IsFriend = true,
+                    Template = CreateTemplate(Card.Cards.EX1_164, "滋养", "Nourish")
+                }
+            };
+
+            var state = CreateState(200, raw: "fresh-actionable-next-turn", actionName: "hero_skill");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed", board, null, null,
+                matchContext: new MatchContextSnapshot
+                {
+                    MatchId = "match-1",
+                    TurnCount = 12,
+                    ObservedAtMs = 999002
+                },
+                lastConsumedUpdatedAtMs: 100,
+                lastConsumedPayloadSignature: "old-signature",
+                lastConsumedActionCommand: "END_TURN",
+                boardFingerprint: "fp_turn_12",
+                lastConsumedBoardFingerprint: "fp_turn_11",
+                lastConsumedTurnCount: 11));
+
+            Assert.False(result.ShouldRetryWithoutAction, "跨回合时只要 payload 已更新就应放行");
+            Assert.Equal(new[] { "HERO_POWER|901|0" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_RejectsPayload_WhenSameBoardAndSamePayloadAndSameAction()
         {
             var state = CreateState(100, raw: "reject-same-board", actionName: "end_turn");
