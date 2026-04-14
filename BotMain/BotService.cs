@@ -161,10 +161,12 @@ namespace BotMain
         private string _lastConsumedHsBoxActionPayloadSignature = string.Empty;
         private string _lastConsumedHsBoxActionCommand = string.Empty;
         private string _lastConsumedBoardFingerprint = string.Empty;
+        private int _lastConsumedHsBoxActionTurnCount;
         private long _pendingHsBoxActionUpdatedAtMs;
         private string _pendingHsBoxActionPayloadSignature = string.Empty;
         private string _pendingHsBoxActionCommand = string.Empty;
         private string _pendingHsBoxBoardFingerprint = string.Empty;
+        private int _pendingHsBoxActionTurnCount;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
@@ -1332,6 +1334,14 @@ namespace BotMain
             _lastConsumedHsBoxActionPayloadSignature = string.Empty;
             _lastConsumedHsBoxActionCommand = string.Empty;
             _lastConsumedBoardFingerprint = string.Empty;
+            _lastConsumedHsBoxActionTurnCount = 0;
+            ClearPendingHsBoxActionConfirmation();
+        }
+
+        private void ResetHsBoxActionRecommendationTrackingForTurnChange()
+        {
+            // 跨回合时保留上一条已消费推荐，避免新回合复用上一回合的旧 payload。
+            // 仅清掉等待 advance 确认的临时状态，因为它只对上一个动作有效。
             ClearPendingHsBoxActionConfirmation();
         }
 
@@ -1346,14 +1356,16 @@ namespace BotMain
                 string.IsNullOrWhiteSpace(executedAction)
                     ? ConstructedRecommendationConsumptionTracker.SummarizeFirstAction(recommendation.Actions)
                     : executedAction.Trim(),
-                boardFingerprint);
+                boardFingerprint,
+                GetCurrentObservedTurn());
         }
 
         private void RememberConsumedHsBoxActionRecommendation(
             long sourceUpdatedAtMs,
             string sourcePayloadSignature,
             string executedAction,
-            string boardFingerprint = null)
+            string boardFingerprint = null,
+            int turnCount = 0)
         {
             if (sourceUpdatedAtMs <= 0
                 && string.IsNullOrWhiteSpace(sourcePayloadSignature))
@@ -1366,10 +1378,11 @@ namespace BotMain
             _lastConsumedHsBoxActionCommand = executedAction?.Trim() ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(boardFingerprint))
                 _lastConsumedBoardFingerprint = boardFingerprint;
+            _lastConsumedHsBoxActionTurnCount = turnCount;
             ClearPendingHsBoxActionConfirmation();
         }
 
-        private void RememberPendingHsBoxActionConfirmation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint)
+        private void RememberPendingHsBoxActionConfirmation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint, int turnCount)
         {
             if (recommendation == null)
                 return;
@@ -1384,6 +1397,7 @@ namespace BotMain
             _pendingHsBoxActionPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
             _pendingHsBoxActionCommand = executedAction?.Trim() ?? string.Empty;
             _pendingHsBoxBoardFingerprint = boardFingerprint ?? string.Empty;
+            _pendingHsBoxActionTurnCount = turnCount;
         }
 
         private void ClearPendingHsBoxActionConfirmation()
@@ -1392,6 +1406,7 @@ namespace BotMain
             _pendingHsBoxActionPayloadSignature = string.Empty;
             _pendingHsBoxActionCommand = string.Empty;
             _pendingHsBoxBoardFingerprint = string.Empty;
+            _pendingHsBoxActionTurnCount = 0;
         }
 
         private bool TryPromotePendingHsBoxActionConfirmation()
@@ -1417,7 +1432,8 @@ namespace BotMain
                 _pendingHsBoxActionUpdatedAtMs,
                 _pendingHsBoxActionPayloadSignature,
                 _pendingHsBoxActionCommand,
-                _pendingHsBoxBoardFingerprint);
+                _pendingHsBoxBoardFingerprint,
+                _pendingHsBoxActionTurnCount);
             _skipNextTurnStartReadyWait = true;
             Log(
                 $"[Action] hsbox payload advanced before TurnStart: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
@@ -2764,7 +2780,8 @@ namespace BotMain
                     _lastConsumedHsBoxActionPayloadSignature,
                     _lastConsumedHsBoxActionCommand,
                     currentBoardFingerprint,
-                    _lastConsumedBoardFingerprint);
+                    _lastConsumedBoardFingerprint,
+                    _lastConsumedHsBoxActionTurnCount);
 
                 recommendationStage = "recommend_actions";
                 var sw = Stopwatch.StartNew();
@@ -3026,7 +3043,7 @@ namespace BotMain
                             {
                                 ActionStateSnapshot postActionSnapshot = null;
                                 if (useHsBoxPayloadConfirmation)
-                                    RememberPendingHsBoxActionConfirmation(recommendation, action, currentBoardFingerprint);
+                                    RememberPendingHsBoxActionConfirmation(recommendation, action, currentBoardFingerprint, planningBoard?.TurnCount ?? 0);
 
                                 if (preActionSnapshot != null)
                                 {
@@ -4018,7 +4035,8 @@ namespace BotMain
                     _lastConsumedHsBoxActionPayloadSignature,
                     _lastConsumedHsBoxActionCommand,
                     currentBoardFingerprint,
-                    _lastConsumedBoardFingerprint);
+                    _lastConsumedBoardFingerprint,
+                    _lastConsumedHsBoxActionTurnCount);
 
                 ActionRecommendationResult recommendation;
                 try
@@ -6683,6 +6701,7 @@ namespace BotMain
             HsBoxCallbackCapture.SetTurnContext(turnNumber, isMulligan: false);
             if (turnNumber != lastTurnNumber)
             {
+                var hadObservedTurnBefore = lastTurnNumber >= 0;
                 if (lastTurnNumber >= 0)
                     _pluginSystem?.FireOnTurnEnd();
                 lastTurnNumber = turnNumber;
@@ -6691,7 +6710,10 @@ namespace BotMain
                 ClearChoiceStateWatch("turn_changed");
                 ResetDiscoverLogState();
                 ResetChoiceLogState();
-                ResetHsBoxActionRecommendationTracking();
+                if (hadObservedTurnBefore)
+                    ResetHsBoxActionRecommendationTrackingForTurnChange();
+                else
+                    ResetHsBoxActionRecommendationTracking();
                 _lastConsumedHsBoxChoiceUpdatedAtMs = 0;
                 _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
                 _choiceRepeatedRecommendationCount = 0;

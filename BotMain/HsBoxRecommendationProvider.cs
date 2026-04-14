@@ -178,7 +178,9 @@ namespace BotMain
                             lastConsumedPayloadSignature,
                             request?.BoardFingerprint,
                             request?.LastConsumedBoardFingerprint,
-                            evaluation.FirstAction);
+                            evaluation.FirstAction,
+                            request?.MatchContext?.TurnCount ?? request?.PlanningBoard?.TurnCount ?? 0,
+                            request?.LastConsumedTurnCount ?? 0);
                         if (fresh && evaluation.HasUsableResult)
                         {
                             selectedState = currentState;
@@ -256,7 +258,9 @@ namespace BotMain
                     out var freshnessReason,
                     request?.BoardFingerprint,
                     request?.LastConsumedBoardFingerprint,
-                    diagEvaluatedState?.FirstAction);
+                    diagEvaluatedState?.FirstAction,
+                    request?.MatchContext?.TurnCount ?? request?.PlanningBoard?.TurnCount ?? 0,
+                    request?.LastConsumedTurnCount ?? 0);
                 diagParts.Add($"fresh={freshResult}");
                 diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
@@ -427,7 +431,9 @@ namespace BotMain
             string lastConsumedPayloadSignature = null,
             string boardFingerprint = null,
             string lastConsumedBoardFingerprint = null,
-            string currentFirstAction = null)
+            string currentFirstAction = null,
+            int currentTurnCount = 0,
+            int lastConsumedTurnCount = 0)
         {
             return TryEvaluateActionPayloadFreshness(
                 state,
@@ -436,7 +442,9 @@ namespace BotMain
                 out _,
                 boardFingerprint,
                 lastConsumedBoardFingerprint,
-                currentFirstAction);
+                currentFirstAction,
+                currentTurnCount,
+                lastConsumedTurnCount);
         }
 
         private static bool TryEvaluateActionPayloadFreshness(
@@ -446,7 +454,9 @@ namespace BotMain
             out string reason,
             string boardFingerprint = null,
             string lastConsumedBoardFingerprint = null,
-            string currentFirstAction = null)
+            string currentFirstAction = null,
+            int currentTurnCount = 0,
+            int lastConsumedTurnCount = 0)
         {
             if (state == null)
             {
@@ -463,10 +473,20 @@ namespace BotMain
             var boardChanged = ConstructedRecommendationConsumptionTracker.IsBoardChanged(
                 boardFingerprint,
                 lastConsumedBoardFingerprint);
+            var crossTurn = currentTurnCount > 0
+                && lastConsumedTurnCount > 0
+                && currentTurnCount != lastConsumedTurnCount;
             // 局面指纹优先：局面变了则动作推荐通常可以直接放行。
             // 但 END_TURN 不能仅凭回合变化放行，否则会把上一回合的旧 END_TURN 复用到新回合。
+            // 同理，跨回合时也不能仅凭 board changed 放行旧的可行动作。
             if (boardChanged && !IsEndTurnAction(currentFirstAction))
             {
+                if (crossTurn)
+                {
+                    reason = "board_changed_cross_turn";
+                    return false;
+                }
+
                 reason = "board_changed";
                 return true;
             }

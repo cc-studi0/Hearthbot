@@ -1,4 +1,7 @@
 using BotMain;
+using SmartBot.Plugins.API;
+using System;
+using System.Collections.Generic;
 using System.Reflection;
 using Xunit;
 
@@ -234,6 +237,57 @@ namespace BotCore.Tests
             Assert.False(bypassed);
             Assert.Null(args[1]);
             Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+        }
+
+        [Fact]
+        public void ApplyPlanningBoard_PreservesConsumedHsBoxActionAcrossTurnChange()
+        {
+            var service = new BotService();
+            SetPrivateField(service, "_lastConsumedHsBoxActionUpdatedAtMs", 1776174448690L);
+            SetPrivateField(service, "_lastConsumedHsBoxActionPayloadSignature", "payload-signature");
+            SetPrivateField(service, "_lastConsumedHsBoxActionCommand", "END_TURN");
+            SetPrivateField(service, "_lastConsumedBoardFingerprint", "board-fp-15");
+            SetPrivateField(service, "_lastConsumedHsBoxActionTurnCount", 15);
+            SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 1776174448690L);
+            SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", "payload-signature");
+            SetPrivateField(service, "_pendingHsBoxActionCommand", "END_TURN");
+            SetPrivateField(service, "_pendingHsBoxBoardFingerprint", "board-fp-15");
+            SetPrivateField(service, "_pendingHsBoxActionTurnCount", 15);
+
+            var method = typeof(BotService).GetMethod(
+                "ApplyPlanningBoard",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+
+            var lastTurnNumber = 15;
+            var currentTurnStartedUtc = DateTime.MinValue;
+            var resimulationCount = 4;
+            var actionFailStreak = 2;
+            var playActionFailStreakByEntity = new Dictionary<int, int> { [66] = 1 };
+            var args = new object[]
+            {
+                new Board { TurnCount = 16 },
+                lastTurnNumber,
+                currentTurnStartedUtc,
+                resimulationCount,
+                actionFailStreak,
+                playActionFailStreakByEntity
+            };
+
+            method.Invoke(service, args);
+
+            Assert.Equal(1776174448690L, Assert.IsType<long>(GetPrivateField(service, "_lastConsumedHsBoxActionUpdatedAtMs")));
+            Assert.Equal("payload-signature", Assert.IsType<string>(GetPrivateField(service, "_lastConsumedHsBoxActionPayloadSignature")));
+            Assert.Equal("END_TURN", Assert.IsType<string>(GetPrivateField(service, "_lastConsumedHsBoxActionCommand")));
+            Assert.Equal("board-fp-15", Assert.IsType<string>(GetPrivateField(service, "_lastConsumedBoardFingerprint")));
+            Assert.Equal(15, Assert.IsType<int>(GetPrivateField(service, "_lastConsumedHsBoxActionTurnCount")));
+
+            Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxActionPayloadSignature")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxActionCommand")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxBoardFingerprint")));
+            Assert.Equal(0, Assert.IsType<int>(GetPrivateField(service, "_pendingHsBoxActionTurnCount")));
         }
 
         private sealed class StubHsBoxBridge : IHsBoxRecommendationBridge

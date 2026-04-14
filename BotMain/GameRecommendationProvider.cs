@@ -137,7 +137,8 @@ namespace BotMain
             string lastConsumedPayloadSignature = null,
             string lastConsumedActionCommand = null,
             string boardFingerprint = null,
-            string lastConsumedBoardFingerprint = null)
+            string lastConsumedBoardFingerprint = null,
+            int lastConsumedTurnCount = 0)
         {
             Seed = SeedCompatibility.GetCompatibleSeed(seed, out _);
             PlanningBoard = planningBoard;
@@ -153,6 +154,7 @@ namespace BotMain
             LastConsumedActionCommand = lastConsumedActionCommand ?? string.Empty;
             BoardFingerprint = boardFingerprint ?? string.Empty;
             LastConsumedBoardFingerprint = lastConsumedBoardFingerprint ?? string.Empty;
+            LastConsumedTurnCount = lastConsumedTurnCount;
         }
 
         public string Seed { get; }
@@ -169,6 +171,7 @@ namespace BotMain
         public string LastConsumedActionCommand { get; }
         public string BoardFingerprint { get; }
         public string LastConsumedBoardFingerprint { get; }
+        public int LastConsumedTurnCount { get; }
     }
 
     internal sealed class ActionRecommendationResult
