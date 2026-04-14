@@ -2839,6 +2839,7 @@ namespace BotMain
                         var preReadyStatus = "not_run";
                         var postReadyStatus = "not_run";
                         var actionOutcome = "NOT_RUN";
+                        var skipPostActionReadyWait = false;
                         var actionFailedThisAction = false;
                         var resimulationRequestedThisAction = false;
                         string resimulationReasonThisAction = null;
@@ -3028,6 +3029,9 @@ namespace BotMain
                                 if (confirmation.SkipNextTurnStartReadyWait)
                                     _skipNextTurnStartReadyWait = true;
 
+                                if (confirmation.SkipPostActionReadyWait)
+                                    skipPostActionReadyWait = true;
+
                                 if (confirmation.ConsumeRecommendation)
                                 {
                                     RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
@@ -3176,7 +3180,13 @@ namespace BotMain
                             }
                             catch { }
 
-                            if (nextIsOption)
+                            if (skipPostActionReadyWait)
+                            {
+                                postReadyStatus = "skipped_attack_no_minion_death";
+                                if (choiceWatchArmed)
+                                    ClearChoiceStateWatch("attack_fast_track");
+                            }
+                            else if (nextIsOption)
                             {
                                 // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
                                 // Choose One UI 已弹出，游戏不处于"就绪"状态，
@@ -8153,6 +8163,8 @@ namespace BotMain
             public int ManaAvailable;
             public int FriendMinionCount;
             public int EnemyMinionCount;
+            public IReadOnlyCollection<int> FriendMinionEntityIds = Array.Empty<int>();
+            public IReadOnlyCollection<int> EnemyMinionEntityIds = Array.Empty<int>();
         }
 
         internal sealed class ActionEffectConfirmationResult
@@ -8160,6 +8172,7 @@ namespace BotMain
             public bool MarkTurnHadEffectiveAction;
             public bool ConsumeRecommendation;
             public bool SkipNextTurnStartReadyWait;
+            public bool SkipPostActionReadyWait;
             public string Reason = string.Empty;
         }
 
@@ -8173,7 +8186,17 @@ namespace BotMain
                 HandCount = board.Hand?.Count ?? 0,
                 ManaAvailable = board.ManaAvailable,
                 FriendMinionCount = board.MinionFriend?.Count ?? 0,
-                EnemyMinionCount = board.MinionEnemy?.Count ?? 0
+                EnemyMinionCount = board.MinionEnemy?.Count ?? 0,
+                FriendMinionEntityIds = (board.MinionFriend ?? Enumerable.Empty<Card>())
+                    .Where(card => card != null && card.Id > 0)
+                    .Select(card => card.Id)
+                    .Distinct()
+                    .ToArray(),
+                EnemyMinionEntityIds = (board.MinionEnemy ?? Enumerable.Empty<Card>())
+                    .Where(card => card != null && card.Id > 0)
+                    .Select(card => card.Id)
+                    .Distinct()
+                    .ToArray()
             };
         }
 
@@ -8203,6 +8226,12 @@ namespace BotMain
             ActionStateSnapshot before,
             ActionStateSnapshot after)
         {
+            var shouldFastTrackAttack = ShouldFastTrackSuccessfulAttack(
+                action,
+                actionReportedSuccess,
+                before,
+                after);
+
             if (hsBoxAdvanceConfirmed)
             {
                 return new ActionEffectConfirmationResult
@@ -8210,6 +8239,7 @@ namespace BotMain
                     MarkTurnHadEffectiveAction = true,
                     ConsumeRecommendation = true,
                     SkipNextTurnStartReadyWait = true,
+                    SkipPostActionReadyWait = shouldFastTrackAttack,
                     Reason = "hsbox_advanced"
                 };
             }
@@ -8219,6 +8249,8 @@ namespace BotMain
                 return new ActionEffectConfirmationResult
                 {
                     MarkTurnHadEffectiveAction = true,
+                    SkipNextTurnStartReadyWait = shouldFastTrackAttack,
+                    SkipPostActionReadyWait = shouldFastTrackAttack,
                     Reason = "local_state_advanced"
                 };
             }
@@ -8228,7 +8260,11 @@ namespace BotMain
                 return new ActionEffectConfirmationResult
                 {
                     MarkTurnHadEffectiveAction = true,
-                    Reason = "action_result_ok"
+                    SkipNextTurnStartReadyWait = shouldFastTrackAttack,
+                    SkipPostActionReadyWait = shouldFastTrackAttack,
+                    Reason = shouldFastTrackAttack
+                        ? "attack_no_minion_death"
+                        : "action_result_ok"
                 };
             }
 
@@ -8247,6 +8283,42 @@ namespace BotMain
                     ? "awaiting_hsbox_advance"
                     : "state_unchanged"
             };
+        }
+
+        internal static bool ShouldFastTrackSuccessfulAttack(
+            string action,
+            bool actionReportedSuccess,
+            ActionStateSnapshot before,
+            ActionStateSnapshot after)
+        {
+            if (!actionReportedSuccess
+                || before == null
+                || after == null
+                || string.IsNullOrWhiteSpace(action)
+                || !action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            return !HasRemovedMinionEntity(before.FriendMinionEntityIds, after.FriendMinionEntityIds)
+                && !HasRemovedMinionEntity(before.EnemyMinionEntityIds, after.EnemyMinionEntityIds);
+        }
+
+        private static bool HasRemovedMinionEntity(
+            IReadOnlyCollection<int> beforeEntityIds,
+            IReadOnlyCollection<int> afterEntityIds)
+        {
+            if (beforeEntityIds == null || beforeEntityIds.Count == 0)
+                return false;
+
+            var afterSet = new HashSet<int>(afterEntityIds ?? Array.Empty<int>());
+            foreach (var entityId in beforeEntityIds)
+            {
+                if (entityId > 0 && !afterSet.Contains(entityId))
+                    return true;
+            }
+
+            return false;
         }
 
         private bool ShouldUseHsBoxPayloadConfirmation(ActionRecommendationResult recommendation, bool isEndTurn)

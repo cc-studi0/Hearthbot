@@ -105,6 +105,80 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ResolveActionEffectConfirmation_FastTracksAttack_WhenSuccessfulAttackRemovesNoMinions()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 0,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11, 12 },
+                EnemyMinionEntityIds = new[] { 21 }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 0,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11, 12 },
+                EnemyMinionEntityIds = new[] { 21 }
+            };
+
+            var result = BotService.ResolveActionEffectConfirmation(
+                useHsBoxPayloadConfirmation: true,
+                hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
+                action: "ATTACK|11|1",
+                before: before,
+                after: after);
+
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.False(result.ConsumeRecommendation);
+            Assert.True(result.SkipNextTurnStartReadyWait);
+            Assert.True(result.SkipPostActionReadyWait);
+            Assert.Equal("attack_no_minion_death", result.Reason);
+        }
+
+        [Fact]
+        public void ResolveActionEffectConfirmation_DoesNotFastTrackAttack_WhenMinionEntityChangedButCountStaysSame()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 0,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11, 12 },
+                EnemyMinionEntityIds = new[] { 21 }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 0,
+                FriendMinionCount = 2,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11, 12 },
+                EnemyMinionEntityIds = new[] { 99 }
+            };
+
+            var result = BotService.ResolveActionEffectConfirmation(
+                useHsBoxPayloadConfirmation: true,
+                hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
+                action: "ATTACK|11|21",
+                before: before,
+                after: after);
+
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.False(result.ConsumeRecommendation);
+            Assert.False(result.SkipNextTurnStartReadyWait);
+            Assert.False(result.SkipPostActionReadyWait);
+            Assert.Equal("action_result_ok", result.Reason);
+        }
+
+        [Fact]
         public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {
             var service = new BotService();
