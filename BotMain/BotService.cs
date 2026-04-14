@@ -2919,11 +2919,6 @@ namespace BotMain
                             const int preReadyIntervalMs = 300;
                             const int postReadyRetries = 30;
                             const int postReadyIntervalMs = 300;
-                            var actionDelayMs = _humanizeActionsEnabled
-                                ? ConstructedHumanizerPlanner.ComputeInterActionDelayMs(
-                                    ai, actions.Count, _humanizeIntensity, null)
-                                : 80;
-
                             // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
                             if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
                             {
@@ -3226,21 +3221,12 @@ namespace BotMain
                                 // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
                                 // Choose One UI 已弹出，游戏不处于"就绪"状态，
                                 // 跳过 discover 探测和 post-ready 等待，直接发送 OPTION。
-                                var postDelaySw = Stopwatch.StartNew();
-                                SleepOrCancelled(actionDelayMs);
-                                postDelaySw.Stop();
-                                postDelayMs = postDelaySw.ElapsedMilliseconds;
                                 postReadyStatus = "skipped_next_option";
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_followed_by_option");
                             }
                             else
                             {
-                                var postDelaySw = Stopwatch.StartNew();
-                                SleepOrCancelled(actionDelayMs);
-                                postDelaySw.Stop();
-                                postDelayMs = postDelaySw.ElapsedMilliseconds;
-
                                 var choiceProbeSw = Stopwatch.StartNew();
                                 var hasPendingChoice = TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimulationReason);
                                 choiceProbeSw.Stop();
