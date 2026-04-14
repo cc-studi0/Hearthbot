@@ -2419,6 +2419,33 @@ namespace HearthstonePayload
             yield return 0.04f;
             MouseSimulator.LeftDown();
             yield return 0.12f;
+
+            var inputMgrAfterMouseDown = GetSingleton(_inputMgrType);
+            var holdStatusAfterMouseDown = WaitForHeldCardAfterGrab(inputMgrAfterMouseDown, entityId, out var heldEntityIdAfterMouseDown);
+            if (holdStatusAfterMouseDown != HeldCardWaitStatus.Expected)
+            {
+                MouseSimulator.LeftUp();
+                TryResetHeldCard();
+
+                if (holdStatusAfterMouseDown == HeldCardWaitStatus.Mismatch)
+                {
+                    AppendActionTrace(
+                        "PLAY(mouse-flow) grab_mismatch entity=" + entityId
+                        + " actualHeld=" + heldEntityIdAfterMouseDown
+                        + " pos=(" + sourceX + "," + sourceY + ") "
+                        + GameObjectFinder._lastHandPosDebug);
+                    _coroutine.SetResult("FAIL:PLAY:grab_mismatch:" + entityId + ":" + heldEntityIdAfterMouseDown);
+                    yield break;
+                }
+
+                AppendActionTrace(
+                    "PLAY(mouse-flow) grab_not_detected entity=" + entityId
+                    + " pos=(" + sourceX + "," + sourceY + ") "
+                    + GameObjectFinder._lastHandPosDebug);
+                _coroutine.SetResult("FAIL:PLAY:grab_not_detected:" + entityId);
+                yield break;
+            }
+
             AppendActionTrace("PLAY(mouse) drag_start entity=" + entityId + " pos=(" + sourceX + "," + sourceY + ") " + GameObjectFinder._lastHandPosDebug);
 
             bool targetConfirmationPending = false;
@@ -10489,27 +10516,20 @@ namespace HearthstonePayload
             if (inputMgr == null || expectedEntityId <= 0)
                 return HeldCardWaitStatus.None;
 
-            const int timeoutMs = 100;
-            const int pollMs = 8;
-            var deadline = Environment.TickCount + timeoutMs;
-
-            while (true)
-            {
-                if (TryGetHeldCardEntityId(inputMgr, out heldEntityId))
+            var status = HeldCardIdentityVerifier.WaitForExpectedHeldCardIdentity(
+                () =>
                 {
-                    return heldEntityId == expectedEntityId
-                        ? HeldCardWaitStatus.Expected
-                        : HeldCardWaitStatus.Mismatch;
-                }
+                    var found = TryGetHeldCardEntityId(inputMgr, out var currentHeldEntityId);
+                    return new HeldCardProbeResult
+                    {
+                        Found = found,
+                        HeldEntityId = currentHeldEntityId
+                    };
+                },
+                expectedEntityId,
+                out heldEntityId);
 
-                if (Environment.TickCount - deadline >= 0)
-                    break;
-
-                Thread.Sleep(pollMs);
-            }
-
-            heldEntityId = 0;
-            return HeldCardWaitStatus.None;
+            return (HeldCardWaitStatus)status;
         }
 
         private static object ResolveGrabGameObject(object entity, object card)
