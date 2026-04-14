@@ -2422,28 +2422,26 @@ namespace HearthstonePayload
 
             var inputMgrAfterMouseDown = GetSingleton(_inputMgrType);
             var holdStatusAfterMouseDown = WaitForHeldCardAfterGrab(inputMgrAfterMouseDown, entityId, out var heldEntityIdAfterMouseDown);
-            if (holdStatusAfterMouseDown != HeldCardWaitStatus.Expected)
+            if (HeldCardIdentityVerifier.ShouldAbortMouseFlowGrab((HeldCardIdentityStatus)holdStatusAfterMouseDown))
             {
                 MouseSimulator.LeftUp();
                 TryResetHeldCard();
 
-                if (holdStatusAfterMouseDown == HeldCardWaitStatus.Mismatch)
-                {
-                    AppendActionTrace(
-                        "PLAY(mouse-flow) grab_mismatch entity=" + entityId
-                        + " actualHeld=" + heldEntityIdAfterMouseDown
-                        + " pos=(" + sourceX + "," + sourceY + ") "
-                        + GameObjectFinder._lastHandPosDebug);
-                    _coroutine.SetResult("FAIL:PLAY:grab_mismatch:" + entityId + ":" + heldEntityIdAfterMouseDown);
-                    yield break;
-                }
-
                 AppendActionTrace(
-                    "PLAY(mouse-flow) grab_not_detected entity=" + entityId
+                    "PLAY(mouse-flow) grab_mismatch entity=" + entityId
+                    + " actualHeld=" + heldEntityIdAfterMouseDown
                     + " pos=(" + sourceX + "," + sourceY + ") "
                     + GameObjectFinder._lastHandPosDebug);
-                _coroutine.SetResult("FAIL:PLAY:grab_not_detected:" + entityId);
+                _coroutine.SetResult("FAIL:PLAY:grab_mismatch:" + entityId + ":" + heldEntityIdAfterMouseDown);
                 yield break;
+            }
+
+            if (holdStatusAfterMouseDown == HeldCardWaitStatus.None)
+            {
+                AppendActionTrace(
+                    "PLAY(mouse-flow) grab_identity_unavailable entity=" + entityId
+                    + " pos=(" + sourceX + "," + sourceY + ") "
+                    + GameObjectFinder._lastHandPosDebug);
             }
 
             AppendActionTrace("PLAY(mouse) drag_start entity=" + entityId + " pos=(" + sourceX + "," + sourceY + ") " + GameObjectFinder._lastHandPosDebug);

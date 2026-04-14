@@ -77,5 +77,13 @@ namespace BotCore.Tests
             Assert.Equal(HeldCardIdentityStatus.None, status);
             Assert.Equal(0, heldEntityId);
         }
+
+        [Fact]
+        public void ShouldAbortMouseFlowGrab_ReturnsTrue_OnlyForMismatch()
+        {
+            Assert.False(HeldCardIdentityVerifier.ShouldAbortMouseFlowGrab(HeldCardIdentityStatus.None));
+            Assert.False(HeldCardIdentityVerifier.ShouldAbortMouseFlowGrab(HeldCardIdentityStatus.Expected));
+            Assert.True(HeldCardIdentityVerifier.ShouldAbortMouseFlowGrab(HeldCardIdentityStatus.Mismatch));
+        }
     }
 }

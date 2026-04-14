@@ -17,6 +17,11 @@ namespace HearthstonePayload
 
     internal static class HeldCardIdentityVerifier
     {
+        internal static bool ShouldAbortMouseFlowGrab(HeldCardIdentityStatus status)
+        {
+            return status == HeldCardIdentityStatus.Mismatch;
+        }
+
         internal static HeldCardIdentityStatus WaitForExpectedHeldCardIdentity(
             Func<HeldCardProbeResult> probe,
             int expectedEntityId,
