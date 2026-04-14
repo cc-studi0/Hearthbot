@@ -177,7 +177,8 @@ namespace BotMain
                             lastConsumedUpdatedAtMs,
                             lastConsumedPayloadSignature,
                             request?.BoardFingerprint,
-                            request?.LastConsumedBoardFingerprint);
+                            request?.LastConsumedBoardFingerprint,
+                            evaluation.FirstAction);
                         if (fresh && evaluation.HasUsableResult)
                         {
                             selectedState = currentState;
@@ -245,13 +246,17 @@ namespace BotMain
             var diagParts = new List<string>();
             if (diagState != null)
             {
+                var diagEvaluatedState = request != null
+                    ? EvaluateActionState(diagState, request)
+                    : null;
                 var freshResult = TryEvaluateActionPayloadFreshness(
                     diagState,
                     lastConsumedUpdatedAtMs,
                     lastConsumedPayloadSignature,
                     out var freshnessReason,
                     request?.BoardFingerprint,
-                    request?.LastConsumedBoardFingerprint);
+                    request?.LastConsumedBoardFingerprint,
+                    diagEvaluatedState?.FirstAction);
                 diagParts.Add($"fresh={freshResult}");
                 diagParts.Add($"freshReason={freshnessReason}");
                 diagParts.Add($"stateUpdatedAt={diagState.UpdatedAtMs}");
@@ -273,7 +278,7 @@ namespace BotMain
                     diagParts.Add($"structMap={structOk}({structDiag})");
                     var bodyOk = TryGetBodyActions(diagState, request, out _, out var bodyDiag);
                     diagParts.Add($"bodyMap={bodyOk}({bodyDiag})");
-                    var evaluatedState = EvaluateActionState(diagState, request);
+                    var evaluatedState = diagEvaluatedState ?? EvaluateActionState(diagState, request);
                     if (evaluatedState.HasFinalActions)
                     {
                         diagParts.Add($"firstAction={TrimActionForDiag(evaluatedState.FirstAction)}");
@@ -421,7 +426,8 @@ namespace BotMain
             long lastConsumedUpdatedAtMs,
             string lastConsumedPayloadSignature = null,
             string boardFingerprint = null,
-            string lastConsumedBoardFingerprint = null)
+            string lastConsumedBoardFingerprint = null,
+            string currentFirstAction = null)
         {
             return TryEvaluateActionPayloadFreshness(
                 state,
@@ -429,7 +435,8 @@ namespace BotMain
                 lastConsumedPayloadSignature,
                 out _,
                 boardFingerprint,
-                lastConsumedBoardFingerprint);
+                lastConsumedBoardFingerprint,
+                currentFirstAction);
         }
 
         private static bool TryEvaluateActionPayloadFreshness(
@@ -438,7 +445,8 @@ namespace BotMain
             string lastConsumedPayloadSignature,
             out string reason,
             string boardFingerprint = null,
-            string lastConsumedBoardFingerprint = null)
+            string lastConsumedBoardFingerprint = null,
+            string currentFirstAction = null)
         {
             if (state == null)
             {
@@ -452,8 +460,12 @@ namespace BotMain
                 return false;
             }
 
-            // 局面指纹优先：局面变了则任何推荐都是新的
-            if (ConstructedRecommendationConsumptionTracker.IsBoardChanged(boardFingerprint, lastConsumedBoardFingerprint))
+            var boardChanged = ConstructedRecommendationConsumptionTracker.IsBoardChanged(
+                boardFingerprint,
+                lastConsumedBoardFingerprint);
+            // 局面指纹优先：局面变了则动作推荐通常可以直接放行。
+            // 但 END_TURN 不能仅凭回合变化放行，否则会把上一回合的旧 END_TURN 复用到新回合。
+            if (boardChanged && !IsEndTurnAction(currentFirstAction))
             {
                 reason = "board_changed";
                 return true;

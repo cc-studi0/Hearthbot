@@ -2985,7 +2985,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_AcceptsStalePayload_WhenBoardFingerprintChanged()
+        public void RecommendActions_RejectsStaleEndTurnPayload_WhenOnlyBoardFingerprintChanged()
         {
             var state = CreateState(100, raw: "stale-board-changed", actionName: "end_turn");
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
@@ -2998,8 +2998,36 @@ namespace BotCore.Tests
                 boardFingerprint: "fp_after_play",
                 lastConsumedBoardFingerprint: "fp_before_play"));
 
-            Assert.False(result.ShouldRetryWithoutAction, "局面已变，应放行而非重试");
-            Assert.NotEmpty(result.Actions);
+            Assert.True(result.ShouldRetryWithoutAction, "陈旧 END_TURN 不能仅因局面变化而放行");
+            Assert.Empty(result.Actions);
+        }
+
+        [Fact]
+        public void RecommendActions_AcceptsStaleActionablePayload_WhenBoardFingerprintChanged()
+        {
+            var board = new Board
+            {
+                Ability = new Card
+                {
+                    Id = 901,
+                    IsFriend = true,
+                    Template = CreateTemplate(Card.Cards.EX1_164, "滋养", "Nourish")
+                }
+            };
+
+            var state = CreateState(100, raw: "stale-actionable-board-changed", actionName: "hero_skill");
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 50, actionPollIntervalMs: 5);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed", board, null, null,
+                lastConsumedUpdatedAtMs: 100,
+                lastConsumedPayloadSignature: state.PayloadSignature,
+                lastConsumedActionCommand: "HERO_POWER|901|0",
+                boardFingerprint: "fp_after_play",
+                lastConsumedBoardFingerprint: "fp_before_play"));
+
+            Assert.False(result.ShouldRetryWithoutAction, "非 END_TURN 动作在局面变化后仍应允许放行");
+            Assert.Equal(new[] { "HERO_POWER|901|0" }, result.Actions);
         }
 
         [Fact]
