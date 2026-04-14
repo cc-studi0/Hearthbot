@@ -23,6 +23,9 @@ namespace HearthstonePayload
             if (rewindHudManager == null || !TryGetTokens(choiceCardId, out var tokens))
                 return false;
 
+            if (TryGetExactCurrentGameButtonSource(rewindHudManager, choiceCardId, out source))
+                return true;
+
             foreach (var candidate in EnumerateNamedCandidates(rewindHudManager, tokens))
             {
                 if (!LooksLikeUiSource(candidate))
@@ -34,6 +37,28 @@ namespace HearthstonePayload
             }
 
             return false;
+        }
+
+        private static bool TryGetExactCurrentGameButtonSource(object rewindHudManager, string choiceCardId, out object source)
+        {
+            source = null;
+
+            var memberName = string.Equals(choiceCardId, "TIME_000tb", StringComparison.OrdinalIgnoreCase)
+                ? "m_rewindButton"
+                : string.Equals(choiceCardId, "TIME_000ta", StringComparison.OrdinalIgnoreCase)
+                    ? "m_keepButton"
+                    : null;
+
+            if (string.IsNullOrWhiteSpace(memberName))
+                return false;
+
+            var candidate = TryGetMemberValue(rewindHudManager, memberName)
+                ?? TryGetMemberValue(rewindHudManager, memberName.TrimStart('m', '_'));
+            if (!LooksLikeUiSource(candidate))
+                return false;
+
+            source = UnwrapButtonCandidate(candidate);
+            return source != null;
         }
 
         private static bool TryGetTokens(string choiceCardId, out string[] tokens)
