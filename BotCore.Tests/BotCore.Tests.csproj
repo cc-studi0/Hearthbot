@@ -85,6 +85,7 @@
     <Compile Include="..\HearthstonePayload\SeedBuilder.cs" Link="HearthstonePayload\SeedBuilder.cs" />
     <Compile Include="..\HearthstonePayload\TimelineChoiceUiResolver.cs" Link="HearthstonePayload\TimelineChoiceUiResolver.cs" />
     <Compile Include="..\HearthstonePayload\UiObjectAnchorResolver.cs" Link="HearthstonePayload\UiObjectAnchorResolver.cs" />
+    <Compile Include="..\HearthstonePayload\OverlayPopupPolicy.cs" Link="HearthstonePayload\OverlayPopupPolicy.cs" />
   </ItemGroup>
   <ItemGroup>
     <Reference Include="SBAPI">

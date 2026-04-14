@@ -311,11 +311,15 @@ namespace HearthstonePayload
                         var val = _popupDisplayManagerIsShowing.GetValue(null);
                         if (val is bool showing && showing)
                         {
+                            var typeName = "PopupDisplay";
+                            var action = OverlayPopupPolicy.ShouldTreatAsDismissablePopupDisplay(typeName)
+                                ? OverlayAction.CanDismiss
+                                : OverlayAction.Wait;
                             return new OverlayStatus
                             {
-                                Action = OverlayAction.Wait,
-                                Type = "PopupDisplay",
-                                Detail = "rewards_or_achievements"
+                                Action = action,
+                                Type = typeName,
+                                Detail = "popup_display_manager"
                             };
                         }
                     }
@@ -347,6 +351,11 @@ namespace HearthstonePayload
             // 导致整个 pipe worker 停摆，后续 GET_SEED 连续超时。
             if (status.Action == OverlayAction.RestartRequired)
                 return "RESTART_REQUIRED:" + status.Type;
+
+            // PopupDisplayManager 管理的大厅弹窗经常带明确的确认按钮（如活动结束提示），
+            // 这里优先回退到旧逻辑做按钮定位点击，避免误用 GoBack()。
+            if (OverlayPopupPolicy.ShouldTreatAsDismissablePopupDisplay(status.Type))
+                return null;
 
             // CAN_DISMISS: 尝试 GoBack
             _log($"[OverlayDetector] 尝试关闭 {status.Type} via GoBack()");

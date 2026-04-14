@@ -2346,7 +2346,9 @@ namespace HearthstonePayload
             TryAdd(sceneMgr, "SceneMgr.Get()");
             TryAdd(sceneMgr != null ? Call(sceneMgr, "GetScene") : null, "SceneMgr.Get().Scene");
 
-            foreach (var typeName in KnownBlockingDialogTypes.Concat(new[] { "DialogManager", "PopupManager" }))
+            foreach (var typeName in KnownBlockingDialogTypes
+                .Concat(OverlayPopupPolicy.LegacyBlockingDialogRootTypeNames)
+                .Distinct(StringComparer.OrdinalIgnoreCase))
             {
                 var type = _asm?.GetType(typeName);
                 if (type == null)
