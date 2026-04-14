@@ -12147,7 +12147,7 @@ namespace HearthstonePayload
             if (source == null)
                 return false;
 
-            var root = GetFieldOrProp(source, "gameObject") ?? source;
+            var root = UiObjectAnchorResolver.ResolveAnchorSource(source) ?? source;
             var transform = GetFieldOrProp(root, "transform")
                 ?? GetFieldOrProp(source, "transform");
             if (transform == null && !TryInvokeMethod(root, "get_transform", Array.Empty<object>(), out transform, out _))
