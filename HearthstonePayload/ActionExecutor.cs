@@ -2315,7 +2315,7 @@ namespace HearthstonePayload
                 var gsVerify = GetGameState();
                 var actualCardId = ResolveEntityCardId(gsVerify, entityId);
                 if (!string.IsNullOrWhiteSpace(actualCardId)
-                    && !string.Equals(actualCardId, expectedCardId, StringComparison.OrdinalIgnoreCase))
+                    && !string.Equals(NormalizeEquivalentCardId(actualCardId), NormalizeEquivalentCardId(expectedCardId), StringComparison.OrdinalIgnoreCase))
                 {
                     AppendActionTrace(
                         "PLAY(mouse-flow) card_mismatch entity=" + entityId
@@ -10858,6 +10858,42 @@ namespace HearthstonePayload
                 ?? GetFieldOrProp(entity, "m_cardId")
                 ?? GetFieldOrProp(entity, "m_cardID");
             return cardIdObj?.ToString() ?? string.Empty;
+        }
+
+        /// <summary>
+        /// 将幸运币的各种变体ID（如 GDB_COIN2、HERO_01_COIN1 等）统一归一化为 GAME_005，
+        /// 使 card_mismatch 校验不会因为 hsbox 归一化后的 GAME_005 与游戏内实际变体ID不同而误判。
+        /// </summary>
+        private static string NormalizeEquivalentCardId(string cardId)
+        {
+            if (string.IsNullOrWhiteSpace(cardId))
+                return string.Empty;
+
+            var normalized = cardId.Trim();
+            if (string.Equals(normalized, "GAME_005", StringComparison.OrdinalIgnoreCase))
+                return "GAME_005";
+
+            // 检测 XXX_COINn 格式的幸运币变体
+            var coinMarkerIndex = normalized.LastIndexOf("_COIN", StringComparison.OrdinalIgnoreCase);
+            if (coinMarkerIndex > 0 && coinMarkerIndex + 5 < normalized.Length)
+            {
+                var isCoin = true;
+                for (var i = 0; i < coinMarkerIndex && isCoin; i++)
+                {
+                    var ch = normalized[i];
+                    if (!(char.IsLetterOrDigit(ch) || ch == '_'))
+                        isCoin = false;
+                }
+                for (var i = coinMarkerIndex + 5; i < normalized.Length && isCoin; i++)
+                {
+                    if (!char.IsDigit(normalized[i]))
+                        isCoin = false;
+                }
+                if (isCoin)
+                    return "GAME_005";
+            }
+
+            return normalized;
         }
 
         private static int ResolveEntityZoneTag(object gameState, int entityId)
