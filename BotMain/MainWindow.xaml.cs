@@ -1,35 +1,49 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
 using System.Windows.Threading;
 
 namespace BotMain
 {
-    internal static class TextBoxExtensions
-    {
-        public static int GetFirstVisibleLineIndex(this TextBox textBox)
-        {
-            var charIndex = textBox.GetCharacterIndexFromPoint(new Point(0, 0), true);
-            return charIndex >= 0 ? textBox.GetLineIndexFromCharacterIndex(charIndex) : 0;
-        }
-    }
-
     public partial class MainWindow : Window
     {
         private GuiRenderer _guiRenderer;
         private MainViewModel _logViewModel;
         private bool _logAutoFollow = true;
-        private bool _restoringLogView;
-        private int _logPinnedFirstVisibleLine = -1;
-        private const double LogBottomTolerance = 2.0;
+        private const double LogBottomTolerance = 20.0;
+        private const int MaxParagraphs = 500;
+
+        // ── Light theme brushes (smartbot style) ──
+        private static readonly Brush TimestampBrush  = Freeze(153, 153, 153);
+        private static readonly Brush DefaultBrush    = Freeze(34, 34, 34);
+        private static readonly Brush ErrorBrush      = Freeze(204, 0, 0);
+        private static readonly Brush WinBrush        = Freeze(26, 122, 58);
+        private static readonly Brush LossBrush       = Freeze(204, 85, 0);
+        private static readonly Brush TurnBrush       = Freeze(0, 102, 204);
+        private static readonly Brush PluginBrush     = Freeze(119, 51, 187);
+        private static readonly Brush ReloggerBrush   = Freeze(0, 136, 136);
+        private static readonly Brush ActionBrush     = Freeze(153, 119, 0);
+        private static readonly Brush WarningBrush    = Freeze(204, 119, 0);
+        private static readonly Brush HsAngBrush      = Freeze(14, 122, 122);
+        private static readonly Brush StatusBrush     = Freeze(14, 138, 78);
+        private static readonly Brush CompileBrush    = Freeze(42, 110, 142);
+        private static readonly Brush DebugBrush      = Freeze(170, 170, 170);
+        private static readonly Brush ProgressBrush   = Freeze(119, 119, 119);
+
+        // ── Filter state ──
+        private string _currentFilter = "all";
+        private readonly List<int> _gameStartIndices = new();
+        private int _totalParagraphs;
 
         public MainWindow()
         {
             GuiBridge.Install();
             InitializeComponent();
 
-            LogBox.AddHandler(ScrollViewer.ScrollChangedEvent, new ScrollChangedEventHandler(OnLogScrollChanged));
             DataContextChanged += OnDataContextChanged;
             AttachLogViewModel(DataContext as MainViewModel);
 
@@ -63,6 +77,13 @@ namespace BotMain
                     viewModel.SaveSettings();
                 }
             };
+
+            // Wire up filter buttons
+            LogFilterAll.Click         += (_, _) => ApplyFilter("all");
+            LogFilterErrors.Click      += (_, _) => ApplyFilter("errors");
+            LogFilterActions.Click      += (_, _) => ApplyFilter("actions");
+            LogFilterCurrentGame.Click += (_, _) => ApplyFilter("currentgame");
+            LogFilterLastGame.Click    += (_, _) => ApplyFilter("lastgame");
         }
 
         private void OnLoaded(object sender, RoutedEventArgs e)
@@ -74,6 +95,8 @@ namespace BotMain
             timer.Start();
         }
 
+        // ── ViewModel wiring ──
+
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             DetachLogViewModel(e.OldValue as MainViewModel);
@@ -82,23 +105,20 @@ namespace BotMain
 
         private void AttachLogViewModel(MainViewModel viewModel)
         {
-            if (viewModel == null)
-                return;
-
+            if (viewModel == null) return;
             _logViewModel = viewModel;
             _logViewModel.PropertyChanged += OnViewModelPropertyChanged;
-            ApplyLogText(_logViewModel.LogText);
         }
 
         private void DetachLogViewModel(MainViewModel viewModel)
         {
-            if (viewModel == null)
-                return;
-
+            if (viewModel == null) return;
             viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             if (ReferenceEquals(_logViewModel, viewModel))
                 _logViewModel = null;
         }
+
+        private string _lastProcessedLog = "";
 
         private void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
         {
@@ -107,85 +127,288 @@ namespace BotMain
 
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.BeginInvoke(new Action(() => ApplyLogText(viewModel.LogText)), DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() => ProcessNewLogLines(viewModel.LogText)), DispatcherPriority.Background);
                 return;
             }
 
-            ApplyLogText(viewModel.LogText);
+            ProcessNewLogLines(viewModel.LogText);
         }
 
-        private void ApplyLogText(string nextText)
+        // ── Core: incremental colored log rendering ──
+
+        private void ProcessNewLogLines(string fullText)
         {
-            var plan = LogTextSyncPlanner.Build(LogBox.Text, nextText);
-            if (plan.Mode == LogTextSyncMode.None)
-                return;
+            if (string.IsNullOrEmpty(fullText)) return;
 
-            var pinnedLine = _logAutoFollow
-                ? -1
-                : (_logPinnedFirstVisibleLine >= 0 ? _logPinnedFirstVisibleLine : LogBox.GetFirstVisibleLineIndex());
-            var selectionStart = LogBox.SelectionStart;
-            var selectionLength = LogBox.SelectionLength;
-            var hasSelection = selectionLength > 0;
-
-            _restoringLogView = true;
-            try
+            // Find new portion
+            string newPortion;
+            if (fullText.Length > _lastProcessedLog.Length && fullText.StartsWith(_lastProcessedLog))
             {
-                switch (plan.Mode)
-                {
-                    case LogTextSyncMode.Append:
-                        LogBox.AppendText(plan.Text);
-                        break;
-
-                    case LogTextSyncMode.Replace:
-                        LogBox.Text = plan.Text;
-                        break;
-                }
-
-                if (_logAutoFollow)
-                {
-                    _logPinnedFirstVisibleLine = -1;
-                    LogBox.ScrollToEnd();
-                    return;
-                }
-
-                if (hasSelection)
-                {
-                    var textLength = LogBox.Text?.Length ?? 0;
-                    var safeStart = Math.Max(0, Math.Min(selectionStart, textLength));
-                    var safeLength = Math.Max(0, Math.Min(selectionLength, textLength - safeStart));
-                    if (safeLength > 0)
-                        LogBox.Select(safeStart, safeLength);
-                }
-
-                if (pinnedLine >= 0 && LogBox.LineCount > 0)
-                    LogBox.ScrollToLine(Math.Min(pinnedLine, LogBox.LineCount - 1));
-
-                _logPinnedFirstVisibleLine = pinnedLine;
+                newPortion = fullText.Substring(_lastProcessedLog.Length);
             }
-            finally
+            else
             {
-                _restoringLogView = false;
+                // Full reset (truncation happened)
+                LogBox.Document.Blocks.Clear();
+                _gameStartIndices.Clear();
+                _totalParagraphs = 0;
+                newPortion = fullText;
+            }
+            _lastProcessedLog = fullText;
+
+            if (string.IsNullOrEmpty(newPortion)) return;
+
+            var lines = newPortion.Split('\n');
+            var doc = LogBox.Document;
+            bool wasAtBottom = IsLogAtBottom();
+
+            foreach (var rawLine in lines)
+            {
+                var line = rawLine.TrimEnd('\r');
+                if (string.IsNullOrEmpty(line)) continue;
+
+                var para = CreateLogParagraph(line);
+                doc.Blocks.Add(para);
+            }
+
+            // Trim old paragraphs
+            while (doc.Blocks.Count > MaxParagraphs)
+                doc.Blocks.Remove(doc.Blocks.FirstBlock);
+
+            if (_logAutoFollow || wasAtBottom)
+            {
+                _logAutoFollow = true;
+                LogBox.ScrollToEnd();
             }
         }
 
-        private void OnLogScrollChanged(object sender, ScrollChangedEventArgs e)
+        // ── Paragraph creation (smartbot style) ──
+
+        private Paragraph CreateLogParagraph(string str)
         {
-            if (_restoringLogView)
-                return;
+            var category = GetLogCategory(str);
+            var brush = GetBrushForCategory(category);
+            bool bold = category is "turn" or "win" or "loss" or "status";
 
-            if (Math.Abs(e.VerticalChange) <= double.Epsilon)
-                return;
+            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 1) };
 
-            _logAutoFollow = IsLogAtBottom();
-            _logPinnedFirstVisibleLine = _logAutoFollow
-                ? -1
-                : LogBox.GetFirstVisibleLineIndex();
+            // [HH:mm:ss] prefix gets timestamp color, rest gets category color
+            if (str.StartsWith("[") && str.Length > 10 && str[9] == ']')
+            {
+                var timestamp = str.Substring(0, 10);
+                var body = str.Substring(10).TrimEnd();
+
+                paragraph.Inlines.Add(new Run(timestamp) { Foreground = TimestampBrush });
+
+                if (bold)
+                    paragraph.Inlines.Add(new Bold(new Run(body) { Foreground = brush }));
+                else
+                    paragraph.Inlines.Add(new Run(body) { Foreground = brush });
+            }
+            else if (string.IsNullOrWhiteSpace(str))
+            {
+                paragraph.Inlines.Add(new Run(" "));
+                paragraph.FontSize = 4;
+            }
+            else if (bold)
+            {
+                paragraph.Inlines.Add(new Bold(new Run(str.TrimEnd()) { Foreground = brush }));
+            }
+            else
+            {
+                paragraph.Inlines.Add(new Run(str.TrimEnd()) { Foreground = brush });
+            }
+
+            // Track game boundaries
+            if (str.Contains("<-------Won !-------->") || str.Contains("<-------Lost-------->"))
+                _gameStartIndices.Add(_totalParagraphs);
+
+            _totalParagraphs++;
+
+            // Apply filter visibility
+            if (!ShouldShowEntry(str, category, _totalParagraphs - 1))
+                paragraph.Tag = "hidden";
+
+            if (paragraph.Tag is "hidden")
+            {
+                paragraph.FontSize = 0.01;
+                paragraph.Margin = new Thickness(0);
+                paragraph.Padding = new Thickness(0);
+            }
+
+            return paragraph;
         }
+
+        // ── Category detection (matches smartbot logic) ──
+
+        private static string GetLogCategory(string str)
+        {
+            if (str.Contains("[ERROR]") || str.Contains("Error compiling"))
+                return "error";
+            if (str.TrimStart().StartsWith("at ") || str.TrimStart().StartsWith("System.") ||
+                str.Contains("Exception:") || str.Contains("NullReferenceException"))
+                return "error";
+            if (str.Contains("<-------Won !-------->"))
+                return "win";
+            if (str.Contains("<-------Lost-------->"))
+                return "loss";
+            if (str.Contains("New Turn") || str.Contains("End Turn"))
+                return "turn";
+            if (str.Contains("[Plugin]"))
+                return "plugin";
+            if (str.Contains("[Relogger]"))
+                return "relogger";
+            if (str.Contains("Connected to") || str.Contains("Successfully injected") ||
+                str.Contains("Validated on auth") || str.Contains("Game connected") ||
+                str.Contains("Bot started") || str.Contains("Bot stopped") ||
+                str.Contains("bridge started") || str.Contains("Hearthstone status"))
+                return "status";
+            if (str.Contains("[CustomClass]") || str.Contains("[HSReplay]") || str.Contains("compiled") ||
+                str.Contains("Profile changed") || str.Contains("Battleground profile changed") ||
+                str.Contains("[BattlegroundProfile]"))
+                return "compile";
+            if (str.Contains("[HSAng] Action") || str.Contains("[HSBox] Action") || str.Contains("[HSBox] >>"))
+                return "action";
+            if (str.Contains("[HSAng-WARN]") || str.Contains("[HSBox-WARN]"))
+                return "warning";
+            if (str.Contains("[HSAng] HSBox turn="))
+                return "hsang";
+            if (str.Contains("loading :") && str.Contains("%"))
+                return "progress";
+            if (str.Contains("--> "))
+                return "action";
+            if (str.Contains("[BG-DBG]"))
+                return "bgdebug";
+            if (str.Contains("[HSAng-DBG]") || str.Contains("[HSBox-DBG]"))
+                return "debug";
+            if (str.Contains("[DEBUG]"))
+                return "debug";
+            return "default";
+        }
+
+        // ── Brush selection (smartbot light theme colors) ──
+
+        private static Brush GetBrushForCategory(string category) => category switch
+        {
+            "win"      => WinBrush,
+            "turn"     => TurnBrush,
+            "loss"     => LossBrush,
+            "debug"    => DebugBrush,
+            "error"    => ErrorBrush,
+            "hsang"    => HsAngBrush,
+            "status"   => StatusBrush,
+            "plugin"   => PluginBrush,
+            "action"   => ActionBrush,
+            "warning"  => WarningBrush,
+            "compile"  => CompileBrush,
+            "relogger" => ReloggerBrush,
+            "progress" => ProgressBrush,
+            _          => DefaultBrush,
+        };
+
+        // ── Log filtering ──
+
+        private bool ShouldShowEntry(string str, string category, int paragraphIndex)
+        {
+            if (_currentFilter == "all") return true;
+            if (_currentFilter == "errors") return category == "error";
+            if (_currentFilter == "actions")
+                return category is "action" or "turn" or "win" or "loss";
+            if (_currentFilter == "currentgame")
+            {
+                if (_gameStartIndices.Count == 0) return true;
+                return paragraphIndex >= _gameStartIndices[^1];
+            }
+            if (_currentFilter == "lastgame")
+            {
+                if (_gameStartIndices.Count < 2) return false;
+                var start = _gameStartIndices[^2];
+                var end = _gameStartIndices[^1];
+                return paragraphIndex >= start && paragraphIndex < end;
+            }
+            return true;
+        }
+
+        private void ApplyFilter(string filter)
+        {
+            _currentFilter = filter;
+
+            // Bold the active filter button
+            LogFilterAll.FontWeight         = filter == "all"         ? FontWeights.Bold : FontWeights.Normal;
+            LogFilterErrors.FontWeight      = filter == "errors"      ? FontWeights.Bold : FontWeights.Normal;
+            LogFilterActions.FontWeight     = filter == "actions"     ? FontWeights.Bold : FontWeights.Normal;
+            LogFilterCurrentGame.FontWeight = filter == "currentgame" ? FontWeights.Bold : FontWeights.Normal;
+            LogFilterLastGame.FontWeight    = filter == "lastgame"    ? FontWeights.Bold : FontWeights.Normal;
+
+            // Re-evaluate visibility on all paragraphs
+            int idx = 0;
+            foreach (var block in LogBox.Document.Blocks)
+            {
+                if (block is Paragraph para)
+                {
+                    var text = GetParagraphText(para);
+                    var cat = GetLogCategory(text);
+                    bool show = ShouldShowEntry(text, cat, idx);
+
+                    if (show)
+                    {
+                        para.Tag = null;
+                        para.FontSize = 11;
+                        para.Margin = new Thickness(0, 0, 0, 1);
+                        para.Padding = new Thickness(0);
+                    }
+                    else
+                    {
+                        para.Tag = "hidden";
+                        para.FontSize = 0.01;
+                        para.Margin = new Thickness(0);
+                        para.Padding = new Thickness(0);
+                    }
+                }
+                idx++;
+            }
+        }
+
+        private static string GetParagraphText(Paragraph para)
+        {
+            var text = new System.Text.StringBuilder();
+            foreach (var inline in para.Inlines)
+            {
+                if (inline is Run run)
+                    text.Append(run.Text);
+                else if (inline is Bold b)
+                    foreach (var inner in b.Inlines)
+                        if (inner is Run r) text.Append(r.Text);
+            }
+            return text.ToString();
+        }
+
+        // ── Scroll tracking ──
 
         private bool IsLogAtBottom()
         {
-            var distance = LogBox.ExtentHeight - LogBox.ViewportHeight - LogBox.VerticalOffset;
-            return distance <= LogBottomTolerance;
+            var sv = FindScrollViewer(LogBox);
+            if (sv == null) return true;
+            return sv.VerticalOffset + sv.ViewportHeight >= sv.ExtentHeight - LogBottomTolerance;
+        }
+
+        private static ScrollViewer FindScrollViewer(DependencyObject obj)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(obj); i++)
+            {
+                var child = VisualTreeHelper.GetChild(obj, i);
+                if (child is ScrollViewer sv) return sv;
+                var result = FindScrollViewer(child);
+                if (result != null) return result;
+            }
+            return null;
+        }
+
+        private static SolidColorBrush Freeze(byte r, byte g, byte b)
+        {
+            var brush = new SolidColorBrush(Color.FromRgb(r, g, b));
+            brush.Freeze();
+            return brush;
         }
     }
 }

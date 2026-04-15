@@ -533,11 +533,13 @@
                             <Button x:Name="LogFilterLastGame" Content="Last Game" Margin="2"
                                     Padding="6,2" FontSize="11" IsEnabled="False"/>
                         </StackPanel>
-                        <TextBox x:Name="LogBox" Grid.Row="1"
-                                 IsReadOnly="True"
-                                 Background="White" Foreground="#222" BorderThickness="0"
-                                 FontFamily="Consolas" FontSize="11" TextWrapping="Wrap"
-                                 VerticalScrollBarVisibility="Auto"/>
+                        <RichTextBox x:Name="LogBox" Grid.Row="1"
+                                     IsReadOnly="True" IsUndoEnabled="False"
+                                     Background="White" Foreground="#222" BorderThickness="0"
+                                     FontFamily="Consolas" FontSize="11"
+                                     VerticalScrollBarVisibility="Auto" AcceptsReturn="False">
+                            <FlowDocument PagePadding="2" LineStackingStrategy="BlockLineHeight" LineHeight="16"/>
+                        </RichTextBox>
                     </Grid>
                 </TabItem>
 
