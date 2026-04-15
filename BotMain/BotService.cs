@@ -4472,6 +4472,30 @@ namespace BotMain
                 : "unexpected_response";
         }
 
+        private InteractionReadinessObservation ObserveGameplayReadiness(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return InteractionReadinessObservation.Busy("pipe_disconnected");
+
+            var response = pipe.SendAndReceive("WAIT_READY_DETAIL", 1200);
+            if (!ReadyWaitDiagnostics.TryParseResponse(response, out var state) || state == null)
+                return InteractionReadinessObservation.Busy("ready_detail_unparsed");
+
+            return state.IsReady
+                ? InteractionReadinessObservation.Ready()
+                : InteractionReadinessObservation.Busy(state.PrimaryReason);
+        }
+
+        private InteractionReadinessPollOutcome WaitForGameplayInteraction(
+            PipeServer pipe,
+            InteractionReadinessScope scope)
+        {
+            return InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(scope),
+                () => ObserveGameplayReadiness(pipe),
+                SleepOrCancelled);
+        }
+
         private bool TryGetReadyWaitDiagnostic(PipeServer pipe, int commandTimeoutMs, out ReadyWaitDiagnosticState diagnosticState)
         {
             diagnosticState = null;

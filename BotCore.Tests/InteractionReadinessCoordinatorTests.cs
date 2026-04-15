@@ -18,6 +18,17 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void GameplayGate_KeepsWaiting_ForInputDenied()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre);
+            var observation = InteractionReadinessObservation.Busy("input_denied");
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+        }
+
+        [Fact]
         public void GameplayScope_ReadyPath_UsesCanonicalReadyReason()
         {
             var request = new InteractionReadinessRequest(InteractionReadinessScope.MulliganCommit);
