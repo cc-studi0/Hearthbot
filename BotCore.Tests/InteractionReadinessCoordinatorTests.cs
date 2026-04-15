@@ -80,5 +80,33 @@ namespace BotCore.Tests
             Assert.True(result.IsReady);
             Assert.Equal("ready", result.Reason);
         }
+
+        [Fact]
+        public void PollUntilReady_ReturnsReadyImmediately_WhenProbeTurnsReadyOnThirdPoll()
+        {
+            var observations = new Queue<InteractionReadinessObservation>(new[]
+            {
+                InteractionReadinessObservation.Busy("power_processor_running"),
+                InteractionReadinessObservation.Busy("post_animation_grace"),
+                InteractionReadinessObservation.Ready()
+            });
+
+            var outcome = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre),
+                () => observations.Dequeue(),
+                _ => false);
+
+            Assert.True(outcome.IsReady);
+            Assert.Equal(3, outcome.Polls);
+        }
+
+        [Fact]
+        public void GetDefaultSettings_UsesShortBudgetForConstructedPost()
+        {
+            var settings = InteractionReadinessCoordinator.GetDefaultSettings(InteractionReadinessScope.ConstructedActionPost);
+
+            Assert.Equal(60, settings.PollIntervalMs);
+            Assert.Equal(1200, settings.TimeoutMs);
+        }
     }
 }

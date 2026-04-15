@@ -18,6 +18,26 @@ namespace BotMain
         string Reason,
         string Detail);
 
+    internal sealed record InteractionReadinessSettings(
+        int PollIntervalMs,
+        int TimeoutMs);
+
+    internal sealed record InteractionReadinessPollOutcome(
+        bool IsReady,
+        string Reason,
+        int Polls)
+    {
+        internal static InteractionReadinessPollOutcome Ready(string reason, int polls = 0)
+        {
+            return new InteractionReadinessPollOutcome(true, reason ?? "ready", polls);
+        }
+
+        internal static InteractionReadinessPollOutcome TimedOut(int polls = 0)
+        {
+            return new InteractionReadinessPollOutcome(false, "timed_out", polls);
+        }
+    }
+
     internal sealed class InteractionReadinessObservation
     {
         public bool IsReady { get; init; }
@@ -55,6 +75,43 @@ namespace BotMain
 
     internal static class InteractionReadinessCoordinator
     {
+        internal static InteractionReadinessSettings GetDefaultSettings(InteractionReadinessScope scope)
+        {
+            return scope switch
+            {
+                InteractionReadinessScope.ConstructedActionPre => new InteractionReadinessSettings(60, 1800),
+                InteractionReadinessScope.ConstructedActionPost => new InteractionReadinessSettings(60, 1200),
+                InteractionReadinessScope.MulliganCommit => new InteractionReadinessSettings(120, 5000),
+                InteractionReadinessScope.ChoiceCommit => new InteractionReadinessSettings(80, 3000),
+                InteractionReadinessScope.ArenaDraftPick => new InteractionReadinessSettings(150, 5000),
+                _ => new InteractionReadinessSettings(100, 3000)
+            };
+        }
+
+        internal static InteractionReadinessPollOutcome PollUntilReady(
+            InteractionReadinessRequest request,
+            Func<InteractionReadinessObservation> observe,
+            Func<int, bool> sleep)
+        {
+            var settings = GetDefaultSettings(request == null ? (InteractionReadinessScope)(-1) : request.Scope);
+            var pollIntervalMs = settings.PollIntervalMs <= 0 ? 1 : settings.PollIntervalMs;
+            var maxPolls = Math.Max(1, (int)Math.Ceiling(settings.TimeoutMs / (double)pollIntervalMs));
+
+            for (var poll = 1; poll <= maxPolls; poll++)
+            {
+                var observation = observe?.Invoke();
+                var evaluation = Evaluate(request, observation);
+
+                if (evaluation.IsReady)
+                    return InteractionReadinessPollOutcome.Ready(evaluation.Reason, poll);
+
+                if (poll < maxPolls)
+                    _ = sleep?.Invoke(pollIntervalMs);
+            }
+
+            return InteractionReadinessPollOutcome.TimedOut(maxPolls);
+        }
+
         internal static InteractionReadinessResult Evaluate(
             InteractionReadinessRequest request,
             InteractionReadinessObservation observation)
