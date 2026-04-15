@@ -49,6 +49,7 @@
     <Compile Include="..\BotMain\PostGameResultHelper.cs" Link="PostGameResultHelper.cs" />
     <Compile Include="..\BotMain\ReadyWaitDiagnostics.cs" Link="ReadyWaitDiagnostics.cs" />
     <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
+    <Compile Include="..\BotMain\InteractionReadinessCoordinator.cs" Link="InteractionReadinessCoordinator.cs" />
     <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
     <Compile Include="..\BotMain\PipeServer.cs" Link="PipeServer.cs" />
