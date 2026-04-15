@@ -1269,6 +1269,8 @@ namespace HearthstonePayload
                         int targetId = int.Parse(parts[2]);
                         bool isChainAttack = parts.Length > 3
                             && string.Equals(parts[3], "CHAIN", StringComparison.OrdinalIgnoreCase);
+                        bool isFaceAttack = parts.Length > 3
+                            && string.Equals(parts[3], "FACE", StringComparison.OrdinalIgnoreCase);
 
                         // ── 连续攻击快速路径 ──
                         // 跳过完整 ReadGameState（打脸时反射调用被动画主线程阻塞约 570ms×2），
@@ -1304,6 +1306,114 @@ namespace HearthstonePayload
                                 chainResult, 1, chainMouseMs, 0, 0, "chain_no_confirm");
                         }
 
+                        // ── FACE 快速路径 ──
+                        // 目标是敌方英雄：跳过 ReadGameState（~570ms），
+                        // 用轻量反射判断英雄身份，确认截止 200ms。
+                        if (isFaceAttack)
+                        {
+                            var faceSourceHero = IsFriendlyHeroEntityId(attackerId);
+                            var faceTargetHero = IsEnemyHeroEntityId(targetId);
+
+                            // 反射失败时回退到标准路径
+                            if (!faceTargetHero)
+                            {
+                                AppendActionTrace(
+                                    "ATTACK face_fallback attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " reason=target_not_enemy_hero");
+                                goto standardAttackPath;
+                            }
+
+                            var faceMouseSw = Stopwatch.StartNew();
+                            var faceResult = _coroutine.RunAndWait(
+                                MouseAttack(attackerId, targetId, faceSourceHero, true));
+                            faceMouseSw.Stop();
+                            var faceMouseMs = faceMouseSw.ElapsedMilliseconds;
+
+                            if (!faceResult.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))
+                            {
+                                AppendActionTrace(
+                                    "ATTACK face_mouse_fail attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " mouseMs=" + faceMouseMs
+                                    + " result=" + faceResult);
+                                return AppendAttackTimingToResult(
+                                    faceResult, 1, faceMouseMs, 0, 0, "face_mouse_failed");
+                            }
+
+                            // 缩短确认轮询：200ms 截止
+                            const int faceConfirmDeadlineMs = 200;
+                            const int faceConfirmSleepMs = 25;
+                            GameStateData faceBeforeState = null;
+                            AttackStateSnapshot faceBeforeSnapshot = default;
+                            var hasFaceBeforeSnapshot = false;
+                            try
+                            {
+                                faceBeforeState = reader?.ReadGameState();
+                                hasFaceBeforeSnapshot = TryCaptureAttackState(
+                                    faceBeforeState, attackerId, targetId, out faceBeforeSnapshot);
+                            }
+                            catch { }
+
+                            if (!hasFaceBeforeSnapshot)
+                            {
+                                AppendActionTrace(
+                                    "ATTACK face_ok_no_confirm attacker=" + attackerId
+                                    + " target=" + targetId
+                                    + " mouseMs=" + faceMouseMs);
+                                return AppendAttackTimingToResult(
+                                    faceResult, 1, faceMouseMs, 0, 0, "face_no_before_snapshot");
+                            }
+
+                            var faceConfirmSw = Stopwatch.StartNew();
+                            var faceConfirmPolls = 0;
+                            var faceConfirmReason = "unchanged";
+                            while (faceConfirmSw.ElapsedMilliseconds < faceConfirmDeadlineMs)
+                            {
+                                Thread.Sleep(faceConfirmSleepMs);
+                                faceConfirmPolls++;
+                                var faceAfterState = reader?.ReadGameState();
+                                if (!TryCaptureAttackState(faceAfterState, attackerId, targetId, out var faceAfterSnapshot))
+                                {
+                                    faceConfirmReason = "after_snapshot_missing";
+                                    continue;
+                                }
+
+                                var faceApplyObs = GetAttackApplyObservation(faceBeforeSnapshot, faceAfterSnapshot);
+                                faceConfirmReason = faceApplyObs.Reason;
+                                if (faceApplyObs.Applied)
+                                {
+                                    faceConfirmSw.Stop();
+                                    AppendActionTrace(
+                                        "ATTACK face_confirm_ok attacker=" + attackerId
+                                        + " target=" + targetId
+                                        + " mouseMs=" + faceMouseMs
+                                        + " confirmMs=" + faceConfirmSw.ElapsedMilliseconds
+                                        + " confirmPolls=" + faceConfirmPolls
+                                        + " apply=" + faceConfirmReason);
+                                    return AppendAttackTimingToResult(
+                                        faceResult, 1, faceMouseMs,
+                                        faceConfirmSw.ElapsedMilliseconds, faceConfirmPolls,
+                                        faceConfirmReason);
+                                }
+                            }
+
+                            faceConfirmSw.Stop();
+                            AppendActionTrace(
+                                "ATTACK face_confirm_timeout attacker=" + attackerId
+                                + " target=" + targetId
+                                + " mouseMs=" + faceMouseMs
+                                + " confirmMs=" + faceConfirmSw.ElapsedMilliseconds
+                                + " confirmPolls=" + faceConfirmPolls
+                                + " apply=" + faceConfirmReason);
+                            return AppendAttackTimingToResult(
+                                "FAIL:ATTACK:not_confirmed:" + attackerId,
+                                1, faceMouseMs,
+                                faceConfirmSw.ElapsedMilliseconds, faceConfirmPolls,
+                                "face_confirm_timeout");
+                        }
+
+                        standardAttackPath:
                         // ── 标准路径（首次攻击 / 非连续攻击） ──
                         bool sourceIsFriendlyHero = false;
                         bool targetIsEnemyHero = false;
