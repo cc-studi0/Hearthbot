@@ -3775,8 +3775,9 @@ namespace BotMain
                     queueRetries++;
                     if (queueRetries > maxQueueRetries)
                     {
-                        Log($"[Arena] 排队超时已达最大重试次数 ({maxQueueRetries})，跳出重新检查状态");
-                        break;
+                        Log($"[Arena] 排队超时已达最大重试次数 ({maxQueueRetries})，重启游戏...");
+                        RestartHearthstone();
+                        return;
                     }
                     Log($"[Arena] 排队超时，重试 ({queueRetries}/{maxQueueRetries})...");
                     TrySendStatusCommand(pipe, "ARENA_FIND_GAME", 5000, out _, "Arena.RetryFindGame");
@@ -5022,6 +5023,7 @@ namespace BotMain
             BgAfterInitialEntry:
                 Log("[BG] 等待匹配...");
                 var matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
+                var enteredBgGame = false;
                 while (_running && DateTime.UtcNow < matchTimeout)
                 {
                     var gotFindingResp = TryGetYesNoResponse(pipe, "IS_FINDING", 1000, out var findingResp, "BG.Matchmaking");
@@ -5034,6 +5036,7 @@ namespace BotMain
                         if (string.Equals(matchmakingStage, "entered_game", StringComparison.Ordinal))
                         {
                             Log("[BG] 匹配成功，进入游戏");
+                            enteredBgGame = true;
                             break;
                         }
 
@@ -5074,6 +5077,13 @@ namespace BotMain
                         matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
                     }
                     if (SleepOrCancelled(1000)) return;
+                }
+
+                if (!enteredBgGame && _running)
+                {
+                    Log($"[BG] 匹配超时 ({_matchmakingTimeoutSeconds}s)，重启游戏...");
+                    RestartHearthstone();
+                    return;
                 }
             }
             else
@@ -10021,6 +10031,7 @@ namespace BotMain
         {
             BotProtocol.PostGameResultResolution resultResolution = null;
             var wasConcede = false;
+            var hadGame = wasInGame;
             if (wasInGame && _postGameSinceUtc == null)
             {
                 _postGameSinceUtc = DateTime.UtcNow;
@@ -10082,7 +10093,10 @@ namespace BotMain
                 Log($"[AutoQueue] 投降对局结束，额外等待 {PostConcedeExtraCooldownMs}ms 让游戏服务器完成清理...");
                 SleepOrCancelled(PostConcedeExtraCooldownMs);
             }
-            ResetMatchmakingTracking();
+            // 只在真正结束一局后重置匹配计时，避免匹配期间主循环 NO_GAME tick
+            // 反复调用此方法导致 _findingGameSince 被清空、超时永远无法触发
+            if (hadGame)
+                ResetMatchmakingTracking();
             AutoQueue(pipe);
         }
 
