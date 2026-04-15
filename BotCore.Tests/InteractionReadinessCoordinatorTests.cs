@@ -168,6 +168,30 @@ namespace BotCore.Tests
         }
 
         [Theory]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPre, 120)]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPost, 120)]
+        public void PollUntilReady_ReportsElapsedMsFromCompletedWaitIntervals(
+            int scopeValue,
+            long expectedElapsedMs)
+        {
+            var observations = new Queue<InteractionReadinessObservation>(new[]
+            {
+                InteractionReadinessObservation.Busy("busy_1"),
+                InteractionReadinessObservation.Busy("busy_2"),
+                InteractionReadinessObservation.Ready()
+            });
+
+            var outcome = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest((InteractionReadinessScope)scopeValue),
+                () => observations.Dequeue(),
+                _ => false);
+
+            Assert.True(outcome.IsReady);
+            Assert.Equal(3, outcome.Polls);
+            Assert.Equal(expectedElapsedMs, outcome.ElapsedMs);
+        }
+
+        [Theory]
         [InlineData((int)InteractionReadinessScope.ConstructedActionPre, 60, 1800)]
         [InlineData((int)InteractionReadinessScope.ConstructedActionPost, 60, 1200)]
         [InlineData((int)InteractionReadinessScope.MulliganCommit, 120, 5000)]

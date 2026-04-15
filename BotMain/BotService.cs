@@ -2931,7 +2931,20 @@ namespace BotMain
                                 break;
                             }
 
-                            preReadyStatus = "skipped";
+                            var preReadyOutcome = isOption
+                                ? InteractionReadinessPollOutcome.Ready("option_chain")
+                                : WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
+
+                            preReadyStatus = preReadyOutcome.IsReady ? "ready" : "timeout";
+                            preReadyMs = preReadyOutcome.ElapsedMs;
+
+                            if (!preReadyOutcome.IsReady)
+                            {
+                                actionOutcome = "WAIT_READY_TIMEOUT";
+                                actionFailed = true;
+                                actionFailedThisAction = true;
+                                break;
+                            }
 
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
@@ -3224,9 +3237,19 @@ namespace BotMain
                                     break;
                                 }
 
-                                postReadyStatus = "skipped";
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_settled_no_choice");
+
+                                if (ai < actions.Count - 1)
+                                {
+                                    var postReadyOutcome = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPost);
+                                    postReadyStatus = postReadyOutcome.IsReady ? "ready" : "timeout";
+                                    postReadyMs = postReadyOutcome.ElapsedMs;
+                                }
+                                else
+                                {
+                                    postReadyStatus = "skipped";
+                                }
                             }
 
                             if (decision != null
