@@ -2910,6 +2910,17 @@ namespace BotMain
                             bool isTrade = action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase);
                             bool isEndTurn = action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
                             bool isOption = action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
+                            bool isFaceAttack = false;
+                            if (isAttack && planningBoard?.HeroEnemy != null)
+                            {
+                                var attackParts = action.Split('|');
+                                if (attackParts.Length > 2
+                                    && int.TryParse(attackParts[2], out var attackTargetId)
+                                    && attackTargetId == planningBoard.HeroEnemy.Id)
+                                {
+                                    isFaceAttack = true;
+                                }
+                            }
                             var nextAction = ai + 1 < actions.Count ? actions[ai + 1] : null;
                             bool nextIsAttack = nextAction != null
                                 && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
@@ -2984,6 +2995,12 @@ namespace BotMain
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
 
                             var commandToSend = action;
+                            if (isAttack)
+                            {
+                                commandToSend = isFaceAttack
+                                    ? action + "|FACE"
+                                    : action + "|MINION";
+                            }
 
                             // ── IdleGuard 第二层：操作前弹窗检测与关闭 ──
                             if (!isEndTurn)
