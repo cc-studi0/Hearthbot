@@ -82,6 +82,42 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ArenaDraftPick_OverlayBlocked_IsRejected()
+        {
+            var request = new InteractionReadinessRequest(
+                InteractionReadinessScope.ArenaDraftPick,
+                ExpectedArenaStatus: "HERO_PICK");
+            var observation = InteractionReadinessObservation.ArenaDraft(
+                scene: "DRAFT",
+                arenaStatus: "HERO_PICK",
+                optionCount: 3,
+                overlayBlocked: true);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("overlay_blocked", result.Reason);
+        }
+
+        [Fact]
+        public void ArenaDraftPick_NoOptions_IsRejected()
+        {
+            var request = new InteractionReadinessRequest(
+                InteractionReadinessScope.ArenaDraftPick,
+                ExpectedArenaStatus: "HERO_PICK");
+            var observation = InteractionReadinessObservation.ArenaDraft(
+                scene: "DRAFT",
+                arenaStatus: "HERO_PICK",
+                optionCount: 0,
+                overlayBlocked: false);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("no_options", result.Reason);
+        }
+
+        [Fact]
         public void PollUntilReady_ReturnsReadyImmediately_WhenProbeTurnsReadyOnThirdPoll()
         {
             var observations = new Queue<InteractionReadinessObservation>(new[]

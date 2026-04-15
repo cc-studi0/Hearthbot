@@ -161,6 +161,12 @@ namespace BotMain
                 if (observation.Scene != "DRAFT" || observation.ArenaStatus != (request.ExpectedArenaStatus ?? string.Empty))
                     return new InteractionReadinessResult(false, "arena_status_mismatch", observation.ArenaStatus ?? string.Empty);
 
+                if (observation.OverlayBlocked)
+                    return new InteractionReadinessResult(false, "overlay_blocked", observation.ArenaStatus ?? string.Empty);
+
+                if (observation.OptionCount <= 0)
+                    return new InteractionReadinessResult(false, "no_options", observation.ArenaStatus ?? string.Empty);
+
                 return new InteractionReadinessResult(true, "ready", observation.ArenaStatus ?? string.Empty);
             }
 
