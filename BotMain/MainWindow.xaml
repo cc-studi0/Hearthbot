@@ -531,15 +531,15 @@
                                      VerticalContentAlignment="Center" FontSize="11" Padding="4,2"
                                      IsEnabled="False"/>
                             <Button x:Name="LogFilterAll" Content="All" Margin="2" Padding="6,2"
-                                    FontSize="11" FontWeight="Bold" IsEnabled="False"/>
+                                    FontSize="11" FontWeight="Bold"/>
                             <Button x:Name="LogFilterErrors" Content="Errors" Margin="2" Padding="6,2"
-                                    FontSize="11" IsEnabled="False"/>
+                                    FontSize="11"/>
                             <Button x:Name="LogFilterActions" Content="Actions" Margin="2" Padding="6,2"
-                                    FontSize="11" IsEnabled="False"/>
+                                    FontSize="11"/>
                             <Button x:Name="LogFilterCurrentGame" Content="Current Game" Margin="2"
-                                    Padding="6,2" FontSize="11" IsEnabled="False"/>
+                                    Padding="6,2" FontSize="11"/>
                             <Button x:Name="LogFilterLastGame" Content="Last Game" Margin="2"
-                                    Padding="6,2" FontSize="11" IsEnabled="False"/>
+                                    Padding="6,2" FontSize="11"/>
                         </StackPanel>
                         <RichTextBox x:Name="LogBox" Grid.Row="1"
                                      IsReadOnly="True" IsUndoEnabled="False"

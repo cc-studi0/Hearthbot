@@ -2,9 +2,16 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="编辑账号" Width="380" Height="380"
-        WindowStartupLocation="CenterOwner" Background="#F0F0F0"
-        FontFamily="Segoe UI" FontSize="12"
+        WindowStartupLocation="CenterOwner" Background="White"
+        FontFamily="Segoe UI" FontSize="12" Foreground="#1B1F23"
         ResizeMode="NoResize">
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="SmartBotTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
     <Grid Margin="12">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
