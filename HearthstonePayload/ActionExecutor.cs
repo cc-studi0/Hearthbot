@@ -1661,10 +1661,6 @@ namespace HearthstonePayload
 
         private static IEnumerable<float> MoveCursorConstructed(int tx, int ty, int steps, float stepDelay, bool dragging)
         {
-            // 非拖拽模式下对目标坐标施加高斯偏移，模拟真人点击不精确
-            if (!dragging && IsConstructedHumanizerEnabled())
-                ApplyGaussianOffset(ref tx, ref ty);
-
             if (IsConstructedHumanizerEnabled()
                 && TryBuildCubicBezierMove(tx, ty, dragging, out var humanizedSteps))
             {
@@ -1808,38 +1804,6 @@ namespace HearthstonePayload
         }
 
         /// <summary>
-        /// 对点击目标坐标施加高斯随机偏移，模拟真人点击不精确
-        /// 使用 Box-Muller 变换生成高斯分布随机数
-        /// </summary>
-        private static void ApplyGaussianOffset(ref int x, ref int y)
-        {
-            int screenWidth = MouseSimulator.GetScreenWidth();
-            if (screenWidth <= 0) return;
-
-            double stdDev = screenWidth * 0.012d;
-            double maxOffset = stdDev * 2.5d;
-
-            double u1, u2;
-            lock (_humanizeRandomSync)
-            {
-                u1 = 1d - _humanizeRandom.NextDouble();
-                u2 = _humanizeRandom.NextDouble();
-            }
-
-            double z0 = Math.Sqrt(-2d * Math.Log(u1)) * Math.Cos(2d * Math.PI * u2);
-            double z1 = Math.Sqrt(-2d * Math.Log(u1)) * Math.Sin(2d * Math.PI * u2);
-
-            double offsetX = z0 * stdDev;
-            double offsetY = z1 * stdDev;
-
-            offsetX = Math.Max(-maxOffset, Math.Min(maxOffset, offsetX));
-            offsetY = Math.Max(-maxOffset, Math.Min(maxOffset, offsetY));
-
-            x += (int)Math.Round(offsetX);
-            y += (int)Math.Round(offsetY);
-        }
-
-        /// <summary>
         /// 鼠标点击结束回合按钮
         /// </summary>
         private static IEnumerator<float> MouseEndTurn()
@@ -1854,46 +1818,10 @@ namespace HearthstonePayload
                 yield break;
             }
 
-            // 拟人化：结束回合前可能犹豫
-            var humConfig = GetHumanizerConfigSnapshot();
-            if (humConfig != null && humConfig.Enabled
-                && ConstructedHumanizerPlanner.ShouldHesitateBeforeEndTurn(
-                    humConfig.Intensity, NextHumanizeInt32(1, 100)))
+            if (IsConstructedHumanizerEnabled())
             {
-                // 先移动到按钮附近
                 foreach (var w in MoveCursorConstructed(x, y, 10, 0.010f, false))
                     yield return w;
-
-                // 停顿（犹豫）
-                var hesitateMs = ConstructedHumanizerPlanner.GetEndTurnHesitationMs(
-                    humConfig.Intensity, null);
-                yield return hesitateMs / 1000f;
-
-                // 小概率（5%）：移开再移回（"真的要结束吗"）
-                if (NextHumanizeInt32(1, 100) <= 5)
-                {
-                    int screenWidth = MouseSimulator.GetScreenWidth();
-                    int screenHeight = MouseSimulator.GetScreenHeight();
-                    if (screenWidth > 0 && screenHeight > 0)
-                    {
-                        int driftX = x + NextHumanizeInt32(-80, 80);
-                        int driftY = y + NextHumanizeInt32(30, 80);
-                        driftX = Math.Max(0, Math.Min(screenWidth, driftX));
-                        driftY = Math.Max(0, Math.Min(screenHeight, driftY));
-                        foreach (var w in MoveCursorConstructed(driftX, driftY, 8, 0.010f, false))
-                            yield return w;
-                        yield return GetHumanizePauseSeconds(150, 350);
-                    }
-
-                    // 重新获取按钮位置并移回
-                    if (GameObjectFinder.GetEndTurnButtonScreenPos(out x, out y))
-                    {
-                        foreach (var w in MoveCursorConstructed(x, y, 10, 0.010f, false))
-                            yield return w;
-                    }
-                }
-
-                // 点击
                 MouseSimulator.LeftDown();
                 yield return 0.05f;
                 MouseSimulator.LeftUp();
@@ -1901,7 +1829,6 @@ namespace HearthstonePayload
             }
             else
             {
-                // 无犹豫：原始逻辑
                 MouseSimulator.MoveTo(x, y);
                 yield return 0.05f;
                 MouseSimulator.LeftDown();
