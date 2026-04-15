@@ -90,23 +90,37 @@ namespace BotCore.Tests
                 InteractionReadinessObservation.Busy("post_animation_grace"),
                 InteractionReadinessObservation.Ready()
             });
+            var sleepCalls = 0;
 
             var outcome = InteractionReadinessCoordinator.PollUntilReady(
                 new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre),
                 () => observations.Dequeue(),
-                _ => false);
+                _ =>
+                {
+                    sleepCalls++;
+                    return false;
+                });
 
             Assert.True(outcome.IsReady);
             Assert.Equal(3, outcome.Polls);
+            Assert.Equal(3, sleepCalls);
         }
 
-        [Fact]
-        public void GetDefaultSettings_UsesShortBudgetForConstructedPost()
+        [Theory]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPre, 60, 1800)]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPost, 60, 1200)]
+        [InlineData((int)InteractionReadinessScope.MulliganCommit, 120, 5000)]
+        [InlineData((int)InteractionReadinessScope.ChoiceCommit, 80, 3000)]
+        [InlineData((int)InteractionReadinessScope.ArenaDraftPick, 150, 5000)]
+        public void GetDefaultSettings_UsesExpectedBudgetForExplicitScopes(
+            int scopeValue,
+            int pollIntervalMs,
+            int timeoutMs)
         {
-            var settings = InteractionReadinessCoordinator.GetDefaultSettings(InteractionReadinessScope.ConstructedActionPost);
+            var settings = InteractionReadinessCoordinator.GetDefaultSettings((InteractionReadinessScope)scopeValue);
 
-            Assert.Equal(60, settings.PollIntervalMs);
-            Assert.Equal(1200, settings.TimeoutMs);
+            Assert.Equal(pollIntervalMs, settings.PollIntervalMs);
+            Assert.Equal(timeoutMs, settings.TimeoutMs);
         }
 
         [Fact]
@@ -133,7 +147,7 @@ namespace BotCore.Tests
             Assert.Equal("busy_20", outcome.FailureReason);
             Assert.Equal("busy_20", outcome.FailureDetail);
             Assert.Equal(20, outcome.Polls);
-            Assert.Equal(19, sleepCalls);
+            Assert.Equal(20, sleepCalls);
             Assert.Equal(20, observeCalls);
         }
 
@@ -150,10 +164,10 @@ namespace BotCore.Tests
                     observeCalls++;
                     return InteractionReadinessObservation.Busy("power_processor_running");
                 },
-                _ =>
+                ms =>
                 {
                     sleepCalls++;
-                    return true;
+                    return ms > 0;
                 });
 
             Assert.False(outcome.IsReady);
@@ -161,8 +175,34 @@ namespace BotCore.Tests
             Assert.Equal("power_processor_running", outcome.FailureReason);
             Assert.Equal("power_processor_running", outcome.FailureDetail);
             Assert.Equal(1, outcome.Polls);
-            Assert.Equal(1, sleepCalls);
+            Assert.Equal(2, sleepCalls);
             Assert.Equal(1, observeCalls);
+        }
+
+        [Fact]
+        public void PollUntilReady_DoesNotObserve_WhenAlreadyCancelledBeforePolling()
+        {
+            var observeCalls = 0;
+            var sleepCalls = 0;
+
+            var outcome = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre),
+                () =>
+                {
+                    observeCalls++;
+                    return InteractionReadinessObservation.Busy("should_not_run");
+                },
+                ms =>
+                {
+                    sleepCalls++;
+                    return ms == 0;
+                });
+
+            Assert.False(outcome.IsReady);
+            Assert.Equal("cancelled", outcome.Reason);
+            Assert.Equal(0, outcome.Polls);
+            Assert.Equal(1, sleepCalls);
+            Assert.Equal(0, observeCalls);
         }
     }
 }

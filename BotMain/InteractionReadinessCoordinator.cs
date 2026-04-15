@@ -119,6 +119,9 @@ namespace BotMain
             var lastFailureReason = "unknown";
             var lastFailureDetail = string.Empty;
 
+            if (sleep?.Invoke(0) == true)
+                return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, 0);
+
             for (var poll = 1; poll <= maxPolls; poll++)
             {
                 var observation = observe?.Invoke();
