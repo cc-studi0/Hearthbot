@@ -924,6 +924,18 @@ namespace BotMain
             if (request == null)
                 return new ActionRecommendationResult(null, Array.Empty<string>(), "request_null", shouldRetryWithoutAction: true);
 
+            // 标准传说时启用盒子模式伪装
+            if (IsStandardLegend)
+            {
+                if (_hsBoxRecommendationProvider.Bridge is HsBoxRecommendationBridge bridge)
+                    bridge.EnableModeSpoof(msg => Log(msg));
+            }
+            else
+            {
+                if (_hsBoxRecommendationProvider.Bridge is HsBoxRecommendationBridge bridge)
+                    bridge.DisableModeSpoof();
+            }
+
             ActionRecommendationResult localRecommendation = null;
             ActionRecommendationResult teacherRecommendation = null;
 
@@ -10167,6 +10179,12 @@ namespace BotMain
         private int _lastQueriedStarLevel;
         private int _lastQueriedEarnedStars;
         private int _lastQueriedLegendIndex;
+
+        /// <summary>
+        /// 判断当前是否处于标准模式传说段位。
+        /// </summary>
+        internal bool IsStandardLegend =>
+            _modeIndex == 0 && _lastQueriedStarLevel >= RankHelper.LegendStarLevel;
 
         private void TryQueryPlayerName(PipeServer pipe)
         {
