@@ -76,8 +76,8 @@ namespace BotMain
         internal HsBoxGameRecommendationProvider(
             IHsBoxRecommendationBridge bridge,
             IHsBoxBattlegroundsBridge bgBridge = null,
-            int actionWaitTimeoutMs = 2600,
-            int actionPollIntervalMs = 180)
+            int actionWaitTimeoutMs = 10000,
+            int actionPollIntervalMs = 200)
         {
             _bridge = bridge ?? throw new ArgumentNullException(nameof(bridge));
             _bgBridge = bgBridge ?? new HsBoxBattlegroundsBridge();

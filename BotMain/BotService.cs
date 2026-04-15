@@ -2219,7 +2219,6 @@ namespace BotMain
             bool mulliganHandled = false;
             DateTime nextMulliganAttemptUtc = DateTime.MinValue;
             DateTime mulliganPhaseStartedUtc = DateTime.MinValue;
-            int gameReadyWaitStreak = 0;
             bool wasInGame = false;
             int lastTurnNumber = -1;
             DateTime currentTurnStartedUtc = DateTime.MinValue;
@@ -2672,34 +2671,13 @@ namespace BotMain
                 if (!_skipNextTurnStartReadyWait)
                     TryPromotePendingHsBoxActionConfirmation();
 
-                var skippedTurnStartReadyWait = false;
-                if (_skipNextTurnStartReadyWait && _followHsBoxRecommendations)
-                {
-                    _skipNextTurnStartReadyWait = false;
-                    skippedTurnStartReadyWait = true;
-                    gameReadyWaitStreak = 0;
-                    Log("[Action] skipped TurnStart ready wait (hsbox payload advanced)");
-                }
-                else
-                {
-                    if (!WaitForGameReady(pipe, 30, 300, 3000, waitScope: "TurnStart"))
-                    {
-                        gameReadyWaitStreak++;
-                        if (gameReadyWaitStreak % 8 == 1)
-                            Log("[MainLoop] waiting game ready (draw/animation/input lock)...");
-                        Thread.Sleep(120);
-                        continue;
-                    }
-
-                    gameReadyWaitStreak = 0;
-                    Log($"[Timing] WaitForGameReady took {swTurn.ElapsedMilliseconds}ms");
-                }
+                _skipNextTurnStartReadyWait = false;
 
                 var refreshResult = RefreshPlanningBoardAfterReady(
                     pipe,
                     ref seed,
                     ref planningBoard,
-                    preferFastRecovery: skippedTurnStartReadyWait);
+                    preferFastRecovery: false);
                 if (refreshResult.BoardChanged && planningBoard != null)
                 {
                     ApplyPlanningBoard(
@@ -2846,6 +2824,13 @@ namespace BotMain
 
                 actions = NormalizeRecommendedActions(actions);
 
+                if (actions == null || actions.Count == 0)
+                {
+                    Log("[Action] 空推荐，直接结束回合");
+                    try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
+                    continue;
+                }
+
                 // 一次性探测手牌卡牌的 Renderer/Collider/Bounds 信息
                 if (!cardComponentsProbed && actions != null && actions.Count > 0)
                 {
@@ -2938,10 +2923,6 @@ namespace BotMain
                                 && nextAction.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase);
                             bool nextIsOption = nextAction != null
                                 && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
-                            const int preReadyRetries = 30;
-                            const int preReadyIntervalMs = 300;
-                            const int postReadyRetries = 30;
-                            const int postReadyIntervalMs = 300;
                             // 回合末投降：本回合可执行动作都打完后（准备 END_TURN 前）评估是否必死。
                             if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
                             {
@@ -2950,61 +2931,7 @@ namespace BotMain
                                 break;
                             }
 
-                            const int readyTimeoutMs = 3000;
-                            // OPTION 命令在 Payload 端自带 UI 就绪等待逻辑，
-                            // Choose One 打出后游戏进入子选项选择状态导致 IsGameReady=false，
-                            // 此处跳过前置就绪检查以避免中断抉择链路。
-                            if (isOption)
-                            {
-                                preReadyStatus = "skipped_option";
-                            }
-                            else
-                            {
-                                var preReadySw = Stopwatch.StartNew();
-                                var preReadyOk = false;
-                                ConstructedActionReadyState constructedPreReadyState = null;
-                                // FACE 攻击：缩短 pre-ready 等待（maxPolls=5, interval=15ms, 上限75ms）
-                                var constructedPreReadyMaxPolls = isFaceAttack ? 5 : 15;
-                                var constructedPreReadyIntervalMs = isFaceAttack ? 15 : 20;
-                                if (ShouldUseConstructedActionReadyWait(action))
-                                {
-                                    preReadyOk = WaitForConstructedActionReady(pipe, action, constructedPreReadyMaxPolls, constructedPreReadyIntervalMs, readyTimeoutMs, out constructedPreReadyState);
-                                    if (preReadyOk)
-                                    {
-                                        preReadyStatus = "ready_constructed";
-                                    }
-                                    else
-                                    {
-                                        preReadyOk = WaitForGameReady(
-                                            pipe,
-                                            preReadyRetries,
-                                            preReadyIntervalMs,
-                                            readyTimeoutMs,
-                                            waitScope: "ActionPreReadyFallback",
-                                            action: action);
-                                        preReadyStatus = preReadyOk ? "ready_fallback" : "timeout_constructed";
-                                    }
-                                }
-                                else
-                                {
-                                    preReadyOk = WaitForGameReady(pipe, preReadyRetries, preReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPreReady", action: action);
-                                    preReadyStatus = preReadyOk ? "ready" : "timeout";
-                                }
-
-                                preReadySw.Stop();
-                                preReadyMs = preReadySw.ElapsedMilliseconds;
-                                if (!preReadyOk)
-                                {
-                                    actionOutcome = "WAIT_READY_TIMEOUT";
-                                    actionFailed = true;
-                                    actionFailedThisAction = true;
-                                    var detail = constructedPreReadyState != null && !string.IsNullOrWhiteSpace(constructedPreReadyState.PrimaryReason)
-                                        ? $" constructed={constructedPreReadyState.PrimaryReason}"
-                                        : string.Empty;
-                                    Log($"[Action] wait ready timeout before {action}{detail}");
-                                    break;
-                                }
-                            }
+                            preReadyStatus = "skipped";
 
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
@@ -3297,35 +3224,7 @@ namespace BotMain
                                     break;
                                 }
 
-                                var postReadySw = Stopwatch.StartNew();
-                                var postReadyOk = false;
-                                if (!string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
-                                {
-                                    postReadyOk = WaitForConstructedActionReady(pipe, nextAction, 15, 20, readyTimeoutMs, out _);
-                                    if (postReadyOk)
-                                    {
-                                        postReadyStatus = "ready_next_constructed";
-                                    }
-                                    else
-                                    {
-                                        postReadyOk = WaitForGameReady(
-                                            pipe,
-                                            postReadyRetries,
-                                            postReadyIntervalMs,
-                                            readyTimeoutMs,
-                                            waitScope: "ActionPostReadyFallback",
-                                            action: action);
-                                        postReadyStatus = postReadyOk ? "ready_fallback" : "timeout_constructed";
-                                    }
-                                }
-                                else
-                                {
-                                    postReadyOk = WaitForGameReady(pipe, postReadyRetries, postReadyIntervalMs, readyTimeoutMs, waitScope: "ActionPostReady", action: action);
-                                    postReadyStatus = postReadyOk ? "ready" : "timeout";
-                                }
-
-                                postReadySw.Stop();
-                                postReadyMs = postReadySw.ElapsedMilliseconds;
+                                postReadyStatus = "skipped";
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_settled_no_choice");
                             }
@@ -3375,7 +3274,6 @@ namespace BotMain
                             ResetHsBoxActionRecommendationTracking();
                             Log($"[AI] resimulation requested ({resimulationCount}/5): {resimulationReason}");
                             if (SleepOrCancelled(800)) break;
-                            WaitForGameReady(pipe, 30);
                             continue;
                         }
                         Log($"[AI] resimulation limit reached ({resimulationCount}), skipping further resimulation this turn.");
@@ -4035,18 +3933,7 @@ namespace BotMain
                         ref resimCount, ref actionFailStreak, playActionFailStreakByEntity);
                 }
 
-                var skippedArenaTurnStartReadyWait = false;
-                if (_skipNextTurnStartReadyWait && _followHsBoxRecommendations)
-                {
-                    _skipNextTurnStartReadyWait = false;
-                    skippedArenaTurnStartReadyWait = true;
-                    Log("[Arena.Action] skipped TurnStart ready wait");
-                }
-                else if (!WaitForGameReady(pipe, 30, waitScope: "Arena.TurnStart"))
-                {
-                    Thread.Sleep(120);
-                    continue;
-                }
+                _skipNextTurnStartReadyWait = false;
 
                 // 刷新 board
                 {
@@ -4054,7 +3941,7 @@ namespace BotMain
                         pipe,
                         ref seed,
                         ref planningBoard,
-                        preferFastRecovery: skippedArenaTurnStartReadyWait);
+                        preferFastRecovery: false);
                     if (planningBoard == null)
                     {
                         Thread.Sleep(120);
@@ -4123,7 +4010,8 @@ namespace BotMain
                 actions = NormalizeRecommendedActions(actions);
                 if (actions == null || actions.Count == 0)
                 {
-                    if (SleepOrCancelled(500)) break;
+                    Log("[Arena.Action] 空推荐，直接结束回合");
+                    try { SendActionCommand(pipe, "END_TURN", 5000); } catch { }
                     continue;
                 }
 
@@ -4140,44 +4028,12 @@ namespace BotMain
                     bool nextIsOption = !string.IsNullOrWhiteSpace(nextAction)
                         && nextAction.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
                     const int arenaActionDelayMs = 80;
-                    const int readyTimeoutMs = 3000;
-                    var skipArenaPostActionReadyWait = false;
 
                     // 回合末投降：竞技场对局同样检测是否下回合必死
                     if (isEndTurn && _concedeWhenLethal && TryConcedeBeforeEndTurnIfDeadNextTurn(pipe))
                     {
                         Log("[Arena] CONCEDED_BEFORE_END_TURN");
                         break;
-                    }
-
-                    if (!isOption)
-                    {
-                        var preReadyOk = false;
-                        if (ShouldUseConstructedActionReadyWait(action))
-                        {
-                            preReadyOk = WaitForConstructedActionReady(pipe, action, 15, 20, readyTimeoutMs, out _);
-                            if (!preReadyOk)
-                            {
-                                preReadyOk = WaitForGameReady(
-                                    pipe,
-                                    30,
-                                    300,
-                                    readyTimeoutMs,
-                                    waitScope: "Arena.PreReadyFallback",
-                                    action: action);
-                            }
-                        }
-                        else
-                        {
-                            preReadyOk = WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PreReady", action: action);
-                        }
-
-                        if (!preReadyOk)
-                        {
-                            Log($"[Arena] 等待就绪超时: {action}");
-                            actionFailed = true;
-                            break;
-                        }
                     }
 
                     // 武装 ChoiceStateWatch —— 如果动作可能触发发现/选择
@@ -4248,8 +4104,6 @@ namespace BotMain
                                 _turnHadEffectiveAction = true;
                                 if (confirmation.SkipNextTurnStartReadyWait)
                                     _skipNextTurnStartReadyWait = true;
-                                if (confirmation.SkipPostActionReadyWait)
-                                    skipArenaPostActionReadyWait = true;
                             }
                             else
                             {
@@ -4312,7 +4166,7 @@ namespace BotMain
                     RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
 
                     // 检查动作后是否触发了发现/选择界面
-                    if (!nextIsOption && !skipArenaPostActionReadyWait)
+                    if (!nextIsOption)
                     {
                         SleepOrCancelled(arenaActionDelayMs);
                         if (TryProbePendingChoiceAfterAction(pipe, seed, action, out var choiceResimReason))
@@ -4325,23 +4179,6 @@ namespace BotMain
                     else if (nextIsOption)
                     {
                         SleepOrCancelled(arenaActionDelayMs);
-                    }
-
-                    // 非最后动作时等待就绪
-                    if (ai < actions.Count - 1 && !nextIsOption && !skipArenaPostActionReadyWait)
-                    {
-                        if (!string.IsNullOrWhiteSpace(nextAction) && ShouldUseConstructedActionReadyWait(nextAction))
-                        {
-                            var arenaPostReadyOk = WaitForConstructedActionReady(pipe, nextAction, 15, 20, readyTimeoutMs, out _);
-                            if (!arenaPostReadyOk)
-                            {
-                                WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PostReadyFallback", action: action);
-                            }
-                        }
-                        else
-                        {
-                            WaitForGameReady(pipe, 30, 300, readyTimeoutMs, waitScope: "Arena.PostReady", action: action);
-                        }
                     }
                 }
 
@@ -4652,16 +4489,6 @@ namespace BotMain
             return BgActionReadyDiagnostics.TryParseResponse(response, out diagnosticState);
         }
 
-        private bool TryGetConstructedActionReadyDiagnostic(PipeServer pipe, string action, int commandTimeoutMs, out ConstructedActionReadyState diagnosticState)
-        {
-            diagnosticState = null;
-            if (pipe == null || string.IsNullOrWhiteSpace(action))
-                return false;
-
-            var response = pipe.SendAndReceive("WAIT_CONSTRUCTED_ACTION_READY_DETAIL:" + action, Math.Max(100, commandTimeoutMs));
-            return ConstructedActionReadyDiagnostics.TryParseResponse(response, out diagnosticState);
-        }
-
         private bool WaitForBattlegroundActionReady(
             PipeServer pipe,
             string action,
@@ -4706,50 +4533,6 @@ namespace BotMain
             return false;
         }
 
-        private bool WaitForConstructedActionReady(
-            PipeServer pipe,
-            string action,
-            int maxPolls,
-            int pollIntervalMs,
-            int commandTimeoutMs,
-            out ConstructedActionReadyState diagnosticState)
-        {
-            diagnosticState = null;
-            ConstructedActionReadyState lastState = null;
-
-            for (var i = 0; i < maxPolls; i++)
-            {
-                if (_cts?.IsCancellationRequested == true)
-                    return false;
-
-                if (TryGetConstructedActionReadyDiagnostic(pipe, action, commandTimeoutMs, out var currentState)
-                    && currentState != null)
-                {
-                    lastState = currentState;
-                    if (currentState.IsReady)
-                    {
-                        diagnosticState = currentState;
-                        return true;
-                    }
-                }
-
-                if (i < maxPolls - 1 && pollIntervalMs > 0)
-                {
-                    if (SleepOrCancelled(pollIntervalMs))
-                        return false;
-                }
-            }
-
-            diagnosticState = lastState ?? new ConstructedActionReadyState
-            {
-                IsReady = false,
-                PrimaryReason = "not_ready_timeout",
-                Flags = new[] { "not_ready_timeout" },
-                CommandKind = GetCommandKindToken(action)
-            };
-            return false;
-        }
-
         private static bool ShouldUseBattlegroundActionReadyWait(string action)
         {
             if (string.IsNullOrWhiteSpace(action))
@@ -4766,19 +4549,6 @@ namespace BotMain
                 || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
         }
 
-        private static bool ShouldUseConstructedActionReadyWait(string action)
-        {
-            if (string.IsNullOrWhiteSpace(action))
-                return false;
-
-            return action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase)
-                || action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase);
-        }
 
         private static bool TryResolveBattlegroundPreActionCommand(string rawAction, string stateData, out string resolvedAction, out string detail)
         {
@@ -7525,8 +7295,6 @@ namespace BotMain
                     $"picked={pickedCardId} -> {pickResult}, confirm={confirmDetail}");
                 RememberPendingAcquisition(choiceMode, currentState.ChoiceId, currentState.SourceEntityId, currentState.SourceCardId, new[] { pickedCardId });
 
-                Thread.Sleep(150);
-                WaitForGameReady(pipe, maxRetries: 10, intervalMs: 100);
 
                 if (hasChainedChoice)
                 {
@@ -8784,12 +8552,6 @@ namespace BotMain
 
             try
             {
-                if (!WaitForGameReady(pipe, 15, 200))
-                {
-                    Log("[ConcedeWhenLethal] reason=blocked:unsupported-state detail=wait-ready-timeout");
-                    return false;
-                }
-
                 var seedResp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
                 if (string.IsNullOrWhiteSpace(seedResp)
                     || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
