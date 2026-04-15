@@ -220,7 +220,8 @@ namespace BotMain
             }
 
             // Track game boundaries
-            if (str.Contains("<-------Won !-------->") || str.Contains("<-------Lost-------->"))
+            if (str.Contains("[Game] Victory") || str.Contains("[Game] Defeat") ||
+                str.Contains("<-------Won !-------->") || str.Contains("<-------Lost-------->"))
                 _gameStartIndices.Add(_totalParagraphs);
 
             _totalParagraphs++;
@@ -239,50 +240,89 @@ namespace BotMain
             return paragraph;
         }
 
-        // ── Category detection (matches smartbot logic) ──
+        // ── Category detection (adapted for Hearthbot log format) ──
 
         private static string GetLogCategory(string str)
         {
-            if (str.Contains("[ERROR]") || str.Contains("Error compiling"))
+            // ── Error ──
+            if (str.Contains("[ERROR]") || str.Contains("Error compiling") || str.Contains("error:") ||
+                str.Contains("failed:") || str.Contains("失败"))
                 return "error";
             if (str.TrimStart().StartsWith("at ") || str.TrimStart().StartsWith("System.") ||
                 str.Contains("Exception:") || str.Contains("NullReferenceException"))
                 return "error";
-            if (str.Contains("<-------Won !-------->"))
+
+            // ── Win / Loss ──
+            if (str.Contains("[Game] Victory") || str.Contains("<-------Won !-------->"))
                 return "win";
-            if (str.Contains("<-------Lost-------->"))
+            if (str.Contains("[Game] Defeat") || str.Contains("<-------Lost-------->"))
                 return "loss";
+            if (str.Contains("[GameResult]"))
+                return "status";
+
+            // ── Turn ──
             if (str.Contains("New Turn") || str.Contains("End Turn"))
                 return "turn";
+
+            // ── AI / Lethal (action color) ──
+            if (str.Contains("[AI]"))
+                return "action";
+            if (str.Contains("[Lethal]"))
+                return "action";
+
+            // ── HSBox integration ──
+            if (str.Contains("[HSBox] Action") || str.Contains("[HSBox] >>") ||
+                str.Contains("[HSAng] Action"))
+                return "action";
+            if (str.Contains("[HSBox-WARN]") || str.Contains("[HSAng-WARN]") ||
+                str.Contains("警告") || str.Contains("⚠"))
+                return "warning";
+            if (str.Contains("[HSBox-DBG]") || str.Contains("[HSAng-DBG]") ||
+                str.Contains("[HSAng] HSBox turn="))
+                return "hsang";
+
+            // ── Learning / Strategy ──
+            if (str.Contains("[Learning]") || str.Contains("[TeacherDataset]"))
+                return "compile";
+
+            // ── Plugin ──
             if (str.Contains("[Plugin]"))
                 return "plugin";
-            if (str.Contains("[Relogger]"))
+
+            // ── Restart / BG queue (relogger color) ──
+            if (str.Contains("[Restart]") || str.Contains("[BG.AutoQueue]") || str.Contains("[BG]"))
                 return "relogger";
-            if (str.Contains("Connected to") || str.Contains("Successfully injected") ||
-                str.Contains("Validated on auth") || str.Contains("Game connected") ||
-                str.Contains("Bot started") || str.Contains("Bot stopped") ||
-                str.Contains("bridge started") || str.Contains("Hearthstone status"))
+
+            // ── Status ──
+            if (str.Contains("Payload connected") || str.Contains("initialized") ||
+                str.Contains("loaded") || str.Contains("Stopped.") ||
+                str.Contains("Run config:") ||
+                str.Contains("[Settings]") || str.Contains("[Deploy]") ||
+                str.Contains("[自动更新]") || str.Contains("[更新]"))
                 return "status";
-            if (str.Contains("[CustomClass]") || str.Contains("[HSReplay]") || str.Contains("compiled") ||
-                str.Contains("Profile changed") || str.Contains("Battleground profile changed") ||
-                str.Contains("[BattlegroundProfile]"))
-                return "compile";
-            if (str.Contains("[HSAng] Action") || str.Contains("[HSBox] Action") || str.Contains("[HSBox] >>"))
-                return "action";
-            if (str.Contains("[HSAng-WARN]") || str.Contains("[HSBox-WARN]"))
+
+            // ── Auto-concede ──
+            if (str.Contains("[AutoConcedeAlt]") || str.Contains("[Limit]"))
                 return "warning";
-            if (str.Contains("[HSAng] HSBox turn="))
-                return "hsang";
-            if (str.Contains("loading :") && str.Contains("%"))
-                return "progress";
+
+            // ── Notify ──
+            if (str.Contains("[Notify]"))
+                return "plugin";
+
+            // ── Misc concede / action markers ──
+            if (str.Contains("[CloseHs]"))
+                return "relogger";
             if (str.Contains("--> "))
                 return "action";
-            if (str.Contains("[BG-DBG]"))
-                return "bgdebug";
-            if (str.Contains("[HSAng-DBG]") || str.Contains("[HSBox-DBG]"))
+
+            // ── Debug ──
+            if (str.Contains("[DEBUG]") || str.Contains("[BG-DBG]"))
                 return "debug";
-            if (str.Contains("[DEBUG]"))
-                return "debug";
+
+            // ── Progress ──
+            if (str.Contains("loading :") && str.Contains("%"))
+                return "progress";
+
             return "default";
         }
 
