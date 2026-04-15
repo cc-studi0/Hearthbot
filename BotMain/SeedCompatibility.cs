@@ -41,11 +41,44 @@ namespace BotMain
                 return rawSeed;
 
             var parts = rawSeed.Split('~');
-            if (parts.Length <= LegacyDeckCardListPartIndex)
+            if (parts.Length < 21)
                 return rawSeed;
 
             var changes = new List<string>();
-            if (!TryNormalizeLegacyDeckCardList(parts, changes))
+            if (parts.Length > LegacyDeckCardListPartIndex)
+                TryNormalizeLegacyDeckCardList(parts, changes);
+
+            foreach (var index in SingleEntityParts)
+            {
+                if (index < parts.Length)
+                    parts[index] = SanitizeEntity(parts[index], index, changes);
+            }
+
+            foreach (var index in EntityListParts)
+            {
+                if (index < parts.Length)
+                    parts[index] = SanitizeEntityList(parts[index], index, changes);
+            }
+
+            foreach (var index in MinionCardIdListParts)
+            {
+                if (index < parts.Length)
+                    parts[index] = SanitizeCardIdList(parts[index], index, MinionPlaceholder, changes);
+            }
+
+            foreach (var index in SpellCardIdListParts)
+            {
+                if (index < parts.Length)
+                    parts[index] = SanitizeCardIdList(parts[index], index, SpellPlaceholder, changes);
+            }
+
+            foreach (var index in SingleSpellCardIdParts)
+            {
+                if (index < parts.Length)
+                    parts[index] = SanitizeSingleCardId(parts[index], index, SpellPlaceholder, changes);
+            }
+
+            if (changes.Count == 0)
                 return rawSeed;
 
             detail = BuildDetail(changes);

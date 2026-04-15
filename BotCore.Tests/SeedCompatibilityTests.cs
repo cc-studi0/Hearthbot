@@ -10,20 +10,22 @@ namespace BotCore.Tests
     public class SeedCompatibilityTests
     {
         [Fact]
-        public void GetCompatibleSeed_PassesThroughUnknownCardIdsUnchanged()
+        public void GetCompatibleSeed_ReplacesUnknownCardIdsInEntityList()
         {
             var seed = BuildSeedWithEntityListPart(
                 20,
-                BuildEntity("CATA_131", 101, cardType: 4, cost: 2, atk: 2, health: 2));
+                BuildEntity("CATA_EVENT_002", 101, cardType: 4, cost: 2, atk: 2, health: 2));
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Equal(seed, compatible);
-            Assert.Equal(string.Empty, detail);
+            Assert.NotEqual(seed, compatible);
+            Assert.DoesNotContain("CATA_EVENT_002", compatible);
+            Assert.Contains("CORE_CS2_231", compatible);
+            Assert.Contains("CATA_EVENT_002->CORE_CS2_231@p20#1/type=4", detail);
         }
 
         [Fact]
-        public void GetCompatibleSeed_PassesThroughUnknownLocationUnchanged()
+        public void GetCompatibleSeed_ReplacesUnknownLocationWithPlaceholder()
         {
             var seed = BuildSeedWithEntityListPart(
                 20,
@@ -31,8 +33,10 @@ namespace BotCore.Tests
 
             var compatible = SeedCompatibility.GetCompatibleSeed(seed, out var detail);
 
-            Assert.Equal(seed, compatible);
-            Assert.Equal(string.Empty, detail);
+            Assert.NotEqual(seed, compatible);
+            Assert.DoesNotContain("LOC_TEST_001", compatible);
+            Assert.Contains("VAC_929", compatible);
+            Assert.Contains("LOC_TEST_001->VAC_929@p20#1/type=39", detail);
         }
 
         [Fact]
