@@ -3236,6 +3236,14 @@ namespace BotMain
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("attack_fast_track");
                             }
+                            else if (isFaceAttack)
+                            {
+                                // FACE 攻击跳过 choice probe 和 post-ready 等待
+                                // 英雄目标不改变棋盘布局，无需等待
+                                postReadyStatus = "skipped_face_attack";
+                                if (choiceWatchArmed)
+                                    ClearChoiceStateWatch("face_attack_fast_track");
+                            }
                             else if (nextIsOption)
                             {
                                 // PLAY/HERO_POWER -> OPTION 链路（抉择类卡牌）：
