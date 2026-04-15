@@ -55,12 +55,12 @@ function patchOnce() {
 
 // 首次补丁
 var result = patchOnce();
-send({ type: "patch", found: result.found, patched: result.patched });
+console.log("[patch] found=" + result.found + " patched=" + result.patched);
 
 // 定时刷新，防止盒子内部重新写入
 setInterval(function() {
     var r = patchOnce();
     if (r.patched > 0) {
-        send({ type: "refresh", found: r.found, patched: r.patched });
+        console.log("[refresh] found=" + r.found + " patched=" + r.patched);
     }
 }, REFRESH_INTERVAL_MS);
