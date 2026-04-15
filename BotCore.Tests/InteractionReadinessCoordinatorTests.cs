@@ -184,6 +184,25 @@ namespace BotCore.Tests
             Assert.Equal(timeoutMs, settings.TimeoutMs);
         }
 
+        [Theory]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPre, 240)]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPost, 240)]
+        [InlineData((int)InteractionReadinessScope.MulliganCommit, 480)]
+        [InlineData((int)InteractionReadinessScope.ChoiceCommit, 320)]
+        [InlineData((int)InteractionReadinessScope.ArenaDraftPick, 600)]
+        public void GetProbeTimeoutMs_StaysWithinScopeBudget(
+            int scopeValue,
+            int expectedProbeTimeoutMs)
+        {
+            var scope = (InteractionReadinessScope)scopeValue;
+            var settings = InteractionReadinessCoordinator.GetDefaultSettings(scope);
+            var probeTimeoutMs = InteractionReadinessCoordinator.GetProbeTimeoutMs(scope);
+
+            Assert.Equal(expectedProbeTimeoutMs, probeTimeoutMs);
+            Assert.True(probeTimeoutMs > 0);
+            Assert.True(probeTimeoutMs < settings.TimeoutMs);
+        }
+
         [Fact]
         public void PollUntilReady_ReturnsTimedOutWithLastFailureDetails_WhenProbeNeverReady()
         {

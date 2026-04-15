@@ -121,6 +121,14 @@ namespace BotMain
             };
         }
 
+        internal static int GetProbeTimeoutMs(InteractionReadinessScope scope)
+        {
+            var settings = GetDefaultSettings(scope);
+            var upperBound = settings.TimeoutMs > 1 ? settings.TimeoutMs - 1 : 1;
+            var candidate = Math.Max(100, settings.PollIntervalMs * 4);
+            return Math.Max(1, Math.Min(upperBound, candidate));
+        }
+
         internal static InteractionReadinessPollOutcome PollUntilReady(
             InteractionReadinessRequest request,
             Func<InteractionReadinessObservation> observe,

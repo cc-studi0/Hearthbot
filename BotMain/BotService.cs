@@ -4492,8 +4492,7 @@ namespace BotMain
             PipeServer pipe,
             InteractionReadinessScope scope)
         {
-            var settings = InteractionReadinessCoordinator.GetDefaultSettings(scope);
-            var commandTimeoutMs = Math.Max(100, settings.TimeoutMs);
+            var commandTimeoutMs = InteractionReadinessCoordinator.GetProbeTimeoutMs(scope);
             return InteractionReadinessCoordinator.PollUntilReady(
                 new InteractionReadinessRequest(scope),
                 () => ObserveGameplayReadiness(pipe, commandTimeoutMs),
