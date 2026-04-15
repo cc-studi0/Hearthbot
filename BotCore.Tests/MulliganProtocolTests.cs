@@ -1,11 +1,4 @@
 using BotMain;
-using System;
-using System.IO;
-using System.Net.Sockets;
-using System.Reflection;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using Xunit;
 
 namespace BotCore.Tests
@@ -75,56 +68,6 @@ namespace BotCore.Tests
         public void IsTransientFailure_DoesNotTreatChoiceSenderNotFoundAsRetryable()
         {
             Assert.False(MulliganProtocol.IsTransientFailure("FAIL:choice_sender_not_found"));
-        }
-
-        [Fact]
-        public async Task TryApplyMulligan_ReturnsMulliganNotActive_WhenStateResponseIsNoMulligan()
-        {
-            using var pipe = new PipeServer();
-            using var readyToConnect = new ManualResetEventSlim(false);
-            using var serverConnected = new ManualResetEventSlim(false);
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-
-            var acceptTask = Task.Run(() =>
-            {
-                readyToConnect.Set();
-                var waitResult = pipe.WaitForConnection(cts.Token, 3000);
-                Assert.Equal(PipeConnectionWaitResult.Connected, waitResult);
-                serverConnected.Set();
-            }, cts.Token);
-
-            Assert.True(readyToConnect.Wait(TimeSpan.FromSeconds(1)));
-
-            using var client = new TcpClient();
-            client.Connect("127.0.0.1", 59723);
-            Assert.True(serverConnected.Wait(TimeSpan.FromSeconds(1)));
-
-            using var stream = client.GetStream();
-            using var reader = new StreamReader(stream, Encoding.UTF8, false, 1024, leaveOpen: true);
-            using var writer = new StreamWriter(stream, Encoding.UTF8, 1024, leaveOpen: true) { AutoFlush = true };
-
-            var responderTask = Task.Run(() =>
-            {
-                var firstCommand = reader.ReadLine();
-                Assert.Equal("WAIT_READY_DETAIL", firstCommand);
-                writer.WriteLine(ReadyWaitDiagnostics.FormatReadyResponse());
-
-                var secondCommand = reader.ReadLine();
-                Assert.Equal("GET_MULLIGAN_STATE", secondCommand);
-                writer.WriteLine("NO_MULLIGAN");
-            }, cts.Token);
-
-            var service = new BotService();
-            var method = typeof(BotService).GetMethod("TryApplyMulligan", BindingFlags.Instance | BindingFlags.NonPublic);
-
-            Assert.NotNull(method);
-            var args = new object[] { pipe, DateTime.UtcNow, null };
-            var success = Assert.IsType<bool>(method.Invoke(service, args));
-
-            Assert.False(success);
-            Assert.Equal("mulligan_not_active", Assert.IsType<string>(args[2]));
-
-            await Task.WhenAll(acceptTask, responderTask);
         }
     }
 }

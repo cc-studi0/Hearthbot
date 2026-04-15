@@ -10202,7 +10202,10 @@ namespace BotMain
                 var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.MulliganCommit);
                 if (!readiness.IsReady)
                 {
-                    result = $"gameplay_not_ready:{readiness.Reason}";
+                    var readinessReason = string.IsNullOrWhiteSpace(readiness.FailureReason)
+                        ? readiness.Reason
+                        : readiness.FailureReason;
+                    result = $"gameplay_not_ready:{readinessReason}";
                     return false;
                 }
 
