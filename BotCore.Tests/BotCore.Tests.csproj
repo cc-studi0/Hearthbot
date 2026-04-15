@@ -42,6 +42,7 @@
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\RecommendationDeduplicator.cs" Link="RecommendationDeduplicator.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
+    <Compile Include="..\BotMain\HandActionCommandMetadata.cs" Link="HandActionCommandMetadata.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HsBoxModeSpoofer.cs" Link="HsBoxModeSpoofer.cs" />
     <Compile Include="..\BotMain\HsBoxFridaPatcher.cs" Link="HsBoxFridaPatcher.cs" />
@@ -80,6 +81,7 @@
     <Compile Include="..\HearthstonePayload\PipeClient.cs" Link="HearthstonePayload\PipeClient.cs" />
     <Compile Include="..\HearthstonePayload\BattlegroundsMagneticDropMath.cs" Link="HearthstonePayload\BattlegroundsMagneticDropMath.cs" />
     <Compile Include="..\HearthstonePayload\GameStateData.cs" Link="HearthstonePayload\GameStateData.cs" />
+    <Compile Include="..\HearthstonePayload\HandSourceIdentityResolver.cs" Link="HearthstonePayload\HandSourceIdentityResolver.cs" />
     <Compile Include="..\HearthstonePayload\HeldCardIdentityVerifier.cs" Link="HearthstonePayload\HeldCardIdentityVerifier.cs" />
     <Compile Include="..\HearthstonePayload\ChoiceExecutionPolicy.cs" Link="HearthstonePayload\ChoiceExecutionPolicy.cs" />
     <Compile Include="..\HearthstonePayload\PlayRuntimeTargetResolver.cs" Link="HearthstonePayload\PlayRuntimeTargetResolver.cs" />

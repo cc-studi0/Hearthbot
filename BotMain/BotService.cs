@@ -3059,7 +3059,8 @@ namespace BotMain
                                 : BuildActionStateSnapshot(planningBoard);
 
                             var sendSw = Stopwatch.StartNew();
-                            var result = SendActionCommand(pipe, commandToSend, 5000) ?? "NO_RESPONSE";
+                            var outboundAction = AttachHandSourceMetadata(commandToSend, planningBoard);
+                            var result = SendActionCommand(pipe, outboundAction, 5000) ?? "NO_RESPONSE";
                             sendSw.Stop();
                             sendMs = sendSw.ElapsedMilliseconds;
                             actionOutcome = result;
@@ -3114,6 +3115,19 @@ namespace BotMain
 
                             if (IsActionFailure(result))
                             {
+                                if (IsRecoverableHandSourceFailure(action, result))
+                                {
+                                    ResetHsBoxActionRecommendationTracking();
+                                    requestResimulation = true;
+                                    resimulationReason = "hand_source_identity_mismatch";
+                                    resimulationRequestedThisAction = true;
+                                    resimulationReasonThisAction = resimulationReason;
+                                    actionOutcome = result;
+                                    if (choiceWatchArmed)
+                                        ClearChoiceStateWatch("hand_source_identity_mismatch");
+                                    break;
+                                }
+
                                 // ── DIALOG_BLOCKING 专用处理：操作未执行，跳过 CANCEL ──
                                 if (IsDialogBlockingFailure(result))
                                 {
@@ -6133,6 +6147,60 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        internal static bool IsRecoverableHandSourceFailure(string action, string result)
+        {
+            if (string.IsNullOrWhiteSpace(action) || string.IsNullOrWhiteSpace(result))
+                return false;
+
+            if (!result.Contains("source_identity_mismatch", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_PLAY|", StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsRecoverableHandSourceFailureForTests(string action, string result)
+        {
+            return IsRecoverableHandSourceFailure(action, result);
+        }
+
+        private static string AttachHandSourceMetadata(string action, Board planningBoard)
+        {
+            if (string.IsNullOrWhiteSpace(action) || planningBoard == null)
+                return action;
+
+            if (!HandActionCommandMetadata.TryParse(action, out var parsed))
+                return action;
+
+            if (!string.Equals(parsed.ActionType, "PLAY", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(parsed.ActionType, "TRADE", StringComparison.OrdinalIgnoreCase))
+            {
+                return action;
+            }
+
+            if (!string.IsNullOrWhiteSpace(parsed.SourceCardId) && parsed.SourceZonePosition > 0)
+                return action;
+
+            var source = planningBoard.Hand?.FirstOrDefault(card => card != null && card.Id == parsed.SourceEntityId);
+            if (source?.Template == null)
+                return action;
+
+            var sourceCardId = source.Template.Id.ToString();
+            var sourceZonePosition = planningBoard.Hand.IndexOf(source) + 1;
+            if (sourceZonePosition <= 0)
+                return action;
+
+            return string.Equals(parsed.ActionType, "TRADE", StringComparison.OrdinalIgnoreCase)
+                ? HandActionCommandMetadata.AppendTrade(action, sourceCardId, sourceZonePosition)
+                : HandActionCommandMetadata.AppendPlay(action, sourceCardId, sourceZonePosition);
+        }
+
+        internal static string AttachHandSourceMetadataForTests(string action, Board planningBoard)
+        {
+            return AttachHandSourceMetadata(action, planningBoard);
         }
 
         private List<string> NormalizeRecommendedActions(List<string> actions)
