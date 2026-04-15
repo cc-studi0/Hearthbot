@@ -260,27 +260,21 @@
                         </StackPanel>
                         <TabControl x:Name="tabControl2" Grid.Row="1" Margin="0">
                             <TabItem x:Name="TabBoardDEbu" Header="Board">
-                                <Grid Margin="0">
-                                    <TabControl>
-                                        <TabItem Header="Current">
-                                            <Grid>
-                                                <TextBox x:Name="DebugTextBox" Margin="0" TextWrapping="Wrap"
-                                                         IsReadOnly="True" Text="{Binding DebugText, Mode=OneWay}"/>
-                                            </Grid>
-                                        </TabItem>
-                                        <TabItem Header="Before">
-                                            <Grid>
-                                                <TextBox x:Name="DebugTextBoxBefore" Margin="0"
-                                                         TextWrapping="Wrap" IsReadOnly="True"/>
-                                            </Grid>
-                                        </TabItem>
-                                        <TabItem Header="After">
-                                            <Grid>
-                                                <TextBox x:Name="DebugTextBoxAfter" Margin="0"
-                                                         TextWrapping="Wrap" IsReadOnly="True"/>
-                                            </Grid>
-                                        </TabItem>
-                                    </TabControl>
+                                <Grid>
+                                    <TextBox x:Name="DebugTextBox" Margin="0" TextWrapping="Wrap"
+                                             IsReadOnly="True" Text="{Binding DebugText, Mode=OneWay}"/>
+                                </Grid>
+                            </TabItem>
+                            <TabItem Header="Before">
+                                <Grid>
+                                    <TextBox x:Name="DebugTextBoxBefore" Margin="0"
+                                             TextWrapping="Wrap" IsReadOnly="True"/>
+                                </Grid>
+                            </TabItem>
+                            <TabItem Header="After">
+                                <Grid>
+                                    <TextBox x:Name="DebugTextBoxAfter" Margin="0"
+                                             TextWrapping="Wrap" IsReadOnly="True"/>
                                 </Grid>
                             </TabItem>
                             <TabItem Header="Mulligan">
@@ -534,9 +528,9 @@
                                     FontSize="11" IsEnabled="False"/>
                             <Button x:Name="LogFilterActions" Content="Actions" Margin="2" Padding="6,2"
                                     FontSize="11" IsEnabled="False"/>
-                            <Button x:Name="LogFilterCurrentGame" Content="Current game" Margin="2"
+                            <Button x:Name="LogFilterCurrentGame" Content="Current Game" Margin="2"
                                     Padding="6,2" FontSize="11" IsEnabled="False"/>
-                            <Button x:Name="LogFilterLastGame" Content="Last game" Margin="2"
+                            <Button x:Name="LogFilterLastGame" Content="Last Game" Margin="2"
                                     Padding="6,2" FontSize="11" IsEnabled="False"/>
                         </StackPanel>
                         <TextBox x:Name="LogBox" Grid.Row="1"
