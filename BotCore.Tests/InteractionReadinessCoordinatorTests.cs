@@ -18,6 +18,18 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void GameplayScope_ReadyPath_UsesCanonicalReadyReason()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.MulliganCommit);
+            var observation = InteractionReadinessObservation.Ready();
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.True(result.IsReady);
+            Assert.Equal("ready", result.Reason);
+        }
+
+        [Fact]
         public void ArenaDraftPick_RequiresDraftSceneAndMatchingStatus()
         {
             var request = new InteractionReadinessRequest(
@@ -33,6 +45,40 @@ namespace BotCore.Tests
 
             Assert.False(result.IsReady);
             Assert.Equal("arena_status_mismatch", result.Reason);
+        }
+
+        [Fact]
+        public void ArenaDraftPick_MissingExpectedStatus_IsRejected()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.ArenaDraftPick);
+            var observation = InteractionReadinessObservation.ArenaDraft(
+                scene: "DRAFT",
+                arenaStatus: "HERO_PICK",
+                optionCount: 3,
+                overlayBlocked: false);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("expected_arena_status_missing", result.Reason);
+        }
+
+        [Fact]
+        public void ArenaDraftPick_DraftSceneAndMatchingStatus_IsReady()
+        {
+            var request = new InteractionReadinessRequest(
+                InteractionReadinessScope.ArenaDraftPick,
+                ExpectedArenaStatus: "HERO_PICK");
+            var observation = InteractionReadinessObservation.ArenaDraft(
+                scene: "DRAFT",
+                arenaStatus: "HERO_PICK",
+                optionCount: 3,
+                overlayBlocked: false);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.True(result.IsReady);
+            Assert.Equal("ready", result.Reason);
         }
     }
 }

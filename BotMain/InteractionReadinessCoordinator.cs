@@ -67,6 +67,9 @@ namespace BotMain
                 if (observation == null)
                     return new InteractionReadinessResult(false, "arena_status_mismatch", string.Empty);
 
+                if (string.IsNullOrWhiteSpace(request.ExpectedArenaStatus))
+                    return new InteractionReadinessResult(false, "expected_arena_status_missing", observation.ArenaStatus ?? string.Empty);
+
                 if (observation.Scene != "DRAFT" || observation.ArenaStatus != (request.ExpectedArenaStatus ?? string.Empty))
                     return new InteractionReadinessResult(false, "arena_status_mismatch", observation.ArenaStatus ?? string.Empty);
 
