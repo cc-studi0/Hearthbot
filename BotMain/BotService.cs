@@ -10220,6 +10220,12 @@ namespace BotMain
                     return false;
                 }
 
+                if (string.Equals(stateResp, "NO_MULLIGAN", StringComparison.Ordinal))
+                {
+                    result = "mulligan_not_active";
+                    return false;
+                }
+
                 if (stateResp == null || !stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal))
                 {
                     result = "mulligan_state_unavailable";
