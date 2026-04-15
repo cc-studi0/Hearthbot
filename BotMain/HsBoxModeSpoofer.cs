@@ -25,6 +25,7 @@ namespace BotMain
         private int _fetchActiveRounds;
         private int _interceptedCount;
         private bool _fridaFallbackActive;
+        private bool _fridaFallbackAttempted;
         private HsBoxFridaPatcher _fridaPatcher;
 
         // Layer 1 超时：连续多少轮无拦截后降级到 Frida
@@ -93,6 +94,7 @@ namespace BotMain
                     _fetchActiveRounds = 0;
                     _interceptedCount = 0;
                     _fridaFallbackActive = false;
+                    _fridaFallbackAttempted = false;
 
                     // 启动后台线程监听 Fetch.requestPaused 事件
                     _listenerThread = new Thread(ListenerLoop)
@@ -139,12 +141,13 @@ namespace BotMain
         /// </summary>
         public void OnRecommendationRound()
         {
-            if (!_enabled || _fridaFallbackActive) return;
+            if (!_enabled || _fridaFallbackActive || _fridaFallbackAttempted) return;
 
             _fetchActiveRounds++;
             if (_fetchActiveRounds >= FetchTimeoutRounds && _interceptedCount == 0)
             {
                 _log($"[ModeSpoof] Layer 1 连续 {_fetchActiveRounds} 轮未拦截到模式参数，降级到 Layer 2 Frida");
+                _fridaFallbackAttempted = true;
                 ActivateFridaFallback();
             }
         }

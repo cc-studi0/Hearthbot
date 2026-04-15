@@ -14,7 +14,7 @@ namespace BotMain
         private Process _fridaProcess;
 
         private static readonly string ScriptPath = Path.Combine(
-            AppDomain.CurrentDomain.BaseDirectory, "tools", "active", "hsbox_mode_patch.js");
+            AppPaths.RootDirectory, "tools", "active", "hsbox_mode_patch.js");
 
         public HsBoxFridaPatcher(Action<string> log)
         {
