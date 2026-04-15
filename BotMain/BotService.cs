@@ -2951,9 +2951,12 @@ namespace BotMain
                                 var preReadySw = Stopwatch.StartNew();
                                 var preReadyOk = false;
                                 ConstructedActionReadyState constructedPreReadyState = null;
+                                // FACE 攻击：缩短 pre-ready 等待（maxPolls=5, interval=15ms, 上限75ms）
+                                var constructedPreReadyMaxPolls = isFaceAttack ? 5 : 15;
+                                var constructedPreReadyIntervalMs = isFaceAttack ? 15 : 20;
                                 if (ShouldUseConstructedActionReadyWait(action))
                                 {
-                                    preReadyOk = WaitForConstructedActionReady(pipe, action, 15, 20, readyTimeoutMs, out constructedPreReadyState);
+                                    preReadyOk = WaitForConstructedActionReady(pipe, action, constructedPreReadyMaxPolls, constructedPreReadyIntervalMs, readyTimeoutMs, out constructedPreReadyState);
                                     if (preReadyOk)
                                     {
                                         preReadyStatus = "ready_constructed";
