@@ -55,6 +55,10 @@ namespace BotCore.Tests
         [InlineData("FAIL:wait:choice_packet:choice_id_not_ready")]
         [InlineData("FAIL:wait:mouse_fallback:entity_set_changed")]
         [InlineData("FAIL:mulligan_manager:entity_not_found:17")]
+        [InlineData("FAIL:gameplay_not_ready:post_animation_grace")]
+        [InlineData("FAIL:mulligan_state_timeout")]
+        [InlineData("FAIL:mulligan_state_unavailable")]
+        [InlineData("FAIL:mulligan_choices_empty")]
         public void IsTransientFailure_TreatsNewWaitingSignalsAsRetryable(string result)
         {
             Assert.True(MulliganProtocol.IsTransientFailure(result));

@@ -27,6 +27,10 @@ namespace BotMain
             var normalized = result.ToLowerInvariant();
             return normalized.Contains("waiting_for_cards")
                 || normalized.Contains("waiting_for_ready")
+                || normalized.Contains("gameplay_not_ready")
+                || normalized.Contains("mulligan_state_timeout")
+                || normalized.Contains("mulligan_state_unavailable")
+                || normalized.Contains("mulligan_choices_empty")
                 || normalized.Contains("waiting_for_user_input")
                 || normalized.Contains("friendly_choices_not_ready")
                 || normalized.Contains("response_packet_blocked")

@@ -19,6 +19,18 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void MulliganCommit_StaysBusy_WhenGameplayObservationIsBusy()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.MulliganCommit);
+            var observation = InteractionReadinessObservation.Busy("post_animation_grace");
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("post_animation_grace", result.Reason);
+        }
+
+        [Fact]
         public void ConstructedActionPre_InputDenied_RemainsBusy()
         {
             var request = new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre);

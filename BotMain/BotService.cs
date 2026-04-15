@@ -10199,21 +10199,12 @@ namespace BotMain
 
             try
             {
-                var gotReadyResp = TrySendAndReceiveExpected(
-                    pipe,
-                    "WAIT_READY",
-                    1200,
-                    r => string.Equals(r, "READY", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(r, "BUSY", StringComparison.OrdinalIgnoreCase),
-                    out var readyResp,
-                    "Mulligan");
-                if (!gotReadyResp)
+                var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.MulliganCommit);
+                if (!readiness.IsReady)
                 {
-                    result = "waiting_for_ready:timeout";
+                    result = $"gameplay_not_ready:{readiness.Reason}";
                     return false;
                 }
-
-                var readyState = readyResp ?? "null";
 
                 var gotStateResp = TrySendAndReceiveExpected(
                     pipe,
@@ -10225,13 +10216,13 @@ namespace BotMain
                     "Mulligan");
                 if (!gotStateResp)
                 {
-                    result = $"waiting_for_ready:{readyState}; GET_MULLIGAN_STATE -> timeout";
+                    result = "mulligan_state_timeout";
                     return false;
                 }
 
                 if (stateResp == null || !stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal))
                 {
-                    result = $"waiting_for_ready:{readyState}; " + (stateResp ?? "NO_MULLIGAN");
+                    result = "mulligan_state_unavailable";
                     return false;
                 }
 
@@ -10243,7 +10234,7 @@ namespace BotMain
 
                 if (snapshot.Choices.Count == 0)
                 {
-                    result = "waiting_for_cards";
+                    result = "mulligan_choices_empty";
                     return false;
                 }
 
@@ -10281,7 +10272,7 @@ namespace BotMain
                     out var applyRespRaw,
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
-                result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
+                result = $"{decisionInfo}; ready={readiness.Reason}; replace={replaceEntityIds.Count}; apply={applyResp}";
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)
