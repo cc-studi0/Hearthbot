@@ -57,6 +57,7 @@ namespace HearthstonePayload
             try
             {
                 _logSource = Logger;
+                LogManager.CleanupLogs(GetPluginLogDirectory());
                 StartStartupLogSession();
                 SetPhase("awake");
                 LogStartupInfo("awake", "Plugin Awake started.");
@@ -64,6 +65,8 @@ namespace HearthstonePayload
                 UnityEngine.Application.runInBackground = true;
                 var harmony = new Harmony("com.bot.hearthstone");
                 AntiCheatPatches.Apply(harmony);
+                foreach (var line in AntiCheatPatches.GetPatchLog())
+                    LogStartupInfo("anticheat", line);
                 InactivityPatch.Apply(harmony);
                 InputHook.Apply(harmony);
 
