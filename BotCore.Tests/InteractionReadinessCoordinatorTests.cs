@@ -108,5 +108,61 @@ namespace BotCore.Tests
             Assert.Equal(60, settings.PollIntervalMs);
             Assert.Equal(1200, settings.TimeoutMs);
         }
+
+        [Fact]
+        public void PollUntilReady_ReturnsTimedOutWithLastFailureDetails_WhenProbeNeverReady()
+        {
+            var observeCalls = 0;
+            var sleepCalls = 0;
+
+            var outcome = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPost),
+                () =>
+                {
+                    observeCalls++;
+                    return InteractionReadinessObservation.Busy($"busy_{observeCalls}");
+                },
+                _ =>
+                {
+                    sleepCalls++;
+                    return false;
+                });
+
+            Assert.False(outcome.IsReady);
+            Assert.Equal("timed_out", outcome.Reason);
+            Assert.Equal("busy_20", outcome.FailureReason);
+            Assert.Equal("busy_20", outcome.FailureDetail);
+            Assert.Equal(20, outcome.Polls);
+            Assert.Equal(19, sleepCalls);
+            Assert.Equal(20, observeCalls);
+        }
+
+        [Fact]
+        public void PollUntilReady_StopsImmediately_WhenSleepSignalsCancel()
+        {
+            var observeCalls = 0;
+            var sleepCalls = 0;
+
+            var outcome = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre),
+                () =>
+                {
+                    observeCalls++;
+                    return InteractionReadinessObservation.Busy("power_processor_running");
+                },
+                _ =>
+                {
+                    sleepCalls++;
+                    return true;
+                });
+
+            Assert.False(outcome.IsReady);
+            Assert.Equal("cancelled", outcome.Reason);
+            Assert.Equal("power_processor_running", outcome.FailureReason);
+            Assert.Equal("power_processor_running", outcome.FailureDetail);
+            Assert.Equal(1, outcome.Polls);
+            Assert.Equal(1, sleepCalls);
+            Assert.Equal(1, observeCalls);
+        }
     }
 }

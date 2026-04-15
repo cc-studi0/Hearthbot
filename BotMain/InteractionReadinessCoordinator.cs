@@ -25,16 +25,36 @@ namespace BotMain
     internal sealed record InteractionReadinessPollOutcome(
         bool IsReady,
         string Reason,
-        int Polls)
+        string Detail,
+        int Polls,
+        string FailureReason,
+        string FailureDetail)
     {
-        internal static InteractionReadinessPollOutcome Ready(string reason, int polls = 0)
+        internal static InteractionReadinessPollOutcome Ready(string detail, int polls = 0)
         {
-            return new InteractionReadinessPollOutcome(true, reason ?? "ready", polls);
+            return new InteractionReadinessPollOutcome(true, "ready", detail ?? string.Empty, polls, null, null);
         }
 
-        internal static InteractionReadinessPollOutcome TimedOut(int polls = 0)
+        internal static InteractionReadinessPollOutcome TimedOut(string failureReason, string failureDetail, int polls = 0)
         {
-            return new InteractionReadinessPollOutcome(false, "timed_out", polls);
+            return new InteractionReadinessPollOutcome(
+                false,
+                "timed_out",
+                failureDetail ?? string.Empty,
+                polls,
+                failureReason ?? "unknown",
+                failureDetail ?? string.Empty);
+        }
+
+        internal static InteractionReadinessPollOutcome Cancelled(string failureReason, string failureDetail, int polls = 0)
+        {
+            return new InteractionReadinessPollOutcome(
+                false,
+                "cancelled",
+                failureDetail ?? string.Empty,
+                polls,
+                failureReason ?? "unknown",
+                failureDetail ?? string.Empty);
         }
     }
 
@@ -96,6 +116,8 @@ namespace BotMain
             var settings = GetDefaultSettings(request == null ? (InteractionReadinessScope)(-1) : request.Scope);
             var pollIntervalMs = settings.PollIntervalMs <= 0 ? 1 : settings.PollIntervalMs;
             var maxPolls = Math.Max(1, (int)Math.Ceiling(settings.TimeoutMs / (double)pollIntervalMs));
+            var lastFailureReason = "unknown";
+            var lastFailureDetail = string.Empty;
 
             for (var poll = 1; poll <= maxPolls; poll++)
             {
@@ -103,13 +125,19 @@ namespace BotMain
                 var evaluation = Evaluate(request, observation);
 
                 if (evaluation.IsReady)
-                    return InteractionReadinessPollOutcome.Ready(evaluation.Reason, poll);
+                    return InteractionReadinessPollOutcome.Ready(evaluation.Detail, poll);
+
+                lastFailureReason = evaluation.Reason ?? "unknown";
+                lastFailureDetail = evaluation.Detail ?? string.Empty;
 
                 if (poll < maxPolls)
-                    _ = sleep?.Invoke(pollIntervalMs);
+                {
+                    if (sleep?.Invoke(pollIntervalMs) == true)
+                        return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, poll);
+                }
             }
 
-            return InteractionReadinessPollOutcome.TimedOut(maxPolls);
+            return InteractionReadinessPollOutcome.TimedOut(lastFailureReason, lastFailureDetail, maxPolls);
         }
 
         internal static InteractionReadinessResult Evaluate(
