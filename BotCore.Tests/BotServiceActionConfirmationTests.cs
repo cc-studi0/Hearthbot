@@ -181,6 +181,34 @@ namespace BotCore.Tests
             Assert.Equal("action_result_ok", result.Reason);
         }
 
+        [Theory]
+        [InlineData(false, false, 0, 2, true)]
+        [InlineData(true, false, 0, 2, false)]
+        [InlineData(false, true, 0, 2, false)]
+        [InlineData(false, false, 1, 2, false)]
+        public void ShouldWaitForConstructedActionPost_UsesOnlySpecConditions(
+            bool isFaceAttack,
+            bool nextIsOption,
+            int actionIndex,
+            int actionCount,
+            bool expected)
+        {
+            var method = typeof(BotService).GetMethod(
+                "ShouldWaitForConstructedActionPost",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var shouldWait = Assert.IsType<bool>(method.Invoke(null, new object[]
+            {
+                isFaceAttack,
+                nextIsOption,
+                actionIndex,
+                actionCount
+            }));
+
+            Assert.Equal(expected, shouldWait);
+        }
+
         [Fact]
         public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {

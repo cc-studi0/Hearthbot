@@ -2871,7 +2871,6 @@ namespace BotMain
                         var preReadyStatus = "not_run";
                         var postReadyStatus = "not_run";
                         var actionOutcome = "NOT_RUN";
-                        var skipPostActionReadyWait = false;
                         var actionFailedThisAction = false;
                         var resimulationRequestedThisAction = false;
                         string resimulationReasonThisAction = null;
@@ -3031,9 +3030,6 @@ namespace BotMain
 
                                 if (confirmation.SkipNextTurnStartReadyWait)
                                     _skipNextTurnStartReadyWait = true;
-
-                                if (confirmation.SkipPostActionReadyWait)
-                                    skipPostActionReadyWait = true;
 
                                 if (confirmation.ConsumeRecommendation)
                                 {
@@ -3196,13 +3192,7 @@ namespace BotMain
                             }
                             catch { }
 
-                            if (skipPostActionReadyWait)
-                            {
-                                postReadyStatus = "skipped_attack_no_minion_death";
-                                if (choiceWatchArmed)
-                                    ClearChoiceStateWatch("attack_fast_track");
-                            }
-                            else if (isFaceAttack)
+                            if (isFaceAttack)
                             {
                                 // FACE 攻击跳过 choice probe 和 post-ready 等待
                                 // 英雄目标不改变棋盘布局，无需等待
@@ -3240,7 +3230,7 @@ namespace BotMain
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_settled_no_choice");
 
-                                if (ai < actions.Count - 1)
+                                if (ShouldWaitForConstructedActionPost(isFaceAttack, nextIsOption, ai, actions.Count))
                                 {
                                     var postReadyOutcome = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPost);
                                     postReadyStatus = postReadyOutcome.IsReady ? "ready" : "timeout";
@@ -4644,6 +4634,17 @@ namespace BotMain
             return separatorIndex > 0
                 ? action.Substring(0, separatorIndex)
                 : action.Trim();
+        }
+
+        private static bool ShouldWaitForConstructedActionPost(
+            bool isFaceAttack,
+            bool nextIsOption,
+            int actionIndex,
+            int actionCount)
+        {
+            return !isFaceAttack
+                && !nextIsOption
+                && actionIndex < actionCount - 1;
         }
 
         private static bool ShouldBypassReadyWait(string waitScope, string reason)
