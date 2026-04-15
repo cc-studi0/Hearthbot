@@ -64,19 +64,30 @@ namespace BotMain
     {
         public bool IsReady { get; init; }
         public string Reason { get; init; } = string.Empty;
+        public string Detail { get; init; } = string.Empty;
         public string Scene { get; init; } = string.Empty;
         public string ArenaStatus { get; init; } = string.Empty;
         public int OptionCount { get; init; }
         public bool OverlayBlocked { get; init; }
 
-        public static InteractionReadinessObservation Ready()
+        public static InteractionReadinessObservation Ready(string detail = null)
         {
-            return new InteractionReadinessObservation { IsReady = true, Reason = "ready" };
+            return new InteractionReadinessObservation
+            {
+                IsReady = true,
+                Reason = "ready",
+                Detail = detail ?? string.Empty
+            };
         }
 
-        public static InteractionReadinessObservation Busy(string reason)
+        public static InteractionReadinessObservation Busy(string reason, string detail = null)
         {
-            return new InteractionReadinessObservation { IsReady = false, Reason = reason ?? "unknown" };
+            return new InteractionReadinessObservation
+            {
+                IsReady = false,
+                Reason = reason ?? "unknown",
+                Detail = detail ?? string.Empty
+            };
         }
 
         public static InteractionReadinessObservation ArenaDraft(
@@ -173,9 +184,19 @@ namespace BotMain
             }
 
             if (observation != null && observation.IsReady)
-                return new InteractionReadinessResult(true, "ready", observation.Reason ?? string.Empty);
+                return new InteractionReadinessResult(
+                    true,
+                    "ready",
+                    string.IsNullOrWhiteSpace(observation.Detail)
+                        ? observation.Reason ?? string.Empty
+                        : observation.Detail);
 
-            return new InteractionReadinessResult(false, observation?.Reason ?? "unknown", observation?.Reason ?? string.Empty);
+            return new InteractionReadinessResult(
+                false,
+                observation?.Reason ?? "unknown",
+                string.IsNullOrWhiteSpace(observation?.Detail)
+                    ? observation?.Reason ?? string.Empty
+                    : observation.Detail);
         }
     }
 }

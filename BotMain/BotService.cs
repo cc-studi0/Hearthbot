@@ -4472,14 +4472,16 @@ namespace BotMain
                 : "unexpected_response";
         }
 
-        private InteractionReadinessObservation ObserveGameplayReadiness(PipeServer pipe)
+        private InteractionReadinessObservation ObserveGameplayReadiness(PipeServer pipe, int commandTimeoutMs)
         {
             if (pipe == null || !pipe.IsConnected)
                 return InteractionReadinessObservation.Busy("pipe_disconnected");
 
-            var response = pipe.SendAndReceive("WAIT_READY_DETAIL", 1200);
+            var response = pipe.SendAndReceive("WAIT_READY_DETAIL", Math.Max(100, commandTimeoutMs));
             if (!ReadyWaitDiagnostics.TryParseResponse(response, out var state) || state == null)
-                return InteractionReadinessObservation.Busy("ready_detail_unparsed");
+                return InteractionReadinessObservation.Busy(
+                    "ready_detail_unparsed",
+                    DescribeGameplayReadinessParseFailure(response));
 
             return state.IsReady
                 ? InteractionReadinessObservation.Ready()
@@ -4490,10 +4492,20 @@ namespace BotMain
             PipeServer pipe,
             InteractionReadinessScope scope)
         {
+            var settings = InteractionReadinessCoordinator.GetDefaultSettings(scope);
+            var commandTimeoutMs = Math.Max(100, settings.TimeoutMs);
             return InteractionReadinessCoordinator.PollUntilReady(
                 new InteractionReadinessRequest(scope),
-                () => ObserveGameplayReadiness(pipe),
+                () => ObserveGameplayReadiness(pipe, commandTimeoutMs),
                 SleepOrCancelled);
+        }
+
+        private static string DescribeGameplayReadinessParseFailure(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+                return "response=<empty>";
+
+            return "response=" + TrimForLog(response, 120);
         }
 
         private bool TryGetReadyWaitDiagnostic(PipeServer pipe, int commandTimeoutMs, out ReadyWaitDiagnosticState diagnosticState)

@@ -18,7 +18,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void GameplayGate_KeepsWaiting_ForInputDenied()
+        public void ConstructedActionPre_InputDenied_RemainsBusy()
         {
             var request = new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre);
             var observation = InteractionReadinessObservation.Busy("input_denied");
@@ -26,6 +26,20 @@ namespace BotCore.Tests
             var result = InteractionReadinessCoordinator.Evaluate(request, observation);
 
             Assert.False(result.IsReady);
+            Assert.Equal("input_denied", result.Reason);
+        }
+
+        [Fact]
+        public void GameplayScope_BusyObservation_PreservesDiagnosticDetail()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.ConstructedActionPre);
+            var observation = InteractionReadinessObservation.Busy("ready_detail_unparsed", "raw=BUSY:oops");
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("ready_detail_unparsed", result.Reason);
+            Assert.Equal("raw=BUSY:oops", result.Detail);
         }
 
         [Fact]
