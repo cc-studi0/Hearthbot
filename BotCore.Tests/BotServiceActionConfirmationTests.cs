@@ -210,6 +210,22 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void GetConstructedPreReadyStatus_PreservesOptionChainSentinel()
+        {
+            var method = typeof(BotService).GetMethod(
+                "GetConstructedPreReadyStatus",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var status = Assert.IsType<string>(method.Invoke(null, new object[]
+            {
+                InteractionReadinessPollOutcome.Ready("option_chain")
+            }));
+
+            Assert.Equal("option_chain", status);
+        }
+
+        [Fact]
         public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {
             var service = new BotService();

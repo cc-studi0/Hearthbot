@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 
 namespace BotMain
 {
@@ -142,10 +143,10 @@ namespace BotMain
             var maxPolls = Math.Max(1, (int)Math.Ceiling(settings.TimeoutMs / (double)pollIntervalMs));
             var lastFailureReason = "unknown";
             var lastFailureDetail = string.Empty;
-            long elapsedMs = 0;
+            var stopwatch = Stopwatch.StartNew();
 
             if (sleep?.Invoke(0) == true)
-                return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, 0, elapsedMs);
+                return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, 0, stopwatch.ElapsedMilliseconds);
 
             for (var poll = 1; poll <= maxPolls; poll++)
             {
@@ -153,7 +154,7 @@ namespace BotMain
                 var evaluation = Evaluate(request, observation);
 
                 if (evaluation.IsReady)
-                    return InteractionReadinessPollOutcome.Ready(evaluation.Detail, poll, elapsedMs);
+                    return InteractionReadinessPollOutcome.Ready(evaluation.Detail, poll, stopwatch.ElapsedMilliseconds);
 
                 lastFailureReason = evaluation.Reason ?? "unknown";
                 lastFailureDetail = evaluation.Detail ?? string.Empty;
@@ -161,13 +162,11 @@ namespace BotMain
                 if (poll < maxPolls)
                 {
                     if (sleep?.Invoke(pollIntervalMs) == true)
-                        return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, poll, elapsedMs);
-
-                    elapsedMs += pollIntervalMs;
+                        return InteractionReadinessPollOutcome.Cancelled(lastFailureReason, lastFailureDetail, poll, stopwatch.ElapsedMilliseconds);
                 }
             }
 
-            return InteractionReadinessPollOutcome.TimedOut(lastFailureReason, lastFailureDetail, maxPolls, elapsedMs);
+            return InteractionReadinessPollOutcome.TimedOut(lastFailureReason, lastFailureDetail, maxPolls, stopwatch.ElapsedMilliseconds);
         }
 
         internal static InteractionReadinessResult Evaluate(

@@ -2934,7 +2934,7 @@ namespace BotMain
                                 ? InteractionReadinessPollOutcome.Ready("option_chain")
                                 : WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
 
-                            preReadyStatus = preReadyOutcome.IsReady ? "ready" : "timeout";
+                            preReadyStatus = GetConstructedPreReadyStatus(preReadyOutcome);
                             preReadyMs = preReadyOutcome.ElapsedMs;
 
                             if (!preReadyOutcome.IsReady)
@@ -4645,6 +4645,16 @@ namespace BotMain
             return !isFaceAttack
                 && !nextIsOption
                 && actionIndex < actionCount - 1;
+        }
+
+        private static string GetConstructedPreReadyStatus(InteractionReadinessPollOutcome outcome)
+        {
+            if (outcome == null || !outcome.IsReady)
+                return "timeout";
+
+            return string.Equals(outcome.Detail, "option_chain", StringComparison.Ordinal)
+                ? "option_chain"
+                : "ready";
         }
 
         private static bool ShouldBypassReadyWait(string waitScope, string reason)

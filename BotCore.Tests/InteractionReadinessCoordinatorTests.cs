@@ -1,4 +1,5 @@
 using BotMain;
+using System.Threading;
 using Xunit;
 
 namespace BotCore.Tests
@@ -168,11 +169,10 @@ namespace BotCore.Tests
         }
 
         [Theory]
-        [InlineData((int)InteractionReadinessScope.ConstructedActionPre, 120)]
-        [InlineData((int)InteractionReadinessScope.ConstructedActionPost, 120)]
-        public void PollUntilReady_ReportsElapsedMsFromCompletedWaitIntervals(
-            int scopeValue,
-            long expectedElapsedMs)
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPre)]
+        [InlineData((int)InteractionReadinessScope.ConstructedActionPost)]
+        public void PollUntilReady_ReportsWallClockElapsedMs_WhenObserveBlocks(
+            int scopeValue)
         {
             var observations = new Queue<InteractionReadinessObservation>(new[]
             {
@@ -183,12 +183,16 @@ namespace BotCore.Tests
 
             var outcome = InteractionReadinessCoordinator.PollUntilReady(
                 new InteractionReadinessRequest((InteractionReadinessScope)scopeValue),
-                () => observations.Dequeue(),
+                () =>
+                {
+                    Thread.Sleep(15);
+                    return observations.Dequeue();
+                },
                 _ => false);
 
             Assert.True(outcome.IsReady);
             Assert.Equal(3, outcome.Polls);
-            Assert.Equal(expectedElapsedMs, outcome.ElapsedMs);
+            Assert.InRange(outcome.ElapsedMs, 30, 110);
         }
 
         [Theory]
