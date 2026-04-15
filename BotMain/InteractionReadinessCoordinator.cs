@@ -11,7 +11,7 @@ namespace BotMain
 
     internal sealed record InteractionReadinessRequest(
         InteractionReadinessScope Scope,
-        string expectedArenaStatus = null);
+        string ExpectedArenaStatus = null);
 
     internal sealed record InteractionReadinessResult(
         bool IsReady,
@@ -67,7 +67,7 @@ namespace BotMain
                 if (observation == null)
                     return new InteractionReadinessResult(false, "arena_status_mismatch", string.Empty);
 
-                if (observation.Scene != "DRAFT" || observation.ArenaStatus != (request.expectedArenaStatus ?? string.Empty))
+                if (observation.Scene != "DRAFT" || observation.ArenaStatus != (request.ExpectedArenaStatus ?? string.Empty))
                     return new InteractionReadinessResult(false, "arena_status_mismatch", observation.ArenaStatus ?? string.Empty);
 
                 return new InteractionReadinessResult(true, "ready", observation.ArenaStatus ?? string.Empty);

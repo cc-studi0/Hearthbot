@@ -22,7 +22,7 @@ namespace BotCore.Tests
         {
             var request = new InteractionReadinessRequest(
                 InteractionReadinessScope.ArenaDraftPick,
-                expectedArenaStatus: "HERO_PICK");
+                ExpectedArenaStatus: "HERO_PICK");
             var observation = InteractionReadinessObservation.ArenaDraft(
                 scene: "DRAFT",
                 arenaStatus: "CARD_PICK",
