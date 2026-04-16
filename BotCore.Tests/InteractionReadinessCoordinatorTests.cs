@@ -159,6 +159,24 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ArenaDraftPick_CardDraftStatusCompatibility_PreservesRawDetail()
+        {
+            var request = new InteractionReadinessRequest(
+                InteractionReadinessScope.ArenaDraftPick,
+                ExpectedArenaStatus: "CARD_PICK");
+            var observation = InteractionReadinessObservation.ArenaDraft(
+                scene: "DRAFT",
+                arenaStatus: "CARD_DRAFT:1/30",
+                optionCount: 3,
+                overlayBlocked: false);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.True(result.IsReady);
+            Assert.Equal("CARD_DRAFT:1/30", result.Detail);
+        }
+
+        [Fact]
         public void ArenaDraftPick_OverlayBlocked_IsRejected()
         {
             var request = new InteractionReadinessRequest(

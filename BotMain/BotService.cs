@@ -3685,18 +3685,6 @@ namespace BotMain
             return 0;
         }
 
-        private string NormalizeArenaDraftStatus(string status, string expectedArenaStatus)
-        {
-            if (string.Equals(expectedArenaStatus, "CARD_PICK", StringComparison.Ordinal)
-                && !string.IsNullOrWhiteSpace(status)
-                && status.StartsWith("CARD_DRAFT", StringComparison.Ordinal))
-            {
-                return "CARD_PICK";
-            }
-
-            return status ?? string.Empty;
-        }
-
         private int ParseArenaChoiceCount(string choices)
         {
             if (string.IsNullOrWhiteSpace(choices))
@@ -3714,7 +3702,6 @@ namespace BotMain
 
         private InteractionReadinessObservation ObserveArenaDraftPick(
             PipeServer pipe,
-            string expectedArenaStatus,
             bool heroPick)
         {
             if (!TryGetSceneValue(pipe, 1500, out var scene, "Arena.Readiness"))
@@ -3729,7 +3716,7 @@ namespace BotMain
 
             return InteractionReadinessObservation.ArenaDraft(
                 scene,
-                NormalizeArenaDraftStatus(status, expectedArenaStatus),
+                status,
                 optionCount,
                 overlayBlocked);
         }
@@ -3741,7 +3728,7 @@ namespace BotMain
                 new InteractionReadinessRequest(
                     InteractionReadinessScope.ArenaDraftPick,
                     ExpectedArenaStatus: "HERO_PICK"),
-                () => ObserveArenaDraftPick(pipe, "HERO_PICK", heroPick: true),
+                () => ObserveArenaDraftPick(pipe, heroPick: true),
                 SleepOrCancelled);
 
             if (!readiness.IsReady)
@@ -3761,7 +3748,7 @@ namespace BotMain
                 new InteractionReadinessRequest(
                     InteractionReadinessScope.ArenaDraftPick,
                     ExpectedArenaStatus: "CARD_PICK"),
-                () => ObserveArenaDraftPick(pipe, "CARD_PICK", heroPick: false),
+                () => ObserveArenaDraftPick(pipe, heroPick: false),
                 SleepOrCancelled);
 
             if (!readiness.IsReady)
