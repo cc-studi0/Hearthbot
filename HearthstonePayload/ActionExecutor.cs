@@ -808,6 +808,32 @@ namespace HearthstonePayload
             return false;
         }
 
+        private static bool TryGetPostPlayNeutralPoint(out int x, out int y)
+        {
+            x = 0;
+            y = 0;
+
+            var screenWidth = MouseSimulator.GetScreenWidth();
+            var screenHeight = MouseSimulator.GetScreenHeight();
+            if (screenWidth > 0 && screenHeight > 0)
+            {
+                x = (int)(screenWidth * 0.50f);
+                y = (int)(screenHeight * 0.12f);
+                return true;
+            }
+
+            return TryGetTurnStartIdlePoint(out x, out y);
+        }
+
+        private static IEnumerable<float> MoveCursorToPostPlayNeutralPoint()
+        {
+            if (!TryGetPostPlayNeutralPoint(out var neutralX, out var neutralY))
+                yield break;
+
+            foreach (var wait in MoveCursorConstructed(neutralX, neutralY, 10, 0.010f, false))
+                yield return wait;
+        }
+
         /// <summary>
         /// 获取敌方场上随从的 EntityId 列表（随机打乱顺序）
         /// </summary>
@@ -2890,6 +2916,9 @@ namespace HearthstonePayload
                     }
                 }
             }
+
+            foreach (var wait in MoveCursorToPostPlayNeutralPoint())
+                yield return wait;
 
             _coroutine.SetResult("OK:PLAY:" + entityId + ":mouse_drag");
         }
@@ -12160,6 +12189,9 @@ namespace HearthstonePayload
                     yield break;
                 }
             }
+
+            foreach (var wait in MoveCursorToPostPlayNeutralPoint())
+                yield return wait;
 
             _coroutine.SetResult("OK:BG_PLAY:" + handEntityId + ":api_grab");
         }
