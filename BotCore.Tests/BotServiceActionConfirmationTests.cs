@@ -181,8 +181,82 @@ namespace BotCore.Tests
             Assert.Equal("action_result_ok", result.Reason);
         }
 
+        [Theory]
+        [InlineData(false, false, 0, 2, true)]
+        [InlineData(true, false, 0, 2, false)]
+        [InlineData(false, true, 0, 2, false)]
+        [InlineData(false, false, 1, 2, false)]
+        public void ShouldWaitForConstructedActionPost_UsesOnlySpecConditions(
+            bool isFaceAttack,
+            bool nextIsOption,
+            int actionIndex,
+            int actionCount,
+            bool expected)
+        {
+            var method = typeof(BotService).GetMethod(
+                "ShouldWaitForConstructedActionPost",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var shouldWait = Assert.IsType<bool>(method.Invoke(null, new object[]
+            {
+                isFaceAttack,
+                nextIsOption,
+                actionIndex,
+                actionCount
+            }));
+
+            Assert.Equal(expected, shouldWait);
+        }
+
         [Fact]
-        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
+        public void GetConstructedPreReadyStatus_PreservesOptionChainSentinel()
+        {
+            var method = typeof(BotService).GetMethod(
+                "GetConstructedPreReadyStatus",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var status = Assert.IsType<string>(method.Invoke(null, new object[]
+            {
+                InteractionReadinessPollOutcome.Ready("option_chain")
+            }));
+
+            Assert.Equal("option_chain", status);
+        }
+
+        [Fact]
+        public void ShouldRequestResimulationAfterConstructedActionPost_ReturnsTrue_WhenTimedOut()
+        {
+            var outcome = InteractionReadinessPollOutcome.TimedOut(
+                failureReason: "power_processor_running",
+                failureDetail: "power_processor_running",
+                polls: 20,
+                elapsedMs: 1200);
+
+            var shouldResimulate = BotService.ShouldRequestResimulationAfterConstructedActionPost(
+                outcome,
+                out var reason);
+
+            Assert.True(shouldResimulate);
+            Assert.Equal("constructed_action_post_timeout:power_processor_running", reason);
+        }
+
+        [Fact]
+        public void ShouldRequestResimulationAfterConstructedActionPost_ReturnsFalse_WhenReady()
+        {
+            var outcome = InteractionReadinessPollOutcome.Ready("ready", polls: 1, elapsedMs: 60);
+
+            var shouldResimulate = BotService.ShouldRequestResimulationAfterConstructedActionPost(
+                outcome,
+                out var reason);
+
+            Assert.False(shouldResimulate);
+            Assert.Null(reason);
+        }
+
+        [Fact]
+        public void TryConsumePendingHsBoxAdvanceForTurnStartReady_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {
             var service = new BotService();
             SetPrivateField(
@@ -206,35 +280,35 @@ namespace BotCore.Tests
             SetPrivateField(service, "_pendingHsBoxBoardFingerprint", "board-fp");
 
             var method = typeof(BotService).GetMethod(
-                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                "TryConsumePendingHsBoxAdvanceForTurnStartReady",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
             var args = new object[] { "TurnStart", null };
-            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+            var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
-            Assert.True(bypassed);
-            Assert.Equal("ready_hsbox_advanced", Assert.IsType<string>(args[1]));
+            Assert.True(consumed);
+            Assert.Equal("turn_start_hsbox_advanced", Assert.IsType<string>(args[1]));
             Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
             Assert.False(Assert.IsType<bool>(GetPrivateField(service, "_skipNextTurnStartReadyWait")));
         }
 
         [Fact]
-        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsFalse_ForNonTurnStartScope()
+        public void TryConsumePendingHsBoxAdvanceForTurnStartReady_ReturnsFalse_ForNonTurnStartScope()
         {
             var service = new BotService();
             SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 100L);
             SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", "old-signature");
 
             var method = typeof(BotService).GetMethod(
-                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                "TryConsumePendingHsBoxAdvanceForTurnStartReady",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
             var args = new object[] { "ActionPostReady", null };
-            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+            var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
-            Assert.False(bypassed);
+            Assert.False(consumed);
             Assert.Null(args[1]);
             Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
         }

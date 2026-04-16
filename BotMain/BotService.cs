@@ -1452,7 +1452,7 @@ namespace BotMain
             return true;
         }
 
-        private bool TryBypassTurnStartReadyWithPendingHsBoxAdvance(string waitScope, out string resultReason)
+        private bool TryConsumePendingHsBoxAdvanceForTurnStartReady(string waitScope, out string resultReason)
         {
             resultReason = null;
             if (!string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase))
@@ -1462,7 +1462,7 @@ namespace BotMain
                 return false;
 
             _skipNextTurnStartReadyWait = false;
-            resultReason = "ready_hsbox_advanced";
+            resultReason = "turn_start_hsbox_advanced";
             return true;
         }
 
@@ -2871,7 +2871,6 @@ namespace BotMain
                         var preReadyStatus = "not_run";
                         var postReadyStatus = "not_run";
                         var actionOutcome = "NOT_RUN";
-                        var skipPostActionReadyWait = false;
                         var actionFailedThisAction = false;
                         var resimulationRequestedThisAction = false;
                         string resimulationReasonThisAction = null;
@@ -2931,7 +2930,20 @@ namespace BotMain
                                 break;
                             }
 
-                            preReadyStatus = "skipped";
+                            var preReadyOutcome = isOption
+                                ? InteractionReadinessPollOutcome.Ready("option_chain")
+                                : WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
+
+                            preReadyStatus = GetConstructedPreReadyStatus(preReadyOutcome);
+                            preReadyMs = preReadyOutcome.ElapsedMs;
+
+                            if (!preReadyOutcome.IsReady)
+                            {
+                                actionOutcome = "WAIT_READY_TIMEOUT";
+                                actionFailed = true;
+                                actionFailedThisAction = true;
+                                break;
+                            }
 
                             var choiceWatchArmed = TryArmChoiceStateWatchForAction(action, planningBoard);
                             sinceRecommendMs = Math.Max(0, swTurn.ElapsedMilliseconds - recommendationReadyAtTurnMs);
@@ -3018,9 +3030,6 @@ namespace BotMain
 
                                 if (confirmation.SkipNextTurnStartReadyWait)
                                     _skipNextTurnStartReadyWait = true;
-
-                                if (confirmation.SkipPostActionReadyWait)
-                                    skipPostActionReadyWait = true;
 
                                 if (confirmation.ConsumeRecommendation)
                                 {
@@ -3183,13 +3192,7 @@ namespace BotMain
                             }
                             catch { }
 
-                            if (skipPostActionReadyWait)
-                            {
-                                postReadyStatus = "skipped_attack_no_minion_death";
-                                if (choiceWatchArmed)
-                                    ClearChoiceStateWatch("attack_fast_track");
-                            }
-                            else if (isFaceAttack)
+                            if (isFaceAttack)
                             {
                                 // FACE 攻击跳过 choice probe 和 post-ready 等待
                                 // 英雄目标不改变棋盘布局，无需等待
@@ -3224,9 +3227,27 @@ namespace BotMain
                                     break;
                                 }
 
-                                postReadyStatus = "skipped";
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_settled_no_choice");
+
+                                if (ShouldWaitForConstructedActionPost(isFaceAttack, nextIsOption, ai, actions.Count))
+                                {
+                                    var postReadyOutcome = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPost);
+                                    postReadyStatus = postReadyOutcome.IsReady ? "ready" : "timeout";
+                                    postReadyMs = postReadyOutcome.ElapsedMs;
+                                    if (ShouldRequestResimulationAfterConstructedActionPost(postReadyOutcome, out var postReadyResimulationReason))
+                                    {
+                                        requestResimulation = true;
+                                        resimulationReason = postReadyResimulationReason;
+                                        resimulationRequestedThisAction = true;
+                                        resimulationReasonThisAction = postReadyResimulationReason;
+                                        break;
+                                    }
+                                }
+                                else
+                                {
+                                    postReadyStatus = "skipped";
+                                }
                             }
 
                             if (decision != null
@@ -3672,9 +3693,64 @@ namespace BotMain
             return 0;
         }
 
+        private int ParseArenaChoiceCount(string choices)
+        {
+            if (string.IsNullOrWhiteSpace(choices))
+                return 0;
+
+            if (!choices.StartsWith("HEROES:", StringComparison.OrdinalIgnoreCase)
+                && !choices.StartsWith("CHOICES:", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
+
+            var separatorIndex = choices.IndexOf(':');
+            if (separatorIndex < 0 || separatorIndex >= choices.Length - 1)
+                return 0;
+
+            return choices
+                .Substring(separatorIndex + 1)
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Length;
+        }
+
+        private InteractionReadinessObservation ObserveArenaDraftPick(
+            PipeServer pipe,
+            bool heroPick)
+        {
+            if (!TryGetSceneValue(pipe, 1500, out var scene, "Arena.Readiness"))
+                return InteractionReadinessObservation.ArenaDraft("UNKNOWN", "scene_timeout", 0, overlayBlocked: false);
+
+            var overlayBlocked = TryGetBlockingDialog(pipe, 300, out _, out _, out _, "Arena.ReadinessOverlay");
+            TrySendAndReceiveExpected(pipe, "ARENA_GET_STATUS", 1500, _ => true, out var status, "Arena.ReadinessStatus");
+
+            var choiceCommand = heroPick ? "ARENA_GET_HERO_CHOICES" : "ARENA_GET_DRAFT_CHOICES";
+            TrySendAndReceiveExpected(pipe, choiceCommand, 1500, _ => true, out var choices, "Arena.ReadinessChoices");
+            var optionCount = ParseArenaChoiceCount(choices);
+
+            return InteractionReadinessObservation.ArenaDraft(
+                scene,
+                status,
+                optionCount,
+                overlayBlocked);
+        }
+
         private void ArenaPickHero(PipeServer pipe)
         {
             Log("[Arena] 选择职业阶段...");
+            var readiness = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(
+                    InteractionReadinessScope.ArenaDraftPick,
+                    ExpectedArenaStatus: "HERO_PICK"),
+                () => ObserveArenaDraftPick(pipe, heroPick: true),
+                SleepOrCancelled);
+
+            if (!readiness.IsReady)
+            {
+                Log($"[Arena] pick_wait_timeout scope=Hero reason={readiness.Reason}");
+                return;
+            }
+
             int bestIndex = ArenaGetRecommendedIndex(pipe, "职业", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_HERO:{bestIndex}", 5000, out var resp, "Arena.PickHero");
             Log($"[Arena] 选职业结果: {resp}");
@@ -3682,6 +3758,19 @@ namespace BotMain
 
         private void ArenaPickCard(PipeServer pipe)
         {
+            var readiness = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(
+                    InteractionReadinessScope.ArenaDraftPick,
+                    ExpectedArenaStatus: "CARD_PICK"),
+                () => ObserveArenaDraftPick(pipe, heroPick: false),
+                SleepOrCancelled);
+
+            if (!readiness.IsReady)
+            {
+                Log($"[Arena] pick_wait_timeout scope=Card reason={readiness.Reason}");
+                return;
+            }
+
             int bestIndex = ArenaGetRecommendedIndex(pipe, "卡牌", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_CARD:{bestIndex}", 5000, out var resp, "Arena.PickCard");
             Log($"[Arena] 选牌结果: {resp}");
@@ -4378,7 +4467,8 @@ namespace BotMain
             for (int i = 0; i < maxRetries; i++)
             {
                 if (_cts?.IsCancellationRequested == true) return false;
-                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out var hsBoxBypassResult))
+                // TurnStart 可能在首个 WAIT_READY probe 前后都收到 hsbox advance，需要两侧都消费一次特例以避免漏掉刚完成的推进。
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out var hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,
@@ -4411,23 +4501,7 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
                     uniqueReasons.Add(reason);
 
-                if (ShouldBypassReadyWait(waitScope, reason))
-                {
-                    LogReadyWaitSummary(
-                        waitScope,
-                        action,
-                        sw.ElapsedMilliseconds,
-                        polls,
-                        busyPolls,
-                        firstBusyReason,
-                        lastBusyReason,
-                        uniqueReasons,
-                        timedOut: false,
-                        resultOverride: "ready_bypass_soft_busy");
-                    return true;
-                }
-
-                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out hsBoxBypassResult))
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,
@@ -4470,6 +4544,41 @@ namespace BotMain
             return string.Equals(waitReadyResponse, "BUSY", StringComparison.OrdinalIgnoreCase)
                 ? ReadyWaitDiagnostics.UnknownBusyReason
                 : "unexpected_response";
+        }
+
+        private InteractionReadinessObservation ObserveGameplayReadiness(PipeServer pipe, int commandTimeoutMs)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return InteractionReadinessObservation.Busy("pipe_disconnected");
+
+            var response = pipe.SendAndReceive("WAIT_READY_DETAIL", Math.Max(100, commandTimeoutMs));
+            if (!ReadyWaitDiagnostics.TryParseResponse(response, out var state) || state == null)
+                return InteractionReadinessObservation.Busy(
+                    "ready_detail_unparsed",
+                    DescribeGameplayReadinessParseFailure(response));
+
+            return state.IsReady
+                ? InteractionReadinessObservation.Ready()
+                : InteractionReadinessObservation.Busy(state.PrimaryReason);
+        }
+
+        private InteractionReadinessPollOutcome WaitForGameplayInteraction(
+            PipeServer pipe,
+            InteractionReadinessScope scope)
+        {
+            var commandTimeoutMs = InteractionReadinessCoordinator.GetProbeTimeoutMs(scope);
+            return InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(scope),
+                () => ObserveGameplayReadiness(pipe, commandTimeoutMs),
+                SleepOrCancelled);
+        }
+
+        private static string DescribeGameplayReadinessParseFailure(string response)
+        {
+            if (string.IsNullOrWhiteSpace(response))
+                return "response=<empty>";
+
+            return "response=" + TrimForLog(response, 120);
         }
 
         private bool TryGetReadyWaitDiagnostic(PipeServer pipe, int commandTimeoutMs, out ReadyWaitDiagnosticState diagnosticState)
@@ -4533,6 +4642,16 @@ namespace BotMain
             return false;
         }
 
+        internal static bool ShouldProceedWithChoiceCommit(
+            InteractionReadinessPollOutcome readiness,
+            out string reason)
+        {
+            reason = string.IsNullOrWhiteSpace(readiness?.FailureReason)
+                ? readiness?.Reason ?? "unknown"
+                : readiness.FailureReason;
+            return readiness.IsReady;
+        }
+
         private static bool ShouldUseBattlegroundActionReadyWait(string action)
         {
             if (string.IsNullOrWhiteSpace(action))
@@ -4588,32 +4707,44 @@ namespace BotMain
                 : action.Trim();
         }
 
-        private static bool ShouldBypassReadyWait(string waitScope, string reason)
+        private static bool ShouldWaitForConstructedActionPost(
+            bool isFaceAttack,
+            bool nextIsOption,
+            int actionIndex,
+            int actionCount)
         {
-            if (string.IsNullOrWhiteSpace(waitScope))
-                return false;
-
-            if (IsTurnStartReadyWaitScope(waitScope))
-                return ReadyWaitDiagnostics.ShouldBypassTurnStartBusyReason(reason);
-
-            if (!IsPostActionReadyWaitScope(waitScope))
-                return false;
-
-            return ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason);
+            return !isFaceAttack
+                && !nextIsOption
+                && actionIndex < actionCount - 1;
         }
 
-        private static bool IsTurnStartReadyWaitScope(string waitScope)
+        internal static bool ShouldRequestResimulationAfterConstructedActionPost(
+            InteractionReadinessPollOutcome outcome,
+            out string reason)
         {
-            return string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.TurnStart", StringComparison.OrdinalIgnoreCase);
+            reason = null;
+            if (outcome == null
+                || outcome.IsReady
+                || !string.Equals(outcome.Reason, "timed_out", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var failureReason = string.IsNullOrWhiteSpace(outcome.FailureReason)
+                ? outcome.Reason
+                : outcome.FailureReason;
+            reason = $"constructed_action_post_timeout:{failureReason}";
+            return true;
         }
 
-        private static bool IsPostActionReadyWaitScope(string waitScope)
+        private static string GetConstructedPreReadyStatus(InteractionReadinessPollOutcome outcome)
         {
-            return string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "ActionPostReadyFallback", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.PostReady", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.PostReadyFallback", StringComparison.OrdinalIgnoreCase);
+            if (outcome == null || !outcome.IsReady)
+                return "timeout";
+
+            return string.Equals(outcome.Detail, "option_chain", StringComparison.Ordinal)
+                ? "option_chain"
+                : "ready";
         }
 
         private void LogReadyWaitSummary(
@@ -7119,6 +7250,13 @@ namespace BotMain
                     || (currentState.CountMax > 0 && selectedEntityIds.Count > currentState.CountMax))
                 {
                     Log($"[Choice] selection_invalid snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}]");
+                    return false;
+                }
+
+                var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ChoiceCommit);
+                if (!ShouldProceedWithChoiceCommit(readiness, out var readinessReason))
+                {
+                    Log($"[Choice] gameplay_wait snapshotId={currentState.SnapshotId} reason={readinessReason}");
                     return false;
                 }
 
@@ -10130,21 +10268,15 @@ namespace BotMain
 
             try
             {
-                var gotReadyResp = TrySendAndReceiveExpected(
-                    pipe,
-                    "WAIT_READY",
-                    1200,
-                    r => string.Equals(r, "READY", StringComparison.OrdinalIgnoreCase)
-                        || string.Equals(r, "BUSY", StringComparison.OrdinalIgnoreCase),
-                    out var readyResp,
-                    "Mulligan");
-                if (!gotReadyResp)
+                var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.MulliganCommit);
+                if (!readiness.IsReady)
                 {
-                    result = "waiting_for_ready:timeout";
+                    var readinessReason = string.IsNullOrWhiteSpace(readiness.FailureReason)
+                        ? readiness.Reason
+                        : readiness.FailureReason;
+                    result = $"gameplay_not_ready:{readinessReason}";
                     return false;
                 }
-
-                var readyState = readyResp ?? "null";
 
                 var gotStateResp = TrySendAndReceiveExpected(
                     pipe,
@@ -10156,13 +10288,19 @@ namespace BotMain
                     "Mulligan");
                 if (!gotStateResp)
                 {
-                    result = $"waiting_for_ready:{readyState}; GET_MULLIGAN_STATE -> timeout";
+                    result = "mulligan_state_timeout";
+                    return false;
+                }
+
+                if (string.Equals(stateResp, "NO_MULLIGAN", StringComparison.Ordinal))
+                {
+                    result = "mulligan_not_active";
                     return false;
                 }
 
                 if (stateResp == null || !stateResp.StartsWith("MULLIGAN_STATE:", StringComparison.Ordinal))
                 {
-                    result = $"waiting_for_ready:{readyState}; " + (stateResp ?? "NO_MULLIGAN");
+                    result = "mulligan_state_unavailable";
                     return false;
                 }
 
@@ -10174,7 +10312,7 @@ namespace BotMain
 
                 if (snapshot.Choices.Count == 0)
                 {
-                    result = "waiting_for_cards";
+                    result = "mulligan_choices_empty";
                     return false;
                 }
 
@@ -10212,7 +10350,7 @@ namespace BotMain
                     out var applyRespRaw,
                     "Mulligan");
                 var applyResp = gotApplyResp ? (applyRespRaw ?? "NO_RESPONSE") : "NO_RESPONSE";
-                result = $"{decisionInfo}; ready={readyState}; replace={replaceEntityIds.Count}; apply={applyResp}";
+                result = $"{decisionInfo}; ready={readiness.Reason}; replace={replaceEntityIds.Count}; apply={applyResp}";
                 return applyResp.StartsWith("OK", StringComparison.OrdinalIgnoreCase);
             }
             catch (Exception ex)
