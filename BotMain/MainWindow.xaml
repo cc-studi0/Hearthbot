@@ -93,6 +93,7 @@
                                VerticalContentAlignment="Center" HorizontalContentAlignment="Right" MinWidth="40"/>
                         <Grid Width="157" Margin="0,0,5,0">
                             <ToggleButton x:Name="DeckDropdownToggle"
+                                          Style="{StaticResource DropdownToggleButtonStyle}"
                                           Height="25"
                                           IsChecked="{Binding DeckSelection.IsDropDownOpen, Mode=TwoWay}">
                                 <Grid>
@@ -118,14 +119,9 @@
                                    StaysOpen="False"
                                    DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                                    IsOpen="{Binding DeckSelection.IsDropDownOpen, Mode=TwoWay}">
-                                <Border Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=Popup}}"
-                                        Margin="0,2,0,0"
-                                        Background="White"
-                                        BorderBrush="#B8C0C8"
-                                        BorderThickness="1"
-                                        CornerRadius="4"
-                                        Padding="4"
-                                        SnapsToDevicePixels="True">
+                                <Border Style="{StaticResource DropdownPopupBorderStyle}"
+                                        Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=Popup}}"
+                                        Margin="0,2,0,0">
                                     <ScrollViewer MaxHeight="220"
                                                   VerticalScrollBarVisibility="Auto">
                                         <ItemsControl ItemsSource="{Binding DeckSelection.Items}">

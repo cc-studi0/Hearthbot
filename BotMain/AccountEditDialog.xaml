@@ -49,6 +49,7 @@
         <TextBlock Grid.Row="4" Text="卡组:" VerticalAlignment="Center"/>
         <Grid Grid.Row="4" Grid.Column="1" Margin="0,2">
             <ToggleButton x:Name="DeckDropdownToggle"
+                          Style="{StaticResource DropdownToggleButtonStyle}"
                           Height="24"
                           IsChecked="{Binding DeckSelection.IsDropDownOpen, Mode=TwoWay}">
                 <Grid>
@@ -74,13 +75,9 @@
                    StaysOpen="False"
                    DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                    IsOpen="{Binding DeckSelection.IsDropDownOpen, Mode=TwoWay}">
-                <Border Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=Popup}}"
-                        Margin="0,2,0,0"
-                        Background="White"
-                        BorderBrush="#B8C0C8"
-                        BorderThickness="1"
-                        CornerRadius="4"
-                        Padding="4">
+                <Border Style="{StaticResource DropdownPopupBorderStyle}"
+                        Width="{Binding PlacementTarget.ActualWidth, RelativeSource={RelativeSource AncestorType=Popup}}"
+                        Margin="0,2,0,0">
                     <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto">
                         <ItemsControl ItemsSource="{Binding DeckSelection.Items}">
                             <ItemsControl.ItemTemplate>
