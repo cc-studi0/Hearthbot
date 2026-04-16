@@ -181,6 +181,92 @@ namespace BotCore.Tests
             Assert.Equal("action_result_ok", result.Reason);
         }
 
+        [Fact]
+        public void ResolveAttackNotConfirmedFromLocalState_ReturnsConfirmation_WhenLocalStateAdvanced()
+        {
+            var before = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 11,
+                        CurrentHealth = 4,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 21,
+                        CurrentHealth = 5,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            var after = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 11,
+                        CurrentHealth = 2,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 21,
+                        CurrentHealth = 2,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            var result = BotService.ResolveAttackNotConfirmedFromLocalState(
+                "FAIL:ATTACK:not_confirmed:11",
+                "ATTACK|11|21",
+                before,
+                after);
+
+            Assert.NotNull(result);
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("attack_not_confirmed_local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void ResolveAttackNotConfirmedFromLocalState_ReturnsNull_WhenLocalStateDidNotAdvance()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                FriendMinionCount = 1,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11 },
+                EnemyMinionEntityIds = new[] { 21 }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                FriendMinionCount = 1,
+                EnemyMinionCount = 1,
+                FriendMinionEntityIds = new[] { 11 },
+                EnemyMinionEntityIds = new[] { 21 }
+            };
+
+            var result = BotService.ResolveAttackNotConfirmedFromLocalState(
+                "FAIL:ATTACK:not_confirmed:11",
+                "ATTACK|11|21",
+                before,
+                after);
+
+            Assert.Null(result);
+        }
+
         [Theory]
         [InlineData(false, false, 0, 2, true)]
         [InlineData(true, false, 0, 2, false)]

@@ -3137,6 +3137,39 @@ namespace BotMain
                                     }
                                 }
 
+                                if (isAttack && result != null
+                                    && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    var recoveredPostActionSnapshot = preActionSnapshot != null
+                                        ? TakeActionStateSnapshot(pipe)
+                                        : null;
+                                    var recoveredConfirmation = ResolveAttackNotConfirmedFromLocalState(
+                                        result,
+                                        action,
+                                        preActionSnapshot,
+                                        recoveredPostActionSnapshot);
+                                    if (recoveredConfirmation != null)
+                                    {
+                                        if (choiceWatchArmed)
+                                            ClearChoiceStateWatch("attack_not_confirmed_recovered");
+
+                                        if (recoveredConfirmation.MarkTurnHadEffectiveAction)
+                                            _turnHadEffectiveAction = true;
+
+                                        if (recoveredConfirmation.SkipNextTurnStartReadyWait)
+                                            _skipNextTurnStartReadyWait = true;
+
+                                        if (recoveredConfirmation.ConsumeRecommendation)
+                                            RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+
+                                        result = "OK:ATTACK:recovered_local_state_advanced";
+                                        actionOutcome = result;
+                                        postReadyStatus = "recovered_local_state_advanced";
+                                        Log($"[Action] ATTACK not_confirmed but local state advanced; consuming recommendation for {action}.");
+                                        continue;
+                                    }
+                                }
+
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_failed");
 
@@ -4245,6 +4278,28 @@ namespace BotMain
                             || action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase))
                         {
                             SendActionCommand(pipe, "CANCEL", 3000);
+                        }
+                        if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                            && result != null
+                            && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            var recoveredPostActionSnapshot = preActionSnapshot != null
+                                ? TakeActionStateSnapshot(pipe)
+                                : null;
+                            var recoveredConfirmation = ResolveAttackNotConfirmedFromLocalState(
+                                result,
+                                action,
+                                preActionSnapshot,
+                                recoveredPostActionSnapshot);
+                            if (recoveredConfirmation != null)
+                            {
+                                _turnHadEffectiveAction = true;
+                                if (recoveredConfirmation.SkipNextTurnStartReadyWait)
+                                    _skipNextTurnStartReadyWait = true;
+                                RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                                Log($"[Arena] ATTACK not_confirmed but local state advanced; consuming recommendation for {action}.");
+                                continue;
+                            }
                         }
                         // 攻击的 not_confirmed 不算硬失败
                         if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
@@ -8450,6 +8505,39 @@ namespace BotMain
                 Reason = useHsBoxPayloadConfirmation
                     ? "awaiting_hsbox_advance"
                     : "state_unchanged"
+            };
+        }
+
+        internal static ActionEffectConfirmationResult ResolveAttackNotConfirmedFromLocalState(
+            string result,
+            string action,
+            ActionStateSnapshot before,
+            ActionStateSnapshot after)
+        {
+            if (string.IsNullOrWhiteSpace(result)
+                || result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) < 0
+                || string.IsNullOrWhiteSpace(action)
+                || !action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase)
+                || before == null
+                || after == null
+                || !VerifyActionEffective(action, before, after))
+            {
+                return null;
+            }
+
+            var shouldFastTrackAttack = ShouldFastTrackSuccessfulAttack(
+                action,
+                actionReportedSuccess: true,
+                before,
+                after);
+
+            return new ActionEffectConfirmationResult
+            {
+                MarkTurnHadEffectiveAction = true,
+                ConsumeRecommendation = true,
+                SkipNextTurnStartReadyWait = shouldFastTrackAttack,
+                SkipPostActionReadyWait = shouldFastTrackAttack,
+                Reason = "attack_not_confirmed_local_state_advanced"
             };
         }
 
