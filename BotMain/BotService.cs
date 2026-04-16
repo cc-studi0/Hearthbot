@@ -169,6 +169,7 @@ namespace BotMain
         private string _pendingHsBoxActionCommand = string.Empty;
         private string _pendingHsBoxBoardFingerprint = string.Empty;
         private int _pendingHsBoxActionTurnCount;
+        private ActionStateSnapshot _pendingHsBoxActionBeforeSnapshot;
         private long _lastConsumedHsBoxChoiceUpdatedAtMs;
         private string _lastConsumedHsBoxChoicePayloadSignature = string.Empty;
         private int _choiceRepeatedRecommendationCount;
@@ -1396,7 +1397,7 @@ namespace BotMain
             ClearPendingHsBoxActionConfirmation();
         }
 
-        private void RememberPendingHsBoxActionConfirmation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint, int turnCount)
+        private void RememberPendingHsBoxActionConfirmation(ActionRecommendationResult recommendation, string executedAction, string boardFingerprint, int turnCount, ActionStateSnapshot beforeSnapshot)
         {
             if (recommendation == null)
                 return;
@@ -1412,6 +1413,7 @@ namespace BotMain
             _pendingHsBoxActionCommand = executedAction?.Trim() ?? string.Empty;
             _pendingHsBoxBoardFingerprint = boardFingerprint ?? string.Empty;
             _pendingHsBoxActionTurnCount = turnCount;
+            _pendingHsBoxActionBeforeSnapshot = beforeSnapshot;
         }
 
         private void ClearPendingHsBoxActionConfirmation()
@@ -1421,9 +1423,10 @@ namespace BotMain
             _pendingHsBoxActionCommand = string.Empty;
             _pendingHsBoxBoardFingerprint = string.Empty;
             _pendingHsBoxActionTurnCount = 0;
+            _pendingHsBoxActionBeforeSnapshot = null;
         }
 
-        private bool TryPromotePendingHsBoxActionConfirmation()
+        private bool TryPromotePendingHsBoxActionConfirmation(PipeServer pipe = null)
         {
             if (!_followHsBoxRecommendations)
                 return false;
@@ -1441,6 +1444,23 @@ namespace BotMain
                 pollIntervalMs: PendingHsBoxActionAdvancePollIntervalMs);
             if (!advance.HasAdvanced)
             {
+                var localAdvanceConfirmation = ResolvePendingHsBoxActionWithoutAdvance(
+                    _pendingHsBoxActionCommand,
+                    _pendingHsBoxActionBeforeSnapshot,
+                    pipe != null ? TakeActionStateSnapshot(pipe) : null);
+                if (localAdvanceConfirmation != null)
+                {
+                    RememberConsumedHsBoxActionRecommendation(
+                        _pendingHsBoxActionUpdatedAtMs,
+                        _pendingHsBoxActionPayloadSignature,
+                        _pendingHsBoxActionCommand,
+                        _pendingHsBoxBoardFingerprint,
+                        _pendingHsBoxActionTurnCount);
+                    _skipNextTurnStartReadyWait = localAdvanceConfirmation.SkipNextTurnStartReadyWait;
+                    Log($"[Action] hsbox payload unchanged but local state advanced before TurnStart; consuming pending action {_pendingHsBoxActionCommand}.");
+                    return true;
+                }
+
                 Log(
                     $"[Action] hsbox payload did not advance within {PendingHsBoxActionAdvanceWaitMs}ms; clearing pending confirmation for retry. reason={advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
                 ClearPendingHsBoxActionConfirmation();
@@ -1459,13 +1479,13 @@ namespace BotMain
             return true;
         }
 
-        private bool TryConsumePendingHsBoxAdvanceForTurnStartReady(string waitScope, out string resultReason)
+        private bool TryConsumePendingHsBoxAdvanceForTurnStartReady(PipeServer pipe, string waitScope, out string resultReason)
         {
             resultReason = null;
             if (!string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase))
                 return false;
 
-            if (!TryPromotePendingHsBoxActionConfirmation())
+            if (!TryPromotePendingHsBoxActionConfirmation(pipe))
                 return false;
 
             _skipNextTurnStartReadyWait = false;
@@ -2676,7 +2696,7 @@ namespace BotMain
                 }
 
                 if (!_skipNextTurnStartReadyWait)
-                    TryPromotePendingHsBoxActionConfirmation();
+                    TryPromotePendingHsBoxActionConfirmation(pipe);
 
                 _skipNextTurnStartReadyWait = false;
 
@@ -3017,7 +3037,12 @@ namespace BotMain
                             {
                                 ActionStateSnapshot postActionSnapshot = null;
                                 if (useHsBoxPayloadConfirmation)
-                                    RememberPendingHsBoxActionConfirmation(recommendation, action, currentBoardFingerprint, planningBoard?.TurnCount ?? 0);
+                                    RememberPendingHsBoxActionConfirmation(
+                                        recommendation,
+                                        action,
+                                        currentBoardFingerprint,
+                                        planningBoard?.TurnCount ?? 0,
+                                        preActionSnapshot);
 
                                 if (preActionSnapshot != null)
                                 {
@@ -4581,7 +4606,7 @@ namespace BotMain
             {
                 if (_cts?.IsCancellationRequested == true) return false;
                 // TurnStart 可能在首个 WAIT_READY probe 前后都收到 hsbox advance，需要两侧都消费一次特例以避免漏掉刚完成的推进。
-                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out var hsBoxBypassResult))
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(pipe, waitScope, out var hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,
@@ -4614,7 +4639,7 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
                     uniqueReasons.Add(reason);
 
-                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out hsBoxBypassResult))
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(pipe, waitScope, out hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,
@@ -8556,6 +8581,35 @@ namespace BotMain
                 Reason = useHsBoxPayloadConfirmation
                     ? "awaiting_hsbox_advance"
                     : "state_unchanged"
+            };
+        }
+
+        internal static ActionEffectConfirmationResult ResolvePendingHsBoxActionWithoutAdvance(
+            string action,
+            ActionStateSnapshot before,
+            ActionStateSnapshot after)
+        {
+            if (string.IsNullOrWhiteSpace(action)
+                || before == null
+                || after == null
+                || !VerifyActionEffective(action, before, after))
+            {
+                return null;
+            }
+
+            var shouldFastTrackAttack = ShouldFastTrackSuccessfulAttack(
+                action,
+                actionReportedSuccess: true,
+                before,
+                after);
+
+            return new ActionEffectConfirmationResult
+            {
+                MarkTurnHadEffectiveAction = true,
+                ConsumeRecommendation = true,
+                SkipNextTurnStartReadyWait = shouldFastTrackAttack,
+                SkipPostActionReadyWait = shouldFastTrackAttack,
+                Reason = "pending_local_state_advanced"
             };
         }
 

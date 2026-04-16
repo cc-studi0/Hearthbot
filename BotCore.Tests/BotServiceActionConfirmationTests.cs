@@ -381,6 +381,53 @@ namespace BotCore.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void ResolvePendingHsBoxActionWithoutAdvance_ReturnsConfirmation_WhenPlayLocalStateAdvanced()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 6
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 4,
+                ManaAvailable = 3
+            };
+
+            var result = BotService.ResolvePendingHsBoxActionWithoutAdvance(
+                "PLAY|24|0|3|EDR_457",
+                before,
+                after);
+
+            Assert.NotNull(result);
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("pending_local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void ResolvePendingHsBoxActionWithoutAdvance_ReturnsNull_WhenActionStateUnchanged()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 6
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 6
+            };
+
+            var result = BotService.ResolvePendingHsBoxActionWithoutAdvance(
+                "PLAY|24|0|3|EDR_457",
+                before,
+                after);
+
+            Assert.Null(result);
+        }
+
         [Theory]
         [InlineData(false, false, 0, 2, true)]
         [InlineData(true, false, 0, 2, false)]
@@ -484,11 +531,11 @@ namespace BotCore.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
-            var args = new object[] { "TurnStart", null };
+            var args = new object[] { null, "TurnStart", null };
             var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
             Assert.True(consumed);
-            Assert.Equal("turn_start_hsbox_advanced", Assert.IsType<string>(args[1]));
+            Assert.Equal("turn_start_hsbox_advanced", Assert.IsType<string>(args[2]));
             Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
             Assert.False(Assert.IsType<bool>(GetPrivateField(service, "_skipNextTurnStartReadyWait")));
         }
@@ -505,11 +552,11 @@ namespace BotCore.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
-            var args = new object[] { "ActionPostReady", null };
+            var args = new object[] { null, "ActionPostReady", null };
             var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
             Assert.False(consumed);
-            Assert.Null(args[1]);
+            Assert.Null(args[2]);
             Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
         }
 
@@ -543,7 +590,7 @@ namespace BotCore.Tests
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
-            var promoted = Assert.IsType<bool>(method.Invoke(service, Array.Empty<object>()));
+            var promoted = Assert.IsType<bool>(method.Invoke(service, new object[] { null }));
 
             Assert.False(promoted);
             Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
