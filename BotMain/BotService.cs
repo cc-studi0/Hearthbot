@@ -3235,6 +3235,14 @@ namespace BotMain
                                     var postReadyOutcome = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPost);
                                     postReadyStatus = postReadyOutcome.IsReady ? "ready" : "timeout";
                                     postReadyMs = postReadyOutcome.ElapsedMs;
+                                    if (ShouldRequestResimulationAfterConstructedActionPost(postReadyOutcome, out var postReadyResimulationReason))
+                                    {
+                                        requestResimulation = true;
+                                        resimulationReason = postReadyResimulationReason;
+                                        resimulationRequestedThisAction = true;
+                                        resimulationReasonThisAction = postReadyResimulationReason;
+                                        break;
+                                    }
                                 }
                                 else
                                 {
@@ -3689,6 +3697,12 @@ namespace BotMain
         {
             if (string.IsNullOrWhiteSpace(choices))
                 return 0;
+
+            if (!choices.StartsWith("HEROES:", StringComparison.OrdinalIgnoreCase)
+                && !choices.StartsWith("CHOICES:", StringComparison.OrdinalIgnoreCase))
+            {
+                return 0;
+            }
 
             var separatorIndex = choices.IndexOf(':');
             if (separatorIndex < 0 || separatorIndex >= choices.Length - 1)
@@ -4632,7 +4646,9 @@ namespace BotMain
             InteractionReadinessPollOutcome readiness,
             out string reason)
         {
-            reason = readiness.Reason ?? "unknown";
+            reason = string.IsNullOrWhiteSpace(readiness?.FailureReason)
+                ? readiness?.Reason ?? "unknown"
+                : readiness.FailureReason;
             return readiness.IsReady;
         }
 
@@ -4700,6 +4716,25 @@ namespace BotMain
             return !isFaceAttack
                 && !nextIsOption
                 && actionIndex < actionCount - 1;
+        }
+
+        internal static bool ShouldRequestResimulationAfterConstructedActionPost(
+            InteractionReadinessPollOutcome outcome,
+            out string reason)
+        {
+            reason = null;
+            if (outcome == null
+                || outcome.IsReady
+                || !string.Equals(outcome.Reason, "timed_out", StringComparison.Ordinal))
+            {
+                return false;
+            }
+
+            var failureReason = string.IsNullOrWhiteSpace(outcome.FailureReason)
+                ? outcome.Reason
+                : outcome.FailureReason;
+            reason = $"constructed_action_post_timeout:{failureReason}";
+            return true;
         }
 
         private static string GetConstructedPreReadyStatus(InteractionReadinessPollOutcome outcome)

@@ -226,6 +226,36 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ShouldRequestResimulationAfterConstructedActionPost_ReturnsTrue_WhenTimedOut()
+        {
+            var outcome = InteractionReadinessPollOutcome.TimedOut(
+                failureReason: "power_processor_running",
+                failureDetail: "power_processor_running",
+                polls: 20,
+                elapsedMs: 1200);
+
+            var shouldResimulate = BotService.ShouldRequestResimulationAfterConstructedActionPost(
+                outcome,
+                out var reason);
+
+            Assert.True(shouldResimulate);
+            Assert.Equal("constructed_action_post_timeout:power_processor_running", reason);
+        }
+
+        [Fact]
+        public void ShouldRequestResimulationAfterConstructedActionPost_ReturnsFalse_WhenReady()
+        {
+            var outcome = InteractionReadinessPollOutcome.Ready("ready", polls: 1, elapsedMs: 60);
+
+            var shouldResimulate = BotService.ShouldRequestResimulationAfterConstructedActionPost(
+                outcome,
+                out var reason);
+
+            Assert.False(shouldResimulate);
+            Assert.Null(reason);
+        }
+
+        [Fact]
         public void TryConsumePendingHsBoxAdvanceForTurnStartReady_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {
             var service = new BotService();

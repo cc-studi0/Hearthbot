@@ -1,4 +1,5 @@
 using BotMain;
+using System.Reflection;
 using Xunit;
 
 namespace BotCore.Tests
@@ -17,7 +18,7 @@ namespace BotCore.Tests
             var allowed = BotService.ShouldProceedWithChoiceCommit(readiness, out var reason);
 
             Assert.False(allowed);
-            Assert.Equal("timed_out", reason);
+            Assert.Equal("input_denied", reason);
         }
 
         [Fact]
@@ -29,6 +30,43 @@ namespace BotCore.Tests
 
             Assert.True(allowed);
             Assert.Equal("ready", reason);
+        }
+
+        [Fact]
+        public void ShouldProceedWithChoiceCommit_FallsBackToOuterReason_WhenFailureReasonMissing()
+        {
+            var readiness = new InteractionReadinessPollOutcome(
+                IsReady: false,
+                Reason: "cancelled",
+                Detail: "cancelled_by_cts",
+                Polls: 1,
+                ElapsedMs: 80,
+                FailureReason: null,
+                FailureDetail: "cancelled_by_cts");
+
+            var allowed = BotService.ShouldProceedWithChoiceCommit(readiness, out var reason);
+
+            Assert.False(allowed);
+            Assert.Equal("cancelled", reason);
+        }
+
+        [Theory]
+        [InlineData("HEROES:abc,def,ghi", 3)]
+        [InlineData("CHOICES:1,2,3", 3)]
+        [InlineData("ERROR:missing", 0)]
+        [InlineData("INVALID:abc,def", 0)]
+        [InlineData("abc,def", 0)]
+        public void ParseArenaChoiceCount_OnlyAcceptsExpectedPrefixes(string payload, int expectedCount)
+        {
+            var service = new BotService();
+            var method = typeof(BotService).GetMethod(
+                "ParseArenaChoiceCount",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var count = Assert.IsType<int>(method.Invoke(service, new object[] { payload }));
+
+            Assert.Equal(expectedCount, count);
         }
     }
 }
