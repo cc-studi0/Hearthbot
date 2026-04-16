@@ -14,7 +14,8 @@ public class HSBoxClickProfile : ClickProfile
 {
     private static string _lastActedJson;
     private static int _waitCount;
-    private const int MaxWaitBeforeEndTurn = 25; // ~25 × 200ms = 5s of no new rec → auto end turn
+    private static int _lastTurn = -1;
+    private const int MaxWaitBeforeEndTurn = 50; // ~50 × 200ms = 10s of no new rec → auto end turn
 
     public ClickInstruction GetNextClick(Board board)
     {
@@ -30,6 +31,7 @@ public class HSBoxClickProfile : ClickProfile
             if (!board.IsOwnTurn)
             {
                 _waitCount = 0;
+                _lastTurn = -1;
                 return ClickInstruction.Wait(500);
             }
 
@@ -86,6 +88,18 @@ public class HSBoxClickProfile : ClickProfile
                 Log("[HSBox] Mulligan rec (info only, handled by mulligan system): cardIds=" + cardIdsStr + " positions=" + positionsStr);
                 _lastActedJson = json;
                 return ClickInstruction.Wait(500);
+            }
+
+            // New turn → reset dedup so stale rec is re-evaluated against the new board state.
+            // Without this, a stale rec from a previous game/turn causes perpetual DoNothing
+            // because sameAsLast stays true until the bridge writes a new rec (which may never happen
+            // if _lastBridgeTurn is stuck at a high value from the previous game).
+            if (board.TurnCount != _lastTurn)
+            {
+                Log("[HSBox-DBG] Turn changed: " + _lastTurn + " -> " + board.TurnCount + ", resetting dedup");
+                _lastActedJson = null;
+                _waitCount = 0;
+                _lastTurn = board.TurnCount;
             }
 
             // Dedup — same recommendation already acted on, poll quickly for next rec

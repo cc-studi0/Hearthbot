@@ -5,7 +5,6 @@ using System.Text;
 using SmartBot.Plugins.API;
 using SmartBot.Arena;
 using SmartBotUI;
-using SmartBotUI.Settings;
 
 namespace SmartBotUI.Arena
 {
