@@ -3072,6 +3072,46 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_ReturnsWaitRetryQuickly_WhenReadyCallbackStructuredPayloadCannotMap()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 223344,
+                Raw = "{\"status\":2,\"data\":[]}",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "网易炉石传说盒子 推荐打法 打出2号位随从 派对邪犬",
+                Reason = "ready_callback",
+                Envelope = new HsBoxRecommendationEnvelope()
+            };
+
+            var bridge = new FakeBridge(state);
+            var provider = new HsBoxGameRecommendationProvider(bridge, actionWaitTimeoutMs: 50, actionPollIntervalMs: 1);
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                null,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 222,
+                        CardId = "WORK_001",
+                        Zone = "HAND",
+                        ZonePosition = 2
+                    }
+                }));
+
+            Assert.True(result.ShouldRetryWithoutAction);
+            Assert.Empty(result.Actions);
+            Assert.Contains("wait_retry", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("json=map_failed", result.Detail, StringComparison.OrdinalIgnoreCase);
+            Assert.InRange(bridge.ReadCount, 1, 3);
+        }
+
+        [Fact]
         public void BuildConstructedStateScript_UsesCallbackOnlyReasons()
         {
             var script = InvokePrivateString("BuildConstructedStateScript");
@@ -3372,6 +3412,7 @@ namespace BotCore.Tests
         {
             private readonly Queue<HsBoxRecommendationState> _states;
             private HsBoxRecommendationState _lastState;
+            public int ReadCount { get; private set; }
 
             public FakeBridge(params HsBoxRecommendationState[] states)
             {
@@ -3380,6 +3421,7 @@ namespace BotCore.Tests
 
             public bool TryReadState(out HsBoxRecommendationState state, out string detail)
             {
+                ReadCount++;
                 if (_states.Count > 0)
                     _lastState = _states.Dequeue();
 

@@ -190,6 +190,14 @@ namespace BotMain
                             break;
                         }
 
+                        if (fresh && ShouldReturnImmediateRetryForStructuredMapFailure(currentState, evaluation))
+                        {
+                            selectedState = currentState;
+                            selectedEvaluation = evaluation;
+                            waitDetail = "ready_callback_map_failed";
+                            break;
+                        }
+
                         if (evaluation.HasFinalActions
                             && !string.IsNullOrWhiteSpace(lastConsumedActionCommand)
                             && ConstructedRecommendationConsumptionTracker.IsSamePayload(
@@ -589,6 +597,22 @@ namespace BotMain
             }
 
             return evaluated;
+        }
+
+        private static bool ShouldReturnImmediateRetryForStructuredMapFailure(
+            HsBoxRecommendationState state,
+            EvaluatedActionState evaluation)
+        {
+            if (state == null || evaluation == null)
+                return false;
+
+            if (evaluation.HasUsableResult || evaluation.ChoiceLike)
+                return false;
+
+            if (!string.Equals(state.Reason, "ready_callback", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            return evaluation.StructuredDetail.StartsWith("json=map_failed(", StringComparison.OrdinalIgnoreCase);
         }
 
         private static int AdvanceRepeatCount(ref string lastKey, ref int repeatCount, string nextKey)
