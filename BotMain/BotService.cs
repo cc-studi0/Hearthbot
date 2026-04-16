@@ -4581,6 +4581,14 @@ namespace BotMain
             return false;
         }
 
+        internal static bool ShouldProceedWithChoiceCommit(
+            InteractionReadinessPollOutcome readiness,
+            out string reason)
+        {
+            reason = readiness.Reason ?? "unknown";
+            return readiness.IsReady;
+        }
+
         private static bool ShouldUseBattlegroundActionReadyWait(string action)
         {
             if (string.IsNullOrWhiteSpace(action))
@@ -7192,9 +7200,9 @@ namespace BotMain
                 }
 
                 var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ChoiceCommit);
-                if (!readiness.IsReady)
+                if (!ShouldProceedWithChoiceCommit(readiness, out var readinessReason))
                 {
-                    Log($"[Choice] gameplay_wait snapshotId={currentState.SnapshotId} reason={readiness.Reason}");
+                    Log($"[Choice] gameplay_wait snapshotId={currentState.SnapshotId} reason={readinessReason}");
                     return false;
                 }
 
