@@ -11,7 +11,7 @@ import DeviceStatusCard from '../components/dashboard/DeviceStatusCard.vue'
 import DeviceDetailDrawer from '../components/dashboard/DeviceDetailDrawer.vue'
 import CompletedOrderCard from '../components/dashboard/CompletedOrderCard.vue'
 import { completionNoticeKey, notifyCompletion, shouldNotifyCompletion } from '../utils/browserNotifications'
-import { countDevicesByBucket, getDeviceBucket, isCompletionSuspected, sortDevicesForBucket } from '../utils/dashboardState'
+import { countDevicesByBucket, getDeviceBucket, isCompletionSuspected, pickAutoDashboardTab, sortDevicesForBucket } from '../utils/dashboardState'
 
 interface CompletionBannerItem {
   key: string
@@ -36,6 +36,7 @@ const stats = ref<Stats>({
 const firstLoad = ref(true)
 const isLoading = ref(false)
 const activeTab = ref<DashboardBucket>('active')
+const hasManualTabSelection = ref(false)
 const detailDeviceId = ref<string | null>(null)
 const detailOpen = ref(false)
 const pendingHints = ref<Record<string, string>>({})
@@ -47,6 +48,18 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 
 const notifiedCompletionKeys = new Set<string>(readNotifiedCompletionKeys())
+
+function getDashboardCounts(nextDevices = devices.value, nextCompletedSnapshots = completedSnapshots.value) {
+  return {
+    ...countDevicesByBucket(nextDevices, nowTick.value),
+    completed: nextCompletedSnapshots.length
+  }
+}
+
+function syncAutoTab(nextDevices = devices.value, nextCompletedSnapshots = completedSnapshots.value) {
+  if (hasManualTabSelection.value) return
+  activeTab.value = pickAutoDashboardTab(activeTab.value, getDashboardCounts(nextDevices, nextCompletedSnapshots))
+}
 
 function readNotifiedCompletionKeys(): string[] {
   if (typeof window === 'undefined') return []
@@ -148,6 +161,8 @@ function mergeSingleDevice(incoming: Device, allowNotify: boolean) {
   } else {
     devices.value.push(incoming)
   }
+
+  syncAutoTab()
 }
 
 function replaceDevices(nextDevices: Device[], allowNotify: boolean) {
@@ -174,6 +189,7 @@ function replaceDevices(nextDevices: Device[], allowNotify: boolean) {
 
   pendingHints.value = nextHints
   devices.value = nextDevices
+  syncAutoTab(nextDevices)
 }
 
 async function loadData(allowNotify = false) {
@@ -189,7 +205,9 @@ async function loadData(allowNotify = false) {
 
     replaceDevices(deviceResponse.data, allowNotify && !firstLoad.value)
     stats.value = statsResponse.data
-    completedSnapshots.value = completedOrderApiResponseToList(completedOrderResponse.data)
+    const nextCompletedSnapshots = completedOrderApiResponseToList(completedOrderResponse.data)
+    completedSnapshots.value = nextCompletedSnapshots
+    syncAutoTab(deviceResponse.data, nextCompletedSnapshots)
   } finally {
     isLoading.value = false
     firstLoad.value = false
@@ -267,16 +285,23 @@ async function hideLiveDevice(device: Device) {
     liveHideKey(device)
   ]
   devices.value = devices.value.filter(item => item.deviceId !== device.deviceId)
+  syncAutoTab()
   await loadData(false)
 }
 
 async function hideCompletedSnapshot(id: number) {
   await completedOrderApi.hide(id)
   completedSnapshots.value = completedSnapshots.value.filter(snapshot => snapshot.id !== id)
+  syncAutoTab()
   stats.value = {
     ...stats.value,
     completedCount: Math.max(0, stats.value.completedCount - 1)
   }
+}
+
+function handleTabChange(nextTab: DashboardBucket) {
+  activeTab.value = nextTab
+  hasManualTabSelection.value = true
 }
 
 onMounted(async () => {
@@ -347,7 +372,7 @@ onUnmounted(() => {
     <DeviceOverviewTabs
       :counts="counts"
       :active-tab="activeTab"
-      @change="activeTab = $event"
+      @change="handleTabChange"
     />
 
     <section class="list-shell">

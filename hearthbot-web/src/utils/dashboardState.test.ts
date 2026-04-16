@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDeviceBucket, getDisplayStatus, isAbnormalDevice, isCompletionSuspected } from './dashboardState'
+import { getDeviceBucket, getDisplayStatus, isAbnormalDevice, isCompletionSuspected, pickAutoDashboardTab } from './dashboardState'
 
 describe('dashboardState', () => {
   it('puts a device without an order into pending', () => {
@@ -58,5 +58,23 @@ describe('dashboardState', () => {
       displayStatus: 'Offline',
       status: 'Running'
     } as any)).toBe('Offline')
+  })
+
+  it('switches away from active when only pending devices exist', () => {
+    expect(pickAutoDashboardTab('active', {
+      active: 0,
+      pending: 4,
+      abnormal: 0,
+      completed: 0
+    })).toBe('pending')
+  })
+
+  it('keeps the current tab when it still has devices', () => {
+    expect(pickAutoDashboardTab('abnormal', {
+      active: 2,
+      pending: 1,
+      abnormal: 1,
+      completed: 0
+    })).toBe('abnormal')
   })
 })

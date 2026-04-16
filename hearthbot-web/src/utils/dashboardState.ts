@@ -58,6 +58,18 @@ export function countDevicesByBucket(devices: Device[], now = Date.now()): Dashb
   })
 }
 
+const DASHBOARD_TAB_ORDER: DashboardBucket[] = ['active', 'pending', 'abnormal', 'completed']
+
+export function pickAutoDashboardTab(currentTab: DashboardBucket, counts: DashboardCounts): DashboardBucket {
+  if (counts[currentTab] > 0) return currentTab
+
+  for (const tab of DASHBOARD_TAB_ORDER) {
+    if (counts[tab] > 0) return tab
+  }
+
+  return currentTab
+}
+
 export function sortDevicesForBucket(devices: Device[], bucket: DashboardBucket): Device[] {
   return [...devices].sort((left, right) => {
     if (bucket === 'completed') {
