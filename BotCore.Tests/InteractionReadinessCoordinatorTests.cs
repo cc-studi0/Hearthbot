@@ -19,6 +19,18 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ChoiceCommit_RequiresGameplayGateEvenWhenChoiceSnapshotIsReady()
+        {
+            var request = new InteractionReadinessRequest(InteractionReadinessScope.ChoiceCommit);
+            var observation = InteractionReadinessObservation.Busy("input_denied");
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.False(result.IsReady);
+            Assert.Equal("input_denied", result.Reason);
+        }
+
+        [Fact]
         public void MulliganCommit_StaysBusy_WhenGameplayObservationIsBusy()
         {
             var request = new InteractionReadinessRequest(InteractionReadinessScope.MulliganCommit);

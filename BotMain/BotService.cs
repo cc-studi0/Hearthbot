@@ -7191,6 +7191,13 @@ namespace BotMain
                     return false;
                 }
 
+                var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ChoiceCommit);
+                if (!readiness.IsReady)
+                {
+                    Log($"[Choice] gameplay_wait snapshotId={currentState.SnapshotId} reason={readiness.Reason}");
+                    return false;
+                }
+
                 if (!TryApplyChoice(pipe, currentState, selectedEntityIds, out var applyDetail))
                 {
                     Log($"[Choice] apply_failed snapshotId={currentState.SnapshotId} mechanism={currentState.MechanismKind} mode={currentState.Mode} selected=[{string.Join(",", selectedEntityIds)}] detail={applyDetail}");
