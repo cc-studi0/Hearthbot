@@ -1452,7 +1452,7 @@ namespace BotMain
             return true;
         }
 
-        private bool TryBypassTurnStartReadyWithPendingHsBoxAdvance(string waitScope, out string resultReason)
+        private bool TryConsumePendingHsBoxAdvanceForTurnStartReady(string waitScope, out string resultReason)
         {
             resultReason = null;
             if (!string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase))
@@ -1462,7 +1462,7 @@ namespace BotMain
                 return false;
 
             _skipNextTurnStartReadyWait = false;
-            resultReason = "ready_hsbox_advanced";
+            resultReason = "turn_start_hsbox_advanced";
             return true;
         }
 
@@ -4453,7 +4453,8 @@ namespace BotMain
             for (int i = 0; i < maxRetries; i++)
             {
                 if (_cts?.IsCancellationRequested == true) return false;
-                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out var hsBoxBypassResult))
+                // TurnStart 可能在首个 WAIT_READY probe 前后都收到 hsbox advance，需要两侧都消费一次特例以避免漏掉刚完成的推进。
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out var hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,
@@ -4486,7 +4487,7 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
                     uniqueReasons.Add(reason);
 
-                if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out hsBoxBypassResult))
+                if (TryConsumePendingHsBoxAdvanceForTurnStartReady(waitScope, out hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
                         waitScope,

@@ -226,7 +226,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
+        public void TryConsumePendingHsBoxAdvanceForTurnStartReady_ReturnsTrue_ForTurnStartWhenPayloadAdvanced()
         {
             var service = new BotService();
             SetPrivateField(
@@ -250,35 +250,35 @@ namespace BotCore.Tests
             SetPrivateField(service, "_pendingHsBoxBoardFingerprint", "board-fp");
 
             var method = typeof(BotService).GetMethod(
-                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                "TryConsumePendingHsBoxAdvanceForTurnStartReady",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
             var args = new object[] { "TurnStart", null };
-            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+            var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
-            Assert.True(bypassed);
-            Assert.Equal("ready_hsbox_advanced", Assert.IsType<string>(args[1]));
+            Assert.True(consumed);
+            Assert.Equal("turn_start_hsbox_advanced", Assert.IsType<string>(args[1]));
             Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
             Assert.False(Assert.IsType<bool>(GetPrivateField(service, "_skipNextTurnStartReadyWait")));
         }
 
         [Fact]
-        public void TryBypassTurnStartReadyWithPendingHsBoxAdvance_ReturnsFalse_ForNonTurnStartScope()
+        public void TryConsumePendingHsBoxAdvanceForTurnStartReady_ReturnsFalse_ForNonTurnStartScope()
         {
             var service = new BotService();
             SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 100L);
             SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", "old-signature");
 
             var method = typeof(BotService).GetMethod(
-                "TryBypassTurnStartReadyWithPendingHsBoxAdvance",
+                "TryConsumePendingHsBoxAdvanceForTurnStartReady",
                 BindingFlags.Instance | BindingFlags.NonPublic);
 
             Assert.NotNull(method);
             var args = new object[] { "ActionPostReady", null };
-            var bypassed = Assert.IsType<bool>(method.Invoke(service, args));
+            var consumed = Assert.IsType<bool>(method.Invoke(service, args));
 
-            Assert.False(bypassed);
+            Assert.False(consumed);
             Assert.Null(args[1]);
             Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
         }
