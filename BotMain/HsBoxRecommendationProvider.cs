@@ -472,9 +472,6 @@ namespace BotMain
                 return false;
             }
 
-            var boardChanged = ConstructedRecommendationConsumptionTracker.IsBoardChanged(
-                boardFingerprint,
-                lastConsumedBoardFingerprint);
             var crossTurn = currentTurnCount > 0
                 && lastConsumedTurnCount > 0
                 && currentTurnCount != lastConsumedTurnCount;
@@ -495,19 +492,10 @@ namespace BotMain
                 }
             }
 
-            // 局面指纹优先：局面变了则动作推荐通常可以直接放行。
-            // 但 END_TURN 不能仅凭回合变化放行，否则会把上一回合的旧 END_TURN 复用到新回合。
-            // 同理，跨回合时也不能仅凭 board changed 放行旧的可行动作。
-            if (boardChanged && !IsEndTurnAction(currentFirstAction))
+            if (crossTurn)
             {
-                if (crossTurn)
-                {
-                    reason = "board_changed_cross_turn";
-                    return false;
-                }
-
-                reason = "board_changed";
-                return true;
+                reason = "cross_turn_same_or_older_payload";
+                return false;
             }
 
             if (lastConsumedUpdatedAtMs > 0)

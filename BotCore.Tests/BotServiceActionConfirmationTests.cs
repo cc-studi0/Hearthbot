@@ -36,7 +36,7 @@ namespace BotCore.Tests
                 after: after);
 
             Assert.True(result.MarkTurnHadEffectiveAction);
-            Assert.False(result.ConsumeRecommendation);
+            Assert.True(result.ConsumeRecommendation);
             Assert.False(result.SkipNextTurnStartReadyWait);
             Assert.Equal("local_state_advanced", result.Reason);
         }
@@ -311,6 +311,46 @@ namespace BotCore.Tests
             Assert.False(consumed);
             Assert.Null(args[1]);
             Assert.Equal(100L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+        }
+
+        [Fact]
+        public void TryPromotePendingHsBoxActionConfirmation_ClearsPending_WhenPayloadDoesNotAdvance()
+        {
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                UpdatedAtMs = 100,
+                Raw = "same-payload",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp"
+            };
+            var service = new BotService();
+            SetPrivateField(
+                service,
+                "_hsBoxRecommendationProvider",
+                new HsBoxGameRecommendationProvider(
+                    new StubHsBoxBridge(state),
+                    actionWaitTimeoutMs: 1,
+                    actionPollIntervalMs: 0));
+            SetPrivateField(service, "_followHsBoxRecommendations", true);
+            SetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs", 100L);
+            SetPrivateField(service, "_pendingHsBoxActionPayloadSignature", state.PayloadSignature);
+            SetPrivateField(service, "_pendingHsBoxActionCommand", "ATTACK|1|2");
+            SetPrivateField(service, "_pendingHsBoxBoardFingerprint", "board-fp");
+            SetPrivateField(service, "_pendingHsBoxActionTurnCount", 9);
+
+            var method = typeof(BotService).GetMethod(
+                "TryPromotePendingHsBoxActionConfirmation",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var promoted = Assert.IsType<bool>(method.Invoke(service, Array.Empty<object>()));
+
+            Assert.False(promoted);
+            Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxActionPayloadSignature")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxActionCommand")));
+            Assert.Equal(string.Empty, Assert.IsType<string>(GetPrivateField(service, "_pendingHsBoxBoardFingerprint")));
+            Assert.Equal(0, Assert.IsType<int>(GetPrivateField(service, "_pendingHsBoxActionTurnCount")));
         }
 
         [Fact]

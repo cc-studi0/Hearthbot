@@ -59,6 +59,8 @@ namespace BotMain
         private const int ActionTimingSlowLogThresholdMs = 1000;
         private const int ChoiceStateWatchWindowMs = 6000;
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
+        private const int PendingHsBoxActionAdvanceWaitMs = 450;
+        private const int PendingHsBoxActionAdvancePollIntervalMs = 50;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -1435,10 +1437,15 @@ namespace BotMain
             var advance = _hsBoxRecommendationProvider.WaitForActionPayloadAdvance(
                 _pendingHsBoxActionUpdatedAtMs,
                 _pendingHsBoxActionPayloadSignature,
-                timeoutMs: 1,
-                pollIntervalMs: 0);
+                timeoutMs: PendingHsBoxActionAdvanceWaitMs,
+                pollIntervalMs: PendingHsBoxActionAdvancePollIntervalMs);
             if (!advance.HasAdvanced)
+            {
+                Log(
+                    $"[Action] hsbox payload did not advance within {PendingHsBoxActionAdvanceWaitMs}ms; clearing pending confirmation for retry. reason={advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
+                ClearPendingHsBoxActionConfirmation();
                 return false;
+            }
 
             RememberConsumedHsBoxActionRecommendation(
                 _pendingHsBoxActionUpdatedAtMs,
@@ -8375,6 +8382,7 @@ namespace BotMain
                 return new ActionEffectConfirmationResult
                 {
                     MarkTurnHadEffectiveAction = true,
+                    ConsumeRecommendation = true,
                     SkipNextTurnStartReadyWait = shouldFastTrackAttack,
                     SkipPostActionReadyWait = shouldFastTrackAttack,
                     Reason = "local_state_advanced"

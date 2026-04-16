@@ -3109,7 +3109,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void RecommendActions_AcceptsStaleActionablePayload_WhenBoardFingerprintChanged()
+        public void RecommendActions_RejectsStaleActionablePayload_WhenOnlyBoardFingerprintChanged()
         {
             var board = new Board
             {
@@ -3132,8 +3132,9 @@ namespace BotCore.Tests
                 boardFingerprint: "fp_after_play",
                 lastConsumedBoardFingerprint: "fp_before_play"));
 
-            Assert.False(result.ShouldRetryWithoutAction, "非 END_TURN 动作在局面变化后仍应允许放行");
-            Assert.Equal(new[] { "HERO_POWER|901|0" }, result.Actions);
+            Assert.True(result.ShouldRetryWithoutAction, "旧的可行动作不能仅因局面变化就被重新放行");
+            Assert.Empty(result.Actions);
+            Assert.Contains("freshReason=consumed_same_or_older_payload", result.Detail);
         }
 
         [Fact]
