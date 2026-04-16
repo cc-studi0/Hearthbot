@@ -1,15 +1,21 @@
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 
 namespace BotMain
 {
-    public partial class AccountEditDialog : Window
+    public partial class AccountEditDialog : Window, INotifyPropertyChanged
     {
         private readonly AccountEntry _entry;
         private readonly List<BnetInstanceItem> _bnetInstances;
         private readonly IReadOnlyList<string> _deckNames;
         private List<string> _selectedDeckNames = new();
+        private bool _updatingDeckSelection;
+
+        public DeckSelectionListState DeckSelection { get; } = new();
+        public string DeckSelectionSummary => DeckSelectionState.BuildSummary(_selectedDeckNames);
 
         public AccountEditDialog(
             AccountEntry entry,
@@ -21,10 +27,12 @@ namespace BotMain
             IReadOnlyList<RankTargetOption> rankOptions)
         {
             InitializeComponent();
+            DataContext = this;
 
             _entry = entry;
             _bnetInstances = bnetInstances;
             _deckNames = deckNames ?? System.Array.Empty<string>();
+            DeckSelection.PropertyChanged += OnDeckSelectionChanged;
 
             // 填充下拉框
             BnetCombo.ItemsSource = new[] { new BnetInstanceItem { ProcessId = 0, DisplayText = "(未分配)" } }
@@ -57,7 +65,7 @@ namespace BotMain
             SelectComboItem(DiscoverCombo, discoverNames, entry.DiscoverName);
             RankCombo.SelectedValue = entry.TargetRankStarLevel;
             _selectedDeckNames = DeckSelectionState.Normalize(entry.SelectedDeckNames, entry.DeckName).ToList();
-            UpdateDeckSummary();
+            SyncDeckSelectionState();
         }
 
         private static void SelectComboItem(System.Windows.Controls.ComboBox combo, IReadOnlyList<string> items, string value)
@@ -100,23 +108,40 @@ namespace BotMain
             DialogResult = true;
         }
 
-        private void OnSelectDecks(object sender, RoutedEventArgs e)
+        private void OnDeckSelectionChanged(object sender, PropertyChangedEventArgs e)
         {
-            var dialog = new DeckSelectionDialog(_deckNames, _selectedDeckNames)
-            {
-                Owner = this
-            };
-
-            if (dialog.ShowDialog() != true)
+            if (_updatingDeckSelection)
                 return;
 
-            _selectedDeckNames = DeckSelectionState.Normalize(dialog.SelectedDeckNames).ToList();
-            UpdateDeckSummary();
+            if (e.PropertyName != nameof(DeckSelectionListState.SelectedDeckNames)
+                && e.PropertyName != nameof(DeckSelectionListState.Summary))
+            {
+                return;
+            }
+
+            _selectedDeckNames = DeckSelection.SelectedDeckNames.ToList();
+            Notify(nameof(DeckSelectionSummary));
         }
 
-        private void UpdateDeckSummary()
+        private void SyncDeckSelectionState()
         {
-            DeckSummaryBox.Text = DeckSelectionState.BuildSummary(_selectedDeckNames);
+            _updatingDeckSelection = true;
+            try
+            {
+                DeckSelection.SetDecks(_deckNames, _selectedDeckNames);
+                Notify(nameof(DeckSelectionSummary));
+            }
+            finally
+            {
+                _updatingDeckSelection = false;
+            }
+        }
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        private void Notify([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }

@@ -71,6 +71,8 @@ namespace BotMain
         private bool _clickOverlayEnabled;
         private bool _arenaUseGold;
         private int _arenaGoldReserve;
+        private bool _updatingDeckSelection;
+        public DeckSelectionListState DeckSelection { get; } = new();
 
         public MainViewModel()
         {
@@ -78,6 +80,23 @@ namespace BotMain
 
             _accountController = new AccountController(_bot, EnqueueLog);
             _accountController.Load();
+            DeckSelection.PropertyChanged += (_, e) =>
+            {
+                if (_updatingDeckSelection)
+                    return;
+
+                if (e.PropertyName != nameof(DeckSelectionListState.SelectedDeckNames)
+                    && e.PropertyName != nameof(DeckSelectionListState.Summary))
+                {
+                    return;
+                }
+
+                _selectedDeckNames = DeckSelection.SelectedDeckNames.ToList();
+                SelectedDeckIndex = _selectedDeckNames.Count > 0 ? DeckNames.IndexOf(_selectedDeckNames[0]) : -1;
+                Notify(nameof(DeckSelectionSummary));
+                _bot.SetDecksByName(_selectedDeckNames);
+                AutoSave();
+            };
 
             _bot.OnLog += EnqueueLog;
             _notify.OnLog += EnqueueLog;
@@ -187,7 +206,6 @@ namespace BotMain
             SettingsCmd = new RelayCommand(_ => OpenSettingsWindow());
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());
             RefreshDecksCmd = new RelayCommand(_ => _bot.RefreshDecks());
-            SelectDecksCmd = new RelayCommand(_ => OpenDeckSelectionDialog());
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
             RefreshDiscoverCmd = new RelayCommand(_ => _bot.RefreshDiscoverProfiles());
             BrowseHsBoxPathCmd = new RelayCommand(_ => BrowseHsBoxPath());
@@ -707,7 +725,6 @@ namespace BotMain
         public ICommand BrowseGameDirectoryCmd { get; }
         public ICommand RefreshProfilesCmd { get; }
         public ICommand RefreshDecksCmd { get; }
-        public ICommand SelectDecksCmd { get; }
         public ICommand RefreshMulliganCmd { get; }
         public ICommand RefreshDiscoverCmd { get; }
         public ICommand OpenAccountControllerCmd { get; }
@@ -731,17 +748,6 @@ namespace BotMain
             _settingsWindow.Show();
         }
 
-        private void OpenDeckSelectionDialog()
-        {
-            var dialog = new DeckSelectionDialog(DeckNames.ToList(), _selectedDeckNames)
-            {
-                Owner = Application.Current.MainWindow
-            };
-
-            if (dialog.ShowDialog() == true)
-                ApplySelectedDeckNames(dialog.SelectedDeckNames, autoSave: true, filterToAvailable: true);
-        }
-
         private void ApplySelectedDeckNames(IEnumerable<string> deckNames, bool autoSave, bool filterToAvailable)
         {
             var normalized = DeckSelectionState.Normalize(deckNames).ToList();
@@ -754,10 +760,19 @@ namespace BotMain
                     .ToList();
             }
 
-            _selectedDeckNames = normalized;
-            SelectedDeckIndex = _selectedDeckNames.Count > 0 ? DeckNames.IndexOf(_selectedDeckNames[0]) : -1;
-            Notify(nameof(DeckSelectionSummary));
-            _bot.SetDecksByName(_selectedDeckNames);
+            _updatingDeckSelection = true;
+            try
+            {
+                _selectedDeckNames = normalized;
+                SelectedDeckIndex = _selectedDeckNames.Count > 0 ? DeckNames.IndexOf(_selectedDeckNames[0]) : -1;
+                DeckSelection.SetDecks(DeckNames, _selectedDeckNames);
+                Notify(nameof(DeckSelectionSummary));
+                _bot.SetDecksByName(_selectedDeckNames);
+            }
+            finally
+            {
+                _updatingDeckSelection = false;
+            }
 
             if (autoSave)
                 AutoSave();

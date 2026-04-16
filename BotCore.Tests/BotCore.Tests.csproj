@@ -38,6 +38,7 @@
     <Compile Include="..\BotMain\BotService.cs" Link="BotService.cs" />
     <Compile Include="..\BotMain\BotApiHandler.cs" Link="BotApiHandler.cs" />
     <Compile Include="..\BotMain\DeckSelectionState.cs" Link="DeckSelectionState.cs" />
+    <Compile Include="..\BotMain\DeckSelectionListState.cs" Link="DeckSelectionListState.cs" />
     <Compile Include="..\BotMain\GameRecommendationProvider.cs" Link="GameRecommendationProvider.cs" />
     <Compile Include="..\BotMain\RecommendationDeduplicator.cs" Link="RecommendationDeduplicator.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
