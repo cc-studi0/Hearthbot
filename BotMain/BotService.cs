@@ -4486,22 +4486,6 @@ namespace BotMain
                 if (!string.IsNullOrWhiteSpace(reason) && !uniqueReasons.Contains(reason))
                     uniqueReasons.Add(reason);
 
-                if (ShouldBypassReadyWait(waitScope, reason))
-                {
-                    LogReadyWaitSummary(
-                        waitScope,
-                        action,
-                        sw.ElapsedMilliseconds,
-                        polls,
-                        busyPolls,
-                        firstBusyReason,
-                        lastBusyReason,
-                        uniqueReasons,
-                        timedOut: false,
-                        resultOverride: "ready_bypass_soft_busy");
-                    return true;
-                }
-
                 if (TryBypassTurnStartReadyWithPendingHsBoxAdvance(waitScope, out hsBoxBypassResult))
                 {
                     LogReadyWaitSummary(
@@ -4725,34 +4709,6 @@ namespace BotMain
             return string.Equals(outcome.Detail, "option_chain", StringComparison.Ordinal)
                 ? "option_chain"
                 : "ready";
-        }
-
-        private static bool ShouldBypassReadyWait(string waitScope, string reason)
-        {
-            if (string.IsNullOrWhiteSpace(waitScope))
-                return false;
-
-            if (IsTurnStartReadyWaitScope(waitScope))
-                return ReadyWaitDiagnostics.ShouldBypassTurnStartBusyReason(reason);
-
-            if (!IsPostActionReadyWaitScope(waitScope))
-                return false;
-
-            return ReadyWaitDiagnostics.ShouldBypassActionPostReadyBusyReason(reason);
-        }
-
-        private static bool IsTurnStartReadyWaitScope(string waitScope)
-        {
-            return string.Equals(waitScope, "TurnStart", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.TurnStart", StringComparison.OrdinalIgnoreCase);
-        }
-
-        private static bool IsPostActionReadyWaitScope(string waitScope)
-        {
-            return string.Equals(waitScope, "ActionPostReady", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "ActionPostReadyFallback", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.PostReady", StringComparison.OrdinalIgnoreCase)
-                || string.Equals(waitScope, "Arena.PostReadyFallback", StringComparison.OrdinalIgnoreCase);
         }
 
         private void LogReadyWaitSummary(
