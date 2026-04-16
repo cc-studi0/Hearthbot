@@ -3685,9 +3685,71 @@ namespace BotMain
             return 0;
         }
 
+        private string NormalizeArenaDraftStatus(string status, string expectedArenaStatus)
+        {
+            if (string.Equals(expectedArenaStatus, "CARD_PICK", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(status)
+                && status.StartsWith("CARD_DRAFT", StringComparison.Ordinal))
+            {
+                return "CARD_PICK";
+            }
+
+            return status ?? string.Empty;
+        }
+
+        private int ParseArenaChoiceCount(string choices)
+        {
+            if (string.IsNullOrWhiteSpace(choices))
+                return 0;
+
+            var separatorIndex = choices.IndexOf(':');
+            if (separatorIndex < 0 || separatorIndex >= choices.Length - 1)
+                return 0;
+
+            return choices
+                .Substring(separatorIndex + 1)
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                .Length;
+        }
+
+        private InteractionReadinessObservation ObserveArenaDraftPick(
+            PipeServer pipe,
+            string expectedArenaStatus,
+            bool heroPick)
+        {
+            if (!TryGetSceneValue(pipe, 1500, out var scene, "Arena.Readiness"))
+                return InteractionReadinessObservation.ArenaDraft("UNKNOWN", "scene_timeout", 0, overlayBlocked: false);
+
+            var overlayBlocked = TryGetBlockingDialog(pipe, 300, out _, out _, out _, "Arena.ReadinessOverlay");
+            TrySendAndReceiveExpected(pipe, "ARENA_GET_STATUS", 1500, _ => true, out var status, "Arena.ReadinessStatus");
+
+            var choiceCommand = heroPick ? "ARENA_GET_HERO_CHOICES" : "ARENA_GET_DRAFT_CHOICES";
+            TrySendAndReceiveExpected(pipe, choiceCommand, 1500, _ => true, out var choices, "Arena.ReadinessChoices");
+            var optionCount = ParseArenaChoiceCount(choices);
+
+            return InteractionReadinessObservation.ArenaDraft(
+                scene,
+                NormalizeArenaDraftStatus(status, expectedArenaStatus),
+                optionCount,
+                overlayBlocked);
+        }
+
         private void ArenaPickHero(PipeServer pipe)
         {
             Log("[Arena] 选择职业阶段...");
+            var readiness = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(
+                    InteractionReadinessScope.ArenaDraftPick,
+                    ExpectedArenaStatus: "HERO_PICK"),
+                () => ObserveArenaDraftPick(pipe, "HERO_PICK", heroPick: true),
+                SleepOrCancelled);
+
+            if (!readiness.IsReady)
+            {
+                Log($"[Arena] pick_wait_timeout scope=Hero reason={readiness.Reason}");
+                return;
+            }
+
             int bestIndex = ArenaGetRecommendedIndex(pipe, "职业", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_HERO:{bestIndex}", 5000, out var resp, "Arena.PickHero");
             Log($"[Arena] 选职业结果: {resp}");
@@ -3695,6 +3757,19 @@ namespace BotMain
 
         private void ArenaPickCard(PipeServer pipe)
         {
+            var readiness = InteractionReadinessCoordinator.PollUntilReady(
+                new InteractionReadinessRequest(
+                    InteractionReadinessScope.ArenaDraftPick,
+                    ExpectedArenaStatus: "CARD_PICK"),
+                () => ObserveArenaDraftPick(pipe, "CARD_PICK", heroPick: false),
+                SleepOrCancelled);
+
+            if (!readiness.IsReady)
+            {
+                Log($"[Arena] pick_wait_timeout scope=Card reason={readiness.Reason}");
+                return;
+            }
+
             int bestIndex = ArenaGetRecommendedIndex(pipe, "卡牌", out _);
             TrySendStatusCommand(pipe, $"ARENA_PICK_CARD:{bestIndex}", 5000, out var resp, "Arena.PickCard");
             Log($"[Arena] 选牌结果: {resp}");

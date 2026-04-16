@@ -131,6 +131,33 @@ namespace BotCore.Tests
             Assert.Equal("ready", result.Reason);
         }
 
+        [Theory]
+        [InlineData("HUB", "HERO_PICK", 3, false, false)]
+        [InlineData("DRAFT", "REWARDS", 3, false, false)]
+        [InlineData("DRAFT", "HERO_PICK", 0, false, false)]
+        [InlineData("DRAFT", "HERO_PICK", 3, true, false)]
+        [InlineData("DRAFT", "HERO_PICK", 3, false, true)]
+        [InlineData("DRAFT", "CARD_DRAFT:1/30", 3, false, true)]
+        public void ArenaDraftPick_ReadinessMatrix(
+            string scene,
+            string status,
+            int optionCount,
+            bool overlayBlocked,
+            bool expectedReady)
+        {
+            var expectedArenaStatus = status.StartsWith("CARD_DRAFT", StringComparison.Ordinal)
+                ? "CARD_PICK"
+                : "HERO_PICK";
+            var request = new InteractionReadinessRequest(
+                InteractionReadinessScope.ArenaDraftPick,
+                ExpectedArenaStatus: expectedArenaStatus);
+            var observation = InteractionReadinessObservation.ArenaDraft(scene, status, optionCount, overlayBlocked);
+
+            var result = InteractionReadinessCoordinator.Evaluate(request, observation);
+
+            Assert.Equal(expectedReady, result.IsReady);
+        }
+
         [Fact]
         public void ArenaDraftPick_OverlayBlocked_IsRejected()
         {

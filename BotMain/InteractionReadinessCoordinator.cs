@@ -112,6 +112,19 @@ namespace BotMain
 
     internal static class InteractionReadinessCoordinator
     {
+        private static bool IsArenaDraftStatusMatch(string expectedArenaStatus, string actualArenaStatus)
+        {
+            if (string.IsNullOrWhiteSpace(expectedArenaStatus))
+                return false;
+
+            if (string.Equals(actualArenaStatus, expectedArenaStatus, StringComparison.Ordinal))
+                return true;
+
+            return string.Equals(expectedArenaStatus, "CARD_PICK", StringComparison.Ordinal)
+                && !string.IsNullOrWhiteSpace(actualArenaStatus)
+                && actualArenaStatus.StartsWith("CARD_DRAFT", StringComparison.Ordinal);
+        }
+
         internal static InteractionReadinessSettings GetDefaultSettings(InteractionReadinessScope scope)
         {
             return scope switch
@@ -184,7 +197,8 @@ namespace BotMain
                 if (string.IsNullOrWhiteSpace(request.ExpectedArenaStatus))
                     return new InteractionReadinessResult(false, "expected_arena_status_missing", observation.ArenaStatus ?? string.Empty);
 
-                if (observation.Scene != "DRAFT" || observation.ArenaStatus != (request.ExpectedArenaStatus ?? string.Empty))
+                if (observation.Scene != "DRAFT"
+                    || !IsArenaDraftStatusMatch(request.ExpectedArenaStatus, observation.ArenaStatus))
                     return new InteractionReadinessResult(false, "arena_status_mismatch", observation.ArenaStatus ?? string.Empty);
 
                 if (observation.OverlayBlocked)
