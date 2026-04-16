@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { NButton, NTag } from 'naive-ui'
-import type { CompletedOrderSnapshot } from '../../types'
+import type { DashboardCompletedItem } from '../../types'
 import { getRemainingRetentionDays } from '../../utils/completedHistory'
 
 const props = defineProps<{
-  snapshot: CompletedOrderSnapshot
+  snapshot: DashboardCompletedItem
 }>()
 
 const emit = defineEmits<{
@@ -18,6 +18,7 @@ const winRate = computed(() => {
 })
 
 const remainingDays = computed(() => getRemainingRetentionDays(props.snapshot.expiresAt))
+const canHide = computed(() => props.snapshot.id > 0)
 
 const completedTime = computed(() => {
   const date = new Date(props.snapshot.completedAt)
@@ -61,7 +62,7 @@ const completedTime = computed(() => {
 
     <div class="bottom-line">
       <span>完成于 {{ completedTime }}</span>
-      <NButton text type="error" @click="emit('hide', snapshot.id)">移出已完成</NButton>
+      <NButton v-if="canHide" text type="error" @click="emit('hide', snapshot.id)">移出已完成</NButton>
     </div>
   </article>
 </template>

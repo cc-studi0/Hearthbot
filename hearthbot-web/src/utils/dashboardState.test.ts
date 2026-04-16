@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { getDeviceBucket, getDisplayStatus, isAbnormalDevice, isCompletionSuspected, pickAutoDashboardTab } from './dashboardState'
+import { buildCompletedItems, buildDashboardCounts, getDeviceBucket, getDisplayStatus, isAbnormalDevice, isCompletionSuspected, pickAutoDashboardTab } from './dashboardState'
 
 describe('dashboardState', () => {
   it('puts a device without an order into pending', () => {
@@ -76,5 +76,87 @@ describe('dashboardState', () => {
       abnormal: 1,
       completed: 0
     })).toBe('abnormal')
+  })
+
+  it('counts live completed devices even when snapshots are missing', () => {
+    const counts = buildDashboardCounts([
+      {
+        deviceId: 'pc-01',
+        displayName: '一号机',
+        orderNumber: 'A-1',
+        status: 'Running',
+        isCompleted: true,
+        completedAt: '2026-04-16T12:00:00Z',
+        completedRank: '传说',
+        currentRank: '传说',
+        currentAccount: '账号A',
+        currentDeck: '卡组A',
+        currentProfile: '策略A',
+        gameMode: 'Standard',
+        sessionWins: 12,
+        sessionLosses: 3,
+        startRank: '钻石5',
+        targetRank: '传说',
+        lastHeartbeat: '2026-04-16T12:01:00Z',
+        availableDecksJson: '[]',
+        availableProfilesJson: '[]',
+        orderAccountName: '账号A',
+        startedAt: '2026-04-16T09:00:00Z',
+        currentOpponent: ''
+      } as any
+    ], [], Date.parse('2026-04-16T12:02:00Z'))
+
+    expect(counts.completed).toBe(1)
+  })
+
+  it('deduplicates completed snapshots against the matching live device', () => {
+    const items = buildCompletedItems([
+      {
+        deviceId: 'pc-01',
+        displayName: '一号机',
+        orderNumber: 'A-1',
+        status: 'Running',
+        isCompleted: true,
+        completedAt: '2026-04-16T12:00:00Z',
+        completedRank: '传说',
+        currentRank: '传说',
+        currentAccount: '账号A',
+        currentDeck: '卡组A',
+        currentProfile: '策略A',
+        gameMode: 'Standard',
+        sessionWins: 12,
+        sessionLosses: 3,
+        startRank: '钻石5',
+        targetRank: '传说',
+        lastHeartbeat: '2026-04-16T12:01:00Z',
+        availableDecksJson: '[]',
+        availableProfilesJson: '[]',
+        orderAccountName: '账号A',
+        startedAt: '2026-04-16T09:00:00Z',
+        currentOpponent: ''
+      } as any
+    ], [
+      {
+        id: 7,
+        deviceId: 'pc-01',
+        displayName: '一号机',
+        orderNumber: 'A-1',
+        accountName: '账号A',
+        startRank: '钻石5',
+        targetRank: '传说',
+        completedRank: '传说',
+        deckName: '卡组A',
+        profileName: '策略A',
+        gameMode: 'Standard',
+        wins: 12,
+        losses: 3,
+        completedAt: '2026-04-16T12:00:00Z',
+        expiresAt: '2026-04-23T12:00:00Z',
+        deletedAt: null
+      }
+    ])
+
+    expect(items).toHaveLength(1)
+    expect(items[0].id).toBe(7)
   })
 })

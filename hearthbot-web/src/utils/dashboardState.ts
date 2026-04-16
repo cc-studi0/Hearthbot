@@ -1,4 +1,4 @@
-import type { DashboardBucket, DashboardCounts, Device } from '../types'
+import type { CompletedOrderSnapshot, DashboardBucket, DashboardCompletedItem, DashboardCounts, Device } from '../types'
 import { rankToNumber } from './rankMapping'
 
 const HEARTBEAT_TIMEOUT_MS = 90_000
@@ -56,6 +56,61 @@ export function countDevicesByBucket(devices: Device[], now = Date.now()): Dashb
     abnormal: 0,
     completed: 0
   })
+}
+
+function getCompletedItemKey(item: Pick<Device, 'deviceId' | 'orderNumber' | 'completedAt'> | Pick<CompletedOrderSnapshot, 'deviceId' | 'orderNumber' | 'completedAt'>): string {
+  return [item.deviceId, item.orderNumber ?? '', item.completedAt ?? ''].join('|')
+}
+
+function buildLiveCompletedFallbacks(devices: Device[], snapshots: CompletedOrderSnapshot[]): DashboardCompletedItem[] {
+  const snapshotKeys = new Set(snapshots.map(snapshot => getCompletedItemKey(snapshot)))
+  let fallbackId = -1
+
+  return devices
+    .filter(device => device.isCompleted && Boolean(device.completedAt) && Boolean(device.orderNumber))
+    .filter(device => !snapshotKeys.has(getCompletedItemKey(device)))
+    .map(device => {
+      const completedAt = device.completedAt ?? new Date().toISOString()
+      const expiresAt = new Date(Date.parse(completedAt) + 7 * 86_400_000).toISOString()
+
+      return {
+        id: fallbackId--,
+        deviceId: device.deviceId,
+        displayName: device.displayName,
+        orderNumber: device.orderNumber,
+        accountName: device.currentAccount,
+        startRank: device.startRank,
+        targetRank: device.targetRank,
+        completedRank: device.completedRank || device.currentRank,
+        deckName: device.currentDeck,
+        profileName: device.currentProfile,
+        gameMode: device.gameMode,
+        wins: device.sessionWins,
+        losses: device.sessionLosses,
+        completedAt,
+        expiresAt,
+        deletedAt: null,
+        source: 'live'
+      } satisfies DashboardCompletedItem
+    })
+}
+
+export function buildCompletedItems(devices: Device[], snapshots: CompletedOrderSnapshot[]): DashboardCompletedItem[] {
+  const snapshotItems = snapshots.map(snapshot => ({
+    ...snapshot,
+    source: 'snapshot'
+  } satisfies DashboardCompletedItem))
+
+  return [...snapshotItems, ...buildLiveCompletedFallbacks(devices, snapshots)]
+    .sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+}
+
+export function buildDashboardCounts(devices: Device[], snapshots: CompletedOrderSnapshot[], now = Date.now()): DashboardCounts {
+  const liveCounts = countDevicesByBucket(devices, now)
+  return {
+    ...liveCounts,
+    completed: buildCompletedItems(devices, snapshots).length
+  }
 }
 
 const DASHBOARD_TAB_ORDER: DashboardBucket[] = ['active', 'pending', 'abnormal', 'completed']

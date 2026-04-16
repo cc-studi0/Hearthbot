@@ -49,6 +49,10 @@ export interface CompletedOrderSnapshot {
   deletedAt: string | null
 }
 
+export interface DashboardCompletedItem extends CompletedOrderSnapshot {
+  source: 'snapshot' | 'live'
+}
+
 export type DashboardBucket = 'active' | 'pending' | 'abnormal' | 'completed'
 
 export interface DashboardCounts {

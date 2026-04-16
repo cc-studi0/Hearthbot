@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { NButton, NEmpty } from 'naive-ui'
 import { completedOrderApi, deviceApi } from '../api'
 import { useSignalR } from '../composables/useSignalR'
-import type { CompletedOrderSnapshot, DashboardBucket, Device, Stats } from '../types'
+import type { CompletedOrderSnapshot, DashboardBucket, DashboardCompletedItem, Device, Stats } from '../types'
 import DashboardHeaderStats from '../components/dashboard/DashboardHeaderStats.vue'
 import CompletionBanner from '../components/dashboard/CompletionBanner.vue'
 import DeviceOverviewTabs from '../components/dashboard/DeviceOverviewTabs.vue'
@@ -11,7 +11,7 @@ import DeviceStatusCard from '../components/dashboard/DeviceStatusCard.vue'
 import DeviceDetailDrawer from '../components/dashboard/DeviceDetailDrawer.vue'
 import CompletedOrderCard from '../components/dashboard/CompletedOrderCard.vue'
 import { completionNoticeKey, notifyCompletion, shouldNotifyCompletion } from '../utils/browserNotifications'
-import { countDevicesByBucket, getDeviceBucket, isCompletionSuspected, pickAutoDashboardTab, sortDevicesForBucket } from '../utils/dashboardState'
+import { buildCompletedItems, buildDashboardCounts, getDeviceBucket, isCompletionSuspected, pickAutoDashboardTab, sortDevicesForBucket } from '../utils/dashboardState'
 
 interface CompletionBannerItem {
   key: string
@@ -50,10 +50,7 @@ let heartbeatTimer: ReturnType<typeof setInterval> | null = null
 const notifiedCompletionKeys = new Set<string>(readNotifiedCompletionKeys())
 
 function getDashboardCounts(nextDevices = devices.value, nextCompletedSnapshots = completedSnapshots.value) {
-  return {
-    ...countDevicesByBucket(nextDevices, nowTick.value),
-    completed: nextCompletedSnapshots.length
-  }
+  return buildDashboardCounts(nextDevices, nextCompletedSnapshots, nowTick.value)
 }
 
 function syncAutoTab(nextDevices = devices.value, nextCompletedSnapshots = completedSnapshots.value) {
@@ -222,16 +219,12 @@ function completedOrderApiResponseToList(data: unknown): CompletedOrderSnapshot[
   return Array.isArray(data) ? data as CompletedOrderSnapshot[] : []
 }
 const counts = computed(() => {
-  const liveCounts = countDevicesByBucket(devices.value, nowTick.value)
-  return {
-    ...liveCounts,
-    completed: completedSnapshots.value.length
-  }
+  return buildDashboardCounts(devices.value, completedSnapshots.value, nowTick.value)
 })
 
 const headerStats = computed<Stats>(() => ({
   ...stats.value,
-  completedCount: completedSnapshots.value.length
+  completedCount: completedItems.value.length
 }))
 
 const filteredDevices = computed(() => {
@@ -245,8 +238,8 @@ const filteredDevices = computed(() => {
   return sorted
 })
 
-const filteredCompletedSnapshots = computed(() =>
-  [...completedSnapshots.value].sort((left, right) => right.completedAt.localeCompare(left.completedAt))
+const completedItems = computed<DashboardCompletedItem[]>(() =>
+  buildCompletedItems(devices.value, completedSnapshots.value)
 )
 
 const selectedDevice = computed(() =>
@@ -392,8 +385,8 @@ onUnmounted(() => {
 
       <template v-else>
         <CompletedOrderCard
-          v-for="snapshot in filteredCompletedSnapshots"
-          :key="snapshot.id"
+          v-for="snapshot in completedItems"
+          :key="`${snapshot.source}-${snapshot.id}`"
           :snapshot="snapshot"
           @hide="hideCompletedSnapshot"
         />
@@ -403,7 +396,7 @@ onUnmounted(() => {
         <NEmpty :description="activeTab === 'active' ? '当前没有进行中的设备' : activeTab === 'pending' ? '当前没有待录单设备' : '当前没有异常设备'" />
       </div>
 
-      <div v-if="activeTab === 'completed' && !filteredCompletedSnapshots.length" class="empty-state">
+      <div v-if="activeTab === 'completed' && !completedItems.length" class="empty-state">
         <NEmpty description="最近7天没有已完成订单" />
       </div>
     </section>
