@@ -267,6 +267,120 @@ namespace BotCore.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void VerifyActionEffective_ReturnsTrue_WhenUseLocationChangesSourceEntityState()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 2,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 1,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = true
+                    }
+                }
+            };
+
+            Assert.True(BotService.VerifyActionEffective("USE_LOCATION|52|0", before, after));
+        }
+
+        [Fact]
+        public void ResolveUseLocationNotConfirmedFromLocalState_ReturnsConfirmation_WhenLocalStateAdvanced()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 2,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 1,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = true
+                    }
+                }
+            };
+
+            var result = BotService.ResolveUseLocationNotConfirmedFromLocalState(
+                "FAIL:USE_LOCATION:not_confirmed:52",
+                "USE_LOCATION|52|0",
+                before,
+                after);
+
+            Assert.NotNull(result);
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("use_location_not_confirmed_local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void ResolveUseLocationNotConfirmedFromLocalState_ReturnsNull_WhenLocalStateDidNotAdvance()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 2,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [52] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 2,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+
+            var result = BotService.ResolveUseLocationNotConfirmedFromLocalState(
+                "FAIL:USE_LOCATION:not_confirmed:52",
+                "USE_LOCATION|52|0",
+                before,
+                after);
+
+            Assert.Null(result);
+        }
+
         [Theory]
         [InlineData(false, false, 0, 2, true)]
         [InlineData(true, false, 0, 2, false)]

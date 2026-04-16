@@ -3170,6 +3170,37 @@ namespace BotMain
                                     }
                                 }
 
+                                if (action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                                    && result != null
+                                    && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                                {
+                                    var recoveredPostActionSnapshot = preActionSnapshot != null
+                                        ? TakeActionStateSnapshot(pipe)
+                                        : null;
+                                    var recoveredConfirmation = ResolveUseLocationNotConfirmedFromLocalState(
+                                        result,
+                                        action,
+                                        preActionSnapshot,
+                                        recoveredPostActionSnapshot);
+                                    if (recoveredConfirmation != null)
+                                    {
+                                        if (choiceWatchArmed)
+                                            ClearChoiceStateWatch("use_location_not_confirmed_recovered");
+
+                                        if (recoveredConfirmation.MarkTurnHadEffectiveAction)
+                                            _turnHadEffectiveAction = true;
+
+                                        if (recoveredConfirmation.ConsumeRecommendation)
+                                            RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+
+                                        result = "OK:USE_LOCATION:recovered_local_state_advanced";
+                                        actionOutcome = result;
+                                        postReadyStatus = "recovered_local_state_advanced";
+                                        Log($"[Action] USE_LOCATION not_confirmed but local state advanced; consuming recommendation for {action}.");
+                                        continue;
+                                    }
+                                }
+
                                 if (choiceWatchArmed)
                                     ClearChoiceStateWatch("action_failed");
 
@@ -4298,6 +4329,26 @@ namespace BotMain
                                     _skipNextTurnStartReadyWait = true;
                                 RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
                                 Log($"[Arena] ATTACK not_confirmed but local state advanced; consuming recommendation for {action}.");
+                                continue;
+                            }
+                        }
+                        if (action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                            && result != null
+                            && result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) >= 0)
+                        {
+                            var recoveredPostActionSnapshot = preActionSnapshot != null
+                                ? TakeActionStateSnapshot(pipe)
+                                : null;
+                            var recoveredConfirmation = ResolveUseLocationNotConfirmedFromLocalState(
+                                result,
+                                action,
+                                preActionSnapshot,
+                                recoveredPostActionSnapshot);
+                            if (recoveredConfirmation != null)
+                            {
+                                _turnHadEffectiveAction = true;
+                                RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                                Log($"[Arena] USE_LOCATION not_confirmed but local state advanced; consuming recommendation for {action}.");
                                 continue;
                             }
                         }
@@ -8541,6 +8592,31 @@ namespace BotMain
             };
         }
 
+        internal static ActionEffectConfirmationResult ResolveUseLocationNotConfirmedFromLocalState(
+            string result,
+            string action,
+            ActionStateSnapshot before,
+            ActionStateSnapshot after)
+        {
+            if (string.IsNullOrWhiteSpace(result)
+                || result.IndexOf("not_confirmed", StringComparison.OrdinalIgnoreCase) < 0
+                || string.IsNullOrWhiteSpace(action)
+                || !action.StartsWith("USE_LOCATION|", StringComparison.OrdinalIgnoreCase)
+                || before == null
+                || after == null
+                || !VerifyActionEffective(action, before, after))
+            {
+                return null;
+            }
+
+            return new ActionEffectConfirmationResult
+            {
+                MarkTurnHadEffectiveAction = true,
+                ConsumeRecommendation = true,
+                Reason = "use_location_not_confirmed_local_state_advanced"
+            };
+        }
+
         internal static bool ShouldFastTrackSuccessfulAttack(
             string action,
             bool actionReportedSuccess,
@@ -8618,7 +8694,8 @@ namespace BotMain
             {
                 return after.ManaAvailable != before.ManaAvailable
                     || after.FriendMinionCount != before.FriendMinionCount
-                    || after.EnemyMinionCount != before.EnemyMinionCount;
+                    || after.EnemyMinionCount != before.EnemyMinionCount
+                    || DidUseLocationEntityStateChange(action, before, after);
             }
 
             if (action.StartsWith("TRADE|", StringComparison.OrdinalIgnoreCase))
@@ -8654,6 +8731,36 @@ namespace BotMain
                 && int.TryParse(parts[2], out targetEntityId)
                 && attackerEntityId > 0
                 && targetEntityId > 0;
+        }
+
+        private static bool DidUseLocationEntityStateChange(string action, ActionStateSnapshot before, ActionStateSnapshot after)
+        {
+            if (!TryParseUseLocationEntities(action, out var sourceEntityId, out var targetEntityId))
+                return false;
+
+            return DidEntityCombatStateChange(before, after, sourceEntityId)
+                || DidEntityCombatStateChange(before, after, targetEntityId);
+        }
+
+        private static bool TryParseUseLocationEntities(string action, out int sourceEntityId, out int targetEntityId)
+        {
+            sourceEntityId = 0;
+            targetEntityId = 0;
+
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var parts = action.Split('|');
+            if (parts.Length < 2)
+                return false;
+
+            if (!int.TryParse(parts[1], out sourceEntityId) || sourceEntityId <= 0)
+                return false;
+
+            if (parts.Length > 2)
+                int.TryParse(parts[2], out targetEntityId);
+
+            return true;
         }
 
         private static bool DidEntityCombatStateChange(ActionStateSnapshot before, ActionStateSnapshot after, int entityId)
