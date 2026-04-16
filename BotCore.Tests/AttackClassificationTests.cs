@@ -1,6 +1,7 @@
 using BotMain;
 using System;
 using System.Collections.Generic;
+using SmartBot.Plugins.API;
 using Xunit;
 
 namespace BotCore.Tests
@@ -133,6 +134,168 @@ namespace BotCore.Tests
             Assert.True(result.MarkTurnHadEffectiveAction);
             // 无分类时也应 fast-track（ShouldFastTrackSuccessfulAttack 只看 ATTACK| 前缀和随从变化）
             Assert.True(result.SkipPostActionReadyWait);
+        }
+
+        [Fact]
+        public void VerifyActionEffective_ReturnsTrue_WhenAttackOnlyChangesEntityHealth()
+        {
+            var before = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 10,
+                        CurrentHealth = 4,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 20,
+                        CurrentHealth = 5,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            var after = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 10,
+                        CurrentHealth = 2,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 20,
+                        CurrentHealth = 2,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            Assert.True(BotService.VerifyActionEffective("ATTACK|10|20", before, after));
+        }
+
+        [Fact]
+        public void ResolveActionEffectConfirmation_ConsumesRecommendation_WhenAttackOnlyChangesEntityHealth()
+        {
+            var before = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 10,
+                        CurrentHealth = 4,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 20,
+                        CurrentHealth = 5,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            var after = BotService.BuildActionStateSnapshot(new Board
+            {
+                MinionFriend = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 10,
+                        CurrentHealth = 2,
+                        CurrentAtk = 3
+                    }
+                },
+                MinionEnemy = new List<Card>
+                {
+                    new Card
+                    {
+                        Id = 20,
+                        CurrentHealth = 2,
+                        CurrentAtk = 2
+                    }
+                }
+            });
+
+            var result = BotService.ResolveActionEffectConfirmation(
+                useHsBoxPayloadConfirmation: true,
+                hsBoxAdvanceConfirmed: false,
+                actionReportedSuccess: true,
+                action: "ATTACK|10|20",
+                before: before,
+                after: after);
+
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void VerifyActionEffective_ReturnsTrue_WhenAttackOnlyChangesAttackerTiredState()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                FriendMinionCount = 1,
+                EnemyMinionCount = 1,
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [10] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 4,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    },
+                    [20] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 5,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+
+            var after = new BotService.ActionStateSnapshot
+            {
+                FriendMinionCount = 1,
+                EnemyMinionCount = 1,
+                EntityStates = new Dictionary<int, BotService.ActionStateSnapshot.EntityCombatState>
+                {
+                    [10] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 4,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = true
+                    },
+                    [20] = new BotService.ActionStateSnapshot.EntityCombatState
+                    {
+                        CurrentHealth = 5,
+                        CurrentArmor = 0,
+                        IsDivineShield = false,
+                        IsTired = false
+                    }
+                }
+            };
+
+            Assert.True(BotService.VerifyActionEffective("ATTACK|10|20", before, after));
         }
     }
 }

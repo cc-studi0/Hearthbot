@@ -8292,12 +8292,21 @@ namespace BotMain
         /// </summary>
         internal sealed class ActionStateSnapshot
         {
+            internal sealed class EntityCombatState
+            {
+                public int CurrentHealth;
+                public int CurrentArmor;
+                public bool IsDivineShield;
+                public bool IsTired;
+            }
+
             public int HandCount;
             public int ManaAvailable;
             public int FriendMinionCount;
             public int EnemyMinionCount;
             public IReadOnlyCollection<int> FriendMinionEntityIds = Array.Empty<int>();
             public IReadOnlyCollection<int> EnemyMinionEntityIds = Array.Empty<int>();
+            public IReadOnlyDictionary<int, EntityCombatState> EntityStates = new Dictionary<int, EntityCombatState>();
         }
 
         internal sealed class ActionEffectConfirmationResult
@@ -8314,6 +8323,30 @@ namespace BotMain
             if (board == null)
                 return null;
 
+            var entityStates = new Dictionary<int, ActionStateSnapshot.EntityCombatState>();
+            void CaptureEntity(Card entity)
+            {
+                if (entity == null || entity.Id <= 0)
+                    return;
+
+                entityStates[entity.Id] = new ActionStateSnapshot.EntityCombatState
+                {
+                    CurrentHealth = entity.CurrentHealth,
+                    CurrentArmor = entity.CurrentArmor,
+                    IsDivineShield = entity.IsDivineShield,
+                    IsTired = entity.IsTired
+                };
+            }
+
+            CaptureEntity(board.HeroFriend);
+            CaptureEntity(board.HeroEnemy);
+            CaptureEntity(board.WeaponFriend);
+            CaptureEntity(board.WeaponEnemy);
+            foreach (var entity in board.MinionFriend ?? Enumerable.Empty<Card>())
+                CaptureEntity(entity);
+            foreach (var entity in board.MinionEnemy ?? Enumerable.Empty<Card>())
+                CaptureEntity(entity);
+
             return new ActionStateSnapshot
             {
                 HandCount = board.Hand?.Count ?? 0,
@@ -8329,7 +8362,8 @@ namespace BotMain
                     .Where(card => card != null && card.Id > 0)
                     .Select(card => card.Id)
                     .Distinct()
-                    .ToArray()
+                    .ToArray(),
+                EntityStates = entityStates
             };
         }
 
@@ -8483,7 +8517,8 @@ namespace BotMain
             {
                 return after.FriendMinionCount != before.FriendMinionCount
                     || after.EnemyMinionCount != before.EnemyMinionCount
-                    || after.ManaAvailable != before.ManaAvailable;
+                    || after.ManaAvailable != before.ManaAvailable
+                    || DidAttackEntityStateChange(action, before, after);
             }
 
             if (action.StartsWith("HERO_POWER|", StringComparison.OrdinalIgnoreCase))
@@ -8504,6 +8539,54 @@ namespace BotMain
             }
 
             return true;
+        }
+
+        private static bool DidAttackEntityStateChange(string action, ActionStateSnapshot before, ActionStateSnapshot after)
+        {
+            if (!TryParseAttackEntities(action, out var attackerEntityId, out var targetEntityId))
+                return false;
+
+            return DidEntityCombatStateChange(before, after, attackerEntityId)
+                || DidEntityCombatStateChange(before, after, targetEntityId);
+        }
+
+        private static bool TryParseAttackEntities(string action, out int attackerEntityId, out int targetEntityId)
+        {
+            attackerEntityId = 0;
+            targetEntityId = 0;
+
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            var parts = action.Split('|');
+            if (parts.Length < 3)
+                return false;
+
+            return int.TryParse(parts[1], out attackerEntityId)
+                && int.TryParse(parts[2], out targetEntityId)
+                && attackerEntityId > 0
+                && targetEntityId > 0;
+        }
+
+        private static bool DidEntityCombatStateChange(ActionStateSnapshot before, ActionStateSnapshot after, int entityId)
+        {
+            if (entityId <= 0)
+                return false;
+
+            ActionStateSnapshot.EntityCombatState beforeState = null;
+            ActionStateSnapshot.EntityCombatState afterState = null;
+            var beforeFound = before.EntityStates != null && before.EntityStates.TryGetValue(entityId, out beforeState);
+            var afterFound = after.EntityStates != null && after.EntityStates.TryGetValue(entityId, out afterState);
+            if (beforeFound != afterFound)
+                return true;
+
+            if (!beforeFound || !afterFound)
+                return false;
+
+            return beforeState.CurrentHealth != afterState.CurrentHealth
+                || beforeState.CurrentArmor != afterState.CurrentArmor
+                || beforeState.IsDivineShield != afterState.IsDivineShield
+                || beforeState.IsTired != afterState.IsTired;
         }
 
         private void LogActionTimingSummary(
