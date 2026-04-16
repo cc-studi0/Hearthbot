@@ -1349,6 +1349,9 @@ namespace HearthstonePayload
                         {
                             var faceSourceHero = IsFriendlyHeroEntityId(attackerId);
                             var faceTargetHero = IsEnemyHeroEntityId(targetId);
+                            GameStateData faceBeforeState = null;
+                            AttackStateSnapshot faceBeforeSnapshot = default;
+                            var hasFaceBeforeSnapshot = false;
 
                             // 反射失败时回退到标准路径
                             if (!faceTargetHero)
@@ -1359,6 +1362,14 @@ namespace HearthstonePayload
                                     + " reason=target_not_enemy_hero");
                                 goto standardAttackPath;
                             }
+
+                            try
+                            {
+                                faceBeforeState = reader?.ReadGameState();
+                                hasFaceBeforeSnapshot = TryCaptureAttackState(
+                                    faceBeforeState, attackerId, targetId, out faceBeforeSnapshot);
+                            }
+                            catch { }
 
                             var faceMouseSw = Stopwatch.StartNew();
                             var faceResult = _coroutine.RunAndWait(
@@ -1377,19 +1388,9 @@ namespace HearthstonePayload
                                     faceResult, 1, faceMouseMs, 0, 0, "face_mouse_failed");
                             }
 
-                            // 缩短确认轮询：200ms 截止
-                            const int faceConfirmDeadlineMs = 200;
+                            // 打脸路径仍使用更快确认，但要给客户端结算与动画一个合理窗口。
+                            const int faceConfirmDeadlineMs = 450;
                             const int faceConfirmSleepMs = 25;
-                            GameStateData faceBeforeState = null;
-                            AttackStateSnapshot faceBeforeSnapshot = default;
-                            var hasFaceBeforeSnapshot = false;
-                            try
-                            {
-                                faceBeforeState = reader?.ReadGameState();
-                                hasFaceBeforeSnapshot = TryCaptureAttackState(
-                                    faceBeforeState, attackerId, targetId, out faceBeforeSnapshot);
-                            }
-                            catch { }
 
                             if (!hasFaceBeforeSnapshot)
                             {
