@@ -1,4 +1,5 @@
 using BotMain;
+using SmartBot.Database;
 using SmartBot.Plugins.API;
 using System;
 using System.Collections.Generic;
@@ -428,6 +429,59 @@ namespace BotCore.Tests
             Assert.Null(result);
         }
 
+        [Fact]
+        public void ResolvePendingHsBoxActionWithoutAdvanceWithRetries_ReturnsConfirmation_WhenLaterSnapshotAdvances()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 6
+            };
+            var unchanged = new BotService.ActionStateSnapshot
+            {
+                HandCount = 5,
+                ManaAvailable = 6
+            };
+            var advanced = new BotService.ActionStateSnapshot
+            {
+                HandCount = 4,
+                ManaAvailable = 3
+            };
+            var snapshots = new Queue<BotService.ActionStateSnapshot>(new[]
+            {
+                unchanged,
+                advanced
+            });
+
+            var result = BotService.ResolvePendingHsBoxActionWithoutAdvanceWithRetries(
+                "PLAY|24|0|3|EDR_457",
+                before,
+                () => snapshots.Count > 0 ? snapshots.Dequeue() : advanced,
+                attempts: 2,
+                delayMs: 0);
+
+            Assert.NotNull(result);
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("pending_local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void BuildActionLifecycleLogMessage_FormatsPlayDispatchMessage()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(24, Card.Cards.EDR_457, "测试随从")
+                }
+            };
+
+            var message = BotService.BuildActionLifecycleLogMessage("已发送", "PLAY|24|0|3|EDR_457", board);
+
+            Assert.Equal("[Action] 已发送 打出 测试随从:EDR_457", message);
+        }
+
         [Theory]
         [InlineData(false, false, 0, 2, true)]
         [InlineData(true, false, 0, 2, false)]
@@ -680,6 +734,25 @@ namespace BotCore.Tests
             var field = target.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic);
             Assert.NotNull(field);
             return field.GetValue(target);
+        }
+
+        private static Card CreateCard(int entityId, Card.Cards cardId, string nameCn)
+        {
+            return new Card
+            {
+                Id = entityId,
+                IsFriend = true,
+                Template = CreateTemplate(cardId, nameCn)
+            };
+        }
+
+        private static CardTemplate CreateTemplate(Card.Cards id, string nameCn)
+        {
+            var template = (CardTemplate)System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(typeof(CardTemplate));
+            template.Id = id;
+            template.NameCN = nameCn;
+            template.Name = nameCn;
+            return template;
         }
     }
 }

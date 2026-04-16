@@ -61,6 +61,8 @@ namespace BotMain
         private const int ChoiceProbeAfterPlayFailThreshold = 3;
         private const int PendingHsBoxActionAdvanceWaitMs = 450;
         private const int PendingHsBoxActionAdvancePollIntervalMs = 50;
+        private const int PendingHsBoxActionLocalConfirmAttempts = 3;
+        private const int PendingHsBoxActionLocalConfirmDelayMs = 80;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -1444,12 +1446,17 @@ namespace BotMain
                 pollIntervalMs: PendingHsBoxActionAdvancePollIntervalMs);
             if (!advance.HasAdvanced)
             {
-                var localAdvanceConfirmation = ResolvePendingHsBoxActionWithoutAdvance(
+                var localAdvanceConfirmation = ResolvePendingHsBoxActionWithoutAdvanceWithRetries(
                     _pendingHsBoxActionCommand,
                     _pendingHsBoxActionBeforeSnapshot,
-                    pipe != null ? TakeActionStateSnapshot(pipe) : null);
+                    pipe != null ? (Func<ActionStateSnapshot>)(() => TakeActionStateSnapshot(pipe)) : null,
+                    PendingHsBoxActionLocalConfirmAttempts,
+                    PendingHsBoxActionLocalConfirmDelayMs);
                 if (localAdvanceConfirmation != null)
                 {
+                    var confirmationLog = BuildActionLifecycleLogMessage("已确认", _pendingHsBoxActionCommand, null);
+                    if (!string.IsNullOrWhiteSpace(confirmationLog))
+                        Log(confirmationLog);
                     RememberConsumedHsBoxActionRecommendation(
                         _pendingHsBoxActionUpdatedAtMs,
                         _pendingHsBoxActionPayloadSignature,
@@ -1467,6 +1474,9 @@ namespace BotMain
                 return false;
             }
 
+            var advancedConfirmationLog = BuildActionLifecycleLogMessage("已确认", _pendingHsBoxActionCommand, null);
+            if (!string.IsNullOrWhiteSpace(advancedConfirmationLog))
+                Log(advancedConfirmationLog);
             RememberConsumedHsBoxActionRecommendation(
                 _pendingHsBoxActionUpdatedAtMs,
                 _pendingHsBoxActionPayloadSignature,
@@ -3031,6 +3041,12 @@ namespace BotMain
                             sendMs = sendSw.ElapsedMilliseconds;
                             actionOutcome = result;
                             Log($"[Action] {action} -> {result}");
+                            if (!IsActionFailure(result))
+                            {
+                                var dispatchLog = BuildActionLifecycleLogMessage("已发送", action, planningBoard);
+                                if (!string.IsNullOrWhiteSpace(dispatchLog))
+                                    Log(dispatchLog);
+                            }
 
                             // IdleGuard: 验证操作是否真正生效
                             if (!isEndTurn && !IsActionFailure(result))
@@ -3065,6 +3081,9 @@ namespace BotMain
 
                                 if (confirmation.ConsumeRecommendation)
                                 {
+                                    var confirmationLog = BuildActionLifecycleLogMessage("已确认", action, planningBoard);
+                                    if (!string.IsNullOrWhiteSpace(confirmationLog))
+                                        Log(confirmationLog);
                                     RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
                                 }
                                 else if (useHsBoxPayloadConfirmation && string.Equals(confirmation.Reason, "awaiting_hsbox_advance", StringComparison.Ordinal))
@@ -3185,7 +3204,12 @@ namespace BotMain
                                             _skipNextTurnStartReadyWait = true;
 
                                         if (recoveredConfirmation.ConsumeRecommendation)
+                                        {
+                                            var confirmationLog = BuildActionLifecycleLogMessage("已确认", action, planningBoard);
+                                            if (!string.IsNullOrWhiteSpace(confirmationLog))
+                                                Log(confirmationLog);
                                             RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                                        }
 
                                         result = "OK:ATTACK:recovered_local_state_advanced";
                                         actionOutcome = result;
@@ -3216,7 +3240,12 @@ namespace BotMain
                                             _turnHadEffectiveAction = true;
 
                                         if (recoveredConfirmation.ConsumeRecommendation)
+                                        {
+                                            var confirmationLog = BuildActionLifecycleLogMessage("已确认", action, planningBoard);
+                                            if (!string.IsNullOrWhiteSpace(confirmationLog))
+                                                Log(confirmationLog);
                                             RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                                        }
 
                                         result = "OK:USE_LOCATION:recovered_local_state_advanced";
                                         actionOutcome = result;
@@ -3245,48 +3274,17 @@ namespace BotMain
                             }
 
                             if (!useHsBoxPayloadConfirmation)
+                            {
+                                var confirmationLog = BuildActionLifecycleLogMessage("已确认", action, planningBoard);
+                                if (!string.IsNullOrWhiteSpace(confirmationLog))
+                                    Log(confirmationLog);
                                 RememberConsumedHsBoxActionRecommendation(recommendation, action, currentBoardFingerprint);
+                            }
                             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase)
                                 && TryGetActionSourceEntityId(action, out var playedEntityId))
                             {
                                 playActionFailStreakByEntity.Remove(playedEntityId);
                             }
-
-                            // 出牌/攻击详细日志
-                            try
-                            {
-                                var parts = action.Split('|');
-                                if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                                {
-                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                    Log($"[Action] 打出 {desc}");
-                                }
-                                else if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
-                                {
-                                    var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
-                                    var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
-                                    Log($"[Action] {atk} → {def}");
-                                }
-                                else if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                                {
-                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                    if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
-                                    {
-                                        var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
-                                        Log($"[Action] 激活地标 {desc} → 目标：{tgtDesc}");
-                                    }
-                                    else
-                                    {
-                                        Log($"[Action] 激活地标 {desc}");
-                                    }
-                                }
-                                else if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
-                                {
-                                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
-                                    Log($"[Action] 交易 {desc}");
-                                }
-                            }
-                            catch { }
 
                             if (isFaceAttack)
                             {
@@ -4950,6 +4948,55 @@ namespace BotMain
                 return $"{name}:{cardId}";
             }
             catch { return entityId.ToString(); }
+        }
+
+        internal static string BuildActionLifecycleLogMessage(string phase, string action, Board planningBoard)
+        {
+            if (string.IsNullOrWhiteSpace(phase) || string.IsNullOrWhiteSpace(action))
+                return null;
+
+            try
+            {
+                var parts = action.Split('|');
+                if (parts.Length == 0)
+                    return $"[Action] {phase} {action}";
+
+                if (parts[0].Equals("PLAY", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                {
+                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                    return $"[Action] {phase} 打出 {desc}";
+                }
+
+                if (parts[0].Equals("ATTACK", StringComparison.OrdinalIgnoreCase) && parts.Length > 2)
+                {
+                    var atk = DescribeEntity(planningBoard, int.Parse(parts[1]), true);
+                    var def = DescribeEntity(planningBoard, int.Parse(parts[2]), true);
+                    return $"[Action] {phase} {atk} → {def}";
+                }
+
+                if (parts[0].Equals("USE_LOCATION", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                {
+                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                    if (parts.Length > 2 && int.TryParse(parts[2], out var locTgtId) && locTgtId > 0)
+                    {
+                        var tgtDesc = DescribeEntity(planningBoard, locTgtId, true);
+                        return $"[Action] {phase} 激活地标 {desc} → 目标：{tgtDesc}";
+                    }
+
+                    return $"[Action] {phase} 激活地标 {desc}";
+                }
+
+                if (parts[0].Equals("TRADE", StringComparison.OrdinalIgnoreCase) && parts.Length > 1)
+                {
+                    var desc = DescribeEntity(planningBoard, int.Parse(parts[1]));
+                    return $"[Action] {phase} 交易 {desc}";
+                }
+            }
+            catch
+            {
+            }
+
+            return $"[Action] {phase} {action}";
         }
 
         private static bool ShouldResimulateAfterAction(
@@ -8611,6 +8658,38 @@ namespace BotMain
                 SkipPostActionReadyWait = shouldFastTrackAttack,
                 Reason = "pending_local_state_advanced"
             };
+        }
+
+        internal static ActionEffectConfirmationResult ResolvePendingHsBoxActionWithoutAdvanceWithRetries(
+            string action,
+            ActionStateSnapshot before,
+            Func<ActionStateSnapshot> snapshotProvider,
+            int attempts,
+            int delayMs)
+        {
+            if (string.IsNullOrWhiteSpace(action)
+                || before == null
+                || snapshotProvider == null
+                || attempts <= 0)
+            {
+                return null;
+            }
+
+            var maxAttempts = Math.Max(1, attempts);
+            for (var attempt = 0; attempt < maxAttempts; attempt++)
+            {
+                var confirmation = ResolvePendingHsBoxActionWithoutAdvance(
+                    action,
+                    before,
+                    snapshotProvider());
+                if (confirmation != null)
+                    return confirmation;
+
+                if (attempt < maxAttempts - 1 && delayMs > 0)
+                    Thread.Sleep(delayMs);
+            }
+
+            return null;
         }
 
         internal static ActionEffectConfirmationResult ResolveAttackNotConfirmedFromLocalState(
