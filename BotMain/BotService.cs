@@ -8786,6 +8786,23 @@ namespace BotMain
             return false;
         }
 
+        private static bool HasAddedMinionEntity(
+            IReadOnlyCollection<int> beforeEntityIds,
+            IReadOnlyCollection<int> afterEntityIds)
+        {
+            if (afterEntityIds == null || afterEntityIds.Count == 0)
+                return false;
+
+            var beforeSet = new HashSet<int>(beforeEntityIds ?? Array.Empty<int>());
+            foreach (var entityId in afterEntityIds)
+            {
+                if (entityId > 0 && !beforeSet.Contains(entityId))
+                    return true;
+            }
+
+            return false;
+        }
+
         private bool ShouldUseHsBoxPayloadConfirmation(ActionRecommendationResult recommendation, bool isEndTurn)
         {
             if (!_followHsBoxRecommendations || isEndTurn || recommendation == null)
@@ -8807,7 +8824,9 @@ namespace BotMain
             if (action.StartsWith("PLAY|", StringComparison.OrdinalIgnoreCase))
             {
                 return after.HandCount < before.HandCount
-                    || after.ManaAvailable < before.ManaAvailable;
+                    || after.ManaAvailable < before.ManaAvailable
+                    || after.FriendMinionCount > before.FriendMinionCount
+                    || HasAddedMinionEntity(before.FriendMinionEntityIds, after.FriendMinionEntityIds);
             }
 
             if (action.StartsWith("ATTACK|", StringComparison.OrdinalIgnoreCase))

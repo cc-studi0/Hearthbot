@@ -302,6 +302,27 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void VerifyActionEffective_ReturnsTrue_WhenPlayAddsFriendlyMinionWithoutImmediateHandOrManaChange()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 3,
+                ManaAvailable = 3,
+                FriendMinionCount = 2,
+                FriendMinionEntityIds = new[] { 11, 12 }
+            };
+            var after = new BotService.ActionStateSnapshot
+            {
+                HandCount = 3,
+                ManaAvailable = 3,
+                FriendMinionCount = 3,
+                FriendMinionEntityIds = new[] { 11, 12, 45 }
+            };
+
+            Assert.True(BotService.VerifyActionEffective("PLAY|45|0|6|CATA_210", before, after));
+        }
+
+        [Fact]
         public void ResolveUseLocationNotConfirmedFromLocalState_ReturnsConfirmation_WhenLocalStateAdvanced()
         {
             var before = new BotService.ActionStateSnapshot
@@ -455,6 +476,49 @@ namespace BotCore.Tests
 
             var result = BotService.ResolvePendingHsBoxActionWithoutAdvanceWithRetries(
                 "PLAY|24|0|3|EDR_457",
+                before,
+                () => snapshots.Count > 0 ? snapshots.Dequeue() : advanced,
+                attempts: 2,
+                delayMs: 0);
+
+            Assert.NotNull(result);
+            Assert.True(result.MarkTurnHadEffectiveAction);
+            Assert.True(result.ConsumeRecommendation);
+            Assert.Equal("pending_local_state_advanced", result.Reason);
+        }
+
+        [Fact]
+        public void ResolvePendingHsBoxActionWithoutAdvanceWithRetries_ReturnsConfirmation_WhenLaterPlayOnlyAddsFriendlyMinion()
+        {
+            var before = new BotService.ActionStateSnapshot
+            {
+                HandCount = 3,
+                ManaAvailable = 3,
+                FriendMinionCount = 2,
+                FriendMinionEntityIds = new[] { 11, 12 }
+            };
+            var unchanged = new BotService.ActionStateSnapshot
+            {
+                HandCount = 3,
+                ManaAvailable = 3,
+                FriendMinionCount = 2,
+                FriendMinionEntityIds = new[] { 11, 12 }
+            };
+            var advanced = new BotService.ActionStateSnapshot
+            {
+                HandCount = 3,
+                ManaAvailable = 3,
+                FriendMinionCount = 3,
+                FriendMinionEntityIds = new[] { 11, 12, 45 }
+            };
+            var snapshots = new Queue<BotService.ActionStateSnapshot>(new[]
+            {
+                unchanged,
+                advanced
+            });
+
+            var result = BotService.ResolvePendingHsBoxActionWithoutAdvanceWithRetries(
+                "PLAY|45|0|6|CATA_210",
                 before,
                 () => snapshots.Count > 0 ? snapshots.Dequeue() : advanced,
                 attempts: 2,
