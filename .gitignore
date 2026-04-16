@@ -60,3 +60,4 @@ references/
 tools/bg_output.txt
 tools/ilspy/
 tools/jq
+.decompile/
