@@ -144,6 +144,69 @@ namespace BotMain
             return result;
         }
 
+        internal HsBoxActionPayloadAdvanceResult WaitForBattlegroundActionPayloadAdvance(
+            string bgStateData,
+            long previousUpdatedAtMs,
+            string previousPayloadSignature,
+            int timeoutMs,
+            int pollIntervalMs)
+        {
+            var result = new HsBoxActionPayloadAdvanceResult
+            {
+                Reason = "state_unavailable"
+            };
+
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < Math.Max(1, timeoutMs))
+            {
+                var recommendation = _bgBridge.GetRecommendedActionResult(bgStateData);
+                if (recommendation != null)
+                {
+                    result.LatestUpdatedAtMs = recommendation.SourceUpdatedAtMs;
+                    result.LatestPayloadSignature = recommendation.SourcePayloadSignature ?? string.Empty;
+
+                    if (recommendation.SourceUpdatedAtMs > previousUpdatedAtMs
+                        && recommendation.SourceUpdatedAtMs > 0)
+                    {
+                        result.HasAdvanced = true;
+                        result.Reason = "updated_at_advanced";
+                        return result;
+                    }
+
+                    if (recommendation.SourceUpdatedAtMs == previousUpdatedAtMs
+                        && previousUpdatedAtMs > 0
+                        && !string.Equals(
+                            recommendation.SourcePayloadSignature ?? string.Empty,
+                            previousPayloadSignature ?? string.Empty,
+                            StringComparison.Ordinal))
+                    {
+                        result.HasAdvanced = true;
+                        result.Reason = "payload_signature_advanced";
+                        return result;
+                    }
+
+                    if (recommendation.SourceUpdatedAtMs <= 0
+                        && !string.IsNullOrWhiteSpace(recommendation.SourcePayloadSignature)
+                        && !string.Equals(
+                            recommendation.SourcePayloadSignature ?? string.Empty,
+                            previousPayloadSignature ?? string.Empty,
+                            StringComparison.Ordinal))
+                    {
+                        result.HasAdvanced = true;
+                        result.Reason = "payload_signature_advanced";
+                        return result;
+                    }
+
+                    result.Reason = "payload_unchanged";
+                }
+
+                if (sw.ElapsedMilliseconds + pollIntervalMs < timeoutMs && pollIntervalMs > 0)
+                    Thread.Sleep(pollIntervalMs);
+            }
+
+            return result;
+        }
+
         public ActionRecommendationResult RecommendActions(ActionRecommendationRequest request)
         {
             var lastStructuredDetail = "json=not_checked";

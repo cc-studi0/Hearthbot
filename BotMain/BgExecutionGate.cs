@@ -356,13 +356,34 @@ namespace BotMain
         private bool Probe(BgCommandSpec spec, BgZoneSnapshot beforeSnap, string beforeState)
         {
             var sw = Stopwatch.StartNew();
+            string lastChangedState = null;
+            var stableChangedReadCount = 0;
             while (sw.ElapsedMilliseconds < _probeTimeoutMs)
             {
                 var current = _readState() ?? string.Empty;
                 if (!string.Equals(current, beforeState, StringComparison.Ordinal))
                 {
                     if (spec.Kind == BgCommandKind.Other)
-                        return true;
+                    {
+                        if (!RequiresStableButtonProbe(spec.Raw))
+                            return true;
+
+                        if (string.Equals(current, lastChangedState, StringComparison.Ordinal))
+                        {
+                            stableChangedReadCount++;
+                        }
+                        else
+                        {
+                            lastChangedState = current;
+                            stableChangedReadCount = 0;
+                        }
+
+                        if (stableChangedReadCount >= 1 && IsReadyAfterButtonChange())
+                            return true;
+
+                        _sleep(_probeIntervalMs);
+                        continue;
+                    }
 
                     var curSnap = BgExecutionGate.ParseZones(current);
                     if (HasExpectedChange(spec, beforeSnap, curSnap))
@@ -375,6 +396,24 @@ namespace BotMain
                 _sleep(_probeIntervalMs);
             }
             return false;
+        }
+
+        private bool IsReadyAfterButtonChange()
+        {
+            if (_isGameReady == null)
+                return true;
+
+            return _isGameReady();
+        }
+
+        private static bool RequiresStableButtonProbe(string rawCommand)
+        {
+            if (string.IsNullOrWhiteSpace(rawCommand))
+                return false;
+
+            return rawCommand.StartsWith("BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                || rawCommand.StartsWith("BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase)
+                || rawCommand.StartsWith("BG_FREEZE", StringComparison.OrdinalIgnoreCase);
         }
 
         private void WaitForShopStability(string stateAfterAction)

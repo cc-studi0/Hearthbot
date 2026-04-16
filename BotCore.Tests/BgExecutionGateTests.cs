@@ -315,5 +315,45 @@ namespace BotCore.Tests
 
             Assert.Equal(BgGateOutcome.Completed, result.Outcome);
         }
+
+        [Fact]
+        public void Execute_Reroll_WaitsForStableStateAndReadyBeforeCompleting()
+        {
+            const string transientState = SampleState + "|TRANSIENT=1";
+            const string finalState = SampleState + "|SHOP=900,BG_NEW,3,3,1,1,,3,4";
+
+            var readCount = 0;
+            var readyChecks = 0;
+            var state = new FakeState(SampleState);
+
+            Func<string, string> send = cmd =>
+            {
+                state.Current = transientState;
+                return "OK";
+            };
+
+            Func<string> read = () =>
+            {
+                readCount++;
+                if (readCount >= 3)
+                    state.Current = finalState;
+                return state.Current;
+            };
+
+            var gate = new BgExecutionGateRunner(
+                send,
+                read,
+                probeTimeoutMs: 200,
+                probeIntervalMs: 5,
+                fallbackSleepMs: 50,
+                sleep: _ => { },
+                isGameReady: () => ++readyChecks >= 2);
+
+            var result = gate.Execute("BG_REROLL");
+
+            Assert.Equal(BgGateOutcome.Completed, result.Outcome);
+            Assert.True(readCount >= 2);
+            Assert.True(readyChecks >= 2);
+        }
     }
 }

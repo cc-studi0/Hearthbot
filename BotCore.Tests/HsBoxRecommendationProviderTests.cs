@@ -114,6 +114,45 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void WaitForBattlegroundActionPayloadAdvance_ReturnsAdvanced_WhenUpdatedAtIncreases()
+        {
+            var baseline = new BattlegroundActionRecommendationResult(
+                new[] { "BG_REROLL" },
+                "baseline",
+                sourceUpdatedAtMs: 900,
+                sourcePayloadSignature: "SIG_BG_BASE");
+            var advanced = new BattlegroundActionRecommendationResult(
+                new[] { "BG_BUY|101|1" },
+                "advanced",
+                sourceUpdatedAtMs: 901,
+                sourcePayloadSignature: "SIG_BG_NEXT");
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(),
+                new FakeBattlegroundsBridge(baseline, advanced),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            var method = typeof(HsBoxGameRecommendationProvider).GetMethod(
+                "WaitForBattlegroundActionPayloadAdvance",
+                BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+
+            Assert.NotNull(method);
+            var result = Assert.IsType<HsBoxActionPayloadAdvanceResult>(method.Invoke(provider, new object[]
+            {
+                "PHASE=RECRUIT|TURN=7",
+                baseline.SourceUpdatedAtMs,
+                baseline.SourcePayloadSignature,
+                20,
+                1
+            }));
+
+            Assert.True(result.HasAdvanced);
+            Assert.Equal("updated_at_advanced", result.Reason);
+            Assert.Equal(advanced.SourceUpdatedAtMs, result.LatestUpdatedAtMs);
+            Assert.Equal(advanced.SourcePayloadSignature, result.LatestPayloadSignature);
+        }
+
+        [Fact]
         public void RecommendActions_UsesOnlyReferenceA_WhenStructuredDataContainsAlternativeRecommendations()
         {
             var state = new HsBoxRecommendationState
@@ -2913,6 +2952,64 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ShouldTreatBattlegroundRecommendationAsConsumed_DoesNotReleaseRepeatedRefreshRecommendations()
+        {
+            long lastConsumedUpdatedAtMs = 700;
+            string lastConsumedPayloadSignature = "SIG_REPEAT";
+            string lastConsumedCommandSummary = BattlegroundRecommendationConsumptionTracker.SummarizeActions(new[] { "BG_REROLL" });
+            var repeatedRecommendationCount = 0;
+
+            var firstRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_REROLL" },
+                "same reroll recommendation",
+                sourceUpdatedAtMs: 701,
+                sourcePayloadSignature: "SIG_REPEAT");
+            var secondRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_REROLL" },
+                "same reroll recommendation",
+                sourceUpdatedAtMs: 702,
+                sourcePayloadSignature: "SIG_REPEAT");
+            var thirdRecommendation = new BattlegroundActionRecommendationResult(
+                new[] { "BG_REROLL" },
+                "same reroll recommendation",
+                sourceUpdatedAtMs: 703,
+                sourcePayloadSignature: "SIG_REPEAT");
+
+            Assert.True(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                firstRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedFirst));
+            Assert.False(releasedFirst);
+            Assert.Equal(1, repeatedRecommendationCount);
+
+            Assert.True(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                secondRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedSecond));
+            Assert.False(releasedSecond);
+            Assert.Equal(2, repeatedRecommendationCount);
+
+            Assert.True(BattlegroundRecommendationConsumptionTracker.ShouldTreatAsConsumed(
+                thirdRecommendation,
+                ref lastConsumedUpdatedAtMs,
+                ref lastConsumedPayloadSignature,
+                ref lastConsumedCommandSummary,
+                ref repeatedRecommendationCount,
+                out var releasedThird));
+            Assert.False(releasedThird);
+            Assert.Equal(3, repeatedRecommendationCount);
+            Assert.Equal(700, lastConsumedUpdatedAtMs);
+            Assert.Equal("SIG_REPEAT", lastConsumedPayloadSignature);
+            Assert.Equal("BG_REROLL", lastConsumedCommandSummary);
+        }
+
+        [Fact]
         public void ChoiceRecommendationConsumptionTracker_DoesNotRemember_WhenApplyFailed()
         {
             long lastConsumedUpdatedAtMs = 300;
@@ -3433,14 +3530,16 @@ namespace BotCore.Tests
 
         private sealed class FakeBattlegroundsBridge : IHsBoxBattlegroundsBridge
         {
-            private readonly BattlegroundActionRecommendationResult _result;
+            private readonly Queue<BattlegroundActionRecommendationResult> _results;
+            private BattlegroundActionRecommendationResult _lastResult;
 
-            public FakeBattlegroundsBridge(BattlegroundActionRecommendationResult result)
+            public FakeBattlegroundsBridge(params BattlegroundActionRecommendationResult[] results)
             {
-                _result = result;
+                _results = new Queue<BattlegroundActionRecommendationResult>(results ?? Array.Empty<BattlegroundActionRecommendationResult>());
             }
 
             public Action<string> OnLog { get; set; }
+            public int ReadCount { get; private set; }
 
             public ChoiceRecommendationResult GetChoiceRecommendation(ChoiceRecommendationRequest request)
             {
@@ -3449,7 +3548,10 @@ namespace BotCore.Tests
 
             public BattlegroundActionRecommendationResult GetRecommendedActionResult(string bgStateData)
             {
-                return _result;
+                ReadCount++;
+                if (_results.Count > 0)
+                    _lastResult = _results.Dequeue();
+                return _lastResult;
             }
         }
 

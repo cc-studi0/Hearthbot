@@ -63,6 +63,8 @@ namespace BotMain
         private const int PendingHsBoxActionAdvancePollIntervalMs = 50;
         private const int PendingHsBoxActionLocalConfirmAttempts = 3;
         private const int PendingHsBoxActionLocalConfirmDelayMs = 80;
+        private const int BattlegroundPayloadAdvanceWaitMs = 1000;
+        private const int BattlegroundPayloadAdvancePollIntervalMs = 80;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -4857,6 +4859,16 @@ namespace BotMain
                 || action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase);
         }
 
+        private static bool RequiresFreshBattlegroundPayloadAfterAction(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            return action.StartsWith("BG_REROLL", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_TAVERN_UP", StringComparison.OrdinalIgnoreCase)
+                || action.StartsWith("BG_FREEZE", StringComparison.OrdinalIgnoreCase);
+        }
+
 
         private static bool TryResolveBattlegroundPreActionCommand(string rawAction, string stateData, out string resolvedAction, out string detail)
         {
@@ -5775,6 +5787,39 @@ namespace BotMain
                         if (gateResult.Outcome == BgGateOutcome.Failed)
                         {
                             SleepOrCancelled(220);
+                            continue;
+                        }
+
+                        if (RequiresFreshBattlegroundPayloadAfterAction(nextAction))
+                        {
+                            pendingBattlegroundRecommendationKey = string.Empty;
+                            pendingBattlegroundActionIndex = 0;
+                            pendingBattlegroundActions.Clear();
+
+                            var advance = _hsBoxRecommendationProvider.WaitForBattlegroundActionPayloadAdvance(
+                                stateData,
+                                recommendation?.SourceUpdatedAtMs ?? 0,
+                                recommendation?.SourcePayloadSignature,
+                                timeoutMs: BattlegroundPayloadAdvanceWaitMs,
+                                pollIntervalMs: BattlegroundPayloadAdvancePollIntervalMs);
+
+                            RememberConsumedBattlegroundRecommendation(
+                                recommendation,
+                                ref lastConsumedBattlegroundUpdatedAtMs,
+                                ref lastConsumedBattlegroundPayloadSignature,
+                                ref lastConsumedBattlegroundCommandSummary,
+                                ref repeatedConsumedBattlegroundRecommendationCount);
+
+                            if (advance.HasAdvanced)
+                            {
+                                Log($"[BG] 按钮动作后盒子 payload 已刷新: {nextAction} ({advance.Reason}, updatedAt={advance.LatestUpdatedAtMs})");
+                            }
+                            else
+                            {
+                                Log($"[BG] 按钮动作后盒子 payload 暂未刷新，继续等待新推荐: {nextAction} ({advance.Reason}, updatedAt={advance.LatestUpdatedAtMs})");
+                            }
+
+                            if (SleepOrCancelled(80)) return;
                             continue;
                         }
 

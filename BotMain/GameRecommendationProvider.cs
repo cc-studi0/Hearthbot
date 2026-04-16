@@ -226,6 +226,12 @@ namespace BotMain
     internal static class BattlegroundRecommendationConsumptionTracker
     {
         internal const int ReleaseThreshold = 3;
+        private static readonly string[] PayloadInvalidatingCommands =
+        {
+            "BG_REROLL",
+            "BG_TAVERN_UP",
+            "BG_FREEZE"
+        };
 
         public static string SummarizeActions(IReadOnlyList<string> actions)
         {
@@ -287,6 +293,12 @@ namespace BotMain
             }
 
             repeatedRecommendationCount++;
+            if (ContainsPayloadInvalidatingAction(recommendation?.Actions)
+                || ContainsPayloadInvalidatingSummary(lastConsumedCommandSummary))
+            {
+                return true;
+            }
+
             if (repeatedRecommendationCount < ReleaseThreshold)
                 return true;
 
@@ -295,6 +307,48 @@ namespace BotMain
             lastConsumedUpdatedAtMs = 0;
             lastConsumedPayloadSignature = string.Empty;
             lastConsumedCommandSummary = string.Empty;
+            return false;
+        }
+
+        internal static bool ContainsPayloadInvalidatingAction(IReadOnlyList<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return false;
+
+            foreach (var action in actions)
+            {
+                if (IsPayloadInvalidatingAction(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool ContainsPayloadInvalidatingSummary(string summary)
+        {
+            if (string.IsNullOrWhiteSpace(summary))
+                return false;
+
+            foreach (var action in summary.Split(new[] { '>' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (IsPayloadInvalidatingAction(action))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool IsPayloadInvalidatingAction(string action)
+        {
+            if (string.IsNullOrWhiteSpace(action))
+                return false;
+
+            foreach (var command in PayloadInvalidatingCommands)
+            {
+                if (action.StartsWith(command, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+
             return false;
         }
 
