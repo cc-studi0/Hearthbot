@@ -59,7 +59,7 @@
                     <DataGridTextColumn Header="昵称" Binding="{Binding DisplayName}" Width="70"/>
                     <DataGridTextColumn Header="战网窗口" Binding="{Binding BattleNetLabel}" Width="110"/>
                     <DataGridTextColumn Header="模式" Binding="{Binding ModeName}" Width="50"/>
-                    <DataGridTextColumn Header="卡组" Binding="{Binding DeckName}" Width="90"/>
+                    <DataGridTextColumn Header="卡组" Binding="{Binding DeckSummary}" Width="90"/>
                     <DataGridTextColumn Header="策略" Binding="{Binding ProfileName}" Width="90"/>
                     <DataGridTextColumn Header="目标段位" Binding="{Binding TargetRankText}" Width="70"/>
                     <DataGridTextColumn Header="状态" Binding="{Binding StatusText}" Width="55"/>

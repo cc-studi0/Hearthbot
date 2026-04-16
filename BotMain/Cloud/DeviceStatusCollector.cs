@@ -44,7 +44,7 @@ namespace BotMain.Cloud
                 Status = status,
                 CurrentAccount = account?.DisplayName ?? _bot.PlayerName ?? "",
                 CurrentRank = account?.CurrentRankText ?? _bot.CurrentRankText ?? "",
-                CurrentDeck = account?.DeckName ?? _bot.SelectedDeckName ?? "",
+                CurrentDeck = account?.DeckSummary ?? _bot.SelectedDeckName ?? "",
                 CurrentProfile = account?.ProfileName ?? _bot.SelectedProfileName ?? "",
                 GameMode = (account?.ModeIndex ?? _bot.ModeIndex) == 1 ? "Wild" : "Standard",
                 SessionWins = account?.Wins ?? stats.Wins,

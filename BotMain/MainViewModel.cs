@@ -50,6 +50,7 @@ namespace BotMain
         private const int MaxBufferedLogChars = 200000;
         private static readonly string SettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         private string _savedProfileName, _savedDeckName, _savedMulliganName, _savedDiscoverName;
+        private List<string> _savedDeckNames = new();
         private string _savedSmartBotRoot;
         private bool _settingsLoaded;
         private bool _followHsBoxOperation;
@@ -142,14 +143,12 @@ namespace BotMain
             });
             _bot.OnDecksLoaded += decks => _dispatcher.BeginInvoke(() =>
             {
-                var previousDeck = SelectedDeckName;
-                if (previousDeck == "(auto)" && _savedDeckName != null)
-                    previousDeck = _savedDeckName;
+                var previousDecks = _selectedDeckNames.Count > 0
+                    ? _selectedDeckNames.ToList()
+                    : DeckSelectionState.Normalize(_savedDeckNames, _savedDeckName).ToList();
                 DeckNames.Clear();
-                DeckNames.Add("(auto)");
                 foreach (var d in decks) DeckNames.Add(d);
-                var idx = DeckNames.IndexOf(previousDeck);
-                SelectedDeckIndex = idx >= 0 ? idx : 0;
+                ApplySelectedDeckNames(previousDecks, autoSave: false, filterToAvailable: true);
             });
 
             _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -188,6 +187,7 @@ namespace BotMain
             SettingsCmd = new RelayCommand(_ => OpenSettingsWindow());
             RefreshProfilesCmd = new RelayCommand(_ => _bot.RefreshProfiles());
             RefreshDecksCmd = new RelayCommand(_ => _bot.RefreshDecks());
+            SelectDecksCmd = new RelayCommand(_ => OpenDeckSelectionDialog());
             RefreshMulliganCmd = new RelayCommand(_ => _bot.RefreshMulliganProfiles());
             RefreshDiscoverCmd = new RelayCommand(_ => _bot.RefreshDiscoverProfiles());
             BrowseHsBoxPathCmd = new RelayCommand(_ => BrowseHsBoxPath());
@@ -197,6 +197,7 @@ namespace BotMain
             CheckUpdateCmd = new RelayCommand(_ => CheckUpdate(), _ => !(_autoUpdater?.IsUpdating ?? false));
 
             LoadSettings();
+            _bot.SetDecksByName(_selectedDeckNames);
             _settingsLoaded = true;
             _bot.Prepare();
 
@@ -655,13 +656,15 @@ namespace BotMain
         }
         public string SelectedProfileName => _selectedProfileIndex >= 0 && _selectedProfileIndex < ProfileNames.Count
             ? ProfileNames[_selectedProfileIndex] : "None";
-        public ObservableCollection<string> DeckNames { get; } = new() { "(auto)" };
+        public ObservableCollection<string> DeckNames { get; } = new();
+        private List<string> _selectedDeckNames = new();
         private int _selectedDeckIndex;
         public int SelectedDeckIndex
         {
             get => _selectedDeckIndex;
-            set { _selectedDeckIndex = value; Notify(); AutoSave(); }
+            private set { _selectedDeckIndex = value; Notify(); }
         }
+        public string DeckSelectionSummary => DeckSelectionState.BuildSummary(_selectedDeckNames);
 
         // 留牌策略
         public ObservableCollection<string> MulliganNames { get; } = new() { "None" };
@@ -704,6 +707,7 @@ namespace BotMain
         public ICommand BrowseGameDirectoryCmd { get; }
         public ICommand RefreshProfilesCmd { get; }
         public ICommand RefreshDecksCmd { get; }
+        public ICommand SelectDecksCmd { get; }
         public ICommand RefreshMulliganCmd { get; }
         public ICommand RefreshDiscoverCmd { get; }
         public ICommand OpenAccountControllerCmd { get; }
@@ -725,6 +729,38 @@ namespace BotMain
             };
             _settingsWindow.Closed += (_, _) => _settingsWindow = null;
             _settingsWindow.Show();
+        }
+
+        private void OpenDeckSelectionDialog()
+        {
+            var dialog = new DeckSelectionDialog(DeckNames.ToList(), _selectedDeckNames)
+            {
+                Owner = Application.Current.MainWindow
+            };
+
+            if (dialog.ShowDialog() == true)
+                ApplySelectedDeckNames(dialog.SelectedDeckNames, autoSave: true, filterToAvailable: true);
+        }
+
+        private void ApplySelectedDeckNames(IEnumerable<string> deckNames, bool autoSave, bool filterToAvailable)
+        {
+            var normalized = DeckSelectionState.Normalize(deckNames).ToList();
+            if (filterToAvailable && DeckNames.Count > 0)
+            {
+                var available = new HashSet<string>(DeckNames, StringComparer.OrdinalIgnoreCase);
+                normalized = normalized
+                    .Where(deck => available.Contains(deck))
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+
+            _selectedDeckNames = normalized;
+            SelectedDeckIndex = _selectedDeckNames.Count > 0 ? DeckNames.IndexOf(_selectedDeckNames[0]) : -1;
+            Notify(nameof(DeckSelectionSummary));
+            _bot.SetDecksByName(_selectedDeckNames);
+
+            if (autoSave)
+                AutoSave();
         }
 
         private void CheckUpdate()
@@ -848,7 +884,7 @@ namespace BotMain
                 if (MulliganProfileIndex < 0 || MulliganProfileIndex >= MulliganNames.Count)
                     MulliganProfileIndex = 0;
 
-                var deckName = SelectedDeckName;
+                var deckName = DeckSelectionSummary;
                 var mulliganName = SelectedMulliganName;
                 var discoverName = SelectedDiscoverName;
                 int serviceMode;
@@ -859,7 +895,8 @@ namespace BotMain
                     case UiModeArena: serviceMode = ServiceModeArena; break;
                     default: serviceMode = ModeIndex; break;
                 }
-                _bot.SetRunConfiguration(serviceMode, deckName, mulliganName, discoverName);
+                _bot.SetRunConfiguration(serviceMode, LegacySelectedDeckName, mulliganName, discoverName);
+                _bot.SetDecksByName(_selectedDeckNames);
                 if (IsBattlegroundsMode)
                     _bot.SetFollowHsBoxRecommendations(true);
                 if (IsArenaMode)
@@ -1064,8 +1101,8 @@ namespace BotMain
                 .FirstOrDefault();
         }
 
-        private string SelectedDeckName => SelectedDeckIndex >= 0 && SelectedDeckIndex < DeckNames.Count
-            ? DeckNames[SelectedDeckIndex]
+        private string LegacySelectedDeckName => _selectedDeckNames.Count > 0
+            ? _selectedDeckNames[0]
             : "(auto)";
 
         private string SelectedMulliganName => MulliganProfileIndex >= 0 && MulliganProfileIndex < MulliganNames.Count
@@ -1240,7 +1277,8 @@ namespace BotMain
                 if (WindowHeight.HasValue) dict["WindowHeight"] = JsonSerializer.SerializeToElement(WindowHeight.Value);
 
                 dict["ProfileName"] = JsonSerializer.SerializeToElement(SelectedProfileName);
-                dict["DeckName"] = JsonSerializer.SerializeToElement(SelectedDeckName);
+                dict["DeckName"] = JsonSerializer.SerializeToElement(LegacySelectedDeckName);
+                dict["SelectedDeckNames"] = JsonSerializer.SerializeToElement(_selectedDeckNames);
                 dict["MulliganName"] = JsonSerializer.SerializeToElement(SelectedMulliganName);
                 dict["DiscoverName"] = JsonSerializer.SerializeToElement(SelectedDiscoverName);
 
@@ -1320,6 +1358,7 @@ namespace BotMain
 
                         if (dict.TryGetValue("ProfileName", out v)) _savedProfileName = v.GetString();
                         if (dict.TryGetValue("DeckName", out v)) _savedDeckName = v.GetString();
+                        if (dict.TryGetValue("SelectedDeckNames", out v)) _savedDeckNames = ReadStringArray(v);
                         if (dict.TryGetValue("MulliganName", out v)) _savedMulliganName = v.GetString();
                         if (dict.TryGetValue("DiscoverName", out v)) _savedDiscoverName = v.GetString();
                         if (dict.TryGetValue("SmartBotRoot", out v)) _savedSmartBotRoot = ReadOptionalString(v);
@@ -1327,6 +1366,8 @@ namespace BotMain
                 }
             }
             catch { }
+
+            ApplySelectedDeckNames(DeckSelectionState.Normalize(_savedDeckNames, _savedDeckName), autoSave: false, filterToAvailable: false);
 
             _bot.SetExternalPaths(_savedSmartBotRoot);
             _bot.SetMatchmakingTimeoutSeconds(MatchmakingTimeoutSeconds);
@@ -1369,6 +1410,21 @@ namespace BotMain
             }
 
             return fallback;
+        }
+
+        private static List<string> ReadStringArray(JsonElement element)
+        {
+            if (element.ValueKind != JsonValueKind.Array)
+                return new List<string>();
+
+            var values = new List<string>();
+            foreach (var item in element.EnumerateArray())
+            {
+                if (item.ValueKind == JsonValueKind.String)
+                    values.Add(item.GetString());
+            }
+
+            return DeckSelectionState.Normalize(values).ToList();
         }
 
         private int GetHumanizeIntensityIndex(HumanizerIntensity intensity)

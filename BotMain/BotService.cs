@@ -129,7 +129,9 @@ namespace BotMain
 
         private int _modeIndex;
         private const int TestModeIndex = 99;
-        private string _selectedDeck = "(auto)";
+        private List<string> _selectedDecks = new();
+        private string _activeMatchDeck = "(auto)";
+        private Func<Random> _deckRandomFactory = () => Random.Shared;
         private string _mulliganProfile = "None";
         private string _discoverProfile = "None";
         private string _arenaProfile = "None";
@@ -290,7 +292,7 @@ namespace BotMain
         public List<string> DiscoverProfileNames { get; private set; } = new();
 
         // 云控用：暴露当前选择的卡组名、策略名、段位、玩家昵称、卡组列表
-        public string SelectedDeckName => _selectedDeck;
+        public string SelectedDeckName => GetSelectedDeckDisplayName();
         public string SelectedProfileName => _selectedProfile?.GetType().Assembly.GetName().Name ?? "None";
         public string CurrentRankText => RankHelper.FormatRank(_lastQueriedStarLevel, _lastQueriedEarnedStars, _lastQueriedLegendIndex);
         public int ModeIndex => _modeIndex;
@@ -573,7 +575,7 @@ namespace BotMain
         public void SetRunConfiguration(int modeIndex, string deckName, string mulliganProfile, string discoverProfile = null)
         {
             _modeIndex = modeIndex;
-            _selectedDeck = string.IsNullOrWhiteSpace(deckName) ? "(auto)" : deckName;
+            SetDeckByName(deckName);
             _mulliganProfile = string.IsNullOrWhiteSpace(mulliganProfile) ? "None" : mulliganProfile;
             _discoverProfile = string.IsNullOrWhiteSpace(discoverProfile) ? "None" : discoverProfile;
         }
@@ -802,9 +804,26 @@ namespace BotMain
 
         public void SetDeckByName(string name)
         {
-            if (!string.IsNullOrWhiteSpace(name))
-                _selectedDeck = name;
+            SetDecksByName(string.IsNullOrWhiteSpace(name) ? Array.Empty<string>() : new[] { name });
         }
+
+        public void SetDecksByName(IEnumerable<string> deckNames)
+        {
+            _selectedDecks = DeckSelectionState.Normalize(deckNames).ToList();
+            _activeMatchDeck = ResolveDefaultActiveDeck();
+        }
+
+        internal void SetDeckRandomFactoryForTests(Func<Random> factory)
+        {
+            _deckRandomFactory = factory ?? (() => Random.Shared);
+        }
+
+        internal string ResolveDeckNameForQueueForTests()
+        {
+            return ResolveDeckNameForQueue();
+        }
+
+        internal string ActiveMatchDeckNameForTests => _activeMatchDeck;
 
         public void SetProfileByName(string name)
         {
@@ -1622,9 +1641,9 @@ namespace BotMain
             DeckDefinition selectedDefinition = null;
             lock (_deckDefinitionsByDisplayName)
             {
-                if (!string.IsNullOrWhiteSpace(_selectedDeck)
-                    && !string.Equals(_selectedDeck, "(auto)", StringComparison.OrdinalIgnoreCase)
-                    && _deckDefinitionsByDisplayName.TryGetValue(_selectedDeck, out var configured))
+                var configuredDeckName = ResolveConfiguredDeckHint();
+                if (!string.IsNullOrWhiteSpace(configuredDeckName)
+                    && _deckDefinitionsByDisplayName.TryGetValue(configuredDeckName, out var configured))
                 {
                     selectedDefinition = configured;
                 }
@@ -1688,6 +1707,40 @@ namespace BotMain
             }
 
             return matched;
+        }
+
+        private string GetSelectedDeckDisplayName()
+        {
+            if (!string.IsNullOrWhiteSpace(_activeMatchDeck)
+                && !string.Equals(_activeMatchDeck, "(auto)", StringComparison.OrdinalIgnoreCase))
+            {
+                return _activeMatchDeck;
+            }
+
+            return DeckSelectionState.BuildSummary(_selectedDecks);
+        }
+
+        private string ResolveDefaultActiveDeck()
+        {
+            return _selectedDecks.Count == 1 ? _selectedDecks[0] : "(auto)";
+        }
+
+        private string ResolveConfiguredDeckHint()
+        {
+            if (!string.IsNullOrWhiteSpace(_activeMatchDeck)
+                && !string.Equals(_activeMatchDeck, "(auto)", StringComparison.OrdinalIgnoreCase))
+            {
+                return _activeMatchDeck;
+            }
+
+            return _selectedDecks.Count == 1 ? _selectedDecks[0] : null;
+        }
+
+        private string ResolveDeckNameForQueue()
+        {
+            _selectedDecks = DeckSelectionState.Normalize(_selectedDecks).ToList();
+            _activeMatchDeck = DeckSelectionState.ChooseActiveDeck(_selectedDecks, _deckRandomFactory());
+            return _activeMatchDeck;
         }
 
         public void ReloadPlugins()
@@ -2002,7 +2055,7 @@ namespace BotMain
                     return;
 
                 var profileName = _selectedProfile?.GetType().Name ?? "None";
-                Log($"Run config: mode={_modeIndex}, deck={_selectedDeck}, profile={profileName}, mulligan={_mulliganProfile}");
+                Log($"Run config: mode={_modeIndex}, deck={SelectedDeckName}, profile={profileName}, mulligan={_mulliganProfile}");
 
                 _pluginSystem?.FireOnStarted();
                 StatusChanged("Running");
@@ -2291,7 +2344,7 @@ namespace BotMain
                     _running,
                     _selectedProfile?.GetType().Assembly.GetName().Name,
                     _mulliganProfile,
-                    _selectedDeck,
+                    SelectedDeckName,
                     _modeIndex,
                     ProfileNames,
                     MulliganProfileNames,
@@ -10524,6 +10577,7 @@ namespace BotMain
             mulliganPhaseStartedUtc = DateTime.MinValue;
             seedNullStreak = 0;
             playActionFailStreakByEntity.Clear();
+            _activeMatchDeck = ResolveDefaultActiveDeck();
             _currentDeckContext = null;
             _currentLearningMatchId = string.Empty;
             _lastHumanizedTurnNumber = -1;
@@ -11286,7 +11340,9 @@ namespace BotMain
             Log($"[AutoQueue] 设置模式: vft={vft} -> {fmtResp}");
             SleepOrCancelled(300);
 
-            var deckName = StripClassSuffix(_selectedDeck);
+            var selectedDeck = ResolveDeckNameForQueue();
+            Log($"[DeckRandom] 候选={_selectedDecks.Count} 实际={selectedDeck}");
+            var deckName = StripClassSuffix(selectedDeck);
             var idResp = pipe.SendAndReceive("GET_DECK_ID:" + deckName, 5000);
             if (idResp == null || !long.TryParse(idResp, out long deckId))
             {

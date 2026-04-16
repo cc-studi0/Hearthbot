@@ -23,17 +23,22 @@ namespace BotMain
                 if (data?.Accounts == null)
                     return new List<AccountEntry>();
 
-                return data.Accounts.Select(dto => new AccountEntry
+                return data.Accounts.Select(dto =>
                 {
-                    DisplayName = dto.DisplayName ?? string.Empty,
-                    BattleNetEmail = dto.BattleNetEmail ?? string.Empty,
-                    HearthstoneToken = dto.HearthstoneToken ?? string.Empty,
-                    ModeIndex = dto.ModeIndex,
-                    ProfileName = dto.ProfileName ?? string.Empty,
-                    DeckName = dto.DeckName ?? string.Empty,
-                    MulliganName = dto.MulliganName ?? string.Empty,
-                    DiscoverName = dto.DiscoverName ?? string.Empty,
-                    TargetRankStarLevel = dto.TargetRankStarLevel > 0 ? dto.TargetRankStarLevel : RankHelper.LegendStarLevel,
+                    var entry = new AccountEntry
+                    {
+                        DisplayName = dto.DisplayName ?? string.Empty,
+                        BattleNetEmail = dto.BattleNetEmail ?? string.Empty,
+                        HearthstoneToken = dto.HearthstoneToken ?? string.Empty,
+                        ModeIndex = dto.ModeIndex,
+                        ProfileName = dto.ProfileName ?? string.Empty,
+                        MulliganName = dto.MulliganName ?? string.Empty,
+                        DiscoverName = dto.DiscoverName ?? string.Empty,
+                        TargetRankStarLevel = dto.TargetRankStarLevel > 0 ? dto.TargetRankStarLevel : RankHelper.LegendStarLevel,
+                    };
+                    entry.SetSelectedDeckNames(
+                        DeckSelectionState.Normalize(dto.SelectedDeckNames ?? new List<string>(), dto.DeckName));
+                    return entry;
                 }).ToList();
             }
             catch
@@ -56,6 +61,7 @@ namespace BotMain
                         ModeIndex = a.ModeIndex,
                         ProfileName = a.ProfileName,
                         DeckName = a.DeckName,
+                        SelectedDeckNames = a.SelectedDeckNames.ToList(),
                         MulliganName = a.MulliganName,
                         DiscoverName = a.DiscoverName,
                         TargetRankStarLevel = a.TargetRankStarLevel,
@@ -81,6 +87,7 @@ namespace BotMain
             public int ModeIndex { get; set; }
             public string ProfileName { get; set; }
             public string DeckName { get; set; }
+            public List<string> SelectedDeckNames { get; set; }
             public string MulliganName { get; set; }
             public string DiscoverName { get; set; }
             public int TargetRankStarLevel { get; set; }

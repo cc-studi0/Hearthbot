@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
+using System.Linq;
 using System.Runtime.CompilerServices;
 
 namespace BotMain
@@ -16,6 +18,7 @@ namespace BotMain
         private int _modeIndex;
         private string _profileName = string.Empty;
         private string _deckName = string.Empty;
+        private List<string> _selectedDeckNames = new();
         private string _mulliganName = string.Empty;
         private string _discoverName = string.Empty;
         private int _targetRankStarLevel = RankHelper.LegendStarLevel;
@@ -40,7 +43,19 @@ namespace BotMain
         public int ModeIndex { get => _modeIndex; set { if (_modeIndex == value) return; _modeIndex = value; Notify(); Notify(nameof(ModeName)); } }
         public string ModeName => ModeIndex switch { 0 => "标准", 1 => "狂野", _ => "标准" };
         public string ProfileName { get => _profileName; set { if (_profileName == value) return; _profileName = value; Notify(); } }
-        public string DeckName { get => _deckName; set { if (_deckName == value) return; _deckName = value; Notify(); } }
+        public string DeckName
+        {
+            get => _deckName;
+            set
+            {
+                var normalized = DeckSelectionState.Normalize(
+                    string.IsNullOrWhiteSpace(value) ? Array.Empty<string>() : new[] { value },
+                    value).ToList();
+                ApplyDeckSelection(normalized);
+            }
+        }
+        public IReadOnlyList<string> SelectedDeckNames => _selectedDeckNames;
+        public string DeckSummary => DeckSelectionState.BuildSummary(_selectedDeckNames);
         public string MulliganName { get => _mulliganName; set { if (_mulliganName == value) return; _mulliganName = value; Notify(); } }
         public string DiscoverName { get => _discoverName; set { if (_discoverName == value) return; _discoverName = value; Notify(); } }
         public int TargetRankStarLevel { get => _targetRankStarLevel; set { if (_targetRankStarLevel == value) return; _targetRankStarLevel = value; Notify(); Notify(nameof(TargetRankText)); } }
@@ -64,6 +79,26 @@ namespace BotMain
         public string CurrentRankText { get => _currentRankText; set { if (_currentRankText == value) return; _currentRankText = value; Notify(); } }
         public DateTime? StartedAt { get => _startedAt; set { _startedAt = value; Notify(); } }
         public DateTime? CompletedAt { get => _completedAt; set { _completedAt = value; Notify(); } }
+
+        public void SetSelectedDeckNames(IEnumerable<string> deckNames)
+        {
+            ApplyDeckSelection(DeckSelectionState.Normalize(deckNames, _deckName).ToList());
+        }
+
+        private void ApplyDeckSelection(List<string> normalizedDecks)
+        {
+            normalizedDecks ??= new List<string>();
+            var legacyDeckName = normalizedDecks.Count > 0 ? normalizedDecks[0] : string.Empty;
+            var decksChanged = !_selectedDeckNames.SequenceEqual(normalizedDecks, StringComparer.OrdinalIgnoreCase);
+            var deckNameChanged = !string.Equals(_deckName, legacyDeckName, StringComparison.Ordinal);
+            if (!decksChanged && !deckNameChanged)
+                return;
+
+            _selectedDeckNames = normalizedDecks;
+            _deckName = legacyDeckName;
+            Notify(nameof(DeckName));
+            Notify(nameof(DeckSummary));
+        }
 
         public event PropertyChangedEventHandler PropertyChanged;
         private void Notify([CallerMemberName] string name = null)

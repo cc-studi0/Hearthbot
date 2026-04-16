@@ -47,7 +47,11 @@
         <ComboBox Grid.Row="3" Grid.Column="1" x:Name="ProfileCombo" Height="24" Margin="0,2"/>
 
         <TextBlock Grid.Row="4" Text="卡组:" VerticalAlignment="Center"/>
-        <ComboBox Grid.Row="4" Grid.Column="1" x:Name="DeckCombo" Height="24" Margin="0,2"/>
+        <StackPanel Grid.Row="4" Grid.Column="1" Orientation="Horizontal" Margin="0,2">
+            <TextBox x:Name="DeckSummaryBox" Height="24" Width="200" IsReadOnly="True"
+                     VerticalContentAlignment="Center"/>
+            <Button Content="多选" Width="50" Height="24" Margin="6,0,0,0" Click="OnSelectDecks"/>
+        </StackPanel>
 
         <TextBlock Grid.Row="5" Text="留牌:" VerticalAlignment="Center"/>
         <ComboBox Grid.Row="5" Grid.Column="1" x:Name="MulliganCombo" Height="24" Margin="0,2"/>

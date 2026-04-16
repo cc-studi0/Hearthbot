@@ -8,6 +8,8 @@ namespace BotMain
     {
         private readonly AccountEntry _entry;
         private readonly List<BnetInstanceItem> _bnetInstances;
+        private readonly IReadOnlyList<string> _deckNames;
+        private List<string> _selectedDeckNames = new();
 
         public AccountEditDialog(
             AccountEntry entry,
@@ -22,12 +24,12 @@ namespace BotMain
 
             _entry = entry;
             _bnetInstances = bnetInstances;
+            _deckNames = deckNames ?? System.Array.Empty<string>();
 
             // 填充下拉框
             BnetCombo.ItemsSource = new[] { new BnetInstanceItem { ProcessId = 0, DisplayText = "(未分配)" } }
                 .Concat(bnetInstances).ToList();
             ProfileCombo.ItemsSource = profileNames;
-            DeckCombo.ItemsSource = deckNames;
             MulliganCombo.ItemsSource = mulliganNames;
             DiscoverCombo.ItemsSource = discoverNames;
             RankCombo.ItemsSource = rankOptions;
@@ -51,10 +53,11 @@ namespace BotMain
             }
 
             SelectComboItem(ProfileCombo, profileNames, entry.ProfileName);
-            SelectComboItem(DeckCombo, deckNames, entry.DeckName);
             SelectComboItem(MulliganCombo, mulliganNames, entry.MulliganName);
             SelectComboItem(DiscoverCombo, discoverNames, entry.DiscoverName);
             RankCombo.SelectedValue = entry.TargetRankStarLevel;
+            _selectedDeckNames = DeckSelectionState.Normalize(entry.SelectedDeckNames, entry.DeckName).ToList();
+            UpdateDeckSummary();
         }
 
         private static void SelectComboItem(System.Windows.Controls.ComboBox combo, IReadOnlyList<string> items, string value)
@@ -87,7 +90,7 @@ namespace BotMain
             }
 
             _entry.ProfileName = ProfileCombo.SelectedItem as string ?? string.Empty;
-            _entry.DeckName = DeckCombo.SelectedItem as string ?? string.Empty;
+            _entry.SetSelectedDeckNames(_selectedDeckNames);
             _entry.MulliganName = MulliganCombo.SelectedItem as string ?? string.Empty;
             _entry.DiscoverName = DiscoverCombo.SelectedItem as string ?? string.Empty;
 
@@ -95,6 +98,25 @@ namespace BotMain
                 _entry.TargetRankStarLevel = starLevel;
 
             DialogResult = true;
+        }
+
+        private void OnSelectDecks(object sender, RoutedEventArgs e)
+        {
+            var dialog = new DeckSelectionDialog(_deckNames, _selectedDeckNames)
+            {
+                Owner = this
+            };
+
+            if (dialog.ShowDialog() != true)
+                return;
+
+            _selectedDeckNames = DeckSelectionState.Normalize(dialog.SelectedDeckNames).ToList();
+            UpdateDeckSummary();
+        }
+
+        private void UpdateDeckSummary()
+        {
+            DeckSummaryBox.Text = DeckSelectionState.BuildSummary(_selectedDeckNames);
         }
     }
 }

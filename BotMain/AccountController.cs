@@ -277,7 +277,9 @@ namespace BotMain
             };
             _bot.SetModeFromApi(mode);
 
-            if (!string.IsNullOrWhiteSpace(account.DeckName))
+            if (account.SelectedDeckNames != null && account.SelectedDeckNames.Count > 0)
+                _bot.SetDecksByName(account.SelectedDeckNames);
+            else if (!string.IsNullOrWhiteSpace(account.DeckName))
                 _bot.SetDeckByName(account.DeckName);
 
             if (!string.IsNullOrWhiteSpace(account.ProfileName))
