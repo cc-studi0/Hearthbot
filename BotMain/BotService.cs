@@ -334,6 +334,7 @@ namespace BotMain
         private PluginSystem _pluginSystem;
         private readonly IGameRecommendationProvider _localRecommendationProvider;
         private readonly HsBoxGameRecommendationProvider _hsBoxRecommendationProvider;
+        private readonly HsBoxLimitBypass _hsBoxLimitBypass;
         private DateTime _choiceStateWatchUntilUtc = DateTime.MinValue;
         private string _choiceStateWatchSource = string.Empty;
         private string _lastDiscoverDetectedKey = string.Empty;
@@ -461,6 +462,11 @@ namespace BotMain
                 RecommendLocalChoice);
             _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
             _hsBoxRecommendationProvider.SetBgLog(msg => Log(msg));
+
+            _hsBoxLimitBypass = new HsBoxLimitBypass(
+                msg => Log(msg),
+                new DefaultBypassProcessHost(),
+                new BypassConfig());
         }
 
         public void RefreshProfiles()
@@ -698,6 +704,9 @@ namespace BotMain
 
             _thread = new Thread(DoStartRun) { IsBackground = true };
             _thread.Start();
+
+            // 启动盒子受限绕过（facade 内部幂等，Bot 多次 Start/Stop 不会重复拉子进程）
+            try { _hsBoxLimitBypass.Start(); } catch (Exception ex) { Log("[LimitBypass] start exception: " + ex.Message); }
         }
 
         public void Stop()
