@@ -11349,9 +11349,18 @@ namespace BotMain
             }
 
             // ── 安全检查：绝不在 GAMEPLAY / UNKNOWN 场景下导航 ──
-            // 即使不在保护期，如果场景是 GAMEPLAY 或 UNKNOWN，也不应该导航到传统对战
+            // STARTUP / LOGIN：pipe 未断但场景回到登录门（被踢、重开到登录等）时主动推门，
+            // 否则永远等不到场景变化；GAMEPLAY / UNKNOWN / 空：保持被动等待，避免误点。
             if (BotProtocol.IsNavigationBlockedScene(scene))
             {
+                if (string.Equals(scene, "STARTUP", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(scene, "LOGIN", StringComparison.OrdinalIgnoreCase))
+                {
+                    Log($"[AutoQueue] 场景={scene}，调用 WaitForLoginToHub 推门...");
+                    WaitForLoginToHub(pipe, "AutoQueue");
+                    return;
+                }
+
                 Log($"[AutoQueue] 场景={scene}，不适合导航，等待场景变化...");
                 SleepOrCancelled(3000);
                 return;
