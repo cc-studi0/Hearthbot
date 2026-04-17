@@ -2,7 +2,9 @@
 .SYNOPSIS
     Build, obfuscate and package Hearthbot for release.
 .NOTES
-    Requires: dotnet tool install --global Obfuscar.GlobalTool
+    混淆器: ConfuserEx 2 (mkaring fork)
+    下载:  https://github.com/mkaring/ConfuserEx/releases
+    解压至 <RepoRoot>\tools\confuserex\ , 或设置 $env:CONFUSEREX_CLI 指向 Confuser.CLI.exe
 #>
 
 param(
@@ -16,7 +18,7 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 $PublishDir    = Join-Path $RepoRoot "publish\app"
 $PackageDir    = if ($OutputDir) { $OutputDir } else { Join-Path $RepoRoot "publish\Hearthbot" }
 $ObfuscateTmp  = "C:\temp\hb_obfuscate"
-$ObfuscatedTmp = "C:\temp\obfuscated"
+$ObfuscatedTmp = "C:\temp\confused"
 $ZipPath       = Join-Path $RepoRoot "publish\Hearthbot.zip"
 
 Write-Host "=== Hearthbot Release Build ===" -ForegroundColor Cyan
@@ -34,55 +36,64 @@ dotnet publish "$RepoRoot\BotMain\BotMain.csproj" `
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed" }
 Write-Host "Publish OK" -ForegroundColor Green
 
-# -- Step 2: Obfuscate --
+# -- Step 2: Obfuscate (ConfuserEx 2) --
 if (-not $SkipObfuscation) {
-    Write-Host "`n[2/6] Obfuscating BotMain.dll + BotCore.dll..." -ForegroundColor Yellow
+    Write-Host "`n[2/6] Obfuscating BotMain.dll + BotCore.dll (ConfuserEx 2)..." -ForegroundColor Yellow
 
-    # Obfuscar does not support Unicode paths, use temp dir
+    # 定位 Confuser.CLI.exe
+    $ConfuserCli = $env:CONFUSEREX_CLI
+    if (-not $ConfuserCli -or -not (Test-Path $ConfuserCli)) {
+        $ConfuserCli = Join-Path $RepoRoot "tools\confuserex\Confuser.CLI.exe"
+    }
+    if (-not (Test-Path $ConfuserCli)) {
+        throw @"
+找不到 Confuser.CLI.exe.
+解决办法 (任选其一):
+  1) 从 https://github.com/mkaring/ConfuserEx/releases 下载 ConfuserEx-CLI.zip
+     解压到 $RepoRoot\tools\confuserex\ (需包含 Confuser.CLI.exe)
+  2) 设置环境变量: `$env:CONFUSEREX_CLI = 'D:\path\to\Confuser.CLI.exe'
+"@
+    }
+    Write-Host "  ConfuserEx: $ConfuserCli" -ForegroundColor DarkGray
+
+    # ConfuserEx 对 Unicode 路径敏感, 复制到英文临时目录
     if (Test-Path $ObfuscateTmp)  { Remove-Item $ObfuscateTmp  -Recurse -Force }
     if (Test-Path $ObfuscatedTmp) { Remove-Item $ObfuscatedTmp -Recurse -Force }
-
     New-Item -ItemType Directory -Path $ObfuscateTmp  -Force | Out-Null
     New-Item -ItemType Directory -Path $ObfuscatedTmp -Force | Out-Null
 
-    # Copy all DLLs (Obfuscar needs to resolve references)
+    # 复制项目 DLL
     Copy-Item "$PublishDir\*.dll" $ObfuscateTmp
 
-    # Framework-dependent mode: runtime DLLs are not in publish dir
-    # Find .NET 8 Desktop Runtime (WPF) shared framework path
+    # .NET 8 运行时依赖不在 publish 目录 (framework-dependent)
+    # ConfuserEx 不支持 probePath 项目元素 / -probe CLI 参数
+    # 直接把运行时 DLL 复制进临时目录, 让 dnlib 从同目录解析
     $dotnetRoot = Split-Path (Get-Command dotnet).Source
     $wpfRuntime = Get-ChildItem "$dotnetRoot\shared\Microsoft.WindowsDesktop.App\8.*" -Directory |
         Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
     $aspRuntime = Get-ChildItem "$dotnetRoot\shared\Microsoft.NETCore.App\8.*" -Directory |
         Sort-Object { [version]$_.Name } -Descending | Select-Object -First 1
-
     if (-not $wpfRuntime) { throw ".NET 8 Desktop Runtime not found. Please install it first." }
 
-    # Generate obfuscar.xml with AssemblySearchPath for runtime refs
-    $obfXml = [xml](Get-Content "$RepoRoot\obfuscar.xml")
-    $root = $obfXml.DocumentElement
-
-    # Insert AssemblySearchPath nodes before first Var
-    $firstChild = $root.FirstChild
-    foreach ($searchDir in @($wpfRuntime.FullName, $aspRuntime.FullName)) {
-        $node = $obfXml.CreateElement("AssemblySearchPath")
-        $node.SetAttribute("path", $searchDir)
-        $root.InsertBefore($node, $firstChild) | Out-Null
-    }
-    $obfXml.Save("$ObfuscateTmp\obfuscar.xml")
-    Write-Host "  Runtime search paths:" -ForegroundColor DarkGray
+    Write-Host "  Copying runtime refs from:" -ForegroundColor DarkGray
     Write-Host "    $($wpfRuntime.FullName)" -ForegroundColor DarkGray
     Write-Host "    $($aspRuntime.FullName)" -ForegroundColor DarkGray
+    # -Force:覆盖重复, 不覆盖项目自身 DLL 是因为运行时目录不含它们
+    Copy-Item "$($aspRuntime.FullName)\*.dll" $ObfuscateTmp -Force -ErrorAction SilentlyContinue
+    Copy-Item "$($wpfRuntime.FullName)\*.dll" $ObfuscateTmp -Force -ErrorAction SilentlyContinue
 
-    Push-Location $ObfuscateTmp
-    try {
-        obfuscar.console obfuscar.xml
-        if ($LASTEXITCODE -ne 0) { throw "Obfuscar failed" }
-    } finally {
-        Pop-Location
-    }
+    # 生成运行时 .crproj (只改 baseDir / outputDir, 用字符串替换避免 XmlDocument 破坏命名空间)
+    $template = Get-Content "$RepoRoot\confuserex.crproj" -Raw -Encoding UTF8
+    $modified = $template `
+        -replace 'baseDir="[^"]*"',   "baseDir=""$ObfuscateTmp""" `
+        -replace 'outputDir="[^"]*"', "outputDir=""$ObfuscatedTmp"""
+    $projPath = Join-Path $ObfuscateTmp "confuserex.crproj"
+    [System.IO.File]::WriteAllText($projPath, $modified, [System.Text.UTF8Encoding]::new($false))
 
-    # Replace with obfuscated DLLs
+    & $ConfuserCli -n $projPath
+    if ($LASTEXITCODE -ne 0) { throw "ConfuserEx failed (exit $LASTEXITCODE)" }
+
+    # 替换为混淆后的 DLL
     Copy-Item "$ObfuscatedTmp\BotMain.dll" $PublishDir -Force
     Copy-Item "$ObfuscatedTmp\BotCore.dll" $PublishDir -Force
 

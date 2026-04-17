@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ConfuserEx 2 (mkaring fork) 混淆配置
+  文档: https://github.com/mkaring/ConfuserEx/wiki/Rules
+  下载: https://github.com/mkaring/ConfuserEx/releases
+
+  策略:
+    BotCore.dll  - AI 核心 IP, 全量 rename + 所有保护
+    BotMain.dll  - WPF / JSON 绑定重, 保留类名, 强化方法体
+
+  outputDir / baseDir / probePath 由 build_release.ps1 在运行时覆盖
+-->
+<project outputDir="..\obfuscated" baseDir="." xmlns="http://confuser.codeplex.com">
+
+  <!-- ========== BotCore.dll 规则 (AI 核心, 全量保护) ========== -->
+  <rule pattern="module('BotCore.dll')" inherit="false">
+    <protection id="rename" />
+    <protection id="anti debug" />
+    <protection id="anti dump" />
+    <protection id="anti ildasm" />
+    <protection id="anti tamper" />
+    <protection id="ctrl flow" />
+    <protection id="constants" />
+    <protection id="ref proxy" />
+    <protection id="resources" />
+    <protection id="invalid metadata" />
+  </rule>
+
+  <!-- Profile / Mulligan 脚本引用 SmartBot.* API, 保留 -->
+  <rule pattern="module('BotCore.dll') and namespace('^SmartBot(\..+)?$')" inherit="true">
+    <protection id="rename" action="remove" />
+  </rule>
+
+  <!-- CardEffectScriptLoader 以命名空间字符串匹配, 保留 -->
+  <rule pattern="module('BotCore.dll') and namespace('^BotMain\.AI\.CardEffectsScripts$')" inherit="true">
+    <protection id="rename" action="remove" />
+  </rule>
+
+  <!-- ========== BotMain.dll 规则 (保留类名, 强化方法体) ========== -->
+  <rule pattern="module('BotMain.dll')" inherit="false">
+    <protection id="anti debug" />
+    <protection id="anti dump" />
+    <protection id="anti ildasm" />
+    <protection id="anti tamper" />
+    <protection id="ctrl flow" />
+    <protection id="constants" />
+    <protection id="ref proxy" />
+    <protection id="invalid metadata" />
+  </rule>
+
+  <!-- ========== 要处理的模块列表 ========== -->
+  <module path="BotCore.dll" />
+  <module path="BotMain.dll" />
+</project>
