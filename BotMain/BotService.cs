@@ -9106,33 +9106,7 @@ namespace BotMain
                 BotProtocol.IsSceneResponse,
                 out var resp,
                 scope);
-            var ok = got && BotProtocol.TryParseScene(resp, out scene);
-            if (ok && !string.IsNullOrWhiteSpace(scene))
-            {
-                _latestScene = scene;
-                _latestSceneUtc = DateTime.UtcNow;
-            }
-            return ok;
-        }
-
-        private volatile string _latestScene;
-        private DateTime _latestSceneUtc;
-
-        /// <summary>
-        /// 主循环最近一次读取到的 scene（线程安全）。用于后台线程判定"对局内 vs 对局外"。
-        /// </summary>
-        public string LatestScene => _latestScene;
-
-        /// <summary>
-        /// 最近一次 scene 更新距今的秒数。用于判断 LatestScene 是否还新鲜。
-        /// </summary>
-        public double SecondsSinceLatestScene
-        {
-            get
-            {
-                var t = _latestSceneUtc;
-                return t == default ? double.MaxValue : (DateTime.UtcNow - t).TotalSeconds;
-            }
+            return got && BotProtocol.TryParseScene(resp, out scene);
         }
 
         private bool TryGetHubButtons(PipeServer pipe, int timeoutMs, out List<BotProtocol.HubButtonInfo> buttons, string scope)
@@ -11679,33 +11653,6 @@ namespace BotMain
         /// - 如果盒子已启动但不是 9222 端口：重启（带 --remote-debugging-port=9222）
         /// - 如果盒子已经运行在 9222：不做任何操作
         /// </summary>
-        /// <summary>
-        /// 判断当前是否"对局内"：最近读取的 scene == GAMEPLAY 且还新鲜（&lt;15s）。
-        /// 后台线程可安全调用。
-        /// </summary>
-        public bool IsInGameplayLive()
-        {
-            var scene = _latestScene;
-            if (string.IsNullOrWhiteSpace(scene)) return false;
-            if (SecondsSinceLatestScene > 15) return false;
-            return string.Equals(scene, "GAMEPLAY", StringComparison.OrdinalIgnoreCase);
-        }
-
-        /// <summary>
-        /// 同步启动盒子并等待 9222 就绪。供盒子闪退恢复流程调用（会阻塞调用线程）。
-        /// </summary>
-        public bool EnsureHsBoxAndWaitReady(int readyTimeoutMs = 90000)
-        {
-            Log("[HsBox] 闪退恢复：启动盒子...");
-            try { EnsureHsBoxWithDebuggingPort(); }
-            catch (Exception ex) { Log($"[HsBox] 启动盒子异常: {ex.Message}"); }
-
-            var ok = HsBoxWatchdog.WaitForReady(readyTimeoutMs, msg => Log(msg));
-            if (!ok)
-                Log("[HsBox] 盒子未就绪，继续后续恢复动作。");
-            return ok;
-        }
-
         private void EnsureHsBoxWithDebuggingPort()
         {
             try

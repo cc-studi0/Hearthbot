@@ -982,20 +982,15 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 盒子闪退回调（由 HsBoxWatchdog 后台线程调用）。
-        /// - 对局内：请求投降，让游戏主循环自己结束当前局后回到正常循环。
-        /// - 对局外：暂停 HearthstoneWatchdog，先启动盒子等就绪，再 Kill+Launch 炉石，最后解除暂停。
-        /// 整个流程加锁串行化，防止多次闪退同时触发恢复。
+        /// 盒子闪退回调（由 HsBoxWatchdog 后台线程调用）：无条件触发投降。
+        /// 对局外 RequestConcede 也会被主循环消费（CONCEDE 命令可能无效），
+        /// 这里不做对局内/外分流，保持简单一致。
         /// </summary>
         private void HandleHsBoxCrashed()
         {
             lock (_hsBoxCrashLock)
             {
-                if (_hsBoxCrashRecoveryInProgress)
-                {
-                    EnqueueLog("[HsBox] 闪退恢复流程进行中，跳过重复触发。");
-                    return;
-                }
+                if (_hsBoxCrashRecoveryInProgress) return;
                 _hsBoxCrashRecoveryInProgress = true;
             }
 
@@ -1007,64 +1002,16 @@ namespace BotMain
                     return;
                 }
 
-                if (_bot.IsInGameplayLive())
-                {
-                    EnqueueLog("[HsBox] 盒子闪退，当前在对局内 -> 请求投降。");
-                    _bot.RequestConcede();
-                    return;
-                }
-
-                EnqueueLog("[HsBox] 盒子闪退，当前在对局外 -> 启动盒子→等就绪→重启炉石。");
-                _hsBoxWatchdog?.SetRecovering(true);
-                _watchdog?.Stop(); // 暂停炉石看门狗，防止它看到炉石进程消失误判再做一次恢复
-
-                try
-                {
-                    _bot.EnsureHsBoxAndWaitReady(90000);
-
-                    EnqueueLog("[HsBox] 重启炉石...");
-                    BattleNetWindowManager.KillWerFault(EnqueueLog);
-                    BattleNetWindowManager.KillHearthstone(EnqueueLog);
-                    WaitForHearthstoneExit(15);
-
-                    var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(120));
-                    try
-                    {
-                        var result = BattleNetWindowManager.LaunchHearthstoneCmd(EnqueueLog, cts.Token, 120)
-                            .GetAwaiter().GetResult();
-                        EnqueueLog(result.Success
-                            ? "[HsBox] 炉石已重启成功，等待 payload 重连。"
-                            : $"[HsBox] 炉石重启失败: {result.Message}");
-                    }
-                    finally
-                    {
-                        cts.Dispose();
-                    }
-                }
-                finally
-                {
-                    // 盒子进程已起来，下次 watchdog tick 应视作 alive，重置 _lastAlive
-                    _hsBoxWatchdog?.SetRecovering(false);
-                    _watchdog?.Start();
-                }
+                EnqueueLog("[HsBox] 盒子闪退 -> 请求投降。");
+                _bot.RequestConcede();
             }
             catch (Exception ex)
             {
-                EnqueueLog($"[HsBox] 闪退恢复异常: {ex.Message}");
+                EnqueueLog($"[HsBox] 闪退处理异常: {ex.Message}");
             }
             finally
             {
                 lock (_hsBoxCrashLock) { _hsBoxCrashRecoveryInProgress = false; }
-            }
-        }
-
-        private static void WaitForHearthstoneExit(int maxSeconds)
-        {
-            var deadline = DateTime.UtcNow.AddSeconds(maxSeconds);
-            while (DateTime.UtcNow < deadline)
-            {
-                if (System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length == 0) return;
-                System.Threading.Thread.Sleep(1000);
             }
         }
 
