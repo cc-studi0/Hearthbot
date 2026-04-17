@@ -44,7 +44,6 @@
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
     <Compile Include="..\BotMain\HandActionCommandMetadata.cs" Link="HandActionCommandMetadata.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
-    <Compile Include="..\BotMain\HsBoxLimitBypass.cs" Link="HsBoxLimitBypass.cs" />
     <Compile Include="..\BotMain\LogTextSyncPlanner.cs" Link="LogTextSyncPlanner.cs" />
     <Compile Include="..\BotMain\MatchFlowState.cs" Link="MatchFlowState.cs" />
     <Compile Include="..\BotMain\PostGameResultHelper.cs" Link="PostGameResultHelper.cs" />

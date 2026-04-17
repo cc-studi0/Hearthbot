@@ -14,10 +14,9 @@
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('wild', 'std-legend', 'smoke', 'std-legend-startup')]
+    [ValidateSet('wild', 'std-legend', 'smoke')]
     [string]$Mode,
-    [int]$DurationSec = 60,
-    [int]$WaitForProcessSec = 0  # >0 时启动器等 HSAng.exe 出现（启动期侦察）
+    [int]$DurationSec = 60
 )
 
 $ErrorActionPreference = 'Stop'
@@ -56,10 +55,6 @@ switch ($Mode) {
     'smoke' {
         Write-Host "  3. smoke 模式：空跑验证脚本加载不崩即可；无需进对局" -ForegroundColor Yellow
     }
-    'std-legend-startup' {
-        Write-Host "  3. 启动期侦察：先 kill HSAng.exe，回车后脚本会等盒子启动并立即 attach" -ForegroundColor Yellow
-        Write-Host "     回车 -> 启动盒子 -> 进入【标准传说】ranked queue -> 进对局 -> 录满" -ForegroundColor Yellow
-    }
 }
 Write-Host ""
 Read-Host "准备好后按回车开始录制"
@@ -76,12 +71,6 @@ $PyArgs = @(
     '--duration', $DurationSec.ToString(),
     '--target', 'HSAng.exe'
 )
-# startup 模式默认等待 60 秒让用户启动盒子
-if ($Mode -eq 'std-legend-startup' -and $WaitForProcessSec -le 0) { $WaitForProcessSec = 60 }
-if ($WaitForProcessSec -gt 0) {
-    $PyArgs += '--wait'
-    $PyArgs += $WaitForProcessSec.ToString()
-}
 
 Write-Host "启动 Frida (via Python)..." -ForegroundColor Green
 $proc = Start-Process -FilePath 'python' -ArgumentList $PyArgs `
