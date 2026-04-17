@@ -83,14 +83,33 @@ namespace BotMain
 
         private void SpawnLocked()
         {
-            var pyPath = _cfg.LauncherScriptRelative.Replace('/', Path.DirectorySeparatorChar);
-            var jsPath = _cfg.FridaJsRelative.Replace('/', Path.DirectorySeparatorChar);
-            var args = "\"" + pyPath + "\" --script \"" + jsPath + "\"";
-            _proc = _host.Spawn(_cfg.PythonExecutable, args, AppContext.BaseDirectory);
+            var root = ResolveRepoRoot();
+            var pyAbs = Path.Combine(root, _cfg.LauncherScriptRelative.Replace('/', Path.DirectorySeparatorChar));
+            var jsAbs = Path.Combine(root, _cfg.FridaJsRelative.Replace('/', Path.DirectorySeparatorChar));
+            var args = "\"" + pyAbs + "\" --script \"" + jsAbs + "\"";
+            _proc = _host.Spawn(_cfg.PythonExecutable, args, root);
             _stopRequested = false;
             _fatalReceived = false;
             StartPumps();
-            _log("[LimitBypass] starting python launcher");
+            _log("[LimitBypass] starting python launcher py=" + pyAbs);
+        }
+
+        // 从 BaseDirectory 向上找含 LauncherScriptRelative 的目录作为 repo root
+        // 兼容：开发模式下 BotMain 跑在 bin/Debug/net8.0-windows/，脚本在 repo 根
+        // 部署模式下脚本可能与 BotMain.exe 同级
+        private string ResolveRepoRoot()
+        {
+            var rel = _cfg.LauncherScriptRelative.Replace('/', Path.DirectorySeparatorChar);
+            var dir = AppContext.BaseDirectory;
+            while (!string.IsNullOrEmpty(dir))
+            {
+                if (File.Exists(Path.Combine(dir, rel)))
+                    return dir;
+                var parent = Path.GetDirectoryName(dir);
+                if (string.IsNullOrEmpty(parent) || parent == dir) break;
+                dir = parent;
+            }
+            return AppContext.BaseDirectory;
         }
 
         private void StartPumps()
