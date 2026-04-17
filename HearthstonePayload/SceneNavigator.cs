@@ -879,7 +879,8 @@ namespace HearthstonePayload
                 return "FAIL:NO_DIALOG:no_dialog";
             if (string.Equals(hit.DialogType, StartupRatingsDialogType, StringComparison.OrdinalIgnoreCase))
                 return DismissStartupRatings();
-            if (!hit.CanDismiss)
+            // Retry 按钮（重新连接/重试）允许点击：对 ReconnectHelperDialog 这是唯一正确操作
+            if (!hit.CanDismiss && !hit.IsRetryButton)
                 return "FAIL:" + hit.DialogType + ":unsafe_button:" + (string.IsNullOrWhiteSpace(hit.ButtonLabel) ? "UNKNOWN" : hit.ButtonLabel);
             if (hit.ButtonX <= 0 || hit.ButtonY <= 0)
                 return "FAIL:" + hit.DialogType + ":button_pos";
@@ -2476,6 +2477,17 @@ namespace HearthstonePayload
 
             if (candidates.Count == 0)
                 return false;
+
+            // ReconnectHelperDialog：游戏离线，必须点"重新连接"才能恢复；
+            // "取消"只是让游戏留在离线浏览状态，弹窗会立刻再弹出死循环。
+            var dialogTypeName = dialogObj.GetType().Name;
+            if (string.Equals(dialogTypeName, "ReconnectHelperDialog", StringComparison.OrdinalIgnoreCase))
+            {
+                hit = candidates.FirstOrDefault(c => c.IsRetryButton)
+                    ?? candidates.FirstOrDefault(c => c.CanDismiss)
+                    ?? candidates[0];
+                return hit != null;
+            }
 
             hit = candidates.FirstOrDefault(c => c.CanDismiss)
                 ?? candidates.FirstOrDefault(c => !c.IsRetryButton)

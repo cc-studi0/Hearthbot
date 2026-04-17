@@ -357,6 +357,15 @@ namespace HearthstonePayload
             if (OverlayPopupPolicy.ShouldTreatAsDismissablePopupDisplay(status.Type))
                 return null;
 
+            // ReconnectHelperDialog 需要点击"重新连接"恢复网络，GoBack 对它无效
+            // （仅相当于点"取消"或更糟 —— 主线程阻塞 + 弹窗不消失），
+            // 直接交给旧逻辑按文本匹配 Reconnect 按钮点击。
+            if (string.Equals(status.Type, "ReconnectHelperDialog", StringComparison.OrdinalIgnoreCase))
+            {
+                _log("[OverlayDetector] ReconnectHelperDialog 跳过 GoBack，回退到按钮点击");
+                return null;
+            }
+
             // CAN_DISMISS: 尝试 GoBack
             _log($"[OverlayDetector] 尝试关闭 {status.Type} via GoBack()");
 
