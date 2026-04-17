@@ -45,9 +45,17 @@ namespace BotMain
         private readonly DispatcherTimer _prepareTimer;
         private readonly DispatcherTimer _logFlushTimer;
         private readonly ConcurrentQueue<string> _pendingLogs = new();
+        private readonly Queue<string> _logChunks = new();
+        private int _logChunksTotalChars;
         private DateTime _startTime;
         private const int MaxSingleLogLength = 800;
         private const int MaxBufferedLogChars = 200000;
+
+        /// <summary>
+        /// 每次 flush 的新增日志 chunk。UI 订阅此事件做增量渲染，
+        /// 避免把完整 LogText 反复作为全串在 UI 线程上对比/复制。
+        /// </summary>
+        public event Action<string> LogChunkFlushed;
         private static readonly string SettingsPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "settings.json");
         private string _savedProfileName, _savedDeckName, _savedMulliganName, _savedDiscoverName;
         private List<string> _savedDeckNames = new();
@@ -291,7 +299,24 @@ namespace BotMain
         }
 
         // 状态
-        public string LogText { get; set; } = "";
+        /// <summary>
+        /// 聚合的日志文本。仅供"保存日志"等一次性消费使用；
+        /// UI 实时渲染请订阅 <see cref="LogChunkFlushed"/>，不要反复读这个属性。
+        /// </summary>
+        public string LogText
+        {
+            get
+            {
+                lock (_logChunks)
+                {
+                    if (_logChunks.Count == 0) return string.Empty;
+                    var sb = new StringBuilder(_logChunksTotalChars);
+                    foreach (var chunk in _logChunks)
+                        sb.Append(chunk);
+                    return sb.ToString();
+                }
+            }
+        }
         public double? WindowLeft { get; set; }
         public double? WindowTop { get; set; }
         public double? WindowWidth { get; set; }
@@ -1117,11 +1142,21 @@ namespace BotMain
                 count++;
             }
 
-            LogText += sb.ToString();
-            if (LogText.Length > MaxBufferedLogChars)
-                LogText = LogText.Substring(LogText.Length - MaxBufferedLogChars);
+            if (sb.Length == 0) return;
+            var chunk = sb.ToString();
 
-            Notify(nameof(LogText));
+            lock (_logChunks)
+            {
+                _logChunks.Enqueue(chunk);
+                _logChunksTotalChars += chunk.Length;
+                while (_logChunksTotalChars > MaxBufferedLogChars && _logChunks.Count > 1)
+                {
+                    var dropped = _logChunks.Dequeue();
+                    _logChunksTotalChars -= dropped.Length;
+                }
+            }
+
+            LogChunkFlushed?.Invoke(chunk);
         }
 
         private void AutoSave() { if (_settingsLoaded) SaveSettings(); }

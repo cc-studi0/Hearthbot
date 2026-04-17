@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
@@ -107,55 +106,34 @@ namespace BotMain
         {
             if (viewModel == null) return;
             _logViewModel = viewModel;
-            _logViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            _logViewModel.LogChunkFlushed += OnLogChunkFlushed;
         }
 
         private void DetachLogViewModel(MainViewModel viewModel)
         {
             if (viewModel == null) return;
-            viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            viewModel.LogChunkFlushed -= OnLogChunkFlushed;
             if (ReferenceEquals(_logViewModel, viewModel))
                 _logViewModel = null;
         }
 
-        private string _lastProcessedLog = "";
-
-        private void OnViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
+        private void OnLogChunkFlushed(string chunk)
         {
-            if (e.PropertyName != nameof(MainViewModel.LogText) || sender is not MainViewModel viewModel)
-                return;
+            if (string.IsNullOrEmpty(chunk)) return;
 
             if (!Dispatcher.CheckAccess())
             {
-                Dispatcher.BeginInvoke(new Action(() => ProcessNewLogLines(viewModel.LogText)), DispatcherPriority.Background);
+                Dispatcher.BeginInvoke(new Action(() => AppendLogChunk(chunk)), DispatcherPriority.Background);
                 return;
             }
 
-            ProcessNewLogLines(viewModel.LogText);
+            AppendLogChunk(chunk);
         }
 
         // ── Core: incremental colored log rendering ──
 
-        private void ProcessNewLogLines(string fullText)
+        private void AppendLogChunk(string newPortion)
         {
-            if (string.IsNullOrEmpty(fullText)) return;
-
-            // Find new portion
-            string newPortion;
-            if (fullText.Length > _lastProcessedLog.Length && fullText.StartsWith(_lastProcessedLog))
-            {
-                newPortion = fullText.Substring(_lastProcessedLog.Length);
-            }
-            else
-            {
-                // Full reset (truncation happened)
-                LogBox.Document.Blocks.Clear();
-                _gameStartIndices.Clear();
-                _totalParagraphs = 0;
-                newPortion = fullText;
-            }
-            _lastProcessedLog = fullText;
-
             if (string.IsNullOrEmpty(newPortion)) return;
 
             var lines = newPortion.Split('\n');
