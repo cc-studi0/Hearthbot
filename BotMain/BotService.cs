@@ -11653,6 +11653,31 @@ namespace BotMain
         /// - 如果盒子已启动但不是 9222 端口：重启（带 --remote-debugging-port=9222）
         /// - 如果盒子已经运行在 9222：不做任何操作
         /// </summary>
+        /// <summary>
+        /// 同步：重启盒子（若有残余先 kill）并等 9222 就绪。供盒子闪退恢复流程调用，会阻塞调用线程。
+        /// </summary>
+        public bool RestartHsBoxAndWaitReady(int readyTimeoutMs = 90000)
+        {
+            try
+            {
+                Log("[HsBox] 恢复流程：重启盒子...");
+                var procs = Process.GetProcessesByName(HsBoxProcessName);
+                foreach (var p in procs)
+                {
+                    try { p.Kill(); p.WaitForExit(5000); }
+                    catch (Exception ex) { Log($"[HsBox] kill PID={p.Id} 失败: {ex.Message}"); }
+                }
+                Thread.Sleep(500);
+                LaunchHsBoxWithDebuggingPort(null);
+            }
+            catch (Exception ex)
+            {
+                Log($"[HsBox] 重启盒子异常: {ex.Message}");
+            }
+
+            return HsBoxWatchdog.WaitForReady(readyTimeoutMs, msg => Log(msg));
+        }
+
         private void EnsureHsBoxWithDebuggingPort()
         {
             try

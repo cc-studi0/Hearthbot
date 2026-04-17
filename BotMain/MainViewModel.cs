@@ -982,9 +982,13 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 盒子闪退回调（由 HsBoxWatchdog 后台线程调用）：无条件触发投降。
-        /// 对局外 RequestConcede 也会被主循环消费（CONCEDE 命令可能无效），
-        /// 这里不做对局内/外分流，保持简单一致。
+        /// 盒子闪退恢复（由 HsBoxWatchdog 后台线程调用）：串行执行
+        /// 1. 投降当前对局（让主循环发 CONCEDE）
+        /// 2. 停止脚本
+        /// 3. 重启盒子并等就绪
+        /// 4. 重启炉石并等就绪
+        /// 5. 重启脚本
+        /// 过程中暂停 HearthstoneWatchdog 与 HsBoxWatchdog 自身，避免二次触发。
         /// </summary>
         private void HandleHsBoxCrashed()
         {
@@ -1002,16 +1006,82 @@ namespace BotMain
                     return;
                 }
 
-                EnqueueLog("[HsBox] 盒子闪退 -> 请求投降。");
-                _bot.RequestConcede();
+                EnqueueLog("[HsBox] 盒子闪退 -> 开始恢复流程：投降 → 重启盒子 → 重启游戏 → 启动脚本。");
+
+                _hsBoxWatchdog?.Suppress(true);
+                _watchdog?.Stop();
+
+                try
+                {
+                    // 1. 投降当前对局：请求后给主循环 ~3s 发 CONCEDE
+                    _bot.RequestConcede();
+                    System.Threading.Thread.Sleep(3000);
+
+                    // 2. 停止脚本
+                    EnqueueLog("[HsBox] 停止脚本...");
+                    _bot.Stop();
+
+                    // 3. 重启盒子并等就绪
+                    _bot.RestartHsBoxAndWaitReady(90000);
+
+                    // 4. 重启炉石并等就绪
+                    EnqueueLog("[HsBox] 重启炉石...");
+                    BattleNetWindowManager.KillWerFault(EnqueueLog);
+                    BattleNetWindowManager.KillHearthstone(EnqueueLog);
+                    WaitForHearthstoneExit(15);
+
+                    var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(120));
+                    bool hsLaunched = false;
+                    try
+                    {
+                        var result = BattleNetWindowManager.LaunchHearthstoneCmd(EnqueueLog, cts.Token, 120)
+                            .GetAwaiter().GetResult();
+                        hsLaunched = result.Success;
+                        EnqueueLog(hsLaunched
+                            ? "[HsBox] 炉石已重启成功。"
+                            : $"[HsBox] 炉石重启失败: {result.Message}");
+                    }
+                    finally
+                    {
+                        cts.Dispose();
+                    }
+
+                    // 5. 重启脚本
+                    if (hsLaunched)
+                    {
+                        _dispatcher.BeginInvoke(() =>
+                        {
+                            if (_bot.State == BotState.Idle)
+                            {
+                                EnqueueLog("[HsBox] 恢复完成，重新启动脚本。");
+                                _bot.Start();
+                            }
+                        });
+                    }
+                }
+                finally
+                {
+                    _hsBoxWatchdog?.Suppress(false);
+                    _watchdog?.Start();
+                }
             }
             catch (Exception ex)
             {
-                EnqueueLog($"[HsBox] 闪退处理异常: {ex.Message}");
+                EnqueueLog($"[HsBox] 闪退恢复异常: {ex.Message}");
             }
             finally
             {
                 lock (_hsBoxCrashLock) { _hsBoxCrashRecoveryInProgress = false; }
+            }
+        }
+
+        private static void WaitForHearthstoneExit(int maxSeconds)
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(maxSeconds);
+            while (DateTime.UtcNow < deadline)
+            {
+                if (System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length == 0) return;
+                System.Threading.Thread.Sleep(1000);
             }
         }
 
