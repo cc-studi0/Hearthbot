@@ -1343,18 +1343,13 @@ namespace HearthstonePayload
                         }
 
                         // ── FACE 快速路径 ──
-                        // 目标是敌方英雄：跳过 ReadGameState（~570ms），
-                        // 用轻量反射判断英雄身份，确认截止 200ms。
+                        // 目标是敌方英雄：攻击不改变棋盘布局，落地由 BotService 侧的
+                        // snapshot + hsbox payload 推进共同校验；Payload 侧跳过确认，
+                        // 避免 ReadGameState（~570ms）阻塞主线程导致 450ms 窗口内
+                        // polls=1 伪 timeout，进而触发 CANCEL 重试回路。
                         if (isFaceAttack)
                         {
-                            var faceSourceHero = IsFriendlyHeroEntityId(attackerId);
-                            var faceTargetHero = IsEnemyHeroEntityId(targetId);
-                            GameStateData faceBeforeState = null;
-                            AttackStateSnapshot faceBeforeSnapshot = default;
-                            var hasFaceBeforeSnapshot = false;
-
-                            // 反射失败时回退到标准路径
-                            if (!faceTargetHero)
+                            if (!IsEnemyHeroEntityId(targetId))
                             {
                                 AppendActionTrace(
                                     "ATTACK face_fallback attacker=" + attackerId
@@ -1363,13 +1358,7 @@ namespace HearthstonePayload
                                 goto standardAttackPath;
                             }
 
-                            try
-                            {
-                                faceBeforeState = reader?.ReadGameState();
-                                hasFaceBeforeSnapshot = TryCaptureAttackState(
-                                    faceBeforeState, attackerId, targetId, out faceBeforeSnapshot);
-                            }
-                            catch { }
+                            var faceSourceHero = IsFriendlyHeroEntityId(attackerId);
 
                             var faceMouseSw = Stopwatch.StartNew();
                             var faceResult = _coroutine.RunAndWait(
@@ -1388,66 +1377,12 @@ namespace HearthstonePayload
                                     faceResult, 1, faceMouseMs, 0, 0, "face_mouse_failed");
                             }
 
-                            // 打脸路径仍使用更快确认，但要给客户端结算与动画一个合理窗口。
-                            const int faceConfirmDeadlineMs = 450;
-                            const int faceConfirmSleepMs = 25;
-
-                            if (!hasFaceBeforeSnapshot)
-                            {
-                                AppendActionTrace(
-                                    "ATTACK face_ok_no_confirm attacker=" + attackerId
-                                    + " target=" + targetId
-                                    + " mouseMs=" + faceMouseMs);
-                                return AppendAttackTimingToResult(
-                                    faceResult, 1, faceMouseMs, 0, 0, "face_no_before_snapshot");
-                            }
-
-                            var faceConfirmSw = Stopwatch.StartNew();
-                            var faceConfirmPolls = 0;
-                            var faceConfirmReason = "unchanged";
-                            while (faceConfirmSw.ElapsedMilliseconds < faceConfirmDeadlineMs)
-                            {
-                                Thread.Sleep(faceConfirmSleepMs);
-                                faceConfirmPolls++;
-                                var faceAfterState = reader?.ReadGameState();
-                                if (!TryCaptureAttackState(faceAfterState, attackerId, targetId, out var faceAfterSnapshot))
-                                {
-                                    faceConfirmReason = "after_snapshot_missing";
-                                    continue;
-                                }
-
-                                var faceApplyObs = GetAttackApplyObservation(faceBeforeSnapshot, faceAfterSnapshot);
-                                faceConfirmReason = faceApplyObs.Reason;
-                                if (faceApplyObs.Applied)
-                                {
-                                    faceConfirmSw.Stop();
-                                    AppendActionTrace(
-                                        "ATTACK face_confirm_ok attacker=" + attackerId
-                                        + " target=" + targetId
-                                        + " mouseMs=" + faceMouseMs
-                                        + " confirmMs=" + faceConfirmSw.ElapsedMilliseconds
-                                        + " confirmPolls=" + faceConfirmPolls
-                                        + " apply=" + faceConfirmReason);
-                                    return AppendAttackTimingToResult(
-                                        faceResult, 1, faceMouseMs,
-                                        faceConfirmSw.ElapsedMilliseconds, faceConfirmPolls,
-                                        faceConfirmReason);
-                                }
-                            }
-
-                            faceConfirmSw.Stop();
                             AppendActionTrace(
-                                "ATTACK face_confirm_timeout attacker=" + attackerId
+                                "ATTACK face_ok attacker=" + attackerId
                                 + " target=" + targetId
-                                + " mouseMs=" + faceMouseMs
-                                + " confirmMs=" + faceConfirmSw.ElapsedMilliseconds
-                                + " confirmPolls=" + faceConfirmPolls
-                                + " apply=" + faceConfirmReason);
+                                + " mouseMs=" + faceMouseMs);
                             return AppendAttackTimingToResult(
-                                "FAIL:ATTACK:not_confirmed:" + attackerId,
-                                1, faceMouseMs,
-                                faceConfirmSw.ElapsedMilliseconds, faceConfirmPolls,
-                                "face_confirm_timeout");
+                                faceResult, 1, faceMouseMs, 0, 0, "face_no_confirm");
                         }
 
                         standardAttackPath:
