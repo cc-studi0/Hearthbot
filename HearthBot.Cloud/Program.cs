@@ -46,7 +46,11 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             }
         };
     });
-builder.Services.AddAuthorization();
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("MachineOnly", policy =>
+        policy.RequireClaim("role", "machine"));
+});
 
 builder.Services.AddSingleton<DeviceManager>();
 builder.Services.AddSingleton<DeviceDisplayStateEvaluator>();
