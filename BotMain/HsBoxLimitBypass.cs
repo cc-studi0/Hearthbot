@@ -123,7 +123,64 @@ namespace BotMain
             {
                 /* readline 抛是正常 */
             }
+            finally
+            {
+                OnSubprocessLikelyExited();
+            }
         }
+
+        private void OnSubprocessLikelyExited()
+        {
+            lock (_sync)
+            {
+                if (_disposed || _stopRequested) return;
+                if (_proc == null || !_proc.HasExited) return;
+
+                var code = _proc.ExitCode;
+                try { _proc.Dispose(); } catch { }
+                _proc = null;
+
+                if (_fatalReceived)
+                {
+                    _log("[LimitBypass] fatal received, no restart");
+                    Status = BypassStatus.Failed;
+                    return;
+                }
+
+                if (!CanRestartLocked())
+                {
+                    _log("[LimitBypass] restart limit reached, giving up");
+                    Status = BypassStatus.Failed;
+                    return;
+                }
+
+                _log($"[LimitBypass] subprocess exited code={code}, restart {_restartHistory.Count}/{_cfg.MaxRestartsPerMinute}");
+                try
+                {
+                    SpawnLocked();
+                    Status = BypassStatus.Running;
+                }
+                catch (Exception ex)
+                {
+                    _log("[LimitBypass] restart spawn failed: " + ex.Message);
+                    Status = BypassStatus.Failed;
+                }
+            }
+        }
+
+        private bool CanRestartLocked()
+        {
+            var cutoff = DateTime.UtcNow.AddSeconds(-60);
+            while (_restartHistory.Count > 0 && _restartHistory.Peek() < cutoff)
+                _restartHistory.Dequeue();
+            if (_restartHistory.Count >= _cfg.MaxRestartsPerMinute)
+                return false;
+            _restartHistory.Enqueue(DateTime.UtcNow);
+            return true;
+        }
+
+        // 测试钩子：mock 子进程"退出"后显式触发重启检查（绕过后台线程时序）
+        internal void NotifySubprocessExitedForTest() => OnSubprocessLikelyExited();
 
         private void PumpStderr(IBypassProcess proc)
         {
@@ -143,6 +200,11 @@ namespace BotMain
         private void HandleStdoutLine(string line)
         {
             _log("[LimitBypass] " + line);
+            // 简单包含检测，避免引入 JSON 解析依赖
+            if (line.Contains("\"tag\":\"fatal\"") || line.Contains("\"tag\": \"fatal\""))
+            {
+                lock (_sync) { _fatalReceived = true; }
+            }
         }
 
         public void Stop()
