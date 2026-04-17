@@ -24,6 +24,7 @@ def main():
     ap.add_argument('--output', required=True, help='log 输出文件')
     ap.add_argument('--duration', type=int, default=60, help='录制秒数')
     ap.add_argument('--target', default='HSAng.exe', help='目标进程名')
+    ap.add_argument('--wait', type=float, default=0, help='target 不存在时等待秒数（启动期侦察用）')
     args = ap.parse_args()
 
     script_path = Path(args.script)
@@ -37,14 +38,25 @@ def main():
     with open(script_path, 'r', encoding='utf-8') as f:
         src = f.read()
 
-    try:
-        session = frida.attach(args.target)
-    except frida.ProcessNotFoundError:
-        print(f'[FATAL] 进程未找到: {args.target}', file=sys.stderr)
-        return 3
-    except frida.PermissionDeniedError:
-        print('[FATAL] 权限不足，请用管理员运行', file=sys.stderr)
-        return 4
+    # 等待目标进程出现（最多 wait 秒），便于"启动期"侦察
+    waited = 0
+    wait_max = args.wait
+    session = None
+    while True:
+        try:
+            session = frida.attach(args.target)
+            break
+        except frida.ProcessNotFoundError:
+            if waited >= wait_max:
+                print(f'[FATAL] 进程未找到 (等待 {wait_max}s): {args.target}', file=sys.stderr)
+                return 3
+            if waited == 0:
+                print(f'[WAIT] 等待 {args.target} 启动 (最多 {wait_max}s)...', flush=True)
+            time.sleep(0.2)
+            waited += 0.2
+        except frida.PermissionDeniedError:
+            print('[FATAL] 权限不足，请用管理员运行', file=sys.stderr)
+            return 4
 
     out_fp = open(out_path, 'w', encoding='utf-8', buffering=1)
     counters = {'send': 0, 'error': 0}

@@ -69,31 +69,127 @@ function resolveExport(moduleName, exportName) {
     return null;
 }
 
-// ---- CreateFileW：观察盒子读哪些文件（尤其 Hearthstone 日志） ----
+// ---- CreateFileW：观察盒子打开的所有文件/管道（含 IPC 命名管道） ----
+// 注意：去掉 path filter 以避免漏掉 \\.\pipe\ 命名管道、共享内存等 IPC 通道。
+// 用 per-path 节流（每个唯一 path 最多记录前 5 次）控制噪音。
 (function hookCreateFileW() {
     const addr = resolveExport('kernel32.dll', 'CreateFileW');
     if (!addr) {
         log('init-warn', { msg: 'CreateFileW export not found' });
         return;
     }
+    const seen = {};
     Interceptor.attach(addr, {
         onEnter: function (args) {
             const path = safeReadUtf16(args[0], 520);
             if (!path) return;
-            if (!/hearthstone|\\logs\\|\.log$|output_log|achievements|power/i.test(path)) return;
             this._path = path;
             this._ctx = this.context;
         },
         onLeave: function (retval) {
             if (!this._path) return;
+            seen[this._path] = (seen[this._path] || 0) + 1;
+            if (seen[this._path] > 5) return;
             log('CreateFileW', {
                 path: this._path,
                 handle: retval.toString(),
+                nth: seen[this._path],
                 bt: backtrace(this._ctx)
             });
         }
     });
     log('init-hook', { name: 'CreateFileW', at: addr.toString() });
+})();
+
+// ---- 命名管道 / 共享内存 IPC ----
+(function hookIPC() {
+    // OpenFileMappingW: 打开命名共享内存
+    (function () {
+        const addr = resolveExport('kernel32.dll', 'OpenFileMappingW');
+        if (!addr) { log('init-warn', { msg: 'OpenFileMappingW not found' }); return; }
+        Interceptor.attach(addr, {
+            onEnter: function (args) {
+                this._name = safeReadUtf16(args[2], 256);
+                this._ctx = this.context;
+            },
+            onLeave: function (retval) {
+                log('OpenFileMappingW', {
+                    name: this._name,
+                    handle: retval.toString(),
+                    bt: backtrace(this._ctx, 6)
+                });
+            }
+        });
+        log('init-hook', { name: 'OpenFileMappingW', at: addr.toString() });
+    })();
+
+    // CreateFileMappingW: 创建命名共享内存
+    (function () {
+        const addr = resolveExport('kernel32.dll', 'CreateFileMappingW');
+        if (!addr) { log('init-warn', { msg: 'CreateFileMappingW not found' }); return; }
+        Interceptor.attach(addr, {
+            onEnter: function (args) {
+                this._name = safeReadUtf16(args[5], 256);
+                this._ctx = this.context;
+            },
+            onLeave: function (retval) {
+                if (!this._name) return; // 匿名映射跳过
+                log('CreateFileMappingW', {
+                    name: this._name,
+                    handle: retval.toString(),
+                    bt: backtrace(this._ctx, 6)
+                });
+            }
+        });
+        log('init-hook', { name: 'CreateFileMappingW', at: addr.toString() });
+    })();
+
+    // MapViewOfFile / MapViewOfFileEx
+    ['MapViewOfFile', 'MapViewOfFileEx'].forEach(function (sym) {
+        const addr = resolveExport('kernel32.dll', sym);
+        if (!addr) { log('init-warn', { msg: sym + ' not found' }); return; }
+        const seen = {};
+        Interceptor.attach(addr, {
+            onEnter: function (args) {
+                this._h = args[0].toString();
+                this._size = args[4] ? args[4].toInt32() : 0;
+                this._ctx = this.context;
+            },
+            onLeave: function (retval) {
+                const key = this._h + ':' + this._size;
+                seen[key] = (seen[key] || 0) + 1;
+                if (seen[key] > 3) return;
+                log(sym, {
+                    handle: this._h,
+                    size: this._size,
+                    mappedAt: retval.toString(),
+                    nth: seen[key],
+                    bt: backtrace(this._ctx, 6)
+                });
+            }
+        });
+        log('init-hook', { name: sym, at: addr.toString() });
+    });
+
+    // CreateNamedPipeW: 盒子作为 server 创建管道
+    (function () {
+        const addr = resolveExport('kernel32.dll', 'CreateNamedPipeW');
+        if (!addr) { log('init-warn', { msg: 'CreateNamedPipeW not found' }); return; }
+        Interceptor.attach(addr, {
+            onEnter: function (args) {
+                this._name = safeReadUtf16(args[0], 256);
+                this._ctx = this.context;
+            },
+            onLeave: function (retval) {
+                log('CreateNamedPipeW', {
+                    name: this._name,
+                    handle: retval.toString(),
+                    bt: backtrace(this._ctx, 6)
+                });
+            }
+        });
+        log('init-hook', { name: 'CreateNamedPipeW', at: addr.toString() });
+    })();
 })();
 
 // ---- ReadProcessMemory：观察盒子是否读 Hearthstone.exe 内存 ----
