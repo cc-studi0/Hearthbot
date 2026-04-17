@@ -54,8 +54,6 @@ namespace BotMain
         private string _savedSmartBotRoot;
         private bool _settingsLoaded;
         private bool _followHsBoxOperation;
-        private bool _learnFromHsBox;
-        private bool _useLearnedLocalStrategy;
         private bool _humanizeActionsEnabled;
         private int _humanizeIntensityIndex = 1;
         private bool _saveHsBoxCallbacks;
@@ -174,18 +172,6 @@ namespace BotMain
             _timer.Tick += (_, _) =>
             {
                 Notify(nameof(RuntimeText));
-                // P4: 每 10 秒刷新学习就绪状态
-                if (_bot.State == BotState.Running && _learnFromHsBox && DateTime.Now.Second % 10 == 0)
-                {
-                    try
-                    {
-                        var readiness = _bot.GetLearningReadiness();
-                        LearningStatusText = readiness.IsReady
-                            ? $"[学习] 独立运行就绪 ✓ {readiness.Summary}"
-                            : $"[学习] 学习中... {readiness.Summary}";
-                    }
-                    catch { }
-                }
             };
             _prepareTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _prepareTimer.Tick += (_, _) =>
@@ -585,41 +571,6 @@ namespace BotMain
                 AutoSave();
             }
         }
-        public bool LearnFromHsBox
-        {
-            get => _learnFromHsBox;
-            set
-            {
-                if (_learnFromHsBox == value)
-                    return;
-
-                _learnFromHsBox = value;
-                _bot.SetLearnFromHsBoxRecommendations(value);
-                Notify();
-                AutoSave();
-            }
-        }
-        public bool UseLearnedLocalStrategy
-        {
-            get => _useLearnedLocalStrategy;
-            set
-            {
-                if (_useLearnedLocalStrategy == value)
-                    return;
-
-                _useLearnedLocalStrategy = value;
-                _bot.SetUseLearnedLocalStrategy(value);
-                Notify();
-                AutoSave();
-            }
-        }
-        private string _learningStatusText = "";
-        public string LearningStatusText
-        {
-            get => _learningStatusText;
-            set { if (_learningStatusText != value) { _learningStatusText = value; Notify(); } }
-        }
-
         public bool HumanizeActionsEnabled
         {
             get => _humanizeActionsEnabled;
@@ -1272,8 +1223,6 @@ namespace BotMain
                 dict["HsBoxExecutablePath"] = JsonSerializer.SerializeToElement(HsBoxExecutablePath);
                 dict["GameDirectoryPath"] = JsonSerializer.SerializeToElement(GameDirectoryPath);
                 dict["FollowHsBoxOperation"] = JsonSerializer.SerializeToElement(FollowHsBoxOperation);
-                dict["LearnFromHsBox"] = JsonSerializer.SerializeToElement(LearnFromHsBox);
-                dict["UseLearnedLocalStrategy"] = JsonSerializer.SerializeToElement(UseLearnedLocalStrategy);
                 dict["HumanizeActionsEnabled"] = JsonSerializer.SerializeToElement(HumanizeActionsEnabled);
                 dict["HumanizeIntensity"] = JsonSerializer.SerializeToElement(HumanizerProtocol.GetIntensityToken(SelectedHumanizeIntensity));
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
@@ -1348,8 +1297,6 @@ namespace BotMain
                         if (dict.TryGetValue("HsBoxExecutablePath", out v)) _hsBoxExecutablePath = ReadOptionalString(v);
                         if (dict.TryGetValue("GameDirectoryPath", out v)) _gameDirectoryPath = ReadOptionalString(v);
                         if (dict.TryGetValue("FollowHsBoxOperation", out v)) _followHsBoxOperation = v.GetBoolean();
-                        if (dict.TryGetValue("LearnFromHsBox", out v)) _learnFromHsBox = v.GetBoolean();
-                        if (dict.TryGetValue("UseLearnedLocalStrategy", out v)) _useLearnedLocalStrategy = v.GetBoolean();
                         if (dict.TryGetValue("HumanizeActionsEnabled", out v)) _humanizeActionsEnabled = v.GetBoolean();
                         if (dict.TryGetValue("HumanizeIntensity", out v))
                         {
@@ -1388,8 +1335,6 @@ namespace BotMain
             _bot.SetMatchmakingTimeoutSeconds(MatchmakingTimeoutSeconds);
             _bot.SetHsBoxExecutablePath(HsBoxExecutablePath);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
-            _bot.SetLearnFromHsBoxRecommendations(LearnFromHsBox);
-            _bot.SetUseLearnedLocalStrategy(UseLearnedLocalStrategy);
             _bot.SetHumanizeActionsEnabled(HumanizeActionsEnabled);
             _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);

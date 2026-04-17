@@ -9,7 +9,6 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using BotMain.AI;
-using BotMain.Learning;
 using Newtonsoft.Json.Linq;
 using SmartBot.Arena;
 using SmartBot.Database;
@@ -347,20 +346,15 @@ namespace BotMain
         private Dictionary<string, HashSet<string>> _cardMechanicsById;
         private bool _cardMechanicsLoadAttempted;
         private volatile bool _followHsBoxRecommendations;
-        private volatile bool _learnFromHsBoxRecommendations;
-        private volatile bool _useLearnedLocalStrategy;
         private bool _humanizeActionsEnabled;
         private HumanizerIntensity _humanizeIntensity = HumanizerIntensity.Balanced;
         private int _lastHumanizedTurnNumber = -1;
         private string _lastSyncedHumanizerConfigPayload = string.Empty;
         private volatile bool _saveHsBoxCallbacks;
         private volatile bool _suppressAiLogs;
-        private readonly LearnedStrategyCoordinator _learnedStrategyCoordinator;
-        private readonly TeacherDatasetRecorder _teacherDatasetRecorder;
         private readonly MatchEntityProvenanceRegistry _matchEntityProvenanceRegistry = new MatchEntityProvenanceRegistry();
         private readonly Dictionary<string, DeckDefinition> _deckDefinitionsByDisplayName = new(StringComparer.OrdinalIgnoreCase);
-        private LearnedDeckContext _currentDeckContext;
-        private string _currentLearningMatchId = string.Empty;
+        private DeckContext _currentDeckContext;
 
         private sealed class DeckDefinition
         {
@@ -460,11 +454,6 @@ namespace BotMain
         }
 
         public BotService()
-            : this(new TeacherDatasetRecorder())
-        {
-        }
-
-        internal BotService(TeacherDatasetRecorder teacherDatasetRecorder)
         {
             _localRecommendationProvider = new LocalGameRecommendationProvider(
                 RecommendLocalActions,
@@ -472,10 +461,6 @@ namespace BotMain
                 RecommendLocalChoice);
             _hsBoxRecommendationProvider = new HsBoxGameRecommendationProvider();
             _hsBoxRecommendationProvider.SetBgLog(msg => Log(msg));
-            _learnedStrategyCoordinator = new LearnedStrategyCoordinator();
-            _learnedStrategyCoordinator.OnLog = msg => Log(msg);
-            _teacherDatasetRecorder = teacherDatasetRecorder ?? new TeacherDatasetRecorder();
-            _teacherDatasetRecorder.OnLog = msg => Log(msg);
         }
 
         public void RefreshProfiles()
@@ -615,48 +600,6 @@ namespace BotMain
             Log($"[Settings] FollowHsBoxRecommendations={value}");
             if (value)
                 ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
-        }
-
-        public void SetLearnFromHsBoxRecommendations(bool value)
-        {
-            _learnFromHsBoxRecommendations = value;
-            Log($"[Settings] LearnFromHsBoxRecommendations={value}");
-            if (value)
-                ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
-        }
-
-        public void SetUseLearnedLocalStrategy(bool value)
-        {
-            _useLearnedLocalStrategy = value;
-            Log($"[Settings] UseLearnedLocalStrategy={value}");
-        }
-
-        public Learning.ReadinessStatus GetLearningReadiness()
-        {
-            var snapshot = _learnedStrategyCoordinator.Consistency.GetSnapshot();
-            var store = _learnedStrategyCoordinator.ConsistencyStore;
-            var totalMatches = 0;
-            double recentWinRate = 0, learningWinRate = 0;
-            try
-            {
-                if (store != null)
-                {
-                    totalMatches = store.GetTotalMatchCount();
-                    recentWinRate = store.GetRecentWinRate(30);
-                    learningWinRate = store.GetLearningPhaseWinRate(30);
-                }
-            }
-            catch { }
-
-            return Learning.ReadinessMonitor.Evaluate(new Learning.ReadinessInput
-            {
-                ActionRate = snapshot.ActionRate,
-                MulliganRate = snapshot.MulliganRate,
-                ChoiceRate = snapshot.ChoiceRate,
-                TotalMatches = totalMatches,
-                RecentWinRate = recentWinRate,
-                LearningPhaseWinRate = learningWinRate
-            });
         }
 
         public void SetHumanizeActionsEnabled(bool value)
@@ -950,73 +893,9 @@ namespace BotMain
             if (request == null)
                 return new ActionRecommendationResult(null, Array.Empty<string>(), "request_null", shouldRetryWithoutAction: true);
 
-            // 标准传说时启用盒子模式伪装
-            if (IsStandardLegend)
-            {
-                if (_hsBoxRecommendationProvider.Bridge is HsBoxRecommendationBridge bridge)
-                    bridge.EnableModeSpoof(msg => Log(msg));
-            }
-            else
-            {
-                if (_hsBoxRecommendationProvider.Bridge is HsBoxRecommendationBridge bridge)
-                    bridge.DisableModeSpoof();
-            }
-
-            ActionRecommendationResult localRecommendation = null;
-            ActionRecommendationResult teacherRecommendation = null;
-
-            if (_followHsBoxRecommendations)
-            {
-                teacherRecommendation = _hsBoxRecommendationProvider.RecommendActions(request);
-                if (_learnFromHsBoxRecommendations)
-                    localRecommendation = RecommendLocalActionsSilently(request);
-            }
-            else
-            {
-                localRecommendation = _localRecommendationProvider.RecommendActions(request);
-                if (_learnFromHsBoxRecommendations)
-                    teacherRecommendation = _hsBoxRecommendationProvider.RecommendActions(request);
-            }
-
-            if (_learnFromHsBoxRecommendations)
-                TryEnqueueActionLearning(request, teacherRecommendation, localRecommendation);
-
             return _followHsBoxRecommendations
-                ? teacherRecommendation ?? localRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "teacher_missing", shouldRetryWithoutAction: true)
-                : localRecommendation ?? teacherRecommendation ?? new ActionRecommendationResult(null, Array.Empty<string>(), "local_missing", shouldRetryWithoutAction: true);
-        }
-
-        private ActionRecommendationResult RecommendLocalActionsSilently(ActionRecommendationRequest request)
-        {
-            var previous = _suppressAiLogs;
-            _suppressAiLogs = true;
-            try
-            {
-                using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
-                return _localRecommendationProvider.RecommendActions(request);
-            }
-            finally
-            {
-                _suppressAiLogs = previous;
-            }
-        }
-
-        private MulliganRecommendationResult RecommendLocalMulliganSilently(MulliganRecommendationRequest request)
-        {
-            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
-            return _localRecommendationProvider.RecommendMulligan(request);
-        }
-
-        private ChoiceRecommendationResult RecommendLocalChoiceSilently(ChoiceRecommendationRequest request)
-        {
-            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
-            return _localRecommendationProvider.RecommendChoice(request);
-        }
-
-        private DiscoverRecommendationResult RecommendLocalDiscoverSilently(DiscoverRecommendationRequest request)
-        {
-            using var suppression = _botApiHandler?.BeginSuppressedSideEffects();
-            return RecommendLocalDiscover(request);
+                ? _hsBoxRecommendationProvider.RecommendActions(request)
+                : _localRecommendationProvider.RecommendActions(request);
         }
 
         private MulliganRecommendationResult RecommendMulliganWithLearning(MulliganRecommendationRequest request)
@@ -1024,23 +903,9 @@ namespace BotMain
             if (request == null)
                 return new MulliganRecommendationResult(Array.Empty<int>(), "request_null");
 
-            MulliganRecommendationResult localRecommendation = null;
-            MulliganRecommendationResult teacherRecommendation = null;
-
-            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
-                    ? RecommendLocalMulliganSilently(request)
-                    : _localRecommendationProvider.RecommendMulligan(request);
-
-            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                teacherRecommendation = _hsBoxRecommendationProvider.RecommendMulligan(request);
-
-            if (_learnFromHsBoxRecommendations)
-                TryEnqueueMulliganLearning(request, teacherRecommendation, localRecommendation);
-
             return _followHsBoxRecommendations
-                ? teacherRecommendation ?? localRecommendation ?? new MulliganRecommendationResult(Array.Empty<int>(), "teacher_missing")
-                : localRecommendation ?? teacherRecommendation ?? new MulliganRecommendationResult(Array.Empty<int>(), "local_missing");
+                ? _hsBoxRecommendationProvider.RecommendMulligan(request)
+                : _localRecommendationProvider.RecommendMulligan(request);
         }
 
         private ChoiceRecommendationResult RecommendChoiceWithLearning(ChoiceRecommendationRequest request)
@@ -1048,23 +913,9 @@ namespace BotMain
             if (request == null)
                 return new ChoiceRecommendationResult(Array.Empty<int>(), "request_null");
 
-            ChoiceRecommendationResult localRecommendation = null;
-            ChoiceRecommendationResult teacherRecommendation = null;
-
-            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
-                    ? RecommendLocalChoiceSilently(request)
-                    : _localRecommendationProvider.RecommendChoice(request);
-
-            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                teacherRecommendation = _hsBoxRecommendationProvider.RecommendChoice(request);
-
-            if (_learnFromHsBoxRecommendations)
-                TryEnqueueChoiceLearning(request, teacherRecommendation, localRecommendation);
-
             return _followHsBoxRecommendations
-                ? teacherRecommendation ?? localRecommendation ?? new ChoiceRecommendationResult(Array.Empty<int>(), "teacher_missing")
-                : localRecommendation ?? teacherRecommendation ?? new ChoiceRecommendationResult(Array.Empty<int>(), "local_missing");
+                ? _hsBoxRecommendationProvider.RecommendChoice(request)
+                : _localRecommendationProvider.RecommendChoice(request);
         }
 
         private DiscoverRecommendationResult RecommendDiscoverWithLearning(DiscoverRecommendationRequest request)
@@ -1072,213 +923,16 @@ namespace BotMain
             if (request == null)
                 return new DiscoverRecommendationResult(0, "request_null");
 
-            DiscoverRecommendationResult localRecommendation = null;
-            DiscoverRecommendationResult teacherRecommendation = null;
-
-            if (!_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                localRecommendation = _followHsBoxRecommendations && _learnFromHsBoxRecommendations
-                    ? RecommendLocalDiscoverSilently(request)
-                    : RecommendLocalDiscover(request);
-
-            if (_followHsBoxRecommendations || _learnFromHsBoxRecommendations)
-                teacherRecommendation = _hsBoxRecommendationProvider.RecommendDiscover(request);
-
-            if (_learnFromHsBoxRecommendations)
-                TryEnqueueDiscoverLearning(request, teacherRecommendation, localRecommendation);
-
             return _followHsBoxRecommendations
-                ? teacherRecommendation ?? localRecommendation ?? new DiscoverRecommendationResult(0, "teacher_missing")
-                : localRecommendation ?? teacherRecommendation ?? new DiscoverRecommendationResult(0, "local_missing");
-        }
-
-        private void TryEnqueueActionLearning(
-            ActionRecommendationRequest request,
-            ActionRecommendationResult teacherRecommendation,
-            ActionRecommendationResult localRecommendation)
-        {
-            if (request == null
-                || request.PlanningBoard == null
-                || teacherRecommendation?.ShouldRetryWithoutAction == true)
-            {
-                return;
-            }
-
-            _teacherDatasetRecorder.RecordActionDecision(
-                _currentLearningMatchId,
-                request,
-                teacherRecommendation,
-                localRecommendation);
-
-            var teacherAction = GetFirstLearnableAction(teacherRecommendation?.Actions);
-            if (string.IsNullOrWhiteSpace(teacherAction))
-                return;
-
-            var localAction = GetFirstLearnableAction(localRecommendation?.Actions);
-            _learnedStrategyCoordinator.EnqueueActionSample(new ActionLearningSample
-            {
-                MatchId = _currentLearningMatchId,
-                PayloadSignature = teacherRecommendation.SourcePayloadSignature,
-                DeckName = request.DeckName,
-                DeckSignature = request.DeckSignature,
-                Seed = request.Seed,
-                PlanningBoard = request.PlanningBoard,
-                RemainingDeckCards = request.RemainingDeckCards ?? Array.Empty<ApiCard.Cards>(),
-                FriendlyEntities = request.FriendlyEntities ?? Array.Empty<EntityContextSnapshot>(),
-                MatchContext = request.MatchContext ?? new MatchContextSnapshot(),
-                TeacherAction = teacherAction,
-                LocalAction = localAction ?? string.Empty,
-                TeacherActions = teacherRecommendation?.Actions ?? Array.Empty<string>(),
-                LocalActions = localRecommendation?.Actions ?? Array.Empty<string>()
-            });
-        }
-
-        private void TryEnqueueMulliganLearning(
-            MulliganRecommendationRequest request,
-            MulliganRecommendationResult teacherRecommendation,
-            MulliganRecommendationResult localRecommendation)
-        {
-            if (request == null
-                || string.IsNullOrWhiteSpace(request.DeckSignature)
-                || request.Choices == null
-                || request.Choices.Count == 0)
-            {
-                return;
-            }
-
-            _teacherDatasetRecorder.RecordMulliganDecision(
-                _currentLearningMatchId,
-                request,
-                teacherRecommendation,
-                localRecommendation);
-            _learnedStrategyCoordinator.EnqueueMulliganSample(new MulliganLearningSample
-            {
-                MatchId = _currentLearningMatchId,
-                DeckName = request.DeckName,
-                DeckSignature = request.DeckSignature,
-                FullDeckCards = request.FullDeckCards ?? Array.Empty<ApiCard.Cards>(),
-                OwnClass = request.OwnClass,
-                EnemyClass = request.EnemyClass,
-                HasCoin = request.HasCoin,
-                Choices = request.Choices
-                    .Select(choice => new MulliganLearningChoice
-                    {
-                        CardId = choice.CardId,
-                        EntityId = choice.EntityId
-                    })
-                    .ToList(),
-                TeacherReplaceEntityIds = teacherRecommendation?.ReplaceEntityIds?.ToList() ?? new List<int>(),
-                LocalReplaceEntityIds = localRecommendation?.ReplaceEntityIds?.ToList() ?? new List<int>()
-            });
-        }
-
-        private void TryEnqueueChoiceLearning(
-            ChoiceRecommendationRequest request,
-            ChoiceRecommendationResult teacherRecommendation,
-            ChoiceRecommendationResult localRecommendation)
-        {
-            if (request == null
-                || request.Options == null
-                || request.Options.Count == 0
-                || teacherRecommendation?.ShouldRetryWithoutAction == true)
-            {
-                return;
-            }
-
-            var teacherSelected = teacherRecommendation?.SelectedEntityIds?.ToList() ?? new List<int>();
-            if (teacherSelected.Count == 0)
-                return;
-
-            _teacherDatasetRecorder.RecordChoiceDecision(
-                _currentLearningMatchId,
-                request,
-                teacherRecommendation,
-                localRecommendation);
-            _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
-            {
-                MatchId = _currentLearningMatchId,
-                PayloadSignature = teacherRecommendation?.SourcePayloadSignature ?? string.Empty,
-                DeckName = request.DeckName,
-                DeckSignature = request.DeckSignature,
-                Mode = request.Mode,
-                OriginCardId = request.SourceCardId,
-                Seed = request.Seed,
-                PendingOrigin = request.PendingOrigin,
-                Options = request.Options
-                    .Select(option => new ChoiceLearningOption
-                    {
-                        EntityId = option.EntityId,
-                        CardId = option.CardId
-                    })
-                    .ToList(),
-                TeacherSelectedEntityIds = teacherSelected,
-                LocalSelectedEntityIds = localRecommendation?.SelectedEntityIds?.ToList() ?? new List<int>()
-            });
-        }
-
-        private void TryEnqueueDiscoverLearning(
-            DiscoverRecommendationRequest request,
-            DiscoverRecommendationResult teacherRecommendation,
-            DiscoverRecommendationResult localRecommendation)
-        {
-            if (request == null
-                || request.ChoiceEntityIds == null
-                || request.ChoiceCardIds == null
-                || request.ChoiceEntityIds.Count == 0
-                || request.ChoiceCardIds.Count == 0
-                || teacherRecommendation?.ShouldRetryWithoutAction == true)
-            {
-                return;
-            }
-
-            var teacherIndex = teacherRecommendation.PickedIndex;
-            if (teacherIndex < 0 || teacherIndex >= Math.Min(request.ChoiceEntityIds.Count, request.ChoiceCardIds.Count))
-                return;
-
-            var localSelectedIds = new List<int>();
-            var localIndex = localRecommendation?.PickedIndex ?? -1;
-            if (localIndex >= 0 && localIndex < request.ChoiceEntityIds.Count)
-                localSelectedIds.Add(request.ChoiceEntityIds[localIndex]);
-
-            _teacherDatasetRecorder.RecordDiscoverDecision(
-                _currentLearningMatchId,
-                request,
-                teacherRecommendation,
-                localRecommendation);
-            _learnedStrategyCoordinator.EnqueueChoiceSample(new ChoiceLearningSample
-            {
-                MatchId = _currentLearningMatchId,
-                PayloadSignature = teacherRecommendation?.SourcePayloadSignature ?? string.Empty,
-                DeckName = request.DeckName,
-                DeckSignature = request.DeckSignature,
-                Mode = request.IsRewindChoice ? "TIMELINE" : "DISCOVER",
-                OriginCardId = request.OriginCardId,
-                Seed = request.Seed,
-                PendingOrigin = request.PendingOrigin,
-                Options = request.ChoiceCardIds
-                    .Zip(request.ChoiceEntityIds, (cardId, entityId) => new ChoiceLearningOption
-                    {
-                        CardId = cardId,
-                        EntityId = entityId
-                    })
-                    .ToList(),
-                TeacherSelectedEntityIds = new List<int> { request.ChoiceEntityIds[teacherIndex] },
-                LocalSelectedEntityIds = localSelectedIds
-            });
-        }
-
-        private string GetFirstLearnableAction(IReadOnlyList<string> actions)
-        {
-            return (actions ?? Array.Empty<string>()).FirstOrDefault(action =>
-                !string.IsNullOrWhiteSpace(action)
-                && !action.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase)
-                && !action.StartsWith("OPTION|", StringComparison.OrdinalIgnoreCase));
+                ? _hsBoxRecommendationProvider.RecommendDiscover(request)
+                : RecommendLocalDiscover(request);
         }
 
         private MatchContextSnapshot BuildMatchContext(Board board)
         {
             return new MatchContextSnapshot
             {
-                MatchId = _currentLearningMatchId ?? string.Empty,
+                MatchId = string.Empty,
                 TurnCount = board?.TurnCount ?? GetCurrentObservedTurn(),
                 ObservedAtMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()
             };
@@ -1289,7 +943,7 @@ namespace BotMain
             if (!TryGetFriendlyEntityContext(pipe, 1200, out var entities, out var detail))
             {
                 if (!string.IsNullOrWhiteSpace(detail) && !detail.StartsWith("NO_", StringComparison.OrdinalIgnoreCase))
-                    Log($"[Learning] friendly_context_unavailable scope={scope} detail={detail}");
+                    Log($"[Context] friendly_entities_unavailable scope={scope} detail={detail}");
                 return new List<EntityContextSnapshot>();
             }
 
@@ -1638,7 +1292,7 @@ namespace BotMain
                 || string.Equals(mode, "SHOP_CHOICE", StringComparison.OrdinalIgnoreCase);
         }
 
-        private LearnedDeckContext ResolveDeckContext(IReadOnlyList<ApiCard.Cards> remainingDeckCards)
+        private DeckContext ResolveDeckContext(IReadOnlyList<ApiCard.Cards> remainingDeckCards)
         {
             DeckDefinition selectedDefinition = null;
             lock (_deckDefinitionsByDisplayName)
@@ -1672,7 +1326,7 @@ namespace BotMain
             if (selectedDefinition == null)
                 return null;
 
-            return new LearnedDeckContext
+            return new DeckContext
             {
                 DeckName = selectedDefinition.DisplayName,
                 DeckSignature = selectedDefinition.DeckSignature,
@@ -1898,46 +1552,6 @@ namespace BotMain
             }
 
             ClearPendingConcedeLoss();
-            if (!string.IsNullOrWhiteSpace(_currentLearningMatchId))
-            {
-                _teacherDatasetRecorder.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
-                _learnedStrategyCoordinator.ApplyMatchOutcome(_currentLearningMatchId, decision.LearnedOutcome);
-
-                // 一致率摘要 + 胜负记录
-                if (_learnFromHsBoxRecommendations)
-                {
-                    var snap = _learnedStrategyCoordinator.Consistency.GetSnapshot();
-                    Log($"[Learning] 对局结束一致率摘要: 动作={snap.ActionRate:0.0}%({snap.ActionCount}/{snap.TotalActions}) 留牌={snap.MulliganRate:0.0}%({snap.MulliganCount}) 选择={snap.ChoiceRate:0.0}%({snap.ChoiceCount})");
-                }
-                try
-                {
-                    _learnedStrategyCoordinator.ConsistencyStore?.RecordMatchOutcome(
-                        _currentLearningMatchId,
-                        decision.LearnedOutcome == LearnedMatchOutcome.Win,
-                        _learnFromHsBoxRecommendations);
-                }
-                catch { }
-
-                // P4: 独立运行安全监控
-                if (_useLearnedLocalStrategy && !_followHsBoxRecommendations)
-                {
-                    try
-                    {
-                        var store = _learnedStrategyCoordinator.ConsistencyStore;
-                        if (store != null)
-                        {
-                            var recentWinRate = store.GetRecentWinRate(10);
-                            var baselineWinRate = store.GetLearningPhaseWinRate(30);
-                            if (baselineWinRate - recentWinRate > 15.0)
-                                Log($"[Learning] ⚠ 胜率骤降警告: 最近10局胜率 {recentWinRate:0.0}% vs 学习期基线 {baselineWinRate:0.0}%，建议重新开启盒子学习");
-                        }
-                    }
-                    catch { }
-                }
-
-                _currentLearningMatchId = string.Empty;
-            }
-
             _matchEntityProvenanceRegistry.Reset();
         }
 
@@ -2874,7 +2488,7 @@ namespace BotMain
                 }
                 catch (Exception ex)
                 {
-                    Log($"[ErrorContext] stage={recommendationStage}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}, learn={_learnFromHsBoxRecommendations}, boardHand={planningBoard?.Hand?.Count ?? 0}, friendlyEntities={friendlyEntities?.Count ?? 0}, deckCards={deckCards?.Count ?? 0}");
+                    Log($"[ErrorContext] stage={recommendationStage}, recommend={(_followHsBoxRecommendations ? "hsbox" : "local")}, boardHand={planningBoard?.Hand?.Count ?? 0}, friendlyEntities={friendlyEntities?.Count ?? 0}, deckCards={deckCards?.Count ?? 0}");
                     Log("[ErrorContext] recommendation exception: " + ex);
                     if (SleepOrCancelled(300)) continue;
                     continue;
@@ -6960,7 +6574,6 @@ namespace BotMain
             _skipNextTurnStartReadyWait = false;
             _alternateConcedeState.BeginMatch(_autoConcedeAlternativeMode);
             _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
-            _currentLearningMatchId = Guid.NewGuid().ToString("N");
             _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             _currentDeckContext = ResolveDeckContext(null);
@@ -8286,68 +7899,16 @@ namespace BotMain
 
         private ActionRecommendationResult RecommendLocalActions(ActionRecommendationRequest request)
         {
-            Action<Board, SimBoard, ProfileParameters> parameterMutator = null;
-            if (_useLearnedLocalStrategy)
-            {
-                // P2: 评估权重注入 BoardEvaluator
-                var planBoard = request.PlanningBoard;
-                if (planBoard != null && _ai.Evaluator != null)
-                {
-                    var evalWeights = _learnedStrategyCoordinator.EvalWeights;
-                    var bucketKey = Learning.EvalBucketKey.FromBoardState(
-                        planBoard.TurnCount,
-                        (planBoard.HeroFriend?.CurrentHealth ?? 30) + (planBoard.HeroFriend?.CurrentArmor ?? 0),
-                        (planBoard.HeroEnemy?.CurrentHealth ?? 30) + (planBoard.HeroEnemy?.CurrentArmor ?? 0),
-                        planBoard.MinionFriend?.Count ?? 0,
-                        planBoard.MinionEnemy?.Count ?? 0);
-                    if (evalWeights.TryGet(bucketKey, out var learnedSet) && learnedSet.SampleCount >= 20)
-                    {
-                        _ai.Evaluator.LearnedScales = (learnedSet.FaceBiasScale, learnedSet.BoardControlScale, learnedSet.TempoPenaltyScale, learnedSet.HandValueScale);
-                    }
-                    else
-                    {
-                        _ai.Evaluator.LearnedScales = null;
-                    }
-                }
-
-                parameterMutator = (board, simBoard, parameters) =>
-                {
-                    if (_learnedStrategyCoordinator.Runtime.TryApplyActionPatch(request, board, simBoard, parameters, out var learnedDetail))
-                        Log($"[Learned] {learnedDetail}");
-                };
-            }
-
             var decision = _ai.DecideActionPlan(
                 request.Seed,
                 request.SelectedProfile,
                 request.DeckCards?.ToList(),
-                parameterMutator);
+                parameterMutator: null);
             var actions = decision?.Actions?.ToList() ?? new List<string>();
             var detail = request.SelectedProfile?.GetType().Name ?? "no_profile";
 
             if (TryInjectLocalTitanAction(actions, request?.PlanningBoard, out var titanDetail))
                 detail += $", titan={titanDetail}";
-
-            // P3: 特征评分日志
-            if (_useLearnedLocalStrategy && _learnedStrategyCoordinator.ScoringModel != null && request?.PlanningBoard != null)
-            {
-                try
-                {
-                    var model = _learnedStrategyCoordinator.ScoringModel;
-                    var planBoard = request.PlanningBoard;
-                    var boardFeatures = Learning.FeatureVectorExtractor.ExtractBoardFeatures(planBoard);
-                    var enemyHeroId = planBoard.HeroEnemy?.Id ?? 0;
-                    var firstAction = actions?.FirstOrDefault(a => !string.IsNullOrWhiteSpace(a) && !a.StartsWith("END_TURN", StringComparison.OrdinalIgnoreCase));
-                    if (firstAction != null)
-                    {
-                        var actionFeatures = Learning.FeatureVectorExtractor.ExtractActionFeatures(firstAction, planBoard, enemyHeroId);
-                        var combined = Learning.FeatureVectorExtractor.Combine(boardFeatures, actionFeatures);
-                        var score = model.Score(combined);
-                        Log($"[Learned] feature_score={score:0.###} for {firstAction.Substring(0, Math.Min(firstAction.Length, 30))}");
-                    }
-                }
-                catch { }
-            }
 
             return new ActionRecommendationResult(decision, actions, $"local_ai profile={detail}, actions={actions.Count}");
         }
@@ -8424,12 +7985,6 @@ namespace BotMain
 
         private MulliganRecommendationResult RecommendLocalMulligan(MulliganRecommendationRequest request)
         {
-            if (_useLearnedLocalStrategy
-                && _learnedStrategyCoordinator.Runtime.TryRecommendMulligan(request, out var learnedResult))
-            {
-                return learnedResult;
-            }
-
             var snapshot = new MulliganStateSnapshot
             {
                 OwnClass = request.OwnClass,
@@ -8455,12 +8010,6 @@ namespace BotMain
             if (request == null || request.ChoiceCardIds == null || request.ChoiceCardIds.Count == 0)
                 return new DiscoverRecommendationResult(0, "discover fallback:first choice");
 
-            if (_useLearnedLocalStrategy
-                && _learnedStrategyCoordinator.Runtime.TryRecommendDiscover(request, out var learnedResult))
-            {
-                return learnedResult;
-            }
-
             if (request.IsRewindChoice && request.MaintainIndex >= 0 && request.MaintainIndex < request.ChoiceCardIds.Count)
             {
                 return new DiscoverRecommendationResult(
@@ -8480,12 +8029,6 @@ namespace BotMain
         {
             if (request == null || request.Options == null || request.Options.Count == 0)
                 return new ChoiceRecommendationResult(Array.Empty<int>(), "choice fallback:none");
-
-            if (_useLearnedLocalStrategy
-                && _learnedStrategyCoordinator.Runtime.TryRecommendChoice(request, out var learnedResult))
-            {
-                return learnedResult;
-            }
 
             var discoverLikeMode =
                 string.Equals(request.Mode, "DISCOVER", StringComparison.OrdinalIgnoreCase)
@@ -10624,7 +10167,6 @@ namespace BotMain
             playActionFailStreakByEntity.Clear();
             _activeMatchDeck = ResolveDefaultActiveDeck();
             _currentDeckContext = null;
-            _currentLearningMatchId = string.Empty;
             _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             HsBoxCallbackCapture.EndMatchSession();
@@ -11603,7 +11145,7 @@ namespace BotMain
                             }
                         }
 
-                        definition.DeckSignature = LearnedStrategyFeatureExtractor.ComputeDeckSignature(definition.FullDeckCards);
+                        definition.DeckSignature = DeckSignatureHelper.Compute(definition.FullDeckCards);
                         definitions[displayName] = definition;
                     }
 

@@ -281,10 +281,6 @@ namespace BotMain
                 str.Contains("[HSAng] HSBox turn="))
                 return "hsang";
 
-            // ── Learning / Strategy ──
-            if (str.Contains("[Learning]") || str.Contains("[TeacherDataset]"))
-                return "compile";
-
             // ── Plugin ──
             if (str.Contains("[Plugin]"))
                 return "plugin";

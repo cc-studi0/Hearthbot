@@ -1,5 +1,4 @@
 using BotMain;
-using BotMain.Learning;
 using Xunit;
 
 namespace BotCore.Tests

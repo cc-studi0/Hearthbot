@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace BotMain.Learning
+namespace BotMain
 {
     internal sealed class MatchEntityProvenanceRegistry
     {

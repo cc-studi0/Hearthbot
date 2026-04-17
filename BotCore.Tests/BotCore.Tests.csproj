@@ -44,15 +44,16 @@
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
     <Compile Include="..\BotMain\HandActionCommandMetadata.cs" Link="HandActionCommandMetadata.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
-    <Compile Include="..\BotMain\HsBoxModeSpoofer.cs" Link="HsBoxModeSpoofer.cs" />
-    <Compile Include="..\BotMain\HsBoxFridaPatcher.cs" Link="HsBoxFridaPatcher.cs" />
     <Compile Include="..\BotMain\LogTextSyncPlanner.cs" Link="LogTextSyncPlanner.cs" />
     <Compile Include="..\BotMain\MatchFlowState.cs" Link="MatchFlowState.cs" />
     <Compile Include="..\BotMain\PostGameResultHelper.cs" Link="PostGameResultHelper.cs" />
     <Compile Include="..\BotMain\ReadyWaitDiagnostics.cs" Link="ReadyWaitDiagnostics.cs" />
     <Compile Include="..\BotMain\SeedCompatibility.cs" Link="SeedCompatibility.cs" />
     <Compile Include="..\BotMain\InteractionReadinessCoordinator.cs" Link="InteractionReadinessCoordinator.cs" />
-    <Compile Include="..\BotMain\Learning\**\*.cs" Link="Learning\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Compile Include="..\BotMain\MatchEntityProvenanceRegistry.cs" Link="MatchEntityProvenanceRegistry.cs" />
+    <Compile Include="..\BotMain\DeckContext.cs" Link="DeckContext.cs" />
+    <Compile Include="..\BotMain\DeckSignatureHelper.cs" Link="DeckSignatureHelper.cs" />
+    <Compile Include="..\BotMain\LearnedMatchOutcome.cs" Link="LearnedMatchOutcome.cs" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
     <Compile Include="..\BotMain\PipeServer.cs" Link="PipeServer.cs" />
     <Compile Include="..\BotMain\PluginSystem.cs" Link="PluginSystem.cs" />
