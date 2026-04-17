@@ -35,9 +35,6 @@ bin/
 obj/
 *.pdb
 *.log
-# 例外：侦察报告的原始 log 需要入库供 diff 分析
-!docs/superpowers/recon/raw/*.log
-!docs/superpowers/recon/raw/*.log.err
 Thumbs.db
 Desktop.ini
 .DS_Store
