@@ -12,8 +12,8 @@ const T0 = Date.now();
 
 function log(tag, payload) {
     const ts = ((Date.now() - T0) / 1000).toFixed(3);
-    const line = JSON.stringify({ ts: ts, tag: tag, payload: payload });
-    console.log(line);
+    // 通过 Frida send() 发出，由 Python 启动器写入 log 文件
+    send({ ts: ts, tag: tag, payload: payload });
 }
 
 function backtrace(ctx, depth) {
@@ -52,9 +52,26 @@ function safeReadAnsi(ptr, maxLen) {
     }
 }
 
+// 兼容 Frida 16.x（Module.findExportByName 被移除）
+function resolveExport(moduleName, exportName) {
+    const mod = Process.findModuleByName(moduleName);
+    if (!mod) return null;
+    if (typeof mod.findExportByName === 'function') {
+        return mod.findExportByName(exportName);
+    }
+    if (typeof mod.getExportByName === 'function') {
+        try { return mod.getExportByName(exportName); } catch (e) { /* fall through */ }
+    }
+    const exps = mod.enumerateExports();
+    for (let i = 0; i < exps.length; i++) {
+        if (exps[i].name === exportName) return exps[i].address;
+    }
+    return null;
+}
+
 // ---- CreateFileW：观察盒子读哪些文件（尤其 Hearthstone 日志） ----
 (function hookCreateFileW() {
-    const addr = Module.findExportByName('kernel32.dll', 'CreateFileW');
+    const addr = resolveExport('kernel32.dll', 'CreateFileW');
     if (!addr) {
         log('init-warn', { msg: 'CreateFileW export not found' });
         return;
@@ -81,7 +98,7 @@ function safeReadAnsi(ptr, maxLen) {
 
 // ---- ReadProcessMemory：观察盒子是否读 Hearthstone.exe 内存 ----
 (function hookRPM() {
-    const addr = Module.findExportByName('kernel32.dll', 'ReadProcessMemory');
+    const addr = resolveExport('kernel32.dll', 'ReadProcessMemory');
     if (!addr) {
         log('init-warn', { msg: 'ReadProcessMemory export not found' });
         return;
@@ -114,7 +131,7 @@ function safeReadAnsi(ptr, maxLen) {
 
 // ---- WinHttpSendRequest：观察盒子 C++ 层（非 CEF）直接发的 HTTP ----
 (function hookWinHttp() {
-    const addr = Module.findExportByName('winhttp.dll', 'WinHttpSendRequest');
+    const addr = resolveExport('winhttp.dll', 'WinHttpSendRequest');
     if (!addr) {
         log('init-warn', { msg: 'WinHttpSendRequest export not found' });
         return;
@@ -133,7 +150,7 @@ function safeReadAnsi(ptr, maxLen) {
 })();
 
 (function hookWinHttpConnect() {
-    const addr = Module.findExportByName('winhttp.dll', 'WinHttpConnect');
+    const addr = resolveExport('winhttp.dll', 'WinHttpConnect');
     if (!addr) return;
     Interceptor.attach(addr, {
         onEnter: function (args) {
@@ -143,42 +160,6 @@ function safeReadAnsi(ptr, maxLen) {
         }
     });
     log('init-hook', { name: 'WinHttpConnect', at: addr.toString() });
-})();
-
-// ---- CefFrame::ExecuteJavaScript：C++ 推给 CEF V8 执行的所有 JS ----
-(function hookExecJS() {
-    const libcef = Process.findModuleByName('libcef.dll');
-    if (!libcef) {
-        log('init-warn', { msg: 'libcef.dll not loaded' });
-        return;
-    }
-    const exp = libcef.enumerateExports().find(function (e) {
-        return /execute[_]?java[sS]cript/i.test(e.name);
-    });
-    if (!exp) {
-        log('init-warn', { msg: 'ExecuteJavaScript export not found in libcef.dll' });
-        return;
-    }
-    Interceptor.attach(exp.address, {
-        onEnter: function (args) {
-            // cef_string_t 在 Windows 是 cef_string_utf16_t { char16* str; size_t length; cef_string_userfree_utf16_t dtor; }
-            // C API 签名:  void fn(cef_frame_t* self, const cef_string_t* script, const cef_string_t* script_url, int start_line)
-            try {
-                const strPtr = args[1].readPointer();
-                const jsLen = args[1].add(Process.pointerSize).readULong();
-                const maxRead = Math.min(jsLen, 400);
-                const js = strPtr.readUtf16String(maxRead);
-                log('ExecuteJS', {
-                    js: js,
-                    len: jsLen,
-                    bt: backtrace(this.context, 10)
-                });
-            } catch (e) {
-                log('ExecuteJS', { err: 'parse-failed:' + e.message });
-            }
-        }
-    });
-    log('init-hook', { name: 'ExecuteJavaScript', at: exp.address.toString(), sym: exp.name });
 })();
 
 log('init', { pid: Process.id, arch: Process.arch, ready: true });

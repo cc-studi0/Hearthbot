@@ -59,36 +59,37 @@ switch ($Mode) {
 Write-Host ""
 Read-Host "准备好后按回车开始录制"
 
-$FridaArgs = @(
-    '-n', 'HSAng.exe',
-    '-l', $Script,
-    '--runtime=v8',
-    '-q',
-    '--no-pause'
-)
-
-Write-Host "启动 Frida..." -ForegroundColor Green
-$proc = Start-Process -FilePath 'frida' -ArgumentList $FridaArgs `
-    -RedirectStandardOutput $OutFile `
-    -RedirectStandardError  $ErrFile `
-    -NoNewWindow -PassThru
-
-Write-Host "录制中 ($DurationSec 秒)... 请在对局里正常操作若干回合" -ForegroundColor Green
-for ($i = 0; $i -lt $DurationSec; $i++) {
-    Start-Sleep -Seconds 1
-    if ($proc.HasExited) {
-        Write-Warning "Frida 进程提前退出 (exit=$($proc.ExitCode))"
-        break
-    }
-    if (($i + 1) % 10 -eq 0) {
-        Write-Host "  已录制 $($i + 1) 秒" -ForegroundColor DarkGray
-    }
+$Launcher = Join-Path $PSScriptRoot 'recon_hsbox.py'
+if (-not (Test-Path $Launcher)) {
+    throw "找不到 Python 启动器：$Launcher"
 }
 
+$PyArgs = @(
+    $Launcher,
+    '--script', $Script,
+    '--output', $OutFile,
+    '--duration', $DurationSec.ToString(),
+    '--target', 'HSAng.exe'
+)
+
+Write-Host "启动 Frida (via Python)..." -ForegroundColor Green
+$proc = Start-Process -FilePath 'python' -ArgumentList $PyArgs `
+    -RedirectStandardError $ErrFile `
+    -NoNewWindow -PassThru
+
+# Python 启动器自己会 sleep DurationSec，此处只等它结束，加 15s 余量
+$timeout = $DurationSec + 15
+$waited = 0
+while (-not $proc.HasExited -and $waited -lt $timeout) {
+    Start-Sleep -Seconds 1
+    $waited++
+}
 if (-not $proc.HasExited) {
-    Write-Host "停止 Frida..." -ForegroundColor Green
+    Write-Warning "Python 启动器超时未退出，强制停止"
     Stop-Process -Id $proc.Id -Force
     Start-Sleep -Milliseconds 500
+} elseif ($proc.ExitCode -ne 0) {
+    Write-Warning "Python 启动器异常退出 (exit=$($proc.ExitCode))，查看 $ErrFile"
 }
 
 if (Test-Path $OutFile) {
