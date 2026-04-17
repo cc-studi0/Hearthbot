@@ -129,6 +129,31 @@ namespace BotMain
             }
         }
 
+        private void PumpStderr(IBypassProcess proc)
+        {
+            try
+            {
+                string line;
+                while ((line = proc.StandardError.ReadLine()) != null)
+                {
+                    _log("[LimitBypass][stderr] " + line);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        private void HandleStdoutLine(string line)
+        {
+            _log("[LimitBypass] " + line);
+            // 简单包含检测，避免引入 JSON 解析依赖
+            if (line.Contains("\"tag\":\"fatal\"") || line.Contains("\"tag\": \"fatal\""))
+            {
+                lock (_sync) { _fatalReceived = true; }
+            }
+        }
+
         private void OnSubprocessLikelyExited()
         {
             lock (_sync)
@@ -179,34 +204,6 @@ namespace BotMain
             return true;
         }
 
-        // 测试钩子：mock 子进程"退出"后显式触发重启检查（绕过后台线程时序）
-        internal void NotifySubprocessExitedForTest() => OnSubprocessLikelyExited();
-
-        private void PumpStderr(IBypassProcess proc)
-        {
-            try
-            {
-                string line;
-                while ((line = proc.StandardError.ReadLine()) != null)
-                {
-                    _log("[LimitBypass][stderr] " + line);
-                }
-            }
-            catch
-            {
-            }
-        }
-
-        private void HandleStdoutLine(string line)
-        {
-            _log("[LimitBypass] " + line);
-            // 简单包含检测，避免引入 JSON 解析依赖
-            if (line.Contains("\"tag\":\"fatal\"") || line.Contains("\"tag\": \"fatal\""))
-            {
-                lock (_sync) { _fatalReceived = true; }
-            }
-        }
-
         public void Stop()
         {
             lock (_sync)
@@ -235,6 +232,43 @@ namespace BotMain
                 TryKillLocked();
                 Status = BypassStatus.Stopped;
             }
+        }
+
+        // 测试钩子：mock 子进程"退出"后显式触发重启检查（绕过后台线程时序）
+        internal void NotifySubprocessExitedForTest() => OnSubprocessLikelyExited();
+    }
+
+    internal sealed class DefaultBypassProcessHost : IBypassProcessHost
+    {
+        public IBypassProcess Spawn(string fileName, string arguments, string workingDirectory)
+        {
+            var psi = new ProcessStartInfo(fileName, arguments)
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                RedirectStandardInput = true,  // Hearthbot 关闭时 pipe EOF 触发 Python 退出
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = workingDirectory ?? Environment.CurrentDirectory,
+            };
+            var proc = Process.Start(psi);
+            if (proc == null) throw new InvalidOperationException("Process.Start returned null");
+            return new ProcessAdapter(proc);
+        }
+
+        private sealed class ProcessAdapter : IBypassProcess
+        {
+            private readonly Process _p;
+            public ProcessAdapter(Process p) { _p = p; }
+            public bool HasExited => _p.HasExited;
+            public int ExitCode => _p.HasExited ? _p.ExitCode : -1;
+            public StreamReader StandardOutput => _p.StandardOutput;
+            public StreamReader StandardError => _p.StandardError;
+            public void Kill()
+            {
+                try { if (!_p.HasExited) _p.Kill(); } catch { }
+            }
+            public void Dispose() { try { _p.Dispose(); } catch { } }
         }
     }
 }
