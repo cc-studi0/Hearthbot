@@ -3,6 +3,7 @@ using System.Text;
 using HearthBot.Cloud.Data;
 using HearthBot.Cloud.Hubs;
 using HearthBot.Cloud.Services;
+using HearthBot.Cloud.Services.Learning;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
@@ -12,6 +13,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddDbContext<CloudDbContext>(o =>
     o.UseSqlite(builder.Configuration.GetConnectionString("Default") ?? "Data Source=cloud.db"));
+
+builder.Services.AddDbContext<LearningDbContext>(o =>
+    o.UseSqlite(builder.Configuration.GetConnectionString("Learning") ?? "Data Source=learning.db"));
+
+builder.Services.AddScoped<MachineTokenService>();
 
 builder.Services.AddSingleton<AuthService>();
 
@@ -77,6 +83,12 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<CloudDbContext>();
     await CloudSchemaBootstrapper.EnsureSchemaAsync(db);
+}
+
+using (var scope = app.Services.CreateScope())
+{
+    var learningDb = scope.ServiceProvider.GetRequiredService<LearningDbContext>();
+    await LearningSchemaBootstrapper.EnsureSchemaAsync(learningDb);
 }
 
 app.UseResponseCompression();
