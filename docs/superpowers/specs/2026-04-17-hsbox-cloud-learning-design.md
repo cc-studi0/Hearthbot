@@ -132,10 +132,10 @@
 | 项目 | 规格 |
 |------|------|
 | 触发 | 每局结束 + 每 5 分钟兜底，两定时器并行 |
-| 方式 | HTTPS POST `/v1/samples/batch` |
+| 方式 | HTTPS POST `/v1/learning/samples/batch` |
 | 格式 | `gzip(JSON-Lines)`，一次最多 200 条 / 1 MB |
-| 鉴权 | 每台机器预配静态 Bearer Token（5 台 = 5 个 token，手工发放） |
-| 幂等 | 云端按 `sample_id` 唯一索引，重复提交返回 200 OK + 已存在列表 |
+| 鉴权 | 机器专用 JWT（`role=machine`, `machine_id=hb-dorm-01`, 365 天有效），在 `Authorization: Bearer <jwt>` header 传递；管理员用现有 admin 登录流程一次性生成并复制到每台机器 |
+| 幂等 | 云端按 `ClientSampleId` 唯一索引，重复提交返回 200 OK + 已存在列表 |
 | 重试 | 指数退避，间隔从 1s 起每次倍增（1→2→4→...），上限 5min 封顶；失败项不出队列，无限重试 |
 
 ### 3.5 对局结束补录
@@ -149,72 +149,86 @@
 
 ## 4. 云端服务器栈与存储
 
+> **架构更正（2026-04-17 补丁）**：最初的方案是新起 Go + PostgreSQL。进一步勘查发现仓库已有 `HearthBot.Cloud` ASP.NET Core 项目（SQLite + EF Core + JWT + SignalR）在香港服务器上跑云控业务。为避免双栈运维与数据一致性开销，本 spec 改为**扩展现有 HearthBot.Cloud 服务**，继续用 SQLite + JWT。
+
 ### 4.1 技术选型
 
-| 组件 | 选型 | 内存占用 | 理由 |
+| 组件 | 选型 | 增量占用 | 理由 |
 |------|------|----------|------|
-| 反向代理 + TLS | Caddy 2 | ~50 MB | 自动 Let's Encrypt，配置最简 |
-| API 服务 | Go 单二进制 | ~150 MB | 冷启动快、内存稳，无运行时依赖 |
-| 数据库 | PostgreSQL 16 | ~600 MB（`shared_buffers=256MB`） | JSONB + GIN 索引灵活 |
-| 进程守护 | systemd | 0 | 不引入 Docker |
-| 日志 | journalctl + logrotate | 0 | 不装 ELK |
-
-**不用 Docker 的理由**：4G 内存跑容器栈浪费 ~500MB，规模 5 台机器不需要编排能力。
+| Web 服务 | 扩展现有 `HearthBot.Cloud`（ASP.NET Core 8） | ~20 MB（新增 Controller） | 同进程，不引入新语言栈 |
+| 数据库 | 新增 SQLite 文件 `learning.db`，独立 `LearningDbContext` | ~50 MB 工作集 | 与现有 `cloud.db` 隔离，便于备份/归档 |
+| 鉴权 | 复用 `AuthService`，新增"机器专用 JWT"（role=machine, machine_id claim, 365 天） | 0 | 不引入新机制 |
+| Schema 管理 | 延用 `CloudSchemaBootstrapper` 模式（启动时 `EnsureSchemaAsync`） | 0 | 与现有表管理风格一致 |
+| 反向代理 / TLS | 延用现有部署（Caddy 或 nginx，已配好） | 0 | 不动 |
+| 进程守护 | 延用现有 systemd unit | 0 | 不动 |
 
 ### 4.2 资源预算（4GB 切分）
 
 ```
-PostgreSQL         600 MB
-API 服务（Go）      150 MB
-Caddy              50 MB
-系统内核+缓冲       500 MB
-────────────────────────
-固定占用           1.3 GB
-余量（PG 缓存峰值） 2.7 GB
+HearthBot.Cloud 现有（含学习扩展） ~300 MB
+系统内核 + 缓冲                     ~500 MB
+备用                               ~3.2 GB
 ```
 
-### 4.3 磁盘布局（按 40GB 系统盘）
+现有服务已经在运行，本次只是新增 Controller 和数据表，内存增量 20-50 MB。
+
+### 4.3 磁盘布局
+
+延用现有 HearthBot.Cloud 部署目录（以 Linux 安装为例）：
 
 ```
-/var/lib/postgresql/           # PG 数据（结构化样本表）
-/var/hearthbot/raw/            # 原始 JSONL 按日期分片（归档）
-  2026-04/17.jsonl.gz
-/var/hearthbot/models/         # ONNX 模型版本
-  action-v20260417-0300.onnx
-  choice-v20260417-0300.onnx
-  mulligan-v20260417-0300.onnx
-  latest.json                  # {"action":"v20260417-0300", ...}
-/var/hearthbot/reports/        # 训练评估报告 JSON
-/etc/caddy/Caddyfile
-/etc/hearthbot/config.yaml
+<deploy-dir>/
+  cloud.db              # 现有（设备管理）
+  learning.db           # 新增（学习系统主库）
+  learning.db-wal       # SQLite WAL
+  learning.db-shm       # SQLite 共享内存
+  models/               # 新增
+    action-v20260417-0300.onnx
+    action-v20260417-0300.json      # metadata
+    choice-v20260417-0300.onnx
+    choice-v20260417-0300.json
+    mulligan-v20260417-0300.onnx
+    mulligan-v20260417-0300.json
+    latest.json                     # {"action":"...", "choice":"...", "mulligan":"..."}
+  learning-archive/     # 新增（月度归档）
+    2026-04.jsonl.gz
+  learning-reports/     # 新增（训练评估报告 JSON）
 ```
 
-### 4.4 数据库 Schema
+### 4.4 数据库 Schema（SQLite，新增表）
 
-九张核心表：
+全部放在独立 `LearningDbContext`（`learning.db`）。现有 `CloudDbContext` 不动。
 
-- `machines(machine_id, token_hash, created_at, last_seen_at)`
-- `matches(match_id, machine_id, deck_signature, mode, start_at, end_at, outcome)`
-- `action_decisions(decision_id, match_id, turn, step, seed, payload_sig, board_snapshot JSONB, teacher_candidate_id, mapping_status, local_pick_id, created_at)`
-- `action_candidates(candidate_id, decision_id, action_command, action_type, features JSONB, is_teacher_pick, is_local_pick)`
-- `choice_decisions` / `choice_options`（同构于 action）
-- `mulligan_decisions` / `mulligan_cards`（同构于 action）
-- `model_versions(version, model_type, sha256, trained_at, metrics JSONB, prev_version, feature_schema_hash)`
+七张表：
 
-JSONB + GIN 索引允许后期特征调整不改 schema。
+- `Machines(MachineId PK TEXT, TokenHash TEXT, CreatedAt TEXT, LastSeenAt TEXT, LastStats JSON)`
+- `LearningMatches(MatchId PK TEXT, MachineId TEXT, DeckSignature TEXT, Mode TEXT, StartAt TEXT, EndAt TEXT NULL, OutcomeJson TEXT NULL)`
+- `ActionDecisions(DecisionId INTEGER PK AUTOINCREMENT, ClientSampleId TEXT UNIQUE, MatchId TEXT, Turn INTEGER, StepIndex INTEGER, Seed TEXT, PayloadSig TEXT, BoardSnapshotJson TEXT, TeacherCandidateIndex INTEGER, MappingStatus TEXT, LocalPickIndex INTEGER NULL, CreatedAt TEXT)`
+- `ActionCandidates(CandidateId INTEGER PK, DecisionId INTEGER FK, SlotIndex INTEGER, ActionCommand TEXT, ActionType TEXT, FeaturesJson TEXT, IsTeacherPick INTEGER, IsLocalPick INTEGER)`
+- `ChoiceDecisions` / `ChoiceOptions`（字段同构于 action）
+- `MulliganDecisions` / `MulliganCards`（字段同构于 action）
+- `ModelVersions(Id INTEGER PK, Version TEXT UNIQUE, ModelType TEXT, Sha256 TEXT, TrainedAt TEXT, MetricsJson TEXT, PrevVersion TEXT NULL, FeatureSchemaHash TEXT)`
+
+**索引**：
+- `ActionDecisions(MatchId)` / `ActionDecisions(CreatedAt)` / `ActionDecisions(MappingStatus)`
+- `ActionCandidates(DecisionId)` / `ActionCandidates(IsTeacherPick)`
+- `Machines(LastSeenAt)`
+- 其他两类决策同构索引
+
+**JSON 字段**：SQLite 3.45+ 支持 `json1` extension，`SELECT json_extract(BoardSnapshotJson, '$.field')` 可查。训练侧一般直接整列读出反序列化，不做 SQL-side 过滤。
 
 ### 4.5 数据保留与归档
 
 | 层 | 保留 | 超期处理 |
 |----|------|----------|
-| 结构化表（PG） | 90 天 | 按月打包 `raw/YYYY-MM.jsonl.gz` → 删库行 |
-| 冷归档（磁盘） | 磁盘用量 <80% 时不动 | 超 80% 手动拉到训练机，云端清最旧 |
+| SQLite 结构化表 | 90 天 | 定时任务：按月导出 `learning-archive/YYYY-MM.jsonl.gz` → 删库行 → `VACUUM` |
+| 冷归档（磁盘） | 磁盘 <80% 时保留 | 超 80% 手动 rsync 到训练机，云端清最旧 |
 | 模型文件 | 云端最近 10 版 | 自动清旧 |
-| 备份 | `pg_dump` 每日凌晨 1 点 | 保留最近 7 份 |
+| 备份 | `sqlite3 learning.db ".backup"` 每日凌晨 1 点 | 保留最近 7 份 |
 
 ### 4.6 监控
 
-- `/healthz`：API + PG 连接健康
+- `GET /v1/learning/healthz`：SQLite 连接 + `learning.db` 可写
 - 训练机每次拉数据前 ping，异常发邮件/Telegram 给用户
 - 不引入 Prometheus/Grafana
 
@@ -224,7 +238,7 @@ JSONB + GIN 索引允许后期特征调整不改 schema。
 
 | 环节 | 选型 | 理由 |
 |------|------|------|
-| 数据拉取 | Python + `psycopg`（TLS 直连 PG） | 省一层 API |
+| 数据拉取 | Python `httpx` 调云端 `/v1/learning/export/*` 流式下载 | 不直连 SQLite（避免文件锁），沿用鉴权 |
 | 特征工程 | `pandas` + `pyarrow` | 列式，百万级样本毫秒级处理 |
 | 主排序模型 | **LightGBM LambdaRank**（`objective=lambdarank`） | 表格排序业界首选 |
 | 后备深度模型 | PyTorch（样本 >500 万才考虑） | 升级预留，第一版不用 |
@@ -236,12 +250,9 @@ JSONB + GIN 索引允许后期特征调整不改 schema。
 
 **Step 1 拉数据**
 
-```sql
-SELECT * FROM action_decisions JOIN action_candidates
-WHERE created_at > last_trained_at AND mapping_status='matched';
-```
+Python 通过 HTTPS 调 `GET /v1/learning/export/actions?since=<iso>` 下载增量 JSONL（不直接连 SQLite，避免文件锁冲突）。云端流式返回 `ActionDecisions JOIN ActionCandidates` 的结果。
 
-落地 `data/raw-YYYYMMDD.parquet`
+Python 侧落地 `data/raw-YYYYMMDD.parquet`。
 
 **Step 2 特征抽取 + 切分**
 
@@ -645,7 +656,7 @@ _cloudLearning.Record(ctx, candidates, teacherPick, localPick);
 | ONNX 跨版本兼容问题 | 低 | 高 | ONNX opset 固定；导出后 C# 自测；不匹配不推送 |
 | 新模型上线胜率骤降 | 中 | 高 | 24h 一致率监控 + 自动回滚；最近 10 版云端保留 |
 | PostgreSQL 单点故障 | 低 | 高 | 每日 pg_dump；rsync 到训练机作二级备份 |
-| Bearer Token 泄露 | 低 | 中 | 单 token 吊销 API；5 台规模可手工换发 |
+| 机器 JWT 泄露 | 低 | 中 | `AuthService.RevokeMachineToken(machineId)` 吊销接口；5 台规模可手工换发；也可整体轮换签名密钥（`Jwt:Secret`）一键作废全部 |
 | 训练机 4070S 宕机 | 低 | 低 | 云端样本继续累积；训练恢复后批量补训；期间 Hearthbot 用旧模型 |
 
 ## 9. 放弃条件
@@ -659,17 +670,27 @@ _cloudLearning.Record(ctx, candidates, teacherPick, localPick);
 
 ### 新增
 
-**云端**（独立仓库或子目录，部署工件）：
-- `cloud/server/main.go`（API 入口）
-- `cloud/server/handlers/*.go`（samples / models / heartbeat / health）
-- `cloud/server/store/postgres.go`
-- `cloud/server/config.go`
-- `cloud/sql/migrations/001_init.sql`
-- `cloud/Caddyfile`
-- `cloud/systemd/hearthbot-api.service`
-- `cloud/systemd/hearthbot-api.env.example`
-- `cloud/scripts/deploy.sh`
-- `cloud/scripts/backup.sh`
+**云端（扩展 HearthBot.Cloud/）**：
+- `HearthBot.Cloud/Controllers/SamplesController.cs`（`POST /v1/learning/samples/batch`）
+- `HearthBot.Cloud/Controllers/MatchesController.cs`（`PATCH /v1/learning/matches/{id}/outcome`）
+- `HearthBot.Cloud/Controllers/HeartbeatController.cs`（`POST /v1/learning/heartbeat`）
+- `HearthBot.Cloud/Controllers/ModelsController.cs`（`POST /v1/learning/models/upload`, `GET /v1/learning/models/latest`, `GET /v1/learning/models/{version}/download`）
+- `HearthBot.Cloud/Controllers/ExportController.cs`（`GET /v1/learning/export/actions|choices|mulligans?since=<iso>`）
+- `HearthBot.Cloud/Controllers/LearningHealthController.cs`（`GET /v1/learning/healthz`）
+- `HearthBot.Cloud/Data/LearningDbContext.cs`
+- `HearthBot.Cloud/Models/Learning/Machine.cs`
+- `HearthBot.Cloud/Models/Learning/LearningMatch.cs`
+- `HearthBot.Cloud/Models/Learning/ActionDecision.cs` + `ActionCandidate.cs`
+- `HearthBot.Cloud/Models/Learning/ChoiceDecision.cs` + `ChoiceOption.cs`
+- `HearthBot.Cloud/Models/Learning/MulliganDecision.cs` + `MulliganCard.cs`
+- `HearthBot.Cloud/Models/Learning/ModelVersion.cs`
+- `HearthBot.Cloud/Services/Learning/LearningSchemaBootstrapper.cs`
+- `HearthBot.Cloud/Services/Learning/MachineTokenService.cs`（生成/校验/吊销机器 JWT）
+- `HearthBot.Cloud/Services/Learning/SampleIngestService.cs`
+- `HearthBot.Cloud/Services/Learning/ModelArtifactStore.cs`
+- `HearthBot.Cloud/Services/Learning/ConsistencyMonitor.cs`（24h 回滚逻辑）
+- `HearthBot.Cloud/Services/Learning/ArchiveJob.cs`（月度归档后台服务）
+- `HearthBot.Cloud.Tests/Learning/*`（Controller / Service 单测）
 
 **训练机**（Python）：
 - `training/pull_data.py`
