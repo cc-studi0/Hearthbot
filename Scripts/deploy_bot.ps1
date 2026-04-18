@@ -14,9 +14,11 @@ param(
     [int]$CloudPort = 5000,
     [string]$AdminUser,
     [string]$AdminPass,
+    [string]$Notes,
     [switch]$SkipObfuscation,
     [switch]$BuildOnly,
     [switch]$SkipBroadcast,
+    [switch]$SkipNotesPrompt,
     [switch]$ResetCreds
 )
 
@@ -72,21 +74,74 @@ try {
     $stream.Close()
 }
 
-# 收集 release notes：优先读 publish/release-notes.txt 或 repo 根 release-notes.txt，
-# 都没有就回退到最近 8 条 git 提交（--oneline）
+# 收集 release notes：
+#   1) -Notes 参数直接指定
+#   2) publish/release-notes.txt > 仓库根 release-notes.txt（手写文件）
+#   3) 弹 notepad 编辑，模板内置最近 8 条 git 提交作为参考
+#   4) -SkipNotesPrompt 或没有 notepad 时静默用 git log
 $notes = ""
 $pubNotes = Join-Path $RepoRoot "publish\release-notes.txt"
 $rootNotes = Join-Path $RepoRoot "release-notes.txt"
-if (Test-Path $pubNotes) {
-    $notes = [System.IO.File]::ReadAllText($pubNotes, [System.Text.Encoding]::UTF8).Trim()
-} elseif (Test-Path $rootNotes) {
-    $notes = [System.IO.File]::ReadAllText($rootNotes, [System.Text.Encoding]::UTF8).Trim()
-} else {
-    try {
-        $gitLog = git -C $RepoRoot log --oneline -n 8 2>$null
-        if ($LASTEXITCODE -eq 0 -and $gitLog) { $notes = ($gitLog -join "`n").Trim() }
-    } catch {}
+
+if (-not [string]::IsNullOrWhiteSpace($Notes)) {
+    $notes = $Notes.Trim()
 }
+elseif (Test-Path $pubNotes) {
+    $notes = [System.IO.File]::ReadAllText($pubNotes, [System.Text.Encoding]::UTF8).Trim()
+}
+elseif (Test-Path $rootNotes) {
+    $notes = [System.IO.File]::ReadAllText($rootNotes, [System.Text.Encoding]::UTF8).Trim()
+}
+else {
+    # 读取最近 8 条提交作为模板
+    $gitLog = ""
+    try {
+        $g = git -C $RepoRoot log --oneline -n 8 2>$null
+        if ($LASTEXITCODE -eq 0 -and $g) { $gitLog = ($g -join "`n").Trim() }
+    } catch {}
+
+    if ($SkipNotesPrompt) {
+        $notes = $gitLog
+    }
+    else {
+        Write-Host "`n[更新说明] 即将弹出记事本，请写本次更新内容，保存并关闭窗口后继续部署" -ForegroundColor Cyan
+        Write-Host "          （以 # 开头的行会被忽略；直接关闭=使用 git 提交记录；Ctrl+C 中止部署）" -ForegroundColor DarkGray
+
+        $tpl = Join-Path $env:TEMP ("hb_release_notes_" + [Guid]::NewGuid().ToString("N").Substring(0,8) + ".txt")
+        $template = @"
+
+# 在上面一行写本次更新说明（支持多行）。
+# 以 # 开头的行会被忽略。
+# 全部留空 / 直接关闭 = 使用下方 git 提交记录作为说明。
+#
+# 最近 8 条提交：
+$($gitLog -split "`n" | ForEach-Object { "#   $_" } | Out-String)
+"@
+        [System.IO.File]::WriteAllText($tpl, $template, (New-Object System.Text.UTF8Encoding $false))
+
+        try {
+            Start-Process -FilePath "notepad.exe" -ArgumentList $tpl -Wait
+            $raw = [System.IO.File]::ReadAllText($tpl, [System.Text.Encoding]::UTF8)
+            # 去掉注释行 + 两端空白
+            $notes = (($raw -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' } | Out-String).Trim()
+            if ([string]::IsNullOrWhiteSpace($notes)) {
+                Write-Host "  （未写更新说明，回退到 git 提交记录）" -ForegroundColor DarkGray
+                $notes = $gitLog
+            }
+        }
+        catch {
+            Write-Host "  记事本调用失败，回退到 git 提交记录: $_" -ForegroundColor DarkYellow
+            $notes = $gitLog
+        }
+        finally {
+            Remove-Item $tpl -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($notes)) { $notes = "" }
+$notesPreview = if ($notes.Length -gt 120) { $notes.Substring(0,120) + "..." } else { $notes }
+Write-Host "  Notes: $($notesPreview -replace "`r?`n", ' | ')" -ForegroundColor DarkGray
 
 $manifestObj = @{
     version = $version
