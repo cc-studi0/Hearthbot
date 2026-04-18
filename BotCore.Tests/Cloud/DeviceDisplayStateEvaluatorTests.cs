@@ -99,4 +99,24 @@ public class DeviceDisplayStateEvaluatorTests
         Assert.Equal("Completed", view.DisplayStatus);
         Assert.Null(view.AbnormalReason);
     }
+
+    [Fact]
+    public void Evaluate_CompletedFlagWithoutOrderNumber_DoesNotHideRunningDeviceInCompletedBucket()
+    {
+        var evaluator = new DeviceDisplayStateEvaluator();
+        var view = evaluator.Evaluate(new Device
+        {
+            DeviceId = "pc-06",
+            Status = "InGame",
+            OrderNumber = "",
+            IsCompleted = true,
+            CompletedAt = Now.AddDays(-2),
+            LastHeartbeat = Now.AddSeconds(-10),
+            StatusChangedAt = Now.AddSeconds(-10)
+        }, Now);
+
+        Assert.Equal("InGame", view.DisplayStatus);
+        Assert.Equal("pending", view.Bucket);
+        Assert.Null(view.AbnormalReason);
+    }
 }

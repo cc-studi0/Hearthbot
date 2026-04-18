@@ -57,6 +57,32 @@ public class OrderCompletionTests
         Assert.Contains("DONE-2", fakeAlert.Messages[0].Content);
     }
 
+    [Fact]
+    public async Task MarkOrderCompleted_WithoutOrderNumber_DoesNotPersistCompletedState()
+    {
+        await using var env = await CloudTestEnvironment.CreateAsync();
+        env.Db.Devices.Add(new Device
+        {
+            DeviceId = "pc-05",
+            DisplayName = "机器5",
+            CurrentAccount = "账号E",
+            OrderNumber = string.Empty,
+            Status = "InGame"
+        });
+        await env.Db.SaveChangesAsync();
+
+        var manager = env.CreateDeviceManager();
+        var result = await manager.MarkOrderCompleted("pc-05", "传说");
+
+        Assert.Null(result);
+        Assert.Empty(env.Db.CompletedOrderSnapshots);
+
+        var device = env.Db.Devices.Single(d => d.DeviceId == "pc-05");
+        Assert.False(device.IsCompleted);
+        Assert.Null(device.CompletedAt);
+        Assert.Equal(string.Empty, device.CompletedRank);
+    }
+
     private sealed class FakeAlertService : IAlertService
     {
         public List<(string Title, string Content)> Messages { get; } = new();

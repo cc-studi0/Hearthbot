@@ -167,6 +167,13 @@ public class DeviceManager
 
         var device = await db.Devices.FindAsync(deviceId);
         if (device == null) return null;
+        if (string.IsNullOrWhiteSpace(device.OrderNumber))
+        {
+            _logger.LogWarning(
+                "Ignoring completion report for device {DeviceId} because no order number is bound",
+                deviceId);
+            return null;
+        }
 
         if (device.IsCompleted)
         {

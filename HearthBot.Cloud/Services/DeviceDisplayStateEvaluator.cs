@@ -13,12 +13,14 @@ public sealed class DeviceDisplayStateEvaluator
         var heartbeatTimedOut = heartbeatAge >= DeviceStatusPolicy.OfflineTimeout.TotalSeconds;
         var switchingTooLong = string.Equals(device.Status, "Switching", StringComparison.Ordinal)
             && statusAge >= DeviceStatusPolicy.SwitchingAbnormalTimeout.TotalSeconds;
+        var hasDisplayableCompletedOrder = device.IsCompleted
+            && !string.IsNullOrWhiteSpace(device.OrderNumber);
 
         var displayStatus = device.Status;
         var bucket = string.IsNullOrWhiteSpace(device.OrderNumber) ? "pending" : "active";
         string? abnormalReason = null;
 
-        if (device.IsCompleted)
+        if (hasDisplayableCompletedOrder)
         {
             displayStatus = "Completed";
             bucket = "completed";
