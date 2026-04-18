@@ -52,6 +52,7 @@ __pycache__/
 Scripts/decompiled_sb/
 Scripts/-SkipObfuscation/
 Scripts/effects_data.json
+Scripts/.deploy-creds.xml
 Data/HsBoxTeacher/*.db
 Data/HsBoxTeacher/*.db-wal
 Data/HsBoxTeacher/*.db-shm

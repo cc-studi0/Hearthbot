@@ -12,11 +12,12 @@ param(
     [int]$Port = 22,
     [string]$RemotePath = "/mnt/cloud-server/wwwroot/bot",
     [int]$CloudPort = 5000,
-    [string]$AdminUser = $env:HB_ADMIN_USER,
-    [string]$AdminPass = $env:HB_ADMIN_PASS,
+    [string]$AdminUser,
+    [string]$AdminPass,
     [switch]$SkipObfuscation,
     [switch]$BuildOnly,
-    [switch]$SkipBroadcast
+    [switch]$SkipBroadcast,
+    [switch]$ResetCreds
 )
 
 $ErrorActionPreference = "Stop"
@@ -112,15 +113,44 @@ Write-Host "  Upload complete (version: $($version.Substring(0,8))...)" -Foregro
 
 # -- Step 4: Broadcast via WSS (令所有在线客户端即时收到 UpdateAvailable) --
 if (-not $SkipBroadcast) {
-    if ([string]::IsNullOrWhiteSpace($AdminUser) -or [string]::IsNullOrWhiteSpace($AdminPass)) {
-        Write-Host "`n[4/4] Skipping broadcast: AdminUser/AdminPass not provided" -ForegroundColor DarkYellow
-        Write-Host "       (设置环境变量 HB_ADMIN_USER/HB_ADMIN_PASS 或 -AdminUser/-AdminPass 参数即可广播)"
+    # 凭据来源优先级：命令行参数 > DPAPI 加密文件 > 交互式提示
+    # 加密文件 .deploy-creds.xml 用 Export-Clixml + SecureString，只有当前 Windows 用户在当前机器能解密
+    $credsFile = Join-Path $PSScriptRoot ".deploy-creds.xml"
+    if ($ResetCreds -and (Test-Path $credsFile)) { Remove-Item $credsFile -Force }
+
+    $credential = $null
+    if (-not [string]::IsNullOrWhiteSpace($AdminUser) -and -not [string]::IsNullOrWhiteSpace($AdminPass)) {
+        $sec = ConvertTo-SecureString $AdminPass -AsPlainText -Force
+        $credential = New-Object System.Management.Automation.PSCredential($AdminUser, $sec)
+    }
+    elseif (Test-Path $credsFile) {
+        try { $credential = Import-Clixml $credsFile }
+        catch { Write-Host "  凭据文件损坏，将重新提示输入" -ForegroundColor DarkYellow }
+    }
+
+    if ($credential -eq $null) {
+        Write-Host "`n[4/4] 首次广播需要管理员凭据（下次自动从 .deploy-creds.xml 读取，不存明文）" -ForegroundColor Cyan
+        $credential = Get-Credential -Message "HearthBot 云控管理员账号"
+        if ($credential -ne $null) {
+            try {
+                $credential | Export-Clixml $credsFile
+                Write-Host "  凭据已保存到 $credsFile（DPAPI 加密，仅当前 Windows 账户可解密）" -ForegroundColor DarkGray
+            }
+            catch { Write-Host "  保存凭据失败: $_" -ForegroundColor DarkYellow }
+        }
+    }
+
+    if ($credential -eq $null) {
+        Write-Host "`n[4/4] 未提供凭据，跳过广播" -ForegroundColor DarkYellow
+        Write-Host "       （客户端下次 Register 仍会收到 UpdateAvailable，不影响功能）" -ForegroundColor DarkGray
     }
     else {
         Write-Host "`n[4/4] Broadcasting UpdateAvailable via WSS..." -ForegroundColor Yellow
         $cloudBase = "http://${RemoteHost}:${CloudPort}"
+        $plainPass = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto(
+            [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($credential.Password))
         try {
-            $loginBody = @{ Username = $AdminUser; Password = $AdminPass } | ConvertTo-Json
+            $loginBody = @{ Username = $credential.UserName; Password = $plainPass } | ConvertTo-Json
             $loginResp = Invoke-RestMethod -Uri "$cloudBase/api/auth/login" -Method Post `
                 -Body $loginBody -ContentType "application/json"
             $token = $loginResp.token
@@ -133,7 +163,10 @@ if (-not $SkipBroadcast) {
         }
         catch {
             Write-Host "  Broadcast failed: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Host "  （客户端下次 Register 时仍会收到版本通知，不影响功能）" -ForegroundColor DarkGray
+            Write-Host "  （若是凭据错误可用 -ResetCreds 重新输入；客户端下次 Register 时仍会收到通知）" -ForegroundColor DarkGray
+        }
+        finally {
+            $plainPass = $null
         }
     }
 }
