@@ -83,7 +83,7 @@ if (-not $SkipObfuscation) {
     Copy-Item "$($wpfRuntime.FullName)\*.dll" $ObfuscateTmp -Force -ErrorAction SilentlyContinue
 
     # 生成运行时 .crproj (只改 baseDir / outputDir, 用字符串替换避免 XmlDocument 破坏命名空间)
-    $template = Get-Content "$RepoRoot\confuserex.crproj" -Raw -Encoding UTF8
+    $template = Get-Content "$PSScriptRoot\confuserex.crproj" -Raw -Encoding UTF8
     $modified = $template `
         -replace 'baseDir="[^"]*"',   "baseDir=""$ObfuscateTmp""" `
         -replace 'outputDir="[^"]*"', "outputDir=""$ObfuscatedTmp"""

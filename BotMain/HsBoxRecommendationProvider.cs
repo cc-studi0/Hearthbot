@@ -3388,31 +3388,6 @@ namespace BotMain
         private DateTime _cachedDebuggerUrlUntilUtc = DateTime.MinValue;
 
         private bool _arenaMode;
-        private HsBoxModeSpoofer _modeSpoofer;
-
-        /// <summary>
-        /// 当处于标准传说段位时调用，启用模式伪装。
-        /// </summary>
-        public void EnableModeSpoof(Action<string> log)
-        {
-            if (_modeSpoofer != null) return;
-
-            var wsUrl = GetDebuggerUrl(out _);
-            if (string.IsNullOrWhiteSpace(wsUrl)) return;
-
-            _modeSpoofer = new HsBoxModeSpoofer(log);
-            _modeSpoofer.Enable(wsUrl);
-        }
-
-        /// <summary>
-        /// 对局结束或非标准传说时调用，禁用模式伪装。
-        /// </summary>
-        public void DisableModeSpoof()
-        {
-            if (_modeSpoofer == null) return;
-            _modeSpoofer.Disable();
-            _modeSpoofer = null;
-        }
 
         public void SetArenaMode(bool enabled)
         {
@@ -3466,8 +3441,6 @@ namespace BotMain
 
                     state = HsBoxRecommendationState.FromDto(dto);
                     HsBoxCallbackCapture.TryCapture(state);
-                    // 通知 ModeSpoofer 本轮读取完成，用于 Layer 1 超时检测
-                    _modeSpoofer?.OnRecommendationRound();
                     detail = state.Detail;
                     return true;
                 }
