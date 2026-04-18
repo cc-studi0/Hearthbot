@@ -24,10 +24,13 @@ namespace BotMain.Cloud
 
         // 来自云端推送的下载路径（可为相对路径，如 "/bot/Hearthbot.zip"；或绝对 URL）
         private string? _pendingDownloadPath;
+        private string? _pendingNotes;
 
         public event Action<bool, string, int>? OnCheckCompleted;
         public event Action<string>? OnProgress;
         public event Action? OnRestarting;
+        /// <summary>云端推送 / 本地检查出新版本时触发（version, notes）。UI 横幅订阅此事件。</summary>
+        public event Action<string, string>? OnUpdateAvailable;
 
         public bool IsUpdating => _updating;
 
@@ -35,6 +38,7 @@ namespace BotMain.Cloud
         public bool HasPendingUpdate => !string.IsNullOrEmpty(_pendingVersion) && _pendingVersion != _localVersion;
 
         public string? PendingVersion => _pendingVersion;
+        public string? PendingNotes => _pendingNotes;
 
         public AutoUpdater(string serverUrl, Action<string> log)
         {
@@ -48,16 +52,18 @@ namespace BotMain.Cloud
         /// 云端 WSS 推送入口：服务器比对版本后若发现新版则通过 ExecuteCommand("UpdateAvailable") 推送到此。
         /// 仅记录待装版本与下载路径，不立即下载——由用户点击或 force 触发。
         /// </summary>
-        public void ApplyPushedUpdate(string version, string? downloadPath, bool force)
+        public void ApplyPushedUpdate(string version, string? downloadPath, string? notes, bool force)
         {
             if (string.IsNullOrEmpty(version)) return;
             if (version == _localVersion) return; // 已是最新，忽略
 
             _pendingVersion = version;
             _pendingDownloadPath = downloadPath;
+            _pendingNotes = notes ?? "";
             var shortVer = version.Length > 8 ? version.Substring(0, 8) : version;
             _log($"[AutoUpdate] 云端通知：有新版本 {shortVer}{(force ? "（强制）" : "")}");
             OnCheckCompleted?.Invoke(true, version, -1);
+            OnUpdateAvailable?.Invoke(version, _pendingNotes);
 
             if (force && !_updating)
                 _ = ExecuteUpdateAsync();

@@ -19,13 +19,43 @@
     </Window.Resources>
     <Grid Margin="10,0,10,10">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="100"/>
             <RowDefinition Height="140"/>
             <RowDefinition Height="300*"/>
         </Grid.RowDefinitions>
 
-        <!-- ===== Row 0: 顶栏 — 标题 + 按钮 + 选择器 ===== -->
-        <StackPanel Grid.Row="0" VerticalAlignment="Center">
+        <!-- ===== Row 0: 更新横幅（默认折叠，云端推送 UpdateAvailable 时显示） ===== -->
+        <Border Grid.Row="0" Background="#EFF6FF" BorderBrush="#4682B4" BorderThickness="1"
+                CornerRadius="4" Padding="10,8" Margin="0,6,0,4"
+                Visibility="{Binding UpdateBannerVisibility}">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock Text="{Binding UpdateBannerTitle}" FontWeight="Bold"
+                               FontSize="13" Foreground="#1B1F23"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="80" Margin="0,4,0,0">
+                        <TextBlock Text="{Binding UpdateBannerNotes}" TextWrapping="Wrap"
+                                   Foreground="#586069" FontSize="11" FontFamily="Consolas"/>
+                    </ScrollViewer>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button Content="立即更新" Padding="14,4" MinHeight="28"
+                            Background="#4682B4" Foreground="White" BorderBrush="#3A6F9A"
+                            FontWeight="Bold"
+                            Command="{Binding InstallUpdateCmd}"/>
+                    <Button Content="✕" Padding="8,2" MinHeight="28" Margin="6,0,0,0"
+                            ToolTip="稍后更新（保留提示）"
+                            Command="{Binding DismissUpdateCmd}"/>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ===== Row 1: 顶栏 — 标题 + 按钮 + 选择器 ===== -->
+        <StackPanel Grid.Row="1" VerticalAlignment="Center">
             <Label x:Name="TitleLabel" Content="{Binding TopStatusText}"
                    VerticalContentAlignment="Center" FontSize="11" Margin="0,0,0,2"/>
             <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -170,8 +200,8 @@
             </StackPanel>
         </StackPanel>
 
-        <!-- ===== Row 1: 中间栏 — 统计 + 选项 + 功能按钮 ===== -->
-        <Grid Grid.Row="1" Margin="0">
+        <!-- ===== Row 2: 中间栏 — 统计 + 选项 + 功能按钮 ===== -->
+        <Grid Grid.Row="2" Margin="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="50*"/>
                 <ColumnDefinition Width="150"/>
@@ -275,8 +305,8 @@
             </StackPanel>
         </Grid>
 
-        <!-- ===== Row 2: 主内容区 — TabControl ===== -->
-        <Grid Grid.Row="2" Margin="0">
+        <!-- ===== Row 3: 主内容区 — TabControl ===== -->
+        <Grid Grid.Row="3" Margin="0">
             <TabControl x:Name="TabControlHeader" Margin="0"
                         HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
                         SelectedIndex="4">

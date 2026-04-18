@@ -88,6 +88,7 @@ public class CommandController : ControllerBase
         {
             version = latest,
             url = _updateManifest.DownloadPath,
+            notes = _updateManifest.ReleaseNotes ?? "",
             force = req?.Force ?? false
         });
 

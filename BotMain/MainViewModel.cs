@@ -210,6 +210,9 @@ namespace BotMain
             TestNotifyCmd = new RelayCommand(_ => TestNotify());
             OpenAccountControllerCmd = new RelayCommand(_ => OpenAccountControllerWindow());
             CheckUpdateCmd = new RelayCommand(_ => CheckUpdate(), _ => !(_autoUpdater?.IsUpdating ?? false));
+            InstallUpdateCmd = new RelayCommand(_ => InstallPendingUpdate(),
+                _ => (_autoUpdater?.HasPendingUpdate ?? false) && !(_autoUpdater?.IsUpdating ?? false));
+            DismissUpdateCmd = new RelayCommand(_ => UpdateBannerVisibility = Visibility.Collapsed);
 
             LoadSettings();
             _bot.SetDecksByName(_selectedDeckNames);
@@ -253,6 +256,14 @@ namespace BotMain
                 _autoUpdater.OnRestarting += () => _dispatcher.BeginInvoke(() =>
                 {
                     _cloudAgent?.Dispose();
+                });
+                _autoUpdater.OnUpdateAvailable += (ver, notes) => _dispatcher.BeginInvoke(() =>
+                {
+                    var shortVer = ver.Length > 8 ? ver.Substring(0, 8) : ver;
+                    UpdateBannerTitle = $"发现新版本 {shortVer}";
+                    UpdateBannerNotes = string.IsNullOrWhiteSpace(notes) ? "（无更新说明）" : notes;
+                    UpdateBannerVisibility = Visibility.Visible;
+                    CommandManager.InvalidateRequerySuggested();
                 });
                 // 注意：UpdateAvailable 必须在 CommandExecutor 订阅 OnCommandReceived 之前/之外拦截，
                 // 否则会被入局缓存队列吃掉，等到下局结束才处理，违背"即时通知用户"的语义。
@@ -712,6 +723,45 @@ namespace BotMain
         public ICommand RefreshDiscoverCmd { get; }
         public ICommand OpenAccountControllerCmd { get; }
         public ICommand CheckUpdateCmd { get; }
+        public ICommand InstallUpdateCmd { get; }
+        public ICommand DismissUpdateCmd { get; }
+
+        // 更新横幅
+        private Visibility _updateBannerVisibility = Visibility.Collapsed;
+        public Visibility UpdateBannerVisibility
+        {
+            get => _updateBannerVisibility;
+            private set
+            {
+                if (_updateBannerVisibility == value) return;
+                _updateBannerVisibility = value;
+                Notify();
+            }
+        }
+
+        private string _updateBannerTitle = "";
+        public string UpdateBannerTitle
+        {
+            get => _updateBannerTitle;
+            private set
+            {
+                if (_updateBannerTitle == value) return;
+                _updateBannerTitle = value;
+                Notify();
+            }
+        }
+
+        private string _updateBannerNotes = "";
+        public string UpdateBannerNotes
+        {
+            get => _updateBannerNotes;
+            private set
+            {
+                if (_updateBannerNotes == value) return;
+                _updateBannerNotes = value;
+                Notify();
+            }
+        }
 
         private SettingsWindow _settingsWindow;
 
@@ -774,13 +824,27 @@ namespace BotMain
                 var root = doc.RootElement;
                 var version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "" : "";
                 var url = root.TryGetProperty("url", out var u) ? u.GetString() : null;
+                var notes = root.TryGetProperty("notes", out var n) ? n.GetString() : "";
                 var force = root.TryGetProperty("force", out var f) && f.ValueKind == JsonValueKind.True;
-                _autoUpdater.ApplyPushedUpdate(version, url, force);
+                _autoUpdater.ApplyPushedUpdate(version, url, notes, force);
             }
             catch (Exception ex)
             {
                 EnqueueLog($"[更新] 解析云端推送失败: {ex.Message}");
             }
+        }
+
+        private void InstallPendingUpdate()
+        {
+            if (_autoUpdater == null || !_autoUpdater.HasPendingUpdate || _autoUpdater.IsUpdating) return;
+
+            var inGame = _bot.State == BotState.Running;
+            var gameWarning = inGame ? "\n\n当前正在对局中，更新将关闭炉石并重启程序。" : "";
+            var msg = MessageBox.Show($"确认安装新版本？{gameWarning}",
+                "安装更新", MessageBoxButton.YesNo, MessageBoxImage.Information);
+            if (msg != MessageBoxResult.Yes) return;
+
+            _ = Task.Run(async () => await _autoUpdater.ExecuteUpdateAsync());
         }
 
         private void CheckUpdate()

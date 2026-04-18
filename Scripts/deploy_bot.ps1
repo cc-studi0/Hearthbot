@@ -72,9 +72,26 @@ try {
     $stream.Close()
 }
 
+# 收集 release notes：优先读 publish/release-notes.txt 或 repo 根 release-notes.txt，
+# 都没有就回退到最近 8 条 git 提交（--oneline）
+$notes = ""
+$pubNotes = Join-Path $RepoRoot "publish\release-notes.txt"
+$rootNotes = Join-Path $RepoRoot "release-notes.txt"
+if (Test-Path $pubNotes) {
+    $notes = [System.IO.File]::ReadAllText($pubNotes, [System.Text.Encoding]::UTF8).Trim()
+} elseif (Test-Path $rootNotes) {
+    $notes = [System.IO.File]::ReadAllText($rootNotes, [System.Text.Encoding]::UTF8).Trim()
+} else {
+    try {
+        $gitLog = git -C $RepoRoot log --oneline -n 8 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitLog) { $notes = ($gitLog -join "`n").Trim() }
+    } catch {}
+}
+
 $manifestObj = @{
     version = $version
     files = $manifest
+    notes = $notes
 }
 
 # Use .NET serializer for PS 5.1 compatibility

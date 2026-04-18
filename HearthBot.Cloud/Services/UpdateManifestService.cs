@@ -14,6 +14,7 @@ public class UpdateManifestService : IDisposable
     private FileSystemWatcher? _watcher;
     private readonly object _sync = new();
     private string? _version;
+    private string? _notes;
     private string? _manifestJson;
 
     public UpdateManifestService(IWebHostEnvironment env, IConfiguration cfg, ILogger<UpdateManifestService> logger)
@@ -33,6 +34,11 @@ public class UpdateManifestService : IDisposable
         get { lock (_sync) return _version; }
     }
 
+    public string? ReleaseNotes
+    {
+        get { lock (_sync) return _notes; }
+    }
+
     public string DownloadPath => _downloadUrl;
 
     /// <summary>强制重新读取 manifest（deploy 结束后由广播端点触发）。</summary>
@@ -49,8 +55,9 @@ public class UpdateManifestService : IDisposable
             var json = File.ReadAllText(_manifestPath);
             using var doc = JsonDocument.Parse(json);
             var ver = doc.RootElement.TryGetProperty("version", out var v) ? v.GetString() : null;
-            lock (_sync) { _version = ver; _manifestJson = json; }
-            _logger.LogInformation("Manifest loaded, version={Version}", ver);
+            var notes = doc.RootElement.TryGetProperty("notes", out var n) ? n.GetString() : null;
+            lock (_sync) { _version = ver; _notes = notes; _manifestJson = json; }
+            _logger.LogInformation("Manifest loaded, version={Version}, notesLen={NotesLen}", ver, notes?.Length ?? 0);
         }
         catch (Exception ex)
         {

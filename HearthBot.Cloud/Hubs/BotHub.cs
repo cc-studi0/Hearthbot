@@ -56,6 +56,7 @@ public class BotHub : Hub
             {
                 version = latest,
                 url = _updateManifest.DownloadPath,
+                notes = _updateManifest.ReleaseNotes ?? "",
                 force = false
             });
             await Clients.Caller.SendAsync("ExecuteCommand", 0, CloudCommandTypes.UpdateAvailable, payload);
