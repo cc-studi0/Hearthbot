@@ -104,37 +104,92 @@ else {
         $notes = $gitLog
     }
     else {
-        Write-Host "`n[更新说明] 即将弹出记事本，请写本次更新内容，保存并关闭窗口后继续部署" -ForegroundColor Cyan
-        Write-Host "          （以 # 开头的行会被忽略；直接关闭=使用 git 提交记录；Ctrl+C 中止部署）" -ForegroundColor DarkGray
+        Write-Host "`n[更新说明] 弹出对话框，请写本次更新内容；留空=用 git 提交记录；取消=中止部署" -ForegroundColor Cyan
 
-        $tpl = Join-Path $env:TEMP ("hb_release_notes_" + [Guid]::NewGuid().ToString("N").Substring(0,8) + ".txt")
-        $template = @"
+        Add-Type -AssemblyName System.Windows.Forms
+        Add-Type -AssemblyName System.Drawing
 
-# 在上面一行写本次更新说明（支持多行）。
-# 以 # 开头的行会被忽略。
-# 全部留空 / 直接关闭 = 使用下方 git 提交记录作为说明。
-#
-# 最近 8 条提交：
-$($gitLog -split "`n" | ForEach-Object { "#   $_" } | Out-String)
-"@
-        [System.IO.File]::WriteAllText($tpl, $template, (New-Object System.Text.UTF8Encoding $false))
+        $form = New-Object System.Windows.Forms.Form
+        $form.Text = "Hearthbot - 本次更新说明"
+        $form.Size = New-Object System.Drawing.Size(600, 480)
+        $form.StartPosition = "CenterScreen"
+        $form.FormBorderStyle = "FixedDialog"
+        $form.MaximizeBox = $false
+        $form.MinimizeBox = $false
+        $form.TopMost = $true
 
-        try {
-            Start-Process -FilePath "notepad.exe" -ArgumentList $tpl -Wait
-            $raw = [System.IO.File]::ReadAllText($tpl, [System.Text.Encoding]::UTF8)
-            # 去掉注释行 + 两端空白
-            $notes = (($raw -split "`r?`n") | Where-Object { $_ -notmatch '^\s*#' } | Out-String).Trim()
-            if ([string]::IsNullOrWhiteSpace($notes)) {
-                Write-Host "  （未写更新说明，回退到 git 提交记录）" -ForegroundColor DarkGray
-                $notes = $gitLog
+        $lbl = New-Object System.Windows.Forms.Label
+        $lbl.Location = New-Object System.Drawing.Point(12, 10)
+        $lbl.Size = New-Object System.Drawing.Size(560, 18)
+        $lbl.Text = "本次更新说明（多行；留空则使用下方 git 提交记录）："
+        $form.Controls.Add($lbl)
+
+        $txt = New-Object System.Windows.Forms.TextBox
+        $txt.Location = New-Object System.Drawing.Point(12, 30)
+        $txt.Size = New-Object System.Drawing.Size(560, 220)
+        $txt.Multiline = $true
+        $txt.ScrollBars = "Vertical"
+        $txt.AcceptsReturn = $true
+        $txt.AcceptsTab = $true
+        $txt.Font = New-Object System.Drawing.Font("Microsoft YaHei", 10)
+        $txt.WordWrap = $true
+        $form.Controls.Add($txt)
+
+        $lbl2 = New-Object System.Windows.Forms.Label
+        $lbl2.Location = New-Object System.Drawing.Point(12, 256)
+        $lbl2.Size = New-Object System.Drawing.Size(560, 18)
+        $lbl2.Text = "参考 — 最近 8 条提交（仅供参考，不自动填入上面）："
+        $lbl2.ForeColor = [System.Drawing.Color]::Gray
+        $form.Controls.Add($lbl2)
+
+        $ref = New-Object System.Windows.Forms.TextBox
+        $ref.Location = New-Object System.Drawing.Point(12, 276)
+        $ref.Size = New-Object System.Drawing.Size(560, 120)
+        $ref.Multiline = $true
+        $ref.ScrollBars = "Vertical"
+        $ref.ReadOnly = $true
+        $ref.Font = New-Object System.Drawing.Font("Consolas", 9)
+        $ref.BackColor = [System.Drawing.Color]::FromArgb(246, 248, 250)
+        $ref.Text = if ([string]::IsNullOrWhiteSpace($gitLog)) { "（无 git 历史）" } else { $gitLog }
+        $form.Controls.Add($ref)
+
+        $btnOk = New-Object System.Windows.Forms.Button
+        $btnOk.Location = New-Object System.Drawing.Point(402, 406)
+        $btnOk.Size = New-Object System.Drawing.Size(80, 30)
+        $btnOk.Text = "确定"
+        $btnOk.DialogResult = [System.Windows.Forms.DialogResult]::OK
+        $form.Controls.Add($btnOk)
+        $form.AcceptButton = $btnOk
+
+        $btnCancel = New-Object System.Windows.Forms.Button
+        $btnCancel.Location = New-Object System.Drawing.Point(492, 406)
+        $btnCancel.Size = New-Object System.Drawing.Size(80, 30)
+        $btnCancel.Text = "取消"
+        $btnCancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+        $form.Controls.Add($btnCancel)
+        $form.CancelButton = $btnCancel
+
+        $txt.Add_KeyDown({
+            if ($_.Control -and $_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) {
+                $btnOk.PerformClick()
+                $_.SuppressKeyPress = $true
             }
+        })
+
+        $result = $form.ShowDialog()
+        $typed = $txt.Text
+        $form.Dispose()
+
+        if ($result -ne [System.Windows.Forms.DialogResult]::OK) {
+            Write-Host "  用户取消，中止部署" -ForegroundColor Red
+            exit 1
         }
-        catch {
-            Write-Host "  记事本调用失败，回退到 git 提交记录: $_" -ForegroundColor DarkYellow
+
+        if ([string]::IsNullOrWhiteSpace($typed)) {
+            Write-Host "  （未写更新说明，回退到 git 提交记录）" -ForegroundColor DarkGray
             $notes = $gitLog
-        }
-        finally {
-            Remove-Item $tpl -Force -ErrorAction SilentlyContinue
+        } else {
+            $notes = $typed.Trim()
         }
     }
 }
