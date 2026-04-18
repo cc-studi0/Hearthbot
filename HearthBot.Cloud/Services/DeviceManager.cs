@@ -93,7 +93,8 @@ public class DeviceManager
     public async Task<Device?> UpdateHeartbeat(string deviceId, string status,
         string currentAccount, string currentRank, string currentDeck,
         string currentProfile, string gameMode, int sessionWins, int sessionLosses,
-        string targetRank = "", string currentOpponent = "")
+        string targetRank = "", string currentOpponent = "",
+        int passLevel = 0, int passXp = 0, int passXpNeeded = 0)
     {
         var utcNow = DateTime.UtcNow;
         using var scope = _scopeFactory.CreateScope();
@@ -118,6 +119,9 @@ public class DeviceManager
         device.SessionLosses = sessionLosses;
         device.LastHeartbeat = utcNow;
         device.CurrentOpponent = currentOpponent;
+        device.PassLevel = passLevel;
+        device.PassXp = passXp;
+        device.PassXpNeeded = passXpNeeded;
 
         var orderAccountChanged = !string.IsNullOrWhiteSpace(device.OrderNumber)
             && !string.IsNullOrWhiteSpace(device.OrderAccountName)
