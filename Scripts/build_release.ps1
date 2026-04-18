@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Build, obfuscate and package Hearthbot for release.
 .NOTES
@@ -13,6 +13,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+
+# 强制控制台与 PS 输出为 UTF-8，避免中文 Windows（CP936）下本脚本的中文输出乱码
+try {
+    [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+    [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
+    $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+} catch {}
+
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
 $PublishDir    = Join-Path $RepoRoot "publish\app"
