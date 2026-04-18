@@ -107,6 +107,14 @@ function submitOrder() {
       <span v-if="device.targetRank" class="rank-arrow">→ {{ device.targetRank }}</span>
     </div>
 
+    <div v-if="device.passLevel > 0" class="pass-line">
+      <span class="pass-label">通行证</span>
+      <span class="pass-level">Lv.{{ device.passLevel }}</span>
+      <span v-if="device.passXpNeeded > 0" class="pass-xp">
+        {{ device.passXp }}/{{ device.passXpNeeded }}
+      </span>
+    </div>
+
     <div v-if="progressPercent !== null" class="progress-track">
       <span class="progress-fill" :style="{ width: `${progressPercent}%` }" />
     </div>
@@ -309,4 +317,15 @@ function submitOrder() {
   font-size: 12px;
   font-weight: 600;
 }
+
+.pass-line {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 2px;
+}
+.pass-label { color: #64748b; }
+.pass-level { color: #8b5cf6; font-weight: 600; }
+.pass-xp { color: #94a3b8; font-size: 12px; }
 </style>
