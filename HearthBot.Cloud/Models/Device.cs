@@ -29,4 +29,8 @@ public class Device
     public bool IsCompleted { get; set; }
     public DateTime? CompletedAt { get; set; }
     public string CompletedRank { get; set; } = string.Empty;
+
+    public int PassLevel { get; set; }
+    public int PassXp { get; set; }
+    public int PassXpNeeded { get; set; }
 }

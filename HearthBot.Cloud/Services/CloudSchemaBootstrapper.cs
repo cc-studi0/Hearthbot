@@ -18,7 +18,10 @@ public static class CloudSchemaBootstrapper
         ("CurrentOpponent", "TEXT NOT NULL DEFAULT ''"),
         ("IsCompleted", "INTEGER NOT NULL DEFAULT 0"),
         ("CompletedAt", "TEXT"),
-        ("CompletedRank", "TEXT NOT NULL DEFAULT ''")
+        ("CompletedRank", "TEXT NOT NULL DEFAULT ''"),
+        ("PassLevel", "INTEGER NOT NULL DEFAULT 0"),
+        ("PassXp", "INTEGER NOT NULL DEFAULT 0"),
+        ("PassXpNeeded", "INTEGER NOT NULL DEFAULT 0")
     };
 
     public static async Task EnsureSchemaAsync(CloudDbContext db, CancellationToken cancellationToken = default)
