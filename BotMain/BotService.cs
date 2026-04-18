@@ -1789,6 +1789,7 @@ namespace BotMain
                     Log("Waiting payload connection (BepInEx)...");
                     try { _pipe?.Dispose(); } catch { }
                     _pipe = new PipeServer("HearthstoneBot");
+                    _pipe.OrphanResponseLogger = LogDrainedOrphanResponse;
                     var waitResult = _pipe.WaitForConnection(_cts?.Token ?? CancellationToken.None, PipeConnectTimeoutMs);
                     if (waitResult != PipeConnectionWaitResult.Connected)
                     {
@@ -11620,6 +11621,20 @@ namespace BotMain
         {
             OnLog?.Invoke(msg);
             InvokeDebugEvent("OnLogReceived", msg);
+        }
+
+        private int _drainedOrphanCount;
+
+        /// <summary>
+        /// PipeServer 在每次 Send 前 Drain 掉的孤儿响应（上一条请求超时后延迟到达的响应）。
+        /// 记录下来便于诊断错位；正常情况下应当极少触发。
+        /// </summary>
+        private void LogDrainedOrphanResponse(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return;
+            var count = Interlocked.Increment(ref _drainedOrphanCount);
+            var shortLine = line.Length > 80 ? line.Substring(0, 80) : line;
+            Log($"[PipeServer] drained stale #{count}: {shortLine}");
         }
         private void StatusChanged(string s) => OnStatusChanged?.Invoke(s);
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
@@ -16,7 +18,10 @@ namespace BotMain
     }
 
     /// <summary>
-    /// TCP 服务端，与注入的 Payload 通信
+    /// TCP 服务端，与注入的 Payload 通信。
+    /// 内部启动后台 reader 线程负责连续读取响应入队，
+    /// 每次 ExecuteExclusive 临界区开始时先 Drain 掉上轮请求的孤儿响应，
+    /// 再 Send/Receive 当前命令，彻底避免错位响应级联。
     /// </summary>
     public class PipeServer : IDisposable
     {
@@ -25,25 +30,25 @@ namespace BotMain
         private TcpClient _client;
         private StreamReader _reader;
         private StreamWriter _writer;
-        // 缓存上次超时未完成的 ReadLineAsync，避免下次调用启动新 Task 导致消息错位
-        private System.Threading.Tasks.Task<string> _pendingRead;
+
+        private Thread _readerThread;
+        private BlockingCollection<string> _responseQueue;
         private readonly object _ioLock = new object();
+        private volatile bool _readerShouldRun;
+        private volatile bool _readerDisconnected;
+
+        /// <summary>被 Drain 丢弃的孤儿响应回调（用于日志）。由 BotService 注入。</summary>
+        public Action<string> OrphanResponseLogger { get; set; }
 
         public string LastWaitDetail { get; private set; }
 
         public bool IsConnected
         {
-            get
-            {
-                return HasLiveConnection();
-            }
+            get { return HasLiveConnection(); }
         }
 
         public PipeServer(string name = "HearthstoneBot") { }
 
-        /// <summary>
-        /// 等待 Payload 连接
-        /// </summary>
         public PipeConnectionWaitResult WaitForConnection(CancellationToken ct = default, int timeoutMs = Timeout.Infinite)
         {
             LastWaitDetail = null;
@@ -89,6 +94,9 @@ namespace BotMain
                 _writer = new StreamWriter(stream, Encoding.UTF8) { AutoFlush = true };
                 try { _listener.Stop(); } catch { }
                 _listener = null;
+
+                StartReaderThread();
+
                 LastWaitDetail = "connected";
                 return PipeConnectionWaitResult.Connected;
             }
@@ -108,6 +116,59 @@ namespace BotMain
             }
         }
 
+        private void StartReaderThread()
+        {
+            _responseQueue = new BlockingCollection<string>(new ConcurrentQueue<string>());
+            _readerShouldRun = true;
+            _readerDisconnected = false;
+            _readerThread = new Thread(ReaderLoop)
+            {
+                IsBackground = true,
+                Name = "PipeServer.Reader"
+            };
+            _readerThread.Start();
+        }
+
+        private void ReaderLoop()
+        {
+            try
+            {
+                while (_readerShouldRun)
+                {
+                    string line;
+                    try
+                    {
+                        line = _reader?.ReadLine();
+                    }
+                    catch
+                    {
+                        break;
+                    }
+
+                    if (line == null)
+                    {
+                        // EOF / 对端断开
+                        break;
+                    }
+
+                    try
+                    {
+                        _responseQueue.Add(line);
+                    }
+                    catch
+                    {
+                        // queue 已 CompleteAdding 或 Dispose
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                _readerDisconnected = true;
+                try { _responseQueue?.CompleteAdding(); } catch { }
+            }
+        }
+
         public bool Send(string message)
         {
             if (!IsConnected) return false;
@@ -123,38 +184,61 @@ namespace BotMain
             }
         }
 
+        /// <summary>
+        /// 从响应队列取一行。
+        /// timeoutMs &lt; 0：无限等待；= 0：立即返回；&gt; 0：超时时返回 null。
+        /// </summary>
         public string Receive(int timeoutMs = 5000)
         {
-            if (!IsConnected) return null;
+            var queue = _responseQueue;
+            if (queue == null) return null;
             try
             {
-                // 复用上次超时未完成的 Task，而非启动新的
-                var task = _pendingRead ?? _reader.ReadLineAsync();
-                _pendingRead = null;
-
-                if (timeoutMs >= 0 && !task.Wait(timeoutMs))
+                if (timeoutMs < 0)
                 {
-                    // 超时：缓存这个 Task，下次继续等
-                    _pendingRead = task;
-                    return null;
+                    return queue.Take();
                 }
-                var line = task.Result;
-                if (line == null)
-                {
-                    DisposeClient();
-                    return null;
-                }
-                return line;
-            }
-            catch
-            {
-                DisposeClient();
+                if (queue.TryTake(out var line, timeoutMs))
+                    return line;
                 return null;
             }
+            catch (InvalidOperationException) { return null; }
+            catch (OperationCanceledException) { return null; }
         }
 
         /// <summary>
-        /// 发送命令并等待响应
+        /// 把队列里"此刻已到达"的残留孤儿响应全部吞掉。
+        /// 必须在临界区（已持有 _ioLock）内、Send 之前调用。
+        /// budgetMs: drain 的总预算；idleMs: 连续空闲多少毫秒视为管道已稳定空。
+        /// </summary>
+        public int DrainStaleResponses(int budgetMs = 20, int idleMs = 1)
+        {
+            var queue = _responseQueue;
+            if (queue == null) return 0;
+
+            var drained = 0;
+            var sw = Stopwatch.StartNew();
+            while (sw.ElapsedMilliseconds < budgetMs)
+            {
+                string stale;
+                try
+                {
+                    if (!queue.TryTake(out stale, idleMs))
+                        break; // 连续 idleMs 毫秒无新响应 → 管道稳定空
+                }
+                catch
+                {
+                    break;
+                }
+
+                drained++;
+                try { OrphanResponseLogger?.Invoke(stale); } catch { }
+            }
+            return drained;
+        }
+
+        /// <summary>
+        /// 发送命令并等待响应。临界区内先 Drain 再 Send 再 Receive。
         /// </summary>
         public string SendAndReceive(string command, int timeoutMs = 5000)
         {
@@ -167,21 +251,45 @@ namespace BotMain
 
         public T ExecuteExclusive<T>(Func<T> action)
         {
+            return ExecuteExclusive(action, drainStale: true);
+        }
+
+        /// <summary>
+        /// 进入 I/O 临界区。默认 drainStale=true：Send 前先清空孤儿响应。
+        /// 极少数场景（例如测试）可传 false 跳过 drain。
+        /// </summary>
+        public T ExecuteExclusive<T>(Func<T> action, bool drainStale)
+        {
             if (action == null)
                 throw new ArgumentNullException(nameof(action));
 
             lock (_ioLock)
             {
+                if (drainStale)
+                    DrainStaleResponses();
                 return action();
             }
         }
 
         public void Dispose()
         {
-            _pendingRead = null;
+            _readerShouldRun = false;
             DisposeClient();
             try { _listener?.Stop(); } catch { }
             _listener = null;
+
+            try { _responseQueue?.CompleteAdding(); } catch { }
+
+            try
+            {
+                if (_readerThread != null && _readerThread.IsAlive)
+                    _readerThread.Join(500);
+            }
+            catch { }
+            _readerThread = null;
+
+            try { _responseQueue?.Dispose(); } catch { }
+            _responseQueue = null;
         }
 
         private bool HasLiveConnection()
@@ -191,15 +299,18 @@ namespace BotMain
                 if (_client == null || !_client.Connected)
                     return false;
 
+                if (_readerDisconnected)
+                {
+                    DisposeClient();
+                    return false;
+                }
+
                 var socket = _client.Client;
                 if (socket == null)
                     return false;
 
-                var disconnected =
-                    (socket.Poll(0, SelectMode.SelectRead) && socket.Available == 0)
-                    || socket.Poll(0, SelectMode.SelectError);
-
-                if (disconnected)
+                // 只做错误态副检：Available/SelectRead 在后台 reader 存在时会被 OS 消费，不准
+                if (socket.Poll(0, SelectMode.SelectError))
                 {
                     DisposeClient();
                     return false;
@@ -216,7 +327,6 @@ namespace BotMain
 
         private void DisposeClient()
         {
-            _pendingRead = null;
             try { _reader?.Dispose(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _client?.Close(); } catch { }
