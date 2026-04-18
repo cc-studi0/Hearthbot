@@ -62,3 +62,4 @@ tools/ilspy/
 tools/jq
 tools/confuserex/
 .decompile/
+.tmp_decompile/
