@@ -1677,6 +1677,7 @@ namespace BotMain
                 StatusChanged("Running");
                 TouchEffectiveAction();
                 TryQueryCurrentRank(_pipe, force: true);
+                TryQueryPassInfo(_pipe);
                 TryQueryPlayerName(_pipe);
                 if (CheckRankStopLimit(_pipe, force: true))
                     return;
@@ -1952,6 +1953,7 @@ namespace BotMain
                 if (!wasInGame)
                 {
                     TryQueryCurrentRank(pipe);
+                    TryQueryPassInfo(pipe);
                     if (CheckRankStopLimit(pipe))
                         break;
                 }
@@ -10227,6 +10229,45 @@ namespace BotMain
         private int _lastQueriedStarLevel;
         private int _lastQueriedEarnedStars;
         private int _lastQueriedLegendIndex;
+
+        private int _lastPassLevel;
+        private int _lastPassXp;
+        private int _lastPassXpNeeded;
+
+        public int LastPassLevel => _lastPassLevel;
+        public int LastPassXp => _lastPassXp;
+        public int LastPassXpNeeded => _lastPassXpNeeded;
+
+        private bool TryQueryPassInfo(PipeServer pipe)
+        {
+            if (pipe == null || !pipe.IsConnected)
+                return false;
+
+            var gotResp = TrySendAndReceiveExpected(
+                pipe,
+                "GET_PASS_INFO",
+                2500,
+                r => !string.IsNullOrWhiteSpace(r)
+                    && (r.StartsWith("PASS_INFO:", StringComparison.Ordinal)
+                        || r.StartsWith("NO_PASS_INFO:", StringComparison.Ordinal)
+                        || r.StartsWith("ERROR:", StringComparison.Ordinal)),
+                out var resp,
+                "PassInfo");
+
+            if (!gotResp || string.IsNullOrWhiteSpace(resp))
+                return false;
+
+            if (!PassParser.TryParsePassInfoResponse(
+                resp, out var level, out var xp, out var xpNeeded))
+            {
+                return false;
+            }
+
+            _lastPassLevel = level;
+            _lastPassXp = xp;
+            _lastPassXpNeeded = xpNeeded;
+            return true;
+        }
 
         /// <summary>
         /// 判断当前是否处于标准模式传说段位。

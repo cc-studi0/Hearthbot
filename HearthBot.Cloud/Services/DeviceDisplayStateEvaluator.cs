@@ -67,7 +67,10 @@ public sealed class DeviceDisplayStateEvaluator
             CurrentOpponent = device.CurrentOpponent,
             IsCompleted = device.IsCompleted,
             CompletedAt = device.CompletedAt,
-            CompletedRank = device.CompletedRank
+            CompletedRank = device.CompletedRank,
+            PassLevel = device.PassLevel,
+            PassXp = device.PassXp,
+            PassXpNeeded = device.PassXpNeeded
         };
     }
 }

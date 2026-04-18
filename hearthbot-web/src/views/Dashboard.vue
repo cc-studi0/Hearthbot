@@ -99,7 +99,10 @@ function createPlaceholderDevice(deviceId: string, displayName: string): Device 
     currentOpponent: '',
     isCompleted: false,
     completedAt: null,
-    completedRank: ''
+    completedRank: '',
+    passLevel: 0,
+    passXp: 0,
+    passXpNeeded: 0
   }
 }
 

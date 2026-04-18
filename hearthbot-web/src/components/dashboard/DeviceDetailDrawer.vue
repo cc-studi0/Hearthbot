@@ -17,6 +17,7 @@ import type { Device } from '../../types'
 import { getDisplayStatus } from '../../utils/dashboardState'
 import { buildTargetRankOptions } from '../../utils/rankOptions'
 import { rankToNumber } from '../../utils/rankMapping'
+import PassProgress from '../PassProgress.vue'
 
 const props = defineProps<{
   show: boolean
@@ -282,6 +283,16 @@ const recordColumns = [
               <strong>{{ device.sessionWins }}W {{ device.sessionLosses }}L · {{ winRate }}</strong>
             </div>
           </div>
+
+          <div class="pass-section">
+            <span class="pass-section-label">通行证</span>
+            <PassProgress
+              v-if="device.passLevel > 0"
+              :level="device.passLevel"
+              :xp="device.passXp"
+              :xp-needed="device.passXpNeeded" />
+            <p v-else class="pass-section-muted">暂无通行证数据</p>
+          </div>
         </section>
 
         <section class="detail-panel">
@@ -432,6 +443,23 @@ const recordColumns = [
 
 .op-alert {
   margin-top: 12px;
+}
+
+.pass-section {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed #e2e8f0;
+}
+.pass-section-label {
+  display: block;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+.pass-section-muted {
+  font-size: 12px;
+  color: #94a3b8;
+  margin: 0;
 }
 
 @media (max-width: 640px) {

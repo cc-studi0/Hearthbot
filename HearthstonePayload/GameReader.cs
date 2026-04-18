@@ -255,6 +255,52 @@ namespace HearthstonePayload
             }
         }
 
+        public string ReadPassInfoResponse()
+        {
+            if (!Init()) return "NO_PASS_INFO:init_failed";
+
+            try
+            {
+                var mgrType = _ctx.AsmCSharp?.GetType("RewardTrackManager");
+                if (mgrType == null) return "NO_PASS_INFO:no_mgr";
+
+                var mgr = _ctx.CallStaticAny(mgrType, "Get");
+                if (mgr == null) return "NO_PASS_INFO:no_mgr_instance";
+
+                // 通行证数据需等客户端从服务器收齐后才可读
+                var received = _ctx.GetFieldOrPropertyAny(mgr,
+                    "HasReceivedRewardTracksFromServer") as bool?;
+                if (received != true) return "NO_PASS_INFO:not_received";
+
+                // Global.RewardTrackType.GLOBAL = 1（见 hs-decompiled Cheats.cs 调用约定）
+                var getTrack = mgrType
+                    .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+                    .FirstOrDefault(m => m.Name == "GetRewardTrack" && m.GetParameters().Length == 1);
+                if (getTrack == null) return "NO_PASS_INFO:no_get_track";
+
+                var trackTypeParam = getTrack.GetParameters()[0].ParameterType;
+                if (!trackTypeParam.IsEnum) return "NO_PASS_INFO:bad_track_type";
+
+                var globalValue = Enum.ToObject(trackTypeParam, 1);
+                var track = getTrack.Invoke(mgr, new[] { globalValue });
+                if (track == null) return "NO_PASS_INFO:no_track";
+
+                var dataModel = _ctx.GetFieldOrPropertyAny(track, "TrackDataModel");
+                if (dataModel == null) return "NO_PASS_INFO:no_datamodel";
+
+                var level    = ReadRankFieldInt(dataModel, "Level", "m_Level");
+                var xp       = ReadRankFieldInt(dataModel, "Xp", "m_Xp");
+                var xpNeeded = ReadRankFieldInt(dataModel, "XpNeeded", "m_XpNeeded");
+
+                if (level <= 0) return "NO_PASS_INFO:invalid_level";
+                return string.Format("PASS_INFO:{0}|{1}|{2}", level, xp, xpNeeded);
+            }
+            catch (Exception ex)
+            {
+                return "NO_PASS_INFO:" + ex.GetType().Name;
+            }
+        }
+
         private object GetOpposingPlayer(object gameState)
         {
             return _ctx.CallAny(gameState,

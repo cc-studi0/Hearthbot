@@ -68,12 +68,14 @@ public class BotHub : Hub
     public async Task Heartbeat(string deviceId, string status,
         string currentAccount, string currentRank, string currentDeck,
         string currentProfile, string gameMode, int sessionWins, int sessionLosses,
-        string targetRank = "", string currentOpponent = "")
+        string targetRank = "", string currentOpponent = "",
+        int passLevel = 0, int passXp = 0, int passXpNeeded = 0)
     {
         var device = await _devices.UpdateHeartbeat(deviceId, status,
             currentAccount, currentRank, currentDeck,
             currentProfile, gameMode, sessionWins, sessionLosses,
-            targetRank, currentOpponent);
+            targetRank, currentOpponent,
+            passLevel, passXp, passXpNeeded);
 
         if (device != null)
             await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));

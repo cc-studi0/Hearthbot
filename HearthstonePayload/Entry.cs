@@ -597,6 +597,13 @@ namespace HearthstonePayload
                     5000);
                 _pipe.Write(rankInfoResult as string ?? "NO_RANK_INFO:main_thread");
             }
+            else if (cmd == "GET_PASS_INFO")
+            {
+                var passInfoResult = RunOnMainThread(
+                    () => (object)reader.ReadPassInfoResponse(),
+                    5000);
+                _pipe.Write(passInfoResult as string ?? "NO_PASS_INFO:main_thread");
+            }
             else if (cmd.StartsWith("ACTION:", StringComparison.Ordinal))
             {
                 _pipe.Write(ActionExecutor.Execute(reader, cmd.Substring(7)));

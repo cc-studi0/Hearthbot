@@ -28,6 +28,9 @@ export interface Device {
   isCompleted: boolean
   completedAt: string | null
   completedRank: string
+  passLevel: number
+  passXp: number
+  passXpNeeded: number
 }
 
 export interface CompletedOrderSnapshot {

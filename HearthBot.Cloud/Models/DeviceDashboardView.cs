@@ -33,4 +33,8 @@ public sealed class DeviceDashboardView
     public bool IsCompleted { get; init; }
     public DateTime? CompletedAt { get; init; }
     public string CompletedRank { get; init; } = string.Empty;
+
+    public int PassLevel { get; init; }
+    public int PassXp { get; init; }
+    public int PassXpNeeded { get; init; }
 }

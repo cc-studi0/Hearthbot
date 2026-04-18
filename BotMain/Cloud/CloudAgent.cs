@@ -173,7 +173,8 @@ namespace BotMain.Cloud
                 {
                     _config.DeviceId, s.Status, s.CurrentAccount, s.CurrentRank,
                     s.CurrentDeck, s.CurrentProfile, s.GameMode, s.SessionWins, s.SessionLosses,
-                    s.TargetRank ?? "", s.CurrentOpponent ?? ""
+                    s.TargetRank ?? "", s.CurrentOpponent ?? "",
+                    s.PassLevel, s.PassXp, s.PassXpNeeded
                 });
             }
             catch (Exception ex)
@@ -248,6 +249,9 @@ namespace BotMain.Cloud
 
     public struct HeartbeatData
     {
+        public int PassLevel;
+        public int PassXp;
+        public int PassXpNeeded;
         public string Status;
         public string CurrentAccount;
         public string CurrentRank;

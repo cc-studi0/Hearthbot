@@ -60,6 +60,7 @@
     <Compile Include="..\BotMain\PluginSystem.cs" Link="PluginSystem.cs" />
     <Compile Include="..\BotMain\ProfileLoader.cs" Link="ProfileLoader.cs" />
     <Compile Include="..\BotMain\RankHelper.cs" Link="RankHelper.cs" />
+    <Compile Include="..\BotMain\PassParser.cs" Link="PassParser.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
     <Compile Include="..\BotMain\ResourceSync.cs" Link="ResourceSync.cs" />
     <Compile Include="..\HearthBot.Cloud\Data\CloudDbContext.cs" Link="Cloud\CloudDbContext.cs" />
