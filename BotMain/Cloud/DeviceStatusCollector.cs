@@ -50,7 +50,10 @@ namespace BotMain.Cloud
                 SessionWins = account?.Wins ?? stats.Wins,
                 SessionLosses = account?.Losses ?? stats.Losses,
                 TargetRank = account?.TargetRankText ?? "",
-                CurrentOpponent = _bot.CurrentEnemyClassName ?? ""
+                CurrentOpponent = _bot.CurrentEnemyClassName ?? "",
+                PassLevel = _bot.LastPassLevel,
+                PassXp = _bot.LastPassXp,
+                PassXpNeeded = _bot.LastPassXpNeeded
             };
         }
     }
