@@ -48,6 +48,7 @@ builder.Services.AddSingleton<DeviceDashboardProjectionService>();
 builder.Services.AddSingleton<AlertService>();
 builder.Services.AddSingleton<IAlertService>(sp => sp.GetRequiredService<AlertService>());
 builder.Services.AddSingleton<OrderCompletionNotifier>();
+builder.Services.AddSingleton<UpdateManifestService>();
 builder.Services.AddScoped<CompletedOrderService>();
 builder.Services.AddScoped<HiddenDeviceService>();
 builder.Services.AddHostedService<DeviceWatchdog>();

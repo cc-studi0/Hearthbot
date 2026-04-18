@@ -1,3 +1,4 @@
+using System.Text.Json;
 using HearthBot.Cloud.Data;
 using HearthBot.Cloud.Hubs;
 using HearthBot.Cloud.Models;
@@ -17,14 +18,17 @@ public class CommandController : ControllerBase
     private readonly DeviceManager _devices;
     private readonly IHubContext<BotHub> _botHub;
     private readonly IHubContext<DashboardHub> _dashboardHub;
+    private readonly UpdateManifestService _updateManifest;
 
     public CommandController(CloudDbContext db, DeviceManager devices,
-        IHubContext<BotHub> botHub, IHubContext<DashboardHub> dashboardHub)
+        IHubContext<BotHub> botHub, IHubContext<DashboardHub> dashboardHub,
+        UpdateManifestService updateManifest)
     {
         _db = db;
         _devices = devices;
         _botHub = botHub;
         _dashboardHub = dashboardHub;
+        _updateManifest = updateManifest;
     }
 
     public record SendCommandRequest(string DeviceId, string CommandType, string Payload);
@@ -64,5 +68,32 @@ public class CommandController : ControllerBase
             .SendAsync("CommandStatusChanged", cmd.Id, cmd.Status, (string?)null);
 
         return Ok(new { cmd.Id, cmd.Status });
+    }
+
+    public record BroadcastUpdateRequest(bool Force);
+
+    /// <summary>
+    /// 重新加载 manifest 并向所有在线客户端推送 UpdateAvailable。
+    /// 部署脚本在上传完 zip + manifest 后调用一次即可。
+    /// </summary>
+    [HttpPost("broadcast-update")]
+    public async Task<IActionResult> BroadcastUpdate([FromBody] BroadcastUpdateRequest? req = null)
+    {
+        _updateManifest.Reload();
+        var latest = _updateManifest.LatestVersion;
+        if (string.IsNullOrEmpty(latest))
+            return BadRequest(new { error = "Manifest missing or invalid" });
+
+        var payload = JsonSerializer.Serialize(new
+        {
+            version = latest,
+            url = _updateManifest.DownloadPath,
+            force = req?.Force ?? false
+        });
+
+        await _botHub.Clients.All.SendAsync("ExecuteCommand", 0,
+            CloudCommandTypes.UpdateAvailable, payload);
+
+        return Ok(new { version = latest, broadcast = true });
     }
 }

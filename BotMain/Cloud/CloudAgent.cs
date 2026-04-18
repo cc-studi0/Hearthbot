@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.SignalR.Client;
@@ -16,6 +17,19 @@ namespace BotMain.Cloud
         private Timer? _heartbeatTimer;
         private readonly object _timerLock = new();
         private bool _disposed;
+
+        /// <summary>当前客户端版本号（来自 version.txt，没有则为空）。Register 时上报给服务端用于比对。</summary>
+        public string ClientVersion { get; set; } = ReadLocalVersion();
+
+        private static string ReadLocalVersion()
+        {
+            try
+            {
+                var path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "version.txt");
+                return File.Exists(path) ? File.ReadAllText(path).Trim() : "";
+            }
+            catch { return ""; }
+        }
 
         public bool IsConnected => _hub?.State == HubConnectionState.Connected;
 
@@ -138,7 +152,8 @@ namespace BotMain.Cloud
                     _config.DeviceId,
                     _config.DisplayName,
                     decks,
-                    profiles);
+                    profiles,
+                    ClientVersion ?? "");
             }
             catch (Exception ex)
             {

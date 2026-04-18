@@ -1,3 +1,5 @@
+using System.Text.Json;
+using HearthBot.Cloud.Models;
 using HearthBot.Cloud.Services;
 using Microsoft.AspNetCore.SignalR;
 
@@ -9,20 +11,22 @@ public class BotHub : Hub
     private readonly DeviceDashboardProjectionService _projection;
     private readonly IHubContext<DashboardHub> _dashboard;
     private readonly OrderCompletionNotifier _completionNotifier;
+    private readonly UpdateManifestService _updateManifest;
     private readonly ILogger<BotHub> _logger;
 
     public BotHub(DeviceManager devices, DeviceDashboardProjectionService projection, IHubContext<DashboardHub> dashboard,
-        OrderCompletionNotifier completionNotifier, ILogger<BotHub> logger)
+        OrderCompletionNotifier completionNotifier, UpdateManifestService updateManifest, ILogger<BotHub> logger)
     {
         _devices = devices;
         _projection = projection;
         _dashboard = dashboard;
         _completionNotifier = completionNotifier;
+        _updateManifest = updateManifest;
         _logger = logger;
     }
 
     public async Task Register(string deviceId, string displayName,
-        string[] availableDecks, string[] availableProfiles)
+        string[] availableDecks, string[] availableProfiles, string? clientVersion = null)
     {
         await _devices.RegisterDevice(deviceId, displayName,
             availableDecks, availableProfiles, Context.ConnectionId);
@@ -40,6 +44,23 @@ public class BotHub : Hub
         {
             await Clients.Caller.SendAsync("ExecuteCommand", cmd.Id, cmd.CommandType, cmd.Payload);
             await _devices.UpdateCommandStatus(cmd.Id, "Delivered");
+        }
+
+        // 版本比对：若客户端版本与服务器 manifest 不一致，推送 UpdateAvailable（不入库，纯临时通知）
+        var latest = _updateManifest.LatestVersion;
+        if (!string.IsNullOrEmpty(latest) &&
+            !string.IsNullOrEmpty(clientVersion) &&
+            !string.Equals(latest, clientVersion, StringComparison.Ordinal))
+        {
+            var payload = JsonSerializer.Serialize(new
+            {
+                version = latest,
+                url = _updateManifest.DownloadPath,
+                force = false
+            });
+            await Clients.Caller.SendAsync("ExecuteCommand", 0, CloudCommandTypes.UpdateAvailable, payload);
+            _logger.LogInformation("Pushed UpdateAvailable to {DeviceId}: local={Local} latest={Latest}",
+                deviceId, clientVersion, latest);
         }
     }
 

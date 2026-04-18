@@ -22,6 +22,9 @@ namespace BotMain.Cloud
 
             _agent.OnCommandReceived += (id, type, payload) =>
             {
+                // UpdateAvailable 由 MainViewModel 直接处理（即时通知用户），不走入局缓存
+                if (string.Equals(type, CloudCommandTypes.UpdateAvailable, StringComparison.OrdinalIgnoreCase))
+                    return;
                 _pendingCommands.Enqueue((id, type, payload));
                 _log($"[云控] 指令已缓存: {type} (id={id})，将在当局结束后执行");
             };

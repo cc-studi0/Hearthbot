@@ -13,6 +13,9 @@ public static class CloudCommandTypes
     public const string Concede = "Concede";
     public const string Restart = "Restart";
 
+    // 服务端主动推送：通知客户端有新版本。不允许从管理面板 Send 接口下发。
+    public const string UpdateAvailable = "UpdateAvailable";
+
     public static readonly HashSet<string> Valid = new(StringComparer.OrdinalIgnoreCase)
     {
         Start,

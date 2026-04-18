@@ -11,8 +11,12 @@ param(
     [string]$User = "root",
     [int]$Port = 22,
     [string]$RemotePath = "/mnt/cloud-server/wwwroot/bot",
+    [int]$CloudPort = 5000,
+    [string]$AdminUser = $env:HB_ADMIN_USER,
+    [string]$AdminPass = $env:HB_ADMIN_PASS,
     [switch]$SkipObfuscation,
-    [switch]$BuildOnly
+    [switch]$BuildOnly,
+    [switch]$SkipBroadcast
 )
 
 $ErrorActionPreference = "Stop"
@@ -106,7 +110,35 @@ if ($LASTEXITCODE -ne 0) { throw "Server extract failed" }
 
 Write-Host "  Upload complete (version: $($version.Substring(0,8))...)" -ForegroundColor Green
 
+# -- Step 4: Broadcast via WSS (令所有在线客户端即时收到 UpdateAvailable) --
+if (-not $SkipBroadcast) {
+    if ([string]::IsNullOrWhiteSpace($AdminUser) -or [string]::IsNullOrWhiteSpace($AdminPass)) {
+        Write-Host "`n[4/4] Skipping broadcast: AdminUser/AdminPass not provided" -ForegroundColor DarkYellow
+        Write-Host "       (设置环境变量 HB_ADMIN_USER/HB_ADMIN_PASS 或 -AdminUser/-AdminPass 参数即可广播)"
+    }
+    else {
+        Write-Host "`n[4/4] Broadcasting UpdateAvailable via WSS..." -ForegroundColor Yellow
+        $cloudBase = "http://${RemoteHost}:${CloudPort}"
+        try {
+            $loginBody = @{ Username = $AdminUser; Password = $AdminPass } | ConvertTo-Json
+            $loginResp = Invoke-RestMethod -Uri "$cloudBase/api/auth/login" -Method Post `
+                -Body $loginBody -ContentType "application/json"
+            $token = $loginResp.token
+            if ([string]::IsNullOrWhiteSpace($token)) { throw "Empty token" }
+
+            $bcastResp = Invoke-RestMethod -Uri "$cloudBase/api/command/broadcast-update" -Method Post `
+                -Headers @{ Authorization = "Bearer $token" } `
+                -Body (@{ Force = $false } | ConvertTo-Json) -ContentType "application/json"
+            Write-Host "  Broadcast sent (version: $($bcastResp.version.Substring(0,8))...)" -ForegroundColor Green
+        }
+        catch {
+            Write-Host "  Broadcast failed: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "  （客户端下次 Register 时仍会收到版本通知，不影响功能）" -ForegroundColor DarkGray
+        }
+    }
+}
+
 Write-Host "`n=== Distribution Ready ===" -ForegroundColor Cyan
-Write-Host "Manifest: http://${RemoteHost}:5000/bot/manifest.json"
-Write-Host "Full zip: http://${RemoteHost}:5000/bot/Hearthbot.zip"
-Write-Host "Files:    http://${RemoteHost}:5000/bot/files/<path>"
+Write-Host "Manifest: http://${RemoteHost}:${CloudPort}/bot/manifest.json"
+Write-Host "Full zip: http://${RemoteHost}:${CloudPort}/bot/Hearthbot.zip"
+Write-Host "Files:    http://${RemoteHost}:${CloudPort}/bot/files/<path>"

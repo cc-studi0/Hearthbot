@@ -248,12 +248,15 @@ namespace BotMain
                 };
                 _ = _cloudAgent.StartAsync();
 
-                // 手动更新（不再自动检测）
+                // 手动更新（不再自动检测）+ 接收云端 WSS 推送的 UpdateAvailable
                 _autoUpdater = new AutoUpdater(cloudConfig.ServerUrl, EnqueueLog);
                 _autoUpdater.OnRestarting += () => _dispatcher.BeginInvoke(() =>
                 {
                     _cloudAgent?.Dispose();
                 });
+                // 注意：UpdateAvailable 必须在 CommandExecutor 订阅 OnCommandReceived 之前/之外拦截，
+                // 否则会被入局缓存队列吃掉，等到下局结束才处理，违背"即时通知用户"的语义。
+                _cloudAgent.OnCommandReceived += HandlePushedUpdate;
             }
 
             // 更新后自动恢复：部署 payload → 启动炉石 → 开始挂机
@@ -756,6 +759,28 @@ namespace BotMain
 
             if (autoSave)
                 AutoSave();
+        }
+
+        private void HandlePushedUpdate(int cmdId, string cmdType, string payload)
+        {
+            if (!string.Equals(cmdType, HearthBot.Cloud.Models.CloudCommandTypes.UpdateAvailable,
+                    StringComparison.OrdinalIgnoreCase))
+                return;
+            if (_autoUpdater == null) return;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(payload);
+                var root = doc.RootElement;
+                var version = root.TryGetProperty("version", out var v) ? v.GetString() ?? "" : "";
+                var url = root.TryGetProperty("url", out var u) ? u.GetString() : null;
+                var force = root.TryGetProperty("force", out var f) && f.ValueKind == JsonValueKind.True;
+                _autoUpdater.ApplyPushedUpdate(version, url, force);
+            }
+            catch (Exception ex)
+            {
+                EnqueueLog($"[更新] 解析云端推送失败: {ex.Message}");
+            }
         }
 
         private void CheckUpdate()

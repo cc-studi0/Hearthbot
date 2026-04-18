@@ -22,11 +22,19 @@ namespace BotMain.Cloud
 
         private string? _pendingVersion;
 
+        // 来自云端推送的下载路径（可为相对路径，如 "/bot/Hearthbot.zip"；或绝对 URL）
+        private string? _pendingDownloadPath;
+
         public event Action<bool, string, int>? OnCheckCompleted;
         public event Action<string>? OnProgress;
         public event Action? OnRestarting;
 
         public bool IsUpdating => _updating;
+
+        /// <summary>是否已从云端收到过可用更新（未安装）。</summary>
+        public bool HasPendingUpdate => !string.IsNullOrEmpty(_pendingVersion) && _pendingVersion != _localVersion;
+
+        public string? PendingVersion => _pendingVersion;
 
         public AutoUpdater(string serverUrl, Action<string> log)
         {
@@ -34,6 +42,25 @@ namespace BotMain.Cloud
             _appDir = AppDomain.CurrentDomain.BaseDirectory;
             _log = log;
             LoadLocalVersion();
+        }
+
+        /// <summary>
+        /// 云端 WSS 推送入口：服务器比对版本后若发现新版则通过 ExecuteCommand("UpdateAvailable") 推送到此。
+        /// 仅记录待装版本与下载路径，不立即下载——由用户点击或 force 触发。
+        /// </summary>
+        public void ApplyPushedUpdate(string version, string? downloadPath, bool force)
+        {
+            if (string.IsNullOrEmpty(version)) return;
+            if (version == _localVersion) return; // 已是最新，忽略
+
+            _pendingVersion = version;
+            _pendingDownloadPath = downloadPath;
+            var shortVer = version.Length > 8 ? version.Substring(0, 8) : version;
+            _log($"[AutoUpdate] 云端通知：有新版本 {shortVer}{(force ? "（强制）" : "")}");
+            OnCheckCompleted?.Invoke(true, version, -1);
+
+            if (force && !_updating)
+                _ = ExecuteUpdateAsync();
         }
 
         /// <summary>检查更新：只比对版本号</summary>
@@ -52,14 +79,22 @@ namespace BotMain.Cloud
                 return;
             }
 
+            // 优先使用云端 WSS 已推送的待装版本
+            if (HasPendingUpdate)
+            {
+                var shortVer = _pendingVersion!.Length > 8 ? _pendingVersion.Substring(0, 8) : _pendingVersion;
+                _log($"[AutoUpdate] 已有云端推送的新版本: {shortVer}");
+                OnCheckCompleted?.Invoke(true, _pendingVersion, -1);
+                return;
+            }
+
             _log("[AutoUpdate] 正在检查更新...");
-            _pendingVersion = null;
 
             try
             {
                 string? remoteVersion = null;
 
-                // 优先从 manifest.json 取版本号
+                // HTTP 兜底：只在云端没推送时尝试拉 manifest.json，失败静默（404 是部署未就绪的常态）
                 try
                 {
                     var resp = await _http.GetStringAsync($"{_serverUrl}/bot/manifest.json");
@@ -67,14 +102,8 @@ namespace BotMain.Cloud
                     if (manifest != null && !string.IsNullOrEmpty(manifest.version))
                         remoteVersion = manifest.version;
                 }
+                catch (HttpRequestException) { /* 404/连不上：静默，等待 WSS 推送 */ }
                 catch { }
-
-                // fallback: version.txt
-                if (remoteVersion == null)
-                {
-                    var resp = await _http.GetStringAsync($"{_serverUrl}/bot/version.txt");
-                    remoteVersion = resp.Trim();
-                }
 
                 if (string.IsNullOrEmpty(remoteVersion) || remoteVersion == _localVersion)
                 {
@@ -89,7 +118,8 @@ namespace BotMain.Cloud
             }
             catch (Exception ex)
             {
-                _log($"[AutoUpdate] 检查更新失败: {ex.Message}");
+                // 真正预期外的异常才打日志
+                _log($"[AutoUpdate] 检查更新异常: {ex.Message}");
                 OnCheckCompleted?.Invoke(false, "", 0);
             }
         }
@@ -105,23 +135,29 @@ namespace BotMain.Cloud
                 var version = _pendingVersion;
                 if (string.IsNullOrEmpty(version))
                 {
-                    // 重新获取版本号
+                    // 没有 pending 版本（用户直接点了"更新"但云端没推过）——兜底拉 manifest
                     try
                     {
                         var resp = await _http.GetStringAsync($"{_serverUrl}/bot/manifest.json");
                         var manifest = JsonSerializer.Deserialize<ManifestData>(resp);
                         version = manifest?.version;
                     }
-                    catch { }
-
-                    if (string.IsNullOrEmpty(version))
+                    catch (HttpRequestException ex)
                     {
-                        var resp = await _http.GetStringAsync($"{_serverUrl}/bot/version.txt");
-                        version = resp.Trim();
+                        _log($"[AutoUpdate] 无法获取版本信息（等待云端推送或检查部署）: {ex.Message}");
+                        _updating = false;
+                        return;
                     }
                 }
 
-                await DownloadFullZipAsync(version!);
+                if (string.IsNullOrEmpty(version))
+                {
+                    _log("[AutoUpdate] 无可用版本信息，已取消更新");
+                    _updating = false;
+                    return;
+                }
+
+                await DownloadFullZipAsync(version);
             }
             catch (Exception ex)
             {
@@ -136,9 +172,10 @@ namespace BotMain.Cloud
             OnProgress?.Invoke("正在下载完整更新包...");
 
             var zipPath = Path.Combine(Path.GetTempPath(), "hb_update.zip");
+            var downloadUrl = ResolveDownloadUrl(_pendingDownloadPath);
 
             using var downloadHttp = new HttpClient { Timeout = TimeSpan.FromMinutes(10) };
-            using var resp = await downloadHttp.GetAsync($"{_serverUrl}/bot/Hearthbot.zip", HttpCompletionOption.ResponseHeadersRead);
+            using var resp = await downloadHttp.GetAsync(downloadUrl, HttpCompletionOption.ResponseHeadersRead);
             resp.EnsureSuccessStatusCode();
             var contentLength = resp.Content.Headers.ContentLength;
 
@@ -217,6 +254,17 @@ exit
             });
 
             Environment.Exit(0);
+        }
+
+        private string ResolveDownloadUrl(string? pending)
+        {
+            // 云端推的可能是相对路径（"/bot/Hearthbot.zip"）或绝对 URL
+            if (string.IsNullOrWhiteSpace(pending))
+                return $"{_serverUrl}/bot/Hearthbot.zip";
+            if (pending.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+                pending.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                return pending;
+            return $"{_serverUrl}/{pending.TrimStart('/')}";
         }
 
         private void LoadLocalVersion()
