@@ -9,6 +9,26 @@ public class DeviceDashboardProjectionServiceTests
     private static readonly DateTime Now = new(2026, 4, 13, 12, 0, 0, DateTimeKind.Utc);
 
     [Fact]
+    public void BuildStats_ExcludesIdleDevices_FromOnlineCount()
+    {
+        var service = new DeviceDashboardProjectionService(new DeviceDisplayStateEvaluator());
+        var views = service.ProjectMany(new[]
+        {
+            new Device
+            {
+                DeviceId = "pc-idle-01",
+                Status = "Idle",
+                LastHeartbeat = Now.AddSeconds(-20),
+                StatusChangedAt = Now.AddSeconds(-20)
+            }
+        }, Now);
+
+        var stats = service.BuildStats(views, todayGames: 0, todayWins: 0, todayLosses: 0, completedCount: 0);
+
+        Assert.Equal(0, stats.OnlineCount);
+    }
+
+    [Fact]
     public void BuildStats_UsesProjectedBuckets_InsteadOfRawHeartbeatMath()
     {
         var service = new DeviceDashboardProjectionService(new DeviceDisplayStateEvaluator());

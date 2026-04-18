@@ -13,7 +13,7 @@ const todayWinRate = computed(() => {
 })
 
 const cards = computed(() => [
-  { label: '在线设备', value: `${props.stats.onlineCount} / ${props.stats.totalCount}`, color: '#3b82f6' },
+  { label: '运行设备', value: `${props.stats.onlineCount} / ${props.stats.totalCount}`, color: '#3b82f6' },
   { label: '今日对局', value: props.stats.todayGames, color: '#22c55e' },
   { label: '今日胜率', value: todayWinRate.value, color: '#f59e0b' },
   { label: '今日完成', value: props.stats.completedCount, color: '#8b5cf6' },

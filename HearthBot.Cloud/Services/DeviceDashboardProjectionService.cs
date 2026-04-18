@@ -6,6 +6,7 @@ namespace HearthBot.Cloud.Services;
 
 public sealed class DeviceDashboardProjectionService
 {
+    private static readonly string[] RunningStatuses = ["Running", "InGame", "Switching"];
     private readonly DeviceDisplayStateEvaluator _evaluator;
 
     public DeviceDashboardProjectionService(DeviceDisplayStateEvaluator evaluator)
@@ -28,7 +29,7 @@ public sealed class DeviceDashboardProjectionService
     {
         return new DeviceDashboardStatsView
         {
-            OnlineCount = devices.Count(device => !string.Equals(device.DisplayStatus, "Offline", StringComparison.Ordinal)),
+            OnlineCount = devices.Count(IsRunningDevice),
             TotalCount = devices.Count,
             TodayGames = todayGames,
             TodayWins = todayWins,
@@ -36,5 +37,13 @@ public sealed class DeviceDashboardProjectionService
             AbnormalCount = devices.Count(device => string.Equals(device.Bucket, "abnormal", StringComparison.Ordinal)),
             CompletedCount = completedCount
         };
+    }
+
+    private static bool IsRunningDevice(DeviceDashboardView device)
+    {
+        if (string.Equals(device.DisplayStatus, "Offline", StringComparison.Ordinal))
+            return false;
+
+        return RunningStatuses.Any(status => string.Equals(device.Status, status, StringComparison.Ordinal));
     }
 }
