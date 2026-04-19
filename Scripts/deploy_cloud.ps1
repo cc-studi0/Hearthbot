@@ -84,7 +84,9 @@ $unitFile = Join-Path $env:TEMP "hearthbot-cloud.service"
 $unitLines = @(
     "[Unit]",
     "Description=HearthBot Cloud Server",
-    "After=network.target",
+    "Wants=network-online.target",
+    "After=network-online.target local-fs.target remote-fs.target",
+    "RequiresMountsFor=$RemotePath",
     "",
     "[Service]",
     "WorkingDirectory=$RemotePath",
@@ -99,21 +101,17 @@ $unitLines -join "`n" | Set-Content -Path $unitFile -NoNewline -Encoding UTF8
 
 ssh -p $Port "$User@$RemoteHost" "chmod +x $RemotePath/HearthBot.Cloud"
 
-# Create service file only if it does not exist
-ssh -p $Port "$User@$RemoteHost" "test -f /etc/systemd/system/$ServiceName.service"
-if ($LASTEXITCODE -ne 0) {
-    scp -P $Port $unitFile "${User}@${RemoteHost}:/etc/systemd/system/$ServiceName.service"
-    ssh -p $Port "$User@$RemoteHost" "systemctl daemon-reload; systemctl enable $ServiceName"
-    Write-Host "  systemd service created" -ForegroundColor Green
-    Remove-Item $unitFile -Force -ErrorAction SilentlyContinue
-}
+# Always refresh the unit so mount ordering and boot behavior stay in sync with the script.
+scp -P $Port $unitFile "${User}@${RemoteHost}:/etc/systemd/system/$ServiceName.service"
+if ($LASTEXITCODE -ne 0) { throw "Upload systemd unit failed" }
+Remove-Item $unitFile -Force -ErrorAction SilentlyContinue
 
-ssh -p $Port "$User@$RemoteHost" "systemctl start $ServiceName; sleep 1; systemctl is-active $ServiceName"
+ssh -p $Port "$User@$RemoteHost" "systemctl daemon-reload; systemctl enable $ServiceName; systemctl reset-failed $ServiceName 2>/dev/null || true; systemctl restart $ServiceName; sleep 1; systemctl is-active $ServiceName"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Host "  Service may have failed. Check: ssh $User@$RemoteHost journalctl -u $ServiceName -n 20" -ForegroundColor Red
 } else {
-    Write-Host "  Service started" -ForegroundColor Green
+    Write-Host "  Service restarted" -ForegroundColor Green
 }
 
 Write-Host "`n=== Deploy complete ===" -ForegroundColor Cyan
