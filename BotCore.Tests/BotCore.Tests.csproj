@@ -63,6 +63,7 @@
     <Compile Include="..\BotMain\PassParser.cs" Link="PassParser.cs" />
     <Compile Include="..\BotMain\StatsBridge.cs" Link="StatsBridge.cs" />
     <Compile Include="..\BotMain\ResourceSync.cs" Link="ResourceSync.cs" />
+    <Compile Include="..\BotMain\Cloud\HeartbeatLoop.cs" Link="Cloud\HeartbeatLoop.cs" />
     <Compile Include="..\HearthBot.Cloud\Data\CloudDbContext.cs" Link="Cloud\CloudDbContext.cs" />
     <Compile Include="..\HearthBot.Cloud\Models\Device.cs" Link="Cloud\Device.cs" />
     <Compile Include="..\HearthBot.Cloud\Models\GameRecord.cs" Link="Cloud\GameRecord.cs" />

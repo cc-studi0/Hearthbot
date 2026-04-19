@@ -14,8 +14,7 @@ namespace BotMain.Cloud
         private readonly Action<string> _log;
         private HubConnection? _hub;
         private CancellationTokenSource? _cts;
-        private Timer? _heartbeatTimer;
-        private readonly object _timerLock = new();
+        private HeartbeatLoop? _heartbeatLoop;
         private bool _disposed;
 
         /// <summary>当前客户端版本号（来自 version.txt，没有则为空）。Register 时上报给服务端用于比对。</summary>
@@ -59,6 +58,7 @@ namespace BotMain.Cloud
 
             _config.EnsureDeviceId();
             _cts = new CancellationTokenSource();
+            _heartbeatLoop = new HeartbeatLoop(TimeSpan.FromSeconds(30), _ => SendHeartbeatAsync());
 
             _hub = new HubConnectionBuilder()
                 .WithUrl($"{_config.ServerUrl.TrimEnd('/')}/hub/bot", options =>
@@ -78,31 +78,23 @@ namespace BotMain.Cloud
 
             _hub.Reconnecting += _ =>
             {
+                StopHeartbeatLoop();
                 _log("[云控] 连接断开，正在重连...");
                 return Task.CompletedTask;
             };
 
-            _hub.Reconnected += _ =>
+            _hub.Reconnected += async _ =>
             {
                 _log("[云控] 重连成功，重新注册...");
-                // 重建心跳定时器，否则重连后心跳永远发不出去
-                lock (_timerLock)
-                {
-                    _heartbeatTimer?.Dispose();
-                    _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
-                        null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
-                }
-                return RegisterAsync();
+                await RegisterAsync();
+                await SendHeartbeatAsync();
+                StartHeartbeatLoop();
             };
 
             _hub.Closed += async ex =>
             {
                 _log($"[云控] 连接关闭: {ex?.Message ?? "正常关闭"}，30秒后重新连接...");
-                lock (_timerLock)
-                {
-                    _heartbeatTimer?.Dispose();
-                    _heartbeatTimer = null;
-                }
+                StopHeartbeatLoop();
                 var ct = _cts?.Token ?? CancellationToken.None;
                 if (!ct.IsCancellationRequested)
                 {
@@ -124,13 +116,8 @@ namespace BotMain.Cloud
                     await _hub!.StartAsync(ct);
                     _log($"[云控] 已连接到 {_config.ServerUrl}");
                     await RegisterAsync();
-
-                    lock (_timerLock)
-                    {
-                        _heartbeatTimer?.Dispose();
-                        _heartbeatTimer = new Timer(_ => _ = SendHeartbeatAsync(),
-                            null, TimeSpan.Zero, TimeSpan.FromSeconds(30));
-                    }
+                    await SendHeartbeatAsync();
+                    StartHeartbeatLoop();
                     return;
                 }
                 catch (Exception ex)
@@ -232,16 +219,24 @@ namespace BotMain.Cloud
             }
         }
 
+        private void StartHeartbeatLoop()
+        {
+            _heartbeatLoop?.Start(TimeSpan.FromSeconds(30));
+        }
+
+        private void StopHeartbeatLoop()
+        {
+            _heartbeatLoop?.Stop();
+        }
+
         public void Dispose()
         {
             if (_disposed) return;
             _disposed = true;
             _cts?.Cancel();
-            lock (_timerLock)
-            {
-                _heartbeatTimer?.Dispose();
-                _heartbeatTimer = null;
-            }
+            StopHeartbeatLoop();
+            _heartbeatLoop?.Dispose();
+            _heartbeatLoop = null;
             try { _hub?.DisposeAsync().AsTask().Wait(3000); } catch { }
             _cts?.Dispose();
         }
