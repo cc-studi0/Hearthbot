@@ -34,9 +34,19 @@ public class BotHub : Hub
         // 推送完整设备对象，避免前端收到不完整数据
         var device = await _devices.GetDevice(deviceId);
         if (device != null)
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
+        {
+            await BestEffortTaskRunner.TryRunAsync(
+                () => _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow)),
+                _logger,
+                $"Dashboard DeviceUpdated(Register:{deviceId})");
+        }
         else
-            await _dashboard.Clients.All.SendAsync("DeviceOnline", deviceId, displayName);
+        {
+            await BestEffortTaskRunner.TryRunAsync(
+                () => _dashboard.Clients.All.SendAsync("DeviceOnline", deviceId, displayName),
+                _logger,
+                $"Dashboard DeviceOnline(Register:{deviceId})");
+        }
 
         // 返回离线期间积累的待执行指令
         var pending = await _devices.GetPendingCommands(deviceId);
@@ -78,7 +88,12 @@ public class BotHub : Hub
             passLevel, passXp, passXpNeeded);
 
         if (device != null)
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
+        {
+            await BestEffortTaskRunner.TryRunAsync(
+                () => _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow)),
+                _logger,
+                $"Dashboard DeviceUpdated(Heartbeat:{deviceId})");
+        }
     }
 
     public async Task ReportOrderCompleted(string deviceId, string reachedRank, string modeText)
@@ -86,7 +101,10 @@ public class BotHub : Hub
         var result = await _devices.MarkOrderCompleted(deviceId, reachedRank);
         if (result != null)
         {
-            await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(result.Device, DateTime.UtcNow));
+            await BestEffortTaskRunner.TryRunAsync(
+                () => _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(result.Device, DateTime.UtcNow)),
+                _logger,
+                $"Dashboard DeviceUpdated(Completed:{deviceId})");
             if (result.WasNewlyCompleted)
                 await _completionNotifier.NotifyAsync(result.Device);
 
@@ -103,14 +121,20 @@ public class BotHub : Hub
             result, myClass, opponentClass, deckName,
             profileName, durationSeconds, rankBefore, rankAfter, gameMode);
 
-        await _dashboard.Clients.All.SendAsync("NewGameRecord", record);
+        await BestEffortTaskRunner.TryRunAsync(
+            () => _dashboard.Clients.All.SendAsync("NewGameRecord", record),
+            _logger,
+            $"Dashboard NewGameRecord({deviceId})");
     }
 
     public async Task CommandAck(int commandId, bool success, string? message)
     {
         var status = success ? "Executed" : "Failed";
         await _devices.UpdateCommandStatus(commandId, status);
-        await _dashboard.Clients.All.SendAsync("CommandStatusChanged", commandId, status, message);
+        await BestEffortTaskRunner.TryRunAsync(
+            () => _dashboard.Clients.All.SendAsync("CommandStatusChanged", commandId, status, message),
+            _logger,
+            $"Dashboard CommandStatusChanged({commandId})");
     }
 
     public override async Task OnDisconnectedAsync(Exception? exception)
@@ -123,7 +147,12 @@ public class BotHub : Hub
         {
             var device = await _devices.GetDevice(deviceId);
             if (device != null)
-                await _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow));
+            {
+                await BestEffortTaskRunner.TryRunAsync(
+                    () => _dashboard.Clients.All.SendAsync("DeviceUpdated", _projection.Project(device, DateTime.UtcNow)),
+                    _logger,
+                    $"Dashboard DeviceUpdated(Disconnect:{deviceId})");
+            }
         }
 
         await base.OnDisconnectedAsync(exception);

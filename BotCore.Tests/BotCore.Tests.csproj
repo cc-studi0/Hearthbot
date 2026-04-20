@@ -79,6 +79,7 @@
     <Compile Include="..\HearthBot.Cloud\Services\CloudSchemaBootstrapper.cs" Link="Cloud\CloudSchemaBootstrapper.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\DeviceStatusPolicy.cs" Link="Cloud\DeviceStatusPolicy.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\CompletedOrderService.cs" Link="Cloud\CompletedOrderService.cs" />
+    <Compile Include="..\HearthBot.Cloud\Services\BestEffortTaskRunner.cs" Link="Cloud\BestEffortTaskRunner.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\HiddenDeviceService.cs" Link="Cloud\HiddenDeviceService.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\IAlertService.cs" Link="Cloud\IAlertService.cs" />
     <Compile Include="..\HearthBot.Cloud\Services\OrderCompletionNotifier.cs" Link="Cloud\OrderCompletionNotifier.cs" />
