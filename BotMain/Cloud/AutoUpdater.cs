@@ -247,7 +247,7 @@ start """" ""{exePath}"" --post-update
 del ""%~f0"" 2>nul
 exit
 ";
-            File.WriteAllText(scriptPath, script, Encoding.GetEncoding(936));
+            WriteUpdateBatchScript(scriptPath, script);
 
             _log("[AutoUpdate] 正在重启...");
             OnRestarting?.Invoke();
@@ -260,6 +260,12 @@ exit
             });
 
             Environment.Exit(0);
+        }
+
+        internal static void WriteUpdateBatchScript(string scriptPath, string script)
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            File.WriteAllText(scriptPath, script, Encoding.GetEncoding(936));
         }
 
         private string ResolveDownloadUrl(string? pending)
