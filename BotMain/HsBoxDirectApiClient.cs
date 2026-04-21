@@ -533,6 +533,8 @@ namespace BotMain
             if (string.IsNullOrWhiteSpace(cardGroup))
                 cardGroup = BuildCardGroup(request.RemainingDeckCards);
             if (string.IsNullOrWhiteSpace(cardGroup))
+                cardGroup = BuildVisibleFriendlyCardGroup(board);
+            if (string.IsNullOrWhiteSpace(cardGroup))
             {
                 detail = "cardgroup_empty";
                 return false;
@@ -902,6 +904,39 @@ namespace BotMain
         {
             var counts = CountCards(cards, out var order);
             return string.Join(",", order.Select(cardId => cardId + ":" + counts[cardId]));
+        }
+
+        private static string BuildVisibleFriendlyCardGroup(Board board)
+        {
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var order = new List<string>();
+            AddVisibleCards(board?.Hand, counts, order);
+            AddVisibleCards(board?.MinionFriend, counts, order);
+            return string.Join(",", order.Select(cardId => cardId + ":" + counts[cardId]));
+        }
+
+        private static void AddVisibleCards(
+            IEnumerable<Card> cards,
+            Dictionary<string, int> counts,
+            List<string> order)
+        {
+            if (cards == null || counts == null || order == null)
+                return;
+
+            foreach (var card in cards)
+            {
+                var cardId = GetCardId(card);
+                if (string.IsNullOrWhiteSpace(cardId))
+                    continue;
+
+                if (!counts.ContainsKey(cardId))
+                {
+                    counts[cardId] = 0;
+                    order.Add(cardId);
+                }
+
+                counts[cardId]++;
+            }
         }
 
         private static Dictionary<string, int> CountCards(IEnumerable<Card.Cards> cards, out List<string> order)
@@ -2081,43 +2116,56 @@ namespace BotMain
             reply = null;
             detail = "not_started";
 
-            var wsUrl = GetDebuggerUrl(out detail);
-            if (string.IsNullOrWhiteSpace(wsUrl))
+            var targets = GetDebuggerTargets(out detail);
+            if (targets == null || targets.Count == 0)
                 return false;
 
-            var json = EvaluateOnPage(wsUrl, BuildInvokeScript(method));
-            if (string.IsNullOrWhiteSpace(json))
+            var expression = BuildInvokeScript(method);
+            var failures = new List<string>();
+            foreach (var target in PickTargets(targets))
             {
-                detail = "eval_empty";
-                return false;
+                var url = target["url"]?.Value<string>() ?? string.Empty;
+                var wsUrl = target["webSocketDebuggerUrl"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                    continue;
+
+                var json = EvaluateOnPage(wsUrl, expression);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    failures.Add(ShortenTarget(url) + "=eval_empty");
+                    continue;
+                }
+
+                JObject outer;
+                try
+                {
+                    outer = JObject.Parse(json);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(ShortenTarget(url) + "=eval_parse:" + ex.Message);
+                    continue;
+                }
+
+                if (!outer.Value<bool>("ok"))
+                {
+                    failures.Add(ShortenTarget(url) + "=" + (outer.Value<string>("reason") ?? "native_not_ok"));
+                    continue;
+                }
+
+                reply = outer["reply"] as JObject;
+                if (reply == null)
+                {
+                    failures.Add(ShortenTarget(url) + "=reply_missing");
+                    continue;
+                }
+
+                detail = "native_ok:" + method + ":" + ShortenTarget(url);
+                return true;
             }
 
-            JObject outer;
-            try
-            {
-                outer = JObject.Parse(json);
-            }
-            catch (Exception ex)
-            {
-                detail = "eval_parse:" + ex.Message;
-                return false;
-            }
-
-            if (!outer.Value<bool>("ok"))
-            {
-                detail = outer.Value<string>("reason") ?? "native_not_ok";
-                return false;
-            }
-
-            reply = outer["reply"] as JObject;
-            if (reply == null)
-            {
-                detail = "reply_missing";
-                return false;
-            }
-
-            detail = "native_ok:" + method;
-            return true;
+            detail = failures.Count > 0 ? string.Join("|", failures) : "cdp_targets_no_ws";
+            return false;
         }
 
         public static string ExtractDataString(JObject reply)
@@ -2134,7 +2182,7 @@ namespace BotMain
                 : data.ToString(Formatting.None);
         }
 
-        private static string GetDebuggerUrl(out string detail)
+        private static IReadOnlyList<JObject> GetDebuggerTargets(out string detail)
         {
             detail = "cdp_unavailable";
             try
@@ -2147,16 +2195,8 @@ namespace BotMain
                     return null;
                 }
 
-                var target = PickTarget(targets);
-                var wsUrl = target?["webSocketDebuggerUrl"]?.Value<string>();
-                if (string.IsNullOrWhiteSpace(wsUrl))
-                {
-                    detail = "cdp_ws_missing";
-                    return null;
-                }
-
-                detail = "cdp_target:" + (target["url"]?.Value<string>() ?? string.Empty);
-                return wsUrl;
+                detail = "cdp_targets:" + targets.Count;
+                return targets;
             }
             catch (Exception ex)
             {
@@ -2167,16 +2207,55 @@ namespace BotMain
 
         private static JObject PickTarget(IReadOnlyList<JObject> targets)
         {
+            return PickTargets(targets).FirstOrDefault();
+        }
+
+        private static IReadOnlyList<JObject> PickTargets(IReadOnlyList<JObject> targets)
+        {
+            var selected = new List<JObject>();
             string UrlOf(JObject obj) => obj["url"]?.Value<string>() ?? string.Empty;
             bool Has(JObject obj, string needle) => UrlOf(obj).IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
+            void AddFirst(Func<JObject, bool> predicate)
+            {
+                var target = targets?.FirstOrDefault(obj => predicate(obj) && !selected.Contains(obj));
+                if (target == null)
+                    return;
+                selected.Add(target);
+            }
 
-            return targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ceframe"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ladder-opp"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ladder"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "/client-wargame/"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "/client-home/"))
-                ?? targets.FirstOrDefault(obj => Has(obj, "hs-web"));
+            AddFirst(obj => Has(obj, "/client-jipaiqi/ceframe"));
+            AddFirst(obj => Has(obj, "/client-jipaiqi/ladder-opp"));
+            AddFirst(obj => Has(obj, "/client-jipaiqi/ladder"));
+            AddFirst(obj => Has(obj, "/client-jipaiqi/"));
+            AddFirst(obj => Has(obj, "/client-wargame/"));
+            AddFirst(obj => Has(obj, "/client-home/"));
+
+            if (targets != null)
+            {
+                foreach (var target in targets.Where(obj => Has(obj, "hs-web")))
+                {
+                    if (!selected.Contains(target))
+                        selected.Add(target);
+                }
+            }
+
+            return selected;
+        }
+
+        private static string ShortenTarget(string url)
+        {
+            if (string.IsNullOrWhiteSpace(url))
+                return "unknown";
+
+            try
+            {
+                var uri = new Uri(url);
+                return uri.AbsolutePath.Trim('/').Replace('/', '_');
+            }
+            catch
+            {
+                return url.Length <= 64 ? url : url.Substring(0, 64);
+            }
         }
 
         private static string EvaluateOnPage(string webSocketDebuggerUrl, string expression)
@@ -2242,20 +2321,41 @@ namespace BotMain
             return @"(() => new Promise(resolve => {
   const finish = (obj) => resolve(JSON.stringify(obj || {}));
   try {
-    if (!window.app || typeof window.app.sendMessage !== 'function' || typeof window.app.setMessageCallback !== 'function') {
-      finish({ ok: false, reason: 'app_bridge_missing' });
-      return;
-    }
+    const method = " + methodLiteral + @";
     const channel = 'doQuery_hsbox';
     const callback = 'hb_direct_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
     let done = false;
+    const readCookieSid = () => {
+      if (method !== 'getSid') return '';
+      try {
+        const raw = String(document.cookie || '');
+        const match = raw.match(/(?:^|;\s*)ls_session_id=([^;]+)/);
+        return match && match[1] ? decodeURIComponent(match[1]) : '';
+      } catch (_) {
+        return '';
+      }
+    };
     const finishOnce = (obj) => {
       if (done) return;
       done = true;
       try { clearTimeout(timer); } catch (_) {}
       finish(obj);
     };
-    const timer = setTimeout(() => finishOnce({ ok: false, reason: 'native_timeout' }), 1800);
+    const finishSidFromCookie = (reason) => {
+      const sid = readCookieSid();
+      if (!sid) return false;
+      finishOnce({ ok: true, reply: { callback, method, data: sid, fallback: reason } });
+      return true;
+    };
+    const timer = setTimeout(() => {
+      if (finishSidFromCookie('cookie_native_timeout')) return;
+      finishOnce({ ok: false, reason: 'native_timeout' });
+    }, 1800);
+    if (!window.app || typeof window.app.sendMessage !== 'function' || typeof window.app.setMessageCallback !== 'function') {
+      if (finishSidFromCookie('cookie_app_bridge_missing')) return;
+      finishOnce({ ok: false, reason: 'app_bridge_missing' });
+      return;
+    }
     window.app.setMessageCallback(channel, function(_name, args) {
       try {
         const raw = args && args[0] ? String(args[0]) : '';
@@ -2266,7 +2366,7 @@ namespace BotMain
         finishOnce({ ok: false, reason: 'reply_parse:' + String(error && error.message ? error.message : error) });
       }
     });
-    window.app.sendMessage(channel, [JSON.stringify({ callback, method: " + methodLiteral + @", param: undefined })]);
+    window.app.sendMessage(channel, [JSON.stringify({ callback, method, param: undefined })]);
   } catch (error) {
     finish({ ok: false, reason: String(error && error.message ? error.message : error) });
   }

@@ -315,6 +315,42 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void HsAngPayloadBuilder_BuildsCardGroupFromVisibleFriendlyCards_WhenDeckListsAreEmpty()
+        {
+            var board = new Board
+            {
+                TurnCount = 3,
+                ManaAvailable = 2,
+                MaxMana = 3,
+                EnemyMaxMana = 3,
+                HeroFriend = CreateCard(64, Card.Cards.HERO_03, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(66, Card.Cards.HERO_05, "敌方英雄", "Enemy Hero"),
+                Hand = new List<Card>
+                {
+                    CreateCard(11, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(21, Card.Cards.AT_037, "友方随从", "Friendly Minion")
+                }
+            };
+            var request = new ActionRecommendationRequest("seed-A", board, null, Array.Empty<Card.Cards>());
+            var boxParams = JObject.Parse("{\"sid\":\"SID-1\",\"client_uuid\":\"CLIENT-1\",\"version\":\"4.0.4.314\"}");
+
+            var ok = HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
+                request,
+                new JObject(),
+                boxParams,
+                out var payload,
+                out var detail);
+
+            Assert.True(ok, detail);
+            Assert.Equal(
+                "CORE_CS2_231:1,AT_037:1",
+                payload["data"]?["extra_infos"]?.Value<string>("cardgroup"));
+        }
+
+        [Fact]
         public void HsAngPayloadProvider_DoesNotRequireBattleInfo_ForConstructedRequest()
         {
             var board = new Board
@@ -368,6 +404,42 @@ namespace BotCore.Tests
             var selected = Assert.IsType<JObject>(method.Invoke(null, new object[] { targets }));
 
             Assert.Equal("ws://ceframe", selected.Value<string>("webSocketDebuggerUrl"));
+        }
+
+        [Fact]
+        public void NativeBridgeTargetSelection_KeepsFallbackTargetsAfterPreferred()
+        {
+            var targets = new List<JObject>
+            {
+                JObject.Parse("{\"url\":\"https://hs-web.lushi.163.com/client-home/\",\"webSocketDebuggerUrl\":\"ws://home\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp\",\"webSocketDebuggerUrl\":\"ws://opp\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-cef.lushi.163.com/client-jipaiqi/ceframe\",\"webSocketDebuggerUrl\":\"ws://ceframe\"}")
+            };
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "PickTargets",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var selected = Assert.IsAssignableFrom<IEnumerable<JObject>>(method.Invoke(null, new object[] { targets }));
+            var wsUrls = selected
+                .Select(target => target.Value<string>("webSocketDebuggerUrl"))
+                .ToArray();
+
+            Assert.Equal(new[] { "ws://ceframe", "ws://opp", "ws://home" }, wsUrls);
+        }
+
+        [Fact]
+        public void NativeBridgeGetSidScript_CanFallbackToCookie()
+        {
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "BuildInvokeScript",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var script = Assert.IsType<string>(method.Invoke(null, new object[] { "getSid" }));
+
+            Assert.Contains("ls_session_id", script);
+            Assert.Contains("cookie_native_timeout", script);
         }
 
         [Fact]
