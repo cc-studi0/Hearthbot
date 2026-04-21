@@ -315,6 +315,56 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void HsAngPayloadBuilder_MarksTargetedHandCardWithoutLegalTargetsAsUnplayable()
+        {
+            var targetedSpell = CreateCard(316, Card.Cards.DREAM_05, "梦魇", "Nightmare");
+            targetedSpell.Type = Card.CType.SPELL;
+            targetedSpell.CurrentCost = 0;
+            targetedSpell.Targets = new List<Card>();
+            targetedSpell.tags = new Dictionary<Card.GAME_TAG, int>();
+            targetedSpell.tags[Card.GAME_TAG.CARD_TARGET] = 1;
+
+            var board = new Board
+            {
+                TurnCount = 8,
+                ManaAvailable = 10,
+                MaxMana = 10,
+                EnemyMaxMana = 10,
+                HeroFriend = CreateCard(64, Card.Cards.HERO_03, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(66, Card.Cards.HERO_05, "敌方英雄", "Enemy Hero"),
+                Hand = new List<Card>
+                {
+                    targetedSpell,
+                    CreateCard(24, Card.Cards.CORE_CS2_231, "可打随从", "Playable Minion")
+                },
+                MinionFriend = new List<Card>()
+            };
+            var request = new ActionRecommendationRequest(
+                "seed-A",
+                board,
+                null,
+                new[] { Card.Cards.DREAM_05, Card.Cards.CORE_CS2_231 });
+            var boxParams = JObject.Parse("{\"sid\":\"SID-1\",\"client_uuid\":\"CLIENT-1\",\"version\":\"4.0.4.314\"}");
+
+            var ok = HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
+                request,
+                new JObject(),
+                boxParams,
+                out var payload,
+                out var detail);
+
+            Assert.True(ok, detail);
+            var options = Assert.IsType<JArray>(payload.SelectToken("$.data.turns[0].processes[0].state.options"));
+            var dreamOption = Assert.IsType<JObject>(
+                options.Single(option => option.Value<int>("entity_id") == 316));
+            var minionOption = Assert.IsType<JObject>(
+                options.Single(option => option.Value<int>("entity_id") == 24));
+
+            Assert.Equal("REQ_TARGET_TO_PLAY", dreamOption.Value<string>("error"));
+            Assert.Equal("NONE", minionOption.Value<string>("error"));
+        }
+
+        [Fact]
         public void HsAngPayloadBuilder_BuildsCardGroupFromVisibleFriendlyCards_WhenDeckListsAreEmpty()
         {
             var board = new Board

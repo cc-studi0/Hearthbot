@@ -822,8 +822,7 @@ namespace BotMain
             };
             var nextId = 1;
 
-            AddPowerOptions(options, board.Hand, 1, ref nextId, card =>
-                card.CurrentCost <= Math.Max(0, board.ManaAvailable) ? "NONE" : "REQ_ENOUGH_MANA");
+            AddPowerOptions(options, board.Hand, 1, ref nextId, card => GetHandPowerError(card, board));
             AddPowerOption(options, board.Ability, 1, ref nextId, card => GetHeroPowerError(card, board.ManaAvailable));
             AddPowerOptions(options, board.MinionFriend, 1, ref nextId, GetBoardPowerError);
             AddPowerOption(options, board.HeroFriend, 1, ref nextId, GetBoardPowerError);
@@ -869,6 +868,20 @@ namespace BotMain
             });
         }
 
+        private static string GetHandPowerError(Card card, Board board)
+        {
+            if (card == null)
+                return "INVALID";
+            if (HasAnyGameTag(card, Card.GAME_TAG.CANT_PLAY, Card.GAME_TAG.LITERALLY_UNPLAYABLE))
+                return "CANT_PLAY";
+            if (card.CurrentCost > Math.Max(0, board?.ManaAvailable ?? 0))
+                return "REQ_ENOUGH_MANA";
+            if (RequiresExplicitTarget(card) && (card.Targets == null || card.Targets.Count == 0))
+                return "REQ_TARGET_TO_PLAY";
+
+            return "NONE";
+        }
+
         private static string GetHeroPowerError(Card card, int manaAvailable)
         {
             if (card == null)
@@ -889,6 +902,32 @@ namespace BotMain
             if (!card.CanAttack || card.CurrentAtk <= 0)
                 return "REQ_ATTACK_GREATER_THAN_0";
             return "NONE";
+        }
+
+        private static bool RequiresExplicitTarget(Card card)
+        {
+            if (card == null)
+                return false;
+
+            return HasAnyGameTag(
+                card,
+                Card.GAME_TAG.CARD_TARGET,
+                Card.GAME_TAG.TARGETING_ARROW_TEXT,
+                Card.GAME_TAG.TARGETING_ARROW_TYPE);
+        }
+
+        private static bool HasAnyGameTag(Card card, params Card.GAME_TAG[] tags)
+        {
+            if (card?.tags == null || tags == null)
+                return false;
+
+            foreach (var tag in tags)
+            {
+                if (card.tags.TryGetValue(tag, out var value) && value != 0)
+                    return true;
+            }
+
+            return false;
         }
 
         private static JObject BuildCardCounter(IEnumerable<Card.Cards> cards)
