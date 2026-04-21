@@ -429,6 +429,82 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void NativeBridgeNativeInvokeTargets_LimitsGetSidToPrimaryTarget()
+        {
+            var targets = new List<JObject>
+            {
+                JObject.Parse("{\"url\":\"https://hs-web-cef.lushi.163.com/client-jipaiqi/ceframe\",\"webSocketDebuggerUrl\":\"ws://ceframe\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp\",\"webSocketDebuggerUrl\":\"ws://opp\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder\",\"webSocketDebuggerUrl\":\"ws://ladder\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web.lushi.163.com/client-home/\",\"webSocketDebuggerUrl\":\"ws://home\"}")
+            };
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "PickNativeInvokeTargets",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var selected = Assert.IsAssignableFrom<IEnumerable<JObject>>(
+                method.Invoke(null, new object[] { "getSid", targets }));
+            var wsUrls = selected
+                .Select(target => target.Value<string>("webSocketDebuggerUrl"))
+                .ToArray();
+
+            Assert.Equal(new[] { "ws://ceframe" }, wsUrls);
+        }
+
+        [Fact]
+        public void NativeBridgePageStateReply_ReadsSidFromReactState()
+        {
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "TryBuildReplyFromPageState",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var state = JObject.Parse(
+                "{\"mySid\":\"SID-REACT\",\"myDeviceId\":\"DEVICE-1\",\"myBtag\":\"玩家#1234\",\"myUrs\":\"user@example.com\",\"dataSource\":\"hsang\"}");
+            var args = new object[] { "getSid", state, null };
+
+            Assert.NotNull(method);
+            var ok = Assert.IsType<bool>(method.Invoke(null, args));
+            var reply = Assert.IsType<JObject>(args[2]);
+
+            Assert.True(ok);
+            Assert.Equal("SID-REACT", reply.Value<string>("data"));
+            Assert.Equal("react_state:mySid", reply.Value<string>("fallback"));
+        }
+
+        [Fact]
+        public void NativeBridgePageStateReply_UsesDeviceIdForInfoToken()
+        {
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "TryBuildReplyFromPageState",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var state = JObject.Parse("{\"myDeviceId\":\"DEVICE-1\"}");
+            var args = new object[] { "get_info_token", state, null };
+
+            Assert.NotNull(method);
+            var ok = Assert.IsType<bool>(method.Invoke(null, args));
+            var reply = Assert.IsType<JObject>(args[2]);
+
+            Assert.True(ok);
+            Assert.Equal("DEVICE-1", reply.Value<string>("data"));
+            Assert.Equal("react_state:myDeviceId", reply.Value<string>("fallback"));
+        }
+
+        [Fact]
+        public void NativeBridgePageStateScript_DoesNotReplaceHsBoxCallback()
+        {
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "BuildPageStateScript",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var script = Assert.IsType<string>(method.Invoke(null, Array.Empty<object>()));
+
+            Assert.Contains("mySid", script);
+            Assert.DoesNotContain("setMessageCallback", script);
+            Assert.DoesNotContain("sendMessage", script);
+        }
+
+        [Fact]
         public void NativeBridgeGetSidScript_CanFallbackToCookie()
         {
             var method = typeof(HsBoxNativeBridgeClient).GetMethod(

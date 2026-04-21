@@ -2124,6 +2124,15 @@ namespace BotMain
             var failures = new List<string>();
             var selectedTargets = PickTargets(targets);
 
+            if (TryInvokeFromPageState(method, selectedTargets, out reply, out var pageStateDetail))
+            {
+                detail = "native_ok:" + method + ":" + pageStateDetail;
+                return true;
+            }
+
+            if (!string.IsNullOrWhiteSpace(pageStateDetail))
+                failures.Add(pageStateDetail);
+
             if (string.Equals(method, "getSid", StringComparison.Ordinal))
             {
                 foreach (var target in selectedTargets)
@@ -2150,7 +2159,7 @@ namespace BotMain
                 }
             }
 
-            foreach (var target in selectedTargets)
+            foreach (var target in PickNativeInvokeTargets(method, selectedTargets))
             {
                 var url = target["url"]?.Value<string>() ?? string.Empty;
                 var wsUrl = target["webSocketDebuggerUrl"]?.Value<string>();
@@ -2272,6 +2281,207 @@ namespace BotMain
             return selected;
         }
 
+        private static IReadOnlyList<JObject> PickNativeInvokeTargets(string method, IReadOnlyList<JObject> selectedTargets)
+        {
+            if (selectedTargets == null || selectedTargets.Count == 0)
+                return Array.Empty<JObject>();
+
+            if (string.Equals(method, "getSid", StringComparison.Ordinal))
+                return selectedTargets.Take(1).ToArray();
+
+            return selectedTargets;
+        }
+
+        private static bool TryInvokeFromPageState(
+            string method,
+            IReadOnlyList<JObject> selectedTargets,
+            out JObject reply,
+            out string detail)
+        {
+            reply = null;
+            detail = string.Empty;
+
+            if (!CanBuildReplyFromPageState(method))
+                return false;
+
+            var failures = new List<string>();
+            var script = BuildPageStateScript();
+            foreach (var target in selectedTargets ?? Array.Empty<JObject>())
+            {
+                var url = target["url"]?.Value<string>() ?? string.Empty;
+                var wsUrl = target["webSocketDebuggerUrl"]?.Value<string>();
+                if (string.IsNullOrWhiteSpace(wsUrl))
+                    continue;
+
+                var json = EvaluateOnPage(wsUrl, script);
+                if (string.IsNullOrWhiteSpace(json))
+                {
+                    failures.Add(ShortenTarget(url) + "=react_state_eval_empty");
+                    continue;
+                }
+
+                JObject outer;
+                try
+                {
+                    outer = JObject.Parse(json);
+                }
+                catch (Exception ex)
+                {
+                    failures.Add(ShortenTarget(url) + "=react_state_parse:" + ex.Message);
+                    continue;
+                }
+
+                if (!outer.Value<bool>("ok"))
+                {
+                    failures.Add(ShortenTarget(url) + "=" + (outer.Value<string>("reason") ?? "react_state_not_ok"));
+                    continue;
+                }
+
+                var state = outer["state"] as JObject;
+                if (state == null)
+                {
+                    failures.Add(ShortenTarget(url) + "=react_state_missing");
+                    continue;
+                }
+
+                if (!TryBuildReplyFromPageState(method, state, out reply))
+                {
+                    failures.Add(ShortenTarget(url) + "=react_state_method_missing");
+                    continue;
+                }
+
+                detail = ShortenTarget(url) + ":" + (reply.Value<string>("fallback") ?? "react_state");
+                return true;
+            }
+
+            detail = failures.Count > 0 ? string.Join("|", failures) : string.Empty;
+            return false;
+        }
+
+        private static bool CanBuildReplyFromPageState(string method)
+        {
+            switch (method ?? string.Empty)
+            {
+                case "getSid":
+                case "get_device_id":
+                case "get_info_token":
+                case "get_btag":
+                case "get_btag_dz":
+                case "login_user":
+                case "get_version":
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        private static bool TryBuildReplyFromPageState(string method, JObject state, out JObject reply)
+        {
+            reply = null;
+            if (state == null)
+                return false;
+
+            string value = null;
+            string source = null;
+
+            switch (method ?? string.Empty)
+            {
+                case "getSid":
+                    value = ReadPageStateString(state, "mySid", "sid", "ls_session_id");
+                    source = "mySid";
+                    break;
+                case "get_device_id":
+                    value = ReadPageStateString(state, "myDeviceId", "deviceid", "device_id");
+                    source = "myDeviceId";
+                    break;
+                case "get_info_token":
+                    value = ReadPageStateString(state, "myDeviceId", "deviceid", "device_id", "client_uuid", "uuid");
+                    source = "myDeviceId";
+                    break;
+                case "get_btag":
+                case "get_btag_dz":
+                    value = ReadPageStateString(state, "myBtag", "btag", "mybtag");
+                    source = "myBtag";
+                    break;
+                case "login_user":
+                    value = ReadPageStateString(state, "myUrs", "urs", "user");
+                    source = "myUrs";
+                    break;
+                case "get_version":
+                    value = ReadPageStateString(state, "version", "recommend_version")
+                        ?? ParseHsAngVersion(ReadPageStateString(state, "ua", "userAgent"));
+                    source = string.IsNullOrWhiteSpace(ReadPageStateString(state, "version", "recommend_version"))
+                        ? "userAgent"
+                        : "version";
+                    break;
+                default:
+                    return false;
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            reply = new JObject
+            {
+                ["method"] = method ?? string.Empty,
+                ["data"] = value,
+                ["fallback"] = "react_state:" + source
+            };
+
+            if (string.Equals(method, "get_version", StringComparison.Ordinal))
+            {
+                var dataSource = ReadPageStateString(state, "dataSource");
+                if (!string.IsNullOrWhiteSpace(dataSource))
+                    reply["category"] = dataSource;
+            }
+
+            return true;
+        }
+
+        private static string ReadPageStateString(JObject state, params string[] names)
+        {
+            if (state == null || names == null)
+                return null;
+
+            foreach (var name in names)
+            {
+                if (string.IsNullOrWhiteSpace(name))
+                    continue;
+
+                var token = state[name];
+                if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                    continue;
+
+                var value = token.Type == JTokenType.String
+                    ? token.Value<string>()
+                    : token.ToString(Formatting.None);
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value;
+            }
+
+            return null;
+        }
+
+        private static string ParseHsAngVersion(string userAgent)
+        {
+            if (string.IsNullOrWhiteSpace(userAgent))
+                return null;
+
+            const string marker = "HSAng/";
+            var index = userAgent.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+            if (index < 0)
+                return null;
+
+            var start = index + marker.Length;
+            var end = userAgent.IndexOf('/', start);
+            if (end < 0)
+                end = userAgent.IndexOf(' ', start);
+            if (end < 0)
+                end = userAgent.Length;
+
+            return end > start ? userAgent.Substring(start, end - start) : null;
+        }
+
         private static string ShortenTarget(string url)
         {
             if (string.IsNullOrWhiteSpace(url))
@@ -2357,6 +2567,73 @@ namespace BotMain
                     return null;
                 }
             }
+        }
+
+        private static string BuildPageStateScript()
+        {
+            return @"(() => {
+  function finish(obj) {
+    return JSON.stringify(obj || {});
+  }
+  function pickState(obj) {
+    const state = {};
+    const names = ['mySid', 'myDeviceId', 'myBtag', 'myUrs', 'dataSource', 'version', 'recommend_version'];
+    for (const name of names) {
+      if (Object.prototype.hasOwnProperty.call(obj, name)) state[name] = obj[name];
+    }
+    state.ua = String(navigator.userAgent || '');
+    return state;
+  }
+  try {
+    const seen = new WeakSet();
+    function inspectValue(value, depth) {
+      if (!value || typeof value !== 'object' || depth > 6) return null;
+      if (seen.has(value)) return null;
+      seen.add(value);
+      let keys = [];
+      try { keys = Object.keys(value); } catch (_) { return null; }
+      if (Object.prototype.hasOwnProperty.call(value, 'mySid')) return pickState(value);
+      for (const key of keys.slice(0, 50)) {
+        if (/^__react|^_owner$|^stateNode$/.test(key)) continue;
+        try {
+          const found = inspectValue(value[key], depth + 1);
+          if (found) return found;
+        } catch (_) {}
+      }
+      return null;
+    }
+    const elements = document.querySelectorAll('*');
+    let fiberKey = '';
+    for (const element of elements) {
+      fiberKey = Object.keys(element).find(key => key.indexOf('__reactFiber') === 0) || fiberKey;
+      if (fiberKey) break;
+    }
+    if (!fiberKey) return finish({ ok: false, reason: 'react_fiber_missing' });
+    let visited = 0;
+    function walkFiber(node, depth) {
+      if (!node || visited++ > 1200 || depth > 50) return null;
+      const propsState = inspectValue(node.memoizedProps, 0);
+      if (propsState) return propsState;
+      let hook = node.memoizedState;
+      let hookIndex = 0;
+      while (hook && hookIndex < 30) {
+        const hookState = inspectValue(hook.memoizedState, 0);
+        if (hookState) return hookState;
+        hook = hook.next;
+        hookIndex++;
+      }
+      return walkFiber(node.child, depth + 1) || walkFiber(node.sibling, depth);
+    }
+    for (const element of elements) {
+      if (!element[fiberKey]) continue;
+      const state = walkFiber(element[fiberKey], 0);
+      if (state) return finish({ ok: true, state });
+    }
+    return finish({ ok: false, reason: 'react_state_missing' });
+  } catch (error) {
+    return finish({ ok: false, reason: 'react_state_error:' + String(error && error.message ? error.message : error) });
+  }
+})()";
         }
 
         private static bool TryGetSidFromCdpCookies(
