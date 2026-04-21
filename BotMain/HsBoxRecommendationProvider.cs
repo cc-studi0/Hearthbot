@@ -56,9 +56,17 @@ namespace BotMain
         private readonly IHsBoxBattlegroundsBridge _bgBridge;
         private readonly int _actionWaitTimeoutMs;
         private readonly int _actionPollIntervalMs;
+        private IHsBoxDirectApiClient _directApiClient;
+        private IHsBoxDirectApiPayloadProvider _directPayloadProvider;
+        private HsBoxDirectApiMode _directApiMode = HsBoxDirectApiMode.CefCallback;
+        private Action<string> _directLog;
         private DateTime _nextPrimeAllowedUtc = DateTime.MinValue;
 
-        public void SetBgLog(Action<string> log) => _bgBridge.OnLog = log;
+        public void SetBgLog(Action<string> log)
+        {
+            _bgBridge.OnLog = log;
+            _directLog = log;
+        }
 
         internal IHsBoxRecommendationBridge Bridge => _bridge;
 
@@ -83,6 +91,193 @@ namespace BotMain
             _bgBridge = bgBridge ?? new HsBoxBattlegroundsBridge();
             _actionWaitTimeoutMs = actionWaitTimeoutMs;
             _actionPollIntervalMs = actionPollIntervalMs;
+            _directApiClient = new HsBoxDirectApiClient();
+            _directPayloadProvider = new HsBoxDirectNativePayloadProvider();
+        }
+
+        public void SetDirectApiMode(HsBoxDirectApiMode mode)
+        {
+            _directApiMode = Enum.IsDefined(typeof(HsBoxDirectApiMode), mode)
+                ? mode
+                : HsBoxDirectApiMode.CefCallback;
+        }
+
+        internal void SetDirectApiClient(IHsBoxDirectApiClient client)
+        {
+            _directApiClient = client ?? throw new ArgumentNullException(nameof(client));
+        }
+
+        internal void SetDirectApiPayloadProvider(IHsBoxDirectApiPayloadProvider provider)
+        {
+            _directPayloadProvider = provider ?? throw new ArgumentNullException(nameof(provider));
+        }
+
+        private void QueueDirectApiShadowProbe(ActionRecommendationRequest request)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    if (TryRecommendActionsFromDirectApi(request, out var result, out var detail))
+                    {
+                        LogDirect($"[DirectApi] Shadow 构筑命中: {detail}, commands={SummarizeDirectCommands(result.Actions)}");
+                    }
+                    else
+                    {
+                        LogDirect("[DirectApi] Shadow 构筑未采用: " + detail);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDirect("[DirectApi] Shadow 构筑异常: " + ex.Message);
+                }
+            });
+        }
+
+        private void QueueDirectApiShadowProbe(string bgStateData)
+        {
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    if (TryRecommendBattlegroundsActionFromDirectApi(bgStateData, out var result, out var detail))
+                    {
+                        LogDirect($"[DirectApi] Shadow 战棋命中: {detail}, commands={SummarizeDirectCommands(result.Actions)}");
+                    }
+                    else
+                    {
+                        LogDirect("[DirectApi] Shadow 战棋未采用: " + detail);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogDirect("[DirectApi] Shadow 战棋异常: " + ex.Message);
+                }
+            });
+        }
+
+        private bool TryRecommendActionsFromDirectApi(
+            ActionRecommendationRequest request,
+            out ActionRecommendationResult result,
+            out string detail)
+        {
+            result = null;
+
+            if (_directPayloadProvider == null)
+            {
+                detail = "payload_provider_missing";
+                return false;
+            }
+
+            if (!_directPayloadProvider.TryCreateConstructedActionRequest(request, out var apiRequest, out var payloadDetail))
+            {
+                detail = "payload_unavailable:" + payloadDetail;
+                LogDirect("[DirectApi] 构筑请求体不可用: " + payloadDetail);
+                return false;
+            }
+
+            var response = _directApiClient?.Post(apiRequest);
+            if (response == null)
+            {
+                detail = "response_null";
+                return false;
+            }
+
+            if (!response.Success || response.State == null)
+            {
+                detail = "api_failed:" + response.Detail;
+                LogDirect("[DirectApi] 构筑接口失败: " + response.Detail);
+                return false;
+            }
+
+            if (TryGetStructuredActions(response.State, request, out var actions, out var structuredDetail, out _)
+                || TryGetBodyActions(response.State, request, out actions, out structuredDetail))
+            {
+                result = new ActionRecommendationResult(
+                    null,
+                    actions,
+                    $"hsbox_direct {structuredDetail}; {response.Detail}",
+                    sourceUpdatedAtMs: response.State.UpdatedAtMs,
+                    sourcePayloadSignature: response.State.PayloadSignature);
+                detail = structuredDetail;
+                return true;
+            }
+
+            detail = "map_failed:" + structuredDetail;
+            LogDirect("[DirectApi] 构筑响应映射失败: " + detail);
+            return false;
+        }
+
+        private bool TryRecommendBattlegroundsActionFromDirectApi(
+            string bgStateData,
+            out BattlegroundActionRecommendationResult result,
+            out string detail)
+        {
+            result = null;
+
+            if (_directPayloadProvider == null)
+            {
+                detail = "payload_provider_missing";
+                return false;
+            }
+
+            if (!_directPayloadProvider.TryCreateBattlegroundActionRequest(bgStateData, out var apiRequest, out var payloadDetail))
+            {
+                detail = "payload_unavailable:" + payloadDetail;
+                LogDirect("[DirectApi] 战棋请求体不可用: " + payloadDetail);
+                return false;
+            }
+
+            var response = _directApiClient?.Post(apiRequest);
+            if (response == null)
+            {
+                detail = "response_null";
+                return false;
+            }
+
+            if (!response.Success || response.State?.Envelope == null)
+            {
+                detail = "api_failed:" + response.Detail;
+                LogDirect("[DirectApi] 战棋接口失败: " + response.Detail);
+                return false;
+            }
+
+            if (!HsBoxBattlegroundsBridge.TryMapDirectBattlegroundsActions(
+                    response.State.Envelope,
+                    null,
+                    bgStateData,
+                    out var actions,
+                    out var mapDetail,
+                    msg => LogDirect(msg)))
+            {
+                detail = "map_failed:" + mapDetail;
+                LogDirect("[DirectApi] 战棋响应映射失败: " + detail);
+                return false;
+            }
+
+            result = new BattlegroundActionRecommendationResult(
+                actions,
+                $"bg_direct {mapDetail}; {response.Detail}",
+                response.State.UpdatedAtMs,
+                response.State.PayloadSignature);
+            detail = mapDetail;
+            return true;
+        }
+
+        private void LogDirect(string message)
+        {
+            if (string.IsNullOrWhiteSpace(message))
+                return;
+            try { _directLog?.Invoke(message); } catch { }
+        }
+
+        private static string SummarizeDirectCommands(IReadOnlyList<string> actions)
+        {
+            if (actions == null || actions.Count == 0)
+                return "none";
+
+            var text = string.Join(">", actions);
+            return text.Length <= 160 ? text : text.Substring(0, 160);
         }
 
         public void Prime()
@@ -209,6 +404,15 @@ namespace BotMain
 
         public ActionRecommendationResult RecommendActions(ActionRecommendationRequest request)
         {
+            if (_directApiMode == HsBoxDirectApiMode.DirectApiShadow)
+                QueueDirectApiShadowProbe(request);
+            else if (_directApiMode == HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback
+                && TryRecommendActionsFromDirectApi(request, out var directResult, out var directDetail))
+            {
+                LogDirect("[DirectApi] 构筑直连接口命中: " + directDetail);
+                return directResult;
+            }
+
             var lastStructuredDetail = "json=not_checked";
             var lastBodyDetail = "body=not_checked";
             var lastConsumedUpdatedAtMs = request?.LastConsumedUpdatedAtMs ?? 0;
@@ -1125,6 +1329,15 @@ namespace BotMain
 
         public BattlegroundActionRecommendationResult RecommendBattlegroundsActionResult(string bgStateData)
         {
+            if (_directApiMode == HsBoxDirectApiMode.DirectApiShadow)
+                QueueDirectApiShadowProbe(bgStateData);
+            else if (_directApiMode == HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback
+                && TryRecommendBattlegroundsActionFromDirectApi(bgStateData, out var directResult, out var directDetail))
+            {
+                LogDirect("[DirectApi] 战棋直连接口命中: " + directDetail);
+                return directResult;
+            }
+
             return _bgBridge.GetRecommendedActionResult(bgStateData);
         }
 
@@ -1425,6 +1638,60 @@ namespace BotMain
         public List<string> GetRecommendedActions(string bgStateData)
         {
             return GetRecommendedActionResult(bgStateData)?.Actions?.ToList() ?? new List<string>();
+        }
+
+        internal static bool TryMapDirectBattlegroundsActions(
+            HsBoxRecommendationEnvelope envelope,
+            JToken stationToken,
+            string bgStateData,
+            out List<string> commands,
+            out string detail,
+            Action<string> log = null)
+        {
+            commands = new List<string>();
+            detail = "bg_direct_state_invalid";
+
+            var allSteps = envelope?.Data ?? new List<HsBoxActionStep>();
+            var steps = allSteps.Count > 0
+                ? new List<HsBoxActionStep> { allSteps[0] }
+                : new List<HsBoxActionStep>();
+
+            if (steps.Count == 0)
+            {
+                detail = $"bg_direct_steps_empty status={envelope?.Status ?? 0}, error={envelope?.Error ?? string.Empty}";
+                return false;
+            }
+
+            var isHeroPick = !string.IsNullOrWhiteSpace(bgStateData)
+                && bgStateData.Contains("PHASE=HERO_PICK", StringComparison.Ordinal);
+            var heroPowerRefs = ParseBgHeroPowerRefs(bgStateData);
+            var shopMap = ParseMinionMap(bgStateData, "SHOP=");
+            var boardMap = ParseMinionMap(bgStateData, "BOARD=");
+            var handMap = ParseMinionMap(bgStateData, "HAND=");
+            var stationCommands = stationToken != null && stationToken.Type != JTokenType.Null
+                ? ConvertStationsToCommands(stationToken, bgStateData)
+                : new List<string>();
+
+            commands = MapStructuredCommands(
+                steps,
+                shopMap,
+                boardMap,
+                handMap,
+                isHeroPick,
+                heroPowerRefs,
+                log);
+
+            TryInsertStationCommandsBeforeEndTurn(commands, stationCommands, out var stationDetail);
+            commands.RemoveAll(c => string.Equals(c, "BG_END_TURN", StringComparison.OrdinalIgnoreCase));
+
+            if (commands.Count == 0)
+            {
+                detail = $"bg_direct_commands_empty steps={allSteps.Count}, station={stationCommands.Count}, {stationDetail}";
+                return false;
+            }
+
+            detail = $"count={commands.Count}, steps={allSteps.Count}, station={stationCommands.Count}, {stationDetail}";
+            return true;
         }
 
         internal static string ConvertStepToCommand(

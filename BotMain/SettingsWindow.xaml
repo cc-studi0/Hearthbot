@@ -22,6 +22,14 @@
                               ToolTip="动作、留牌、发现跟随 HSBox 推荐，不走本地 profile / mulligan / discover"/>
                     <CheckBox Content="Save HSBox JSON" FontSize="11" IsChecked="{Binding SaveHsBoxCallbacks}"
                               ToolTip="保存 HSBox 回调到 Logs/HsBoxCallbacks"/>
+                    <StackPanel Orientation="Horizontal" Margin="16,4,0,0">
+                        <TextBlock Text="Direct API:" FontSize="11" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                        <ComboBox Width="175" Height="20"
+                                  ItemsSource="{Binding HsBoxDirectApiModeOptions}"
+                                  SelectedIndex="{Binding HsBoxDirectApiModeIndex}"
+                                  FontSize="11"
+                                  ToolTip="实验功能：直接请求盒子推荐接口；默认仍使用 CEF 回调"/>
+                    </StackPanel>
                 </StackPanel>
             </GroupBox>
 

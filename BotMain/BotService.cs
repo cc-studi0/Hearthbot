@@ -602,6 +602,17 @@ namespace BotMain
                 ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
         }
 
+        internal void SetHsBoxDirectApiMode(HsBoxDirectApiMode mode)
+        {
+            if (!Enum.IsDefined(typeof(HsBoxDirectApiMode), mode))
+                mode = HsBoxDirectApiMode.CefCallback;
+
+            _hsBoxRecommendationProvider.SetDirectApiMode(mode);
+            Log($"[Settings] HsBoxDirectApiMode={mode}");
+            if (mode != HsBoxDirectApiMode.CefCallback)
+                ThreadPool.QueueUserWorkItem(_ => EnsureHsBoxWithDebuggingPort());
+        }
+
         public void SetHumanizeActionsEnabled(bool value)
         {
             _humanizeActionsEnabled = value;

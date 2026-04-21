@@ -43,6 +43,7 @@
     <Compile Include="..\BotMain\RecommendationDeduplicator.cs" Link="RecommendationDeduplicator.cs" />
     <Compile Include="..\BotMain\HumanizerSettings.cs" Link="HumanizerSettings.cs" />
     <Compile Include="..\BotMain\HandActionCommandMetadata.cs" Link="HandActionCommandMetadata.cs" />
+    <Compile Include="..\BotMain\HsBoxDirectApiClient.cs" Link="HsBoxDirectApiClient.cs" />
     <Compile Include="..\BotMain\HsBoxRecommendationProvider.cs" Link="HsBoxRecommendationProvider.cs" />
     <Compile Include="..\BotMain\HsBoxWatchdog.cs" Link="HsBoxWatchdog.cs" />
     <Compile Include="..\BotMain\LogTextSyncPlanner.cs" Link="LogTextSyncPlanner.cs" />

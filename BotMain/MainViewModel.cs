@@ -68,6 +68,7 @@ namespace BotMain
         private bool _humanizeActionsEnabled;
         private int _humanizeIntensityIndex = 1;
         private bool _saveHsBoxCallbacks;
+        private int _hsBoxDirectApiModeIndex;
         private bool _stopAfterReachRankEnabled;
         private int _stopAfterReachRankStarLevel = RankHelper.LegendStarLevel;
         private bool _notifyOnRankReached;
@@ -343,7 +344,7 @@ namespace BotMain
         public string CurrentRankText { get; set; } = "--";
         public string Status { get; set; } = "Idle";
         public bool IsRunning => _bot.State == BotState.Running || _bot.State == BotState.Finishing;
-        public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {(FollowHsBoxOperation || IsBattlegroundsMode || IsArenaMode ? "HSBox" : "Local")} - Avg calc time: {_bot.AvgCalcTime}ms";
+        public string TopStatusText => $"v1.0 - Game: {Status} - Mode: {CurrentModeName} - Recommend: {HsBoxRecommendationSourceLabel} - Avg calc time: {_bot.AvgCalcTime}ms";
         public bool IsBattlegroundsMode => ModeIndex == UiModeBattlegrounds;
         public bool IsArenaMode => ModeIndex == UiModeArena;
         public bool ArenaUseGold { get => _arenaUseGold; set { _arenaUseGold = value; _bot.SetArenaUseGold(value); Notify(); AutoSave(); } }
@@ -612,6 +613,56 @@ namespace BotMain
                 _bot.SetSaveHsBoxCallbacks(value);
                 Notify();
                 AutoSave();
+            }
+        }
+
+        public ObservableCollection<string> HsBoxDirectApiModeOptions { get; } = new ObservableCollection<string>
+        {
+            "CEF Callback",
+            "Direct API Shadow",
+            "Direct API + CEF Fallback"
+        };
+
+        public int HsBoxDirectApiModeIndex
+        {
+            get => _hsBoxDirectApiModeIndex;
+            set
+            {
+                var normalized = value;
+                if (normalized < 0 || normalized >= HsBoxDirectApiModeOptions.Count)
+                    normalized = 0;
+
+                if (_hsBoxDirectApiModeIndex == normalized)
+                    return;
+
+                _hsBoxDirectApiModeIndex = normalized;
+                _bot.SetHsBoxDirectApiMode(SelectedHsBoxDirectApiMode);
+                Notify();
+                Notify(nameof(TopStatusText));
+                AutoSave();
+            }
+        }
+
+        private HsBoxDirectApiMode SelectedHsBoxDirectApiMode => _hsBoxDirectApiModeIndex switch
+        {
+            1 => HsBoxDirectApiMode.DirectApiShadow,
+            2 => HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback,
+            _ => HsBoxDirectApiMode.CefCallback
+        };
+
+        private string HsBoxRecommendationSourceLabel
+        {
+            get
+            {
+                if (!FollowHsBoxOperation && !IsBattlegroundsMode && !IsArenaMode)
+                    return "Local";
+
+                return SelectedHsBoxDirectApiMode switch
+                {
+                    HsBoxDirectApiMode.DirectApiShadow => "HSBox+Direct Shadow",
+                    HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback => "HSBox Direct",
+                    _ => "HSBox"
+                };
             }
         }
         public bool HumanizeActionsEnabled
@@ -985,7 +1036,7 @@ namespace BotMain
                     _bot.SetFollowHsBoxRecommendations(true);
                 if (IsArenaMode)
                     _bot.SetFollowHsBoxRecommendations(true);
-                AppendLocalLog($"Start requested: mode={CurrentModeName}({serviceMode}), deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={(FollowHsBoxOperation || IsBattlegroundsMode || IsArenaMode ? "hsbox" : "local")}");
+                AppendLocalLog($"Start requested: mode={CurrentModeName}({serviceMode}), deck={deckName}, mulligan={mulliganName}, discover={discoverName}, profile={SelectedProfileName}, recommend={HsBoxRecommendationSourceLabel}");
 
                 _startTime = DateTime.Now;
                 _timer.Start();
@@ -1469,6 +1520,7 @@ namespace BotMain
                 dict["HumanizeActionsEnabled"] = JsonSerializer.SerializeToElement(HumanizeActionsEnabled);
                 dict["HumanizeIntensity"] = JsonSerializer.SerializeToElement(HumanizerProtocol.GetIntensityToken(SelectedHumanizeIntensity));
                 dict["SaveHsBoxCallbacks"] = JsonSerializer.SerializeToElement(SaveHsBoxCallbacks);
+                dict["HsBoxDirectApiMode"] = JsonSerializer.SerializeToElement(SelectedHsBoxDirectApiMode.ToString());
                 dict["StopAfterReachRankEnabled"] = JsonSerializer.SerializeToElement(StopAfterReachRankEnabled);
                 dict["StopAfterReachRankStarLevel"] = JsonSerializer.SerializeToElement(StopAfterReachRankStarLevel);
                 dict["NotifyOnRankReached"] = JsonSerializer.SerializeToElement(NotifyOnRankReached);
@@ -1547,6 +1599,8 @@ namespace BotMain
                             _humanizeIntensityIndex = GetHumanizeIntensityIndex(loadedIntensity);
                         }
                         if (dict.TryGetValue("SaveHsBoxCallbacks", out v)) _saveHsBoxCallbacks = v.GetBoolean();
+                        if (dict.TryGetValue("HsBoxDirectApiMode", out v))
+                            _hsBoxDirectApiModeIndex = GetHsBoxDirectApiModeIndex(ReadOptionalString(v));
                         if (dict.TryGetValue("StopAfterReachRankEnabled", out v)) _stopAfterReachRankEnabled = v.GetBoolean();
                         if (dict.TryGetValue("StopAfterReachRankStarLevel", out v)) _stopAfterReachRankStarLevel = ReadOptionalInt32(v, RankHelper.LegendStarLevel);
                         if (dict.TryGetValue("NotifyOnRankReached", out v)) NotifyOnRankReached = v.GetBoolean();
@@ -1578,6 +1632,7 @@ namespace BotMain
             _bot.SetMatchmakingTimeoutSeconds(MatchmakingTimeoutSeconds);
             _bot.SetHsBoxExecutablePath(HsBoxExecutablePath);
             _bot.SetFollowHsBoxRecommendations(FollowHsBoxOperation);
+            _bot.SetHsBoxDirectApiMode(SelectedHsBoxDirectApiMode);
             _bot.SetHumanizeActionsEnabled(HumanizeActionsEnabled);
             _bot.SetHumanizeIntensity(SelectedHumanizeIntensity);
             _bot.SetSaveHsBoxCallbacks(SaveHsBoxCallbacks);
@@ -1593,6 +1648,22 @@ namespace BotMain
             if (element.ValueKind == JsonValueKind.Null || element.ValueKind == JsonValueKind.Undefined)
                 return null;
             return element.GetString();
+        }
+
+        private static int GetHsBoxDirectApiModeIndex(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return 0;
+
+            if (int.TryParse(value, out var numeric))
+                return numeric >= 0 && numeric <= 2 ? numeric : 0;
+
+            return value.Trim() switch
+            {
+                nameof(HsBoxDirectApiMode.DirectApiShadow) => 1,
+                nameof(HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback) => 2,
+                _ => 0
+            };
         }
 
         private static int ReadOptionalInt32(JsonElement element, int fallback)
