@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -392,12 +393,116 @@ namespace BotMain
         }
     }
 
+    internal static class HsBoxDirectApiProtocol
+    {
+        private static readonly byte[] Rc4Key =
+        {
+            0x65, 0xef, 0x90, 0x9b, 0xda, 0x8e, 0x30, 0xe4,
+            0xe2, 0xbc, 0x3c, 0xe8, 0x28, 0xed, 0x87, 0x0e
+        };
+
+        public static string EncodeRequestPayload(JToken payload)
+        {
+            if (payload == null)
+                throw new ArgumentNullException(nameof(payload));
+
+            var json = payload.ToString(Formatting.None);
+            var compressed = CompressZlib(Encoding.UTF8.GetBytes(json));
+            var encrypted = Rc4(compressed);
+            return ToUrlSafeBase64(encrypted);
+        }
+
+        public static string DecodeResponseText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return text ?? string.Empty;
+
+            var trimmed = text.Trim();
+            if (LooksLikeJson(trimmed))
+                return trimmed;
+
+            try
+            {
+                var encrypted = FromUrlSafeBase64(trimmed);
+                var decrypted = Rc4(encrypted);
+                var decoded = Encoding.UTF8.GetString(decrypted);
+                return LooksLikeJson(decoded) ? decoded : trimmed;
+            }
+            catch
+            {
+                return trimmed;
+            }
+        }
+
+        private static byte[] CompressZlib(byte[] bytes)
+        {
+            using var output = new MemoryStream();
+            using (var zlib = new ZLibStream(output, CompressionLevel.Optimal, leaveOpen: true))
+            {
+                zlib.Write(bytes, 0, bytes.Length);
+            }
+
+            return output.ToArray();
+        }
+
+        private static byte[] Rc4(byte[] input)
+        {
+            var s = new byte[256];
+            for (var i = 0; i < s.Length; i++)
+                s[i] = (byte)i;
+
+            var j = 0;
+            for (var i = 0; i < s.Length; i++)
+            {
+                j = (j + s[i] + Rc4Key[i % Rc4Key.Length]) & 0xff;
+                (s[i], s[j]) = (s[j], s[i]);
+            }
+
+            var output = new byte[input.Length];
+            var x = 0;
+            j = 0;
+            for (var index = 0; index < input.Length; index++)
+            {
+                x = (x + 1) & 0xff;
+                j = (j + s[x]) & 0xff;
+                (s[x], s[j]) = (s[j], s[x]);
+                var keyByte = s[(s[x] + s[j]) & 0xff];
+                output[index] = (byte)(input[index] ^ keyByte);
+            }
+
+            return output;
+        }
+
+        private static string ToUrlSafeBase64(byte[] bytes)
+        {
+            return Convert.ToBase64String(bytes)
+                .Replace('+', '-')
+                .Replace('/', '_');
+        }
+
+        private static byte[] FromUrlSafeBase64(string text)
+        {
+            var base64 = text.Replace('-', '+').Replace('_', '/');
+            var remainder = base64.Length % 4;
+            if (remainder > 0)
+                base64 = base64.PadRight(base64.Length + (4 - remainder), '=');
+            return Convert.FromBase64String(base64);
+        }
+
+        private static bool LooksLikeJson(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return false;
+
+            var trimmed = text.TrimStart();
+            return trimmed.StartsWith("{", StringComparison.Ordinal)
+                || trimmed.StartsWith("[", StringComparison.Ordinal);
+        }
+    }
+
     internal sealed class HsBoxDirectApiClient : IHsBoxDirectApiClient
     {
-        private static readonly HttpClient SharedHttp = new HttpClient
-        {
-            Timeout = TimeSpan.FromSeconds(4)
-        };
+        private static readonly HttpClient SharedHttp = CreateSharedHttpClient();
 
         private readonly HttpClient _http;
 
@@ -409,6 +514,17 @@ namespace BotMain
         internal HsBoxDirectApiClient(HttpClient http)
         {
             _http = http ?? throw new ArgumentNullException(nameof(http));
+        }
+
+        private static HttpClient CreateSharedHttpClient()
+        {
+            return new HttpClient(new HttpClientHandler
+            {
+                AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate
+            })
+            {
+                Timeout = TimeSpan.FromSeconds(4)
+            };
         }
 
         public static Uri BuildEndpoint(HsBoxDirectApiKind kind)
@@ -439,31 +555,119 @@ namespace BotMain
             };
         }
 
+        private static Uri BuildEndpoint(HsBoxDirectApiKind kind, HsBoxDirectApiProtocolMetadata metadata)
+        {
+            var query = string.Join("&",
+                "sid=" + Uri.EscapeDataString(metadata.Sid),
+                "compress=1",
+                "rank=" + Uri.EscapeDataString(metadata.Rank),
+                "client_type=win",
+                "version=" + Uri.EscapeDataString(metadata.Version));
+
+            return new Uri(BuildEndpoint(kind) + "?" + query);
+        }
+
+        private static bool TryBuildProtocolMetadata(
+            JToken payload,
+            out HsBoxDirectApiProtocolMetadata metadata,
+            out string detail)
+        {
+            metadata = null;
+
+            var sid = ReadTopLevelString(payload, "sid", "ls_session_id");
+            if (string.IsNullOrWhiteSpace(sid))
+            {
+                detail = "sid";
+                return false;
+            }
+
+            var version = ReadTopLevelString(payload, "version", "recommend_version");
+            if (string.IsNullOrWhiteSpace(version))
+                version = "4.0.4.314";
+
+            var rank = ReadTopLevelString(payload, "rank", "ladder_rank");
+            if (string.IsNullOrWhiteSpace(rank))
+                rank = "0";
+
+            var clientToken = ReadTopLevelString(payload, "client_uuid", "info_token", "deviceid", "device_id", "uuid");
+            if (string.IsNullOrWhiteSpace(clientToken))
+                clientToken = "hearthbot";
+
+            metadata = new HsBoxDirectApiProtocolMetadata
+            {
+                Sid = sid,
+                Version = version,
+                Rank = rank,
+                ClientToken = clientToken
+            };
+            detail = "ok";
+            return true;
+        }
+
+        private static string ReadTopLevelString(JToken token, params string[] names)
+        {
+            if (token is not JObject obj || names == null)
+                return string.Empty;
+
+            foreach (var name in names)
+            {
+                if (obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var value))
+                {
+                    var text = TokenToString(value);
+                    if (!string.IsNullOrWhiteSpace(text))
+                        return text;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string TokenToString(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            return token.Type == JTokenType.String
+                ? token.Value<string>() ?? string.Empty
+                : token.ToString(Formatting.None);
+        }
+
         public HsBoxDirectApiResponse Post(HsBoxDirectApiRequest request)
         {
             if (request == null)
                 return new HsBoxDirectApiResponse { Detail = "request_null" };
 
-            var endpoint = BuildEndpoint(request.Kind);
-            var payloadText = request.Payload.ToString(Formatting.None);
             var result = new HsBoxDirectApiResponse
             {
                 Detail = "not_sent"
             };
 
+            if (!TryBuildProtocolMetadata(request.Payload, out var metadata, out var metadataDetail))
+            {
+                result.Detail = "metadata_missing:" + metadataDetail;
+                HsBoxDirectApiDiagnostics.TrySave(request, result);
+                return result;
+            }
+
+            var endpoint = BuildEndpoint(request.Kind, metadata);
+            var dataToken = HsBoxDirectApiProtocol.EncodeRequestPayload(request.Payload);
+
             try
             {
                 using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
-                message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-                message.Headers.UserAgent.ParseAdd("Hearthbot-HsBoxDirect/1.0");
+                message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("*/*"));
+                message.Headers.TryAddWithoutValidation("User-Agent", $"Mozilla/5.0 HSAng/{metadata.Version}/{metadata.ClientToken}");
                 message.Headers.Referrer = new Uri("https://hs-web-embed.lushi.163.com/");
                 message.Headers.TryAddWithoutValidation("Origin", "https://hs-web-embed.lushi.163.com");
-                message.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
-                message.Content = new StringContent(payloadText, Encoding.UTF8, "application/json");
+                message.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip, deflate");
+                message.Headers.TryAddWithoutValidation("Accept-Language", "zh-CN,en,*");
+                message.Headers.TryAddWithoutValidation("Cookie", "ls_session_id=" + metadata.Sid);
+                message.Content = new StringContent("data=" + dataToken, Encoding.UTF8, "application/x-www-form-urlencoded");
 
                 using var response = _http.SendAsync(message).GetAwaiter().GetResult();
                 result.StatusCode = response.StatusCode;
-                result.ResponseText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                var rawResponseText = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                result.ResponseText = HsBoxDirectApiProtocol.DecodeResponseText(rawResponseText);
                 result.ResponseJson = TryParseJson(result.ResponseText);
 
                 if (!response.IsSuccessStatusCode)
@@ -473,7 +677,7 @@ namespace BotMain
                     return result;
                 }
 
-                if (!TryBuildRecommendationState(request.Kind, result.ResponseJson, result.ResponseText, out var state, out var parseDetail))
+                if (!TryBuildRecommendationState(request.Kind, request.Payload, result.ResponseJson, result.ResponseText, out var state, out var parseDetail))
                 {
                     result.Detail = parseDetail.StartsWith("api_error:", StringComparison.Ordinal)
                         ? parseDetail
@@ -484,7 +688,7 @@ namespace BotMain
 
                 result.Success = true;
                 result.State = state;
-                result.Detail = $"ok endpoint={GetEndpointName(request.Kind)}, source={SanitizeDetail(request.Source)}";
+                result.Detail = $"ok endpoint={GetEndpointName(request.Kind)}, source={SanitizeDetail(request.Source)}, protocol=hsang_form";
                 HsBoxDirectApiDiagnostics.TrySave(request, result);
                 return result;
             }
@@ -518,10 +722,21 @@ namespace BotMain
             out HsBoxRecommendationState state,
             out string detail)
         {
+            return TryBuildRecommendationState(kind, null, responseJson, responseText, out state, out detail);
+        }
+
+        internal static bool TryBuildRecommendationState(
+            HsBoxDirectApiKind kind,
+            JToken requestPayload,
+            JToken responseJson,
+            string responseText,
+            out HsBoxRecommendationState state,
+            out string detail)
+        {
             state = null;
             detail = "json_null";
 
-            var envelopeToken = SelectEnvelopeToken(responseJson);
+            var envelopeToken = SelectEnvelopeToken(kind, requestPayload, responseJson);
             if (envelopeToken == null)
             {
                 detail = TryDescribeApiError(responseJson, out var apiError)
@@ -567,7 +782,7 @@ namespace BotMain
             return true;
         }
 
-        private static JToken SelectEnvelopeToken(JToken responseJson)
+        private static JToken SelectEnvelopeToken(HsBoxDirectApiKind kind, JToken requestPayload, JToken responseJson)
         {
             if (responseJson == null)
                 return null;
@@ -588,9 +803,381 @@ namespace BotMain
                 var recommendation = obj["recommendation"];
                 if (LooksLikeRecommendationEnvelope(recommendation))
                     return recommendation;
+
+                if (TryBuildEnvelopeFromDirectRec(kind, requestPayload, obj, out var directRecEnvelope))
+                    return directRecEnvelope;
             }
 
             return null;
+        }
+
+        private static bool TryBuildEnvelopeFromDirectRec(
+            HsBoxDirectApiKind kind,
+            JToken requestPayload,
+            JObject responseObj,
+            out JToken envelope)
+        {
+            envelope = null;
+
+            var resultObj = responseObj["result"] as JObject ?? responseObj;
+            var rec = resultObj["rec"] as JArray;
+            if (rec == null)
+                return false;
+
+            var context = HsBoxDirectRecContext.FromPayload(requestPayload);
+            var data = new JArray();
+            foreach (var entry in rec.OfType<JObject>())
+                data.Add(context.BuildStep(entry));
+
+            envelope = new JObject
+            {
+                ["status"] = 2,
+                ["error"] = string.Empty,
+                ["data"] = data,
+                ["directResultStatus"] = resultObj["status"]?.DeepClone()
+            };
+            return true;
+        }
+
+        private sealed class HsBoxDirectApiProtocolMetadata
+        {
+            public string Sid { get; set; } = string.Empty;
+            public string Version { get; set; } = string.Empty;
+            public string Rank { get; set; } = string.Empty;
+            public string ClientToken { get; set; } = string.Empty;
+        }
+
+        private sealed class HsBoxDirectRecContext
+        {
+            private readonly Dictionary<int, HsBoxDirectEntityRef> _entities;
+            private readonly Dictionary<int, JObject> _options;
+
+            private HsBoxDirectRecContext(
+                Dictionary<int, HsBoxDirectEntityRef> entities,
+                Dictionary<int, JObject> options)
+            {
+                _entities = entities;
+                _options = options;
+            }
+
+            public static HsBoxDirectRecContext FromPayload(JToken payload)
+            {
+                var entities = new Dictionary<int, HsBoxDirectEntityRef>();
+                var options = new Dictionary<int, JObject>();
+                var state = FindLatestState(payload);
+
+                if (state?["entities"] is JObject entityGroups)
+                {
+                    foreach (var group in entityGroups.Properties())
+                    {
+                        if (group.Value is not JArray array)
+                            continue;
+
+                        foreach (var entityObj in array.OfType<JObject>())
+                        {
+                            var entityId = ReadInt(entityObj, "ENTITY_ID", "entity_id", "id");
+                            if (entityId <= 0)
+                                continue;
+
+                            entities[entityId] = new HsBoxDirectEntityRef(entityId, group.Name, entityObj);
+                        }
+                    }
+                }
+
+                if (state?["options"] is JArray optionArray)
+                {
+                    foreach (var optionObj in optionArray.OfType<JObject>())
+                    {
+                        var optionId = ReadInt(optionObj, "id", "option_id");
+                        if (optionId >= 0)
+                            options[optionId] = optionObj;
+                    }
+                }
+
+                return new HsBoxDirectRecContext(entities, options);
+            }
+
+            public JObject BuildStep(JObject rec)
+            {
+                var optionId = ReadInt(rec, "option_id", "id");
+                _options.TryGetValue(optionId, out var option);
+
+                var sourceId = ReadInt(rec, "option_entity_id", "entity_id");
+                if (sourceId <= 0)
+                    sourceId = ReadInt(option, "entity_id", "ENTITY_ID");
+
+                var targetId = ReadInt(rec, "target_entity_id", "targetEntityId");
+                if (targetId <= 0)
+                    targetId = ReadInt(rec, "magnetic_target_entity_id", "magneticTargetEntityId");
+
+                var subOptionEntityId = ReadInt(rec, "sub_option_entity_id", "subOptionEntityId");
+                var source = GetEntity(sourceId);
+                var target = GetEntity(targetId);
+                var subOption = GetEntity(subOptionEntityId);
+                var actionName = ResolveActionName(optionId, option, source, target, rec);
+                var position = Math.Max(0, ReadInt(rec, "position"));
+
+                var step = new JObject
+                {
+                    ["actionName"] = actionName,
+                    ["position"] = position,
+                    ["entityId"] = sourceId,
+                    ["targetEntityId"] = targetId,
+                    ["optionId"] = optionId,
+                    ["directRec"] = rec.DeepClone()
+                };
+
+                var sourceCard = BuildCardRef(source);
+                if (sourceCard != null)
+                    step["card"] = sourceCard;
+
+                AddTarget(step, target);
+
+                var subOptionCard = BuildCardRef(subOption);
+                if (subOptionCard != null)
+                    step["subOption"] = subOptionCard;
+
+                return step;
+            }
+
+            private HsBoxDirectEntityRef GetEntity(int entityId)
+            {
+                return entityId > 0 && _entities.TryGetValue(entityId, out var entity)
+                    ? entity
+                    : null;
+            }
+
+            private static JObject FindLatestState(JToken payload)
+            {
+                try
+                {
+                    return payload?.SelectTokens("$..state", false).OfType<JObject>().LastOrDefault();
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+
+            private static string ResolveActionName(
+                int optionId,
+                JObject option,
+                HsBoxDirectEntityRef source,
+                HsBoxDirectEntityRef target,
+                JObject rec)
+            {
+                var optionType = ReadString(option, "type").Trim().ToUpperInvariant();
+                if (optionId == 0 || string.Equals(optionType, "END_TURN", StringComparison.OrdinalIgnoreCase))
+                    return "end_turn";
+
+                var subOptionId = ReadNullableInt(rec, "sub_option_id");
+                var hasSubOption = (subOptionId.HasValue && subOptionId.Value >= 0)
+                    || ReadInt(rec, "sub_option_entity_id", "subOptionEntityId") > 0;
+
+                if (source == null)
+                    return "common_action";
+
+                if (source.IsMyHeroPower)
+                    return "hero_skill";
+
+                if (source.IsMyHero && target != null)
+                    return "hero_attack";
+
+                if (source.IsMyHand)
+                    return ResolvePlayActionName(source.CardType);
+
+                if (source.IsMyLineup)
+                {
+                    if (string.Equals(source.CardType, "LOCATION", StringComparison.OrdinalIgnoreCase))
+                        return "location_power";
+
+                    if (!hasSubOption && target != null && target.IsOpponent)
+                        return "minion_attack";
+
+                    return "common_action";
+                }
+
+                return "common_action";
+            }
+
+            private static string ResolvePlayActionName(string cardType)
+            {
+                switch ((cardType ?? string.Empty).Trim().ToUpperInvariant())
+                {
+                    case "MINION":
+                        return "play_minion";
+                    case "LOCATION":
+                        return "play_location";
+                    case "WEAPON":
+                        return "play_weapon";
+                    case "HERO":
+                        return "play_hero";
+                    default:
+                        return "play_special";
+                }
+            }
+
+            private static void AddTarget(JObject step, HsBoxDirectEntityRef target)
+            {
+                if (step == null || target == null)
+                    return;
+
+                var targetRef = BuildCardRef(target) ?? new JObject();
+                if (target.IsOppHero)
+                    step["oppTargetHero"] = targetRef;
+                else if (target.IsMyHero)
+                    step["targetHero"] = targetRef;
+                else if (target.IsOppLineup)
+                    step["oppTarget"] = targetRef;
+                else
+                    step["target"] = targetRef;
+            }
+
+            private static JObject BuildCardRef(HsBoxDirectEntityRef entity)
+            {
+                if (entity == null)
+                    return null;
+
+                var card = new JObject();
+                if (!string.IsNullOrWhiteSpace(entity.CardId))
+                    card["cardId"] = entity.CardId;
+                if (!string.IsNullOrWhiteSpace(entity.ZoneName))
+                    card["zoneName"] = entity.ZoneName;
+                if (entity.ZonePosition > 0)
+                {
+                    card["ZONE_POSITION"] = entity.ZonePosition;
+                    card["position"] = entity.ZonePosition;
+                }
+
+                return card.HasValues ? card : new JObject();
+            }
+
+            private static int ReadInt(JObject obj, params string[] names)
+            {
+                return ReadNullableInt(obj, names) ?? 0;
+            }
+
+            private static int? ReadNullableInt(JObject obj, params string[] names)
+            {
+                if (obj == null || names == null)
+                    return null;
+
+                foreach (var name in names)
+                {
+                    if (!obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var token))
+                        continue;
+
+                    if (token.Type == JTokenType.Integer)
+                        return token.Value<int>();
+
+                    if (int.TryParse(TokenToString(token), out var value))
+                        return value;
+                }
+
+                return null;
+            }
+
+            private static string ReadString(JObject obj, params string[] names)
+            {
+                if (obj == null || names == null)
+                    return string.Empty;
+
+                foreach (var name in names)
+                {
+                    if (obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var token))
+                    {
+                        var text = TokenToString(token);
+                        if (!string.IsNullOrWhiteSpace(text))
+                            return text;
+                    }
+                }
+
+                return string.Empty;
+            }
+        }
+
+        private sealed class HsBoxDirectEntityRef
+        {
+            public HsBoxDirectEntityRef(int entityId, string groupName, JObject token)
+            {
+                EntityId = entityId;
+                GroupName = groupName ?? string.Empty;
+                Token = token;
+                CardId = ReadString(token, "_CARD_ID", "cardId", "CARD_ID");
+                CardType = ReadString(token, "CARDTYPE", "cardType");
+                ZonePosition = ReadInt(token, "ZONE_POSITION", "position");
+                ZoneName = ResolveZoneName(GroupName, token);
+            }
+
+            public int EntityId { get; }
+            public string GroupName { get; }
+            public JObject Token { get; }
+            public string CardId { get; }
+            public string CardType { get; }
+            public int ZonePosition { get; }
+            public string ZoneName { get; }
+
+            public bool IsMyHand => GroupName.IndexOf("my_hands", StringComparison.OrdinalIgnoreCase) >= 0;
+            public bool IsMyLineup => GroupName.IndexOf("my_lineup", StringComparison.OrdinalIgnoreCase) >= 0;
+            public bool IsMyHeroPower => GroupName.IndexOf("my_hero_power", StringComparison.OrdinalIgnoreCase) >= 0;
+            public bool IsMyHero => GroupName.Equals("my_hero", StringComparison.OrdinalIgnoreCase);
+            public bool IsOppLineup => GroupName.IndexOf("opp_lineup", StringComparison.OrdinalIgnoreCase) >= 0;
+            public bool IsOppHero => GroupName.Equals("opp_hero", StringComparison.OrdinalIgnoreCase);
+            public bool IsOpponent => GroupName.StartsWith("opp_", StringComparison.OrdinalIgnoreCase);
+
+            private static string ResolveZoneName(string groupName, JObject token)
+            {
+                if (groupName.IndexOf("hands", StringComparison.OrdinalIgnoreCase) >= 0)
+                    return "hand";
+                if (groupName.IndexOf("lineup", StringComparison.OrdinalIgnoreCase) >= 0
+                    || groupName.IndexOf("hero", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return "play";
+                }
+
+                var zone = ReadString(token, "ZONE", "zoneName");
+                return string.IsNullOrWhiteSpace(zone)
+                    ? string.Empty
+                    : zone.ToLowerInvariant();
+            }
+
+            private static int ReadInt(JObject obj, params string[] names)
+            {
+                if (obj == null || names == null)
+                    return 0;
+
+                foreach (var name in names)
+                {
+                    if (!obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var token))
+                        continue;
+
+                    if (token.Type == JTokenType.Integer)
+                        return token.Value<int>();
+
+                    if (int.TryParse(TokenToString(token), out var value))
+                        return value;
+                }
+
+                return 0;
+            }
+
+            private static string ReadString(JObject obj, params string[] names)
+            {
+                if (obj == null || names == null)
+                    return string.Empty;
+
+                foreach (var name in names)
+                {
+                    if (obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var token))
+                    {
+                        var text = TokenToString(token);
+                        if (!string.IsNullOrWhiteSpace(text))
+                            return text;
+                    }
+                }
+
+                return string.Empty;
+            }
         }
 
         private static JToken NormalizeEnvelopeToken(JToken token)
@@ -718,7 +1305,7 @@ namespace BotMain
             TryAddString(payload, "sid", "getSid");
             TryAddString(payload, "token", "login_token");
             TryAddString(payload, "urs", "login_user");
-            TryAddString(payload, "uuid", "get_info_token");
+            TryAddString(payload, "client_uuid", "get_info_token");
 
             if (!payload.ContainsKey("version") || !payload.ContainsKey("recommend_version"))
             {

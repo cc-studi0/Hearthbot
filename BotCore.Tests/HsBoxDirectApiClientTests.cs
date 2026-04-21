@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
@@ -16,6 +17,12 @@ namespace BotCore.Tests
 {
     public sealed class HsBoxDirectApiClientTests
     {
+        private const string SampleRequestJson =
+            "{\"sid\":\"SID-1\",\"uuid\":\"UUID-1\",\"version\":\"4.0.4.314\",\"rank\":73864,\"data\":{\"turns\":[{\"processes\":[{\"state\":{\"entities\":{\"my_hands\":[{\"ENTITY_ID\":10,\"ZONE_POSITION\":1,\"_CARD_ID\":\"CORE_CS2_231\",\"CARDTYPE\":\"MINION\"}],\"my_lineup\":[{\"ENTITY_ID\":20,\"ZONE_POSITION\":1,\"_CARD_ID\":\"TLC_100t2\",\"CARDTYPE\":\"LOCATION\"}],\"opp_hero\":[{\"ENTITY_ID\":64,\"_CARD_ID\":\"HERO_05\",\"CARDTYPE\":\"HERO\"}]},\"options\":[{\"id\":2,\"type\":\"POWER\",\"entity_id\":20,\"error\":\"NONE\"}]}}]}]}}";
+
+        private const string SampleEncryptedResponse =
+            "hsZPUfj_WQmIwvSIBplp9MLEp3Uk652TAfb6-MUOhkXNb1q-TU-VfQdHTQcLfG56hDA6tF__Gz70CHeltd2FMftjU1XC6Rww6SDuvUg2Kwj3G5ymDCGvdJ_LT00eqR7jj3eYKQORg7C0VxsZjVIm-H62DjjrIgxkrVdBaqxkaoK8N-X2TgqGBHpzx1B0xk6ioT9fqLQ46PZUUBYomUWjJ9HXzRuGKoWKvI9-uko95DBv9TzrnNr5EThORZwDlsaFZ1RGhXYEn70VMrVih4DscXGsPmYm";
+
         [Fact]
         public void BuildEndpoint_ReturnsKnownHsBoxPredictUris()
         {
@@ -31,34 +38,51 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void Post_ConstructedEndpointSendsUtf8JsonAndParsesEnvelope()
+        public void Protocol_EncodesRequestAndDecodesEncryptedResponse()
+        {
+            var token = HsBoxDirectApiProtocol.EncodeRequestPayload(JObject.Parse(SampleRequestJson));
+            var responseJson = HsBoxDirectApiProtocol.DecodeResponseText(SampleEncryptedResponse);
+
+            Assert.Matches("^[A-Za-z0-9_-]+=*$", token);
+            Assert.DoesNotContain("{\"sid\"", token, StringComparison.Ordinal);
+            Assert.Equal(
+                "{\"status\":true,\"msg\":\"ok\",\"result\":{\"status\":200,\"rec\":[{\"option_id\":2,\"option_entity_id\":20,\"sub_option_id\":-1,\"sub_option_entity_id\":0,\"target_entity_id\":64,\"position\":0,\"magnetic_target_entity_id\":0}]},\"ret\":0}",
+                responseJson);
+        }
+
+        [Fact]
+        public void Post_ConstructedEndpointSendsHsAngEncryptedFormAndParsesRec()
         {
             var handler = new RecordingHandler(
                 new HttpResponseMessage(HttpStatusCode.OK)
                 {
-                    Content = new StringContent(
-                        "{\"status\":2,\"error\":\"\",\"turnNum\":9,\"data\":[{\"actionName\":\"end_turn\"}]}",
-                        System.Text.Encoding.UTF8,
-                        "application/json")
+                    Content = new StringContent(SampleEncryptedResponse)
                 });
             var client = new HsBoxDirectApiClient(new HttpClient(handler));
+            var expectedToken = HsBoxDirectApiProtocol.EncodeRequestPayload(JObject.Parse(SampleRequestJson));
 
             var result = client.Post(
                 new HsBoxDirectApiRequest(
                     HsBoxDirectApiKind.StandardSubstep,
-                    JObject.Parse("{\"sid\":\"S\",\"turns\":[{\"turn\":1}]}"),
+                    JObject.Parse(SampleRequestJson),
                     "unit_test"));
 
             Assert.True(result.Success, result.Detail);
             Assert.Equal(HttpStatusCode.OK, result.StatusCode);
-            Assert.Equal(new Uri("https://hs-api.lushi.163.com/hs/predict/standard_substep"), handler.RequestUri);
+            Assert.Equal(
+                "https://hs-api.lushi.163.com/hs/predict/standard_substep?sid=SID-1&compress=1&rank=73864&client_type=win&version=4.0.4.314",
+                handler.RequestUri.ToString());
             Assert.Equal(HttpMethod.Post, handler.Method);
-            Assert.Equal("application/json", handler.ContentType);
-            Assert.Contains("\"sid\":\"S\"", handler.Body);
+            Assert.Equal("application/x-www-form-urlencoded", handler.ContentType);
+            Assert.Equal("data=" + expectedToken, handler.Body);
+            Assert.Contains("HSAng/4.0.4.314/UUID-1", handler.Headers["User-Agent"]);
+            Assert.Equal("ls_session_id=SID-1", handler.Headers["Cookie"]);
             Assert.NotNull(result.State);
             Assert.Equal("direct_api:standard_substep", result.State.SourceCallback);
-            Assert.Equal(2, result.State.Envelope.Status);
-            Assert.Equal("end_turn", Assert.Single(result.State.Envelope.Data).ActionName);
+            var step = Assert.Single(result.State.Envelope.Data);
+            Assert.Equal("location_power", step.ActionName);
+            Assert.Equal("TLC_100t2", step.GetPrimaryCard()?.CardId);
+            Assert.NotNull(step.OppTargetHero);
             Assert.True(result.State.UpdatedAtMs > 0);
             Assert.False(string.IsNullOrWhiteSpace(result.State.PayloadSignature));
         }
@@ -79,7 +103,7 @@ namespace BotCore.Tests
             var result = client.Post(
                 new HsBoxDirectApiRequest(
                     HsBoxDirectApiKind.StandardSubstep,
-                    JObject.Parse("{\"turns\":[{\"turn\":1}]}"),
+                    JObject.Parse("{\"sid\":\"SID-1\",\"uuid\":\"UUID-1\",\"version\":\"4.0.4.314\",\"turns\":[{\"turn\":1}]}"),
                     "unit_test"));
 
             Assert.False(result.Success);
@@ -174,7 +198,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void DefaultDirectPayloadProvider_DoesNotUseHsBoxNativeCallbackBridge()
+        public void DefaultDirectPayloadProvider_UsesNativeBattleInfoForDirectApi()
         {
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(null));
             var field = typeof(HsBoxGameRecommendationProvider).GetField(
@@ -184,7 +208,7 @@ namespace BotCore.Tests
             Assert.NotNull(field);
             var payloadProvider = field.GetValue(provider);
 
-            Assert.Equal("HsBoxDirectBoardPayloadProvider", payloadProvider?.GetType().Name);
+            Assert.Equal("HsBoxDirectNativePayloadProvider", payloadProvider?.GetType().Name);
         }
 
         [Fact]
@@ -296,6 +320,7 @@ namespace BotCore.Tests
             public HttpMethod Method { get; private set; }
             public string ContentType { get; private set; }
             public string Body { get; private set; } = string.Empty;
+            public Dictionary<string, string> Headers { get; private set; } = new Dictionary<string, string>();
 
             protected override async Task<HttpResponseMessage> SendAsync(
                 HttpRequestMessage request,
@@ -303,6 +328,10 @@ namespace BotCore.Tests
             {
                 RequestUri = request.RequestUri;
                 Method = request.Method;
+                Headers = request.Headers.ToDictionary(
+                    pair => pair.Key,
+                    pair => string.Join(",", pair.Value),
+                    StringComparer.OrdinalIgnoreCase);
                 ContentType = request.Content?.Headers.ContentType?.MediaType;
                 Body = request.Content == null
                     ? string.Empty
