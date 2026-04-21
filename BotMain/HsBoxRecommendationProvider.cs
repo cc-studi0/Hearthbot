@@ -65,6 +65,7 @@ namespace BotMain
         private DateTime _constructedDirectApiBackoffUntilUtc = DateTime.MinValue;
         private string _constructedDirectApiBackoffReason = string.Empty;
         private const int DirectApiKeyNullBackoffSeconds = 60;
+        private const int DirectApiPayloadUnavailableBackoffSeconds = 20;
 
         public void SetBgLog(Action<string> log)
         {
@@ -183,6 +184,11 @@ namespace BotMain
             {
                 detail = "payload_unavailable:" + payloadDetail;
                 LogDirect("[DirectApi] 构筑请求体不可用: " + payloadDetail);
+                if (IsDirectApiPayloadBackoffReason(payloadDetail))
+                {
+                    ArmConstructedDirectApiBackoff(payloadDetail, DirectApiPayloadUnavailableBackoffSeconds);
+                    LogDirect($"[DirectApi] 构筑请求体暂不可用，暂停直连 {DirectApiPayloadUnavailableBackoffSeconds}s: {payloadDetail}");
+                }
                 return false;
             }
 
@@ -198,7 +204,7 @@ namespace BotMain
                 detail = "api_failed:" + response.Detail;
                 if (IsDirectApiKeyNullError(response.Detail))
                 {
-                    ArmConstructedDirectApiBackoff(response.Detail);
+                    ArmConstructedDirectApiBackoff(response.Detail, DirectApiKeyNullBackoffSeconds);
                     LogDirect($"[DirectApi] 构筑接口缺少 key，暂停直连 {DirectApiKeyNullBackoffSeconds}s: {response.Detail}");
                 }
                 else
@@ -245,11 +251,11 @@ namespace BotMain
             }
         }
 
-        private void ArmConstructedDirectApiBackoff(string reason)
+        private void ArmConstructedDirectApiBackoff(string reason, int seconds)
         {
             lock (_directApiBackoffSync)
             {
-                _constructedDirectApiBackoffUntilUtc = DateTime.UtcNow.AddSeconds(DirectApiKeyNullBackoffSeconds);
+                _constructedDirectApiBackoffUntilUtc = DateTime.UtcNow.AddSeconds(Math.Max(1, seconds));
                 _constructedDirectApiBackoffReason = SanitizeDirectBackoffReason(reason);
             }
         }
@@ -267,6 +273,17 @@ namespace BotMain
         {
             return !string.IsNullOrWhiteSpace(detail)
                 && detail.IndexOf("key null", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static bool IsDirectApiPayloadBackoffReason(string detail)
+        {
+            if (string.IsNullOrWhiteSpace(detail))
+                return false;
+
+            return detail.IndexOf("native_timeout", StringComparison.OrdinalIgnoreCase) >= 0
+                || detail.IndexOf("cdp_", StringComparison.OrdinalIgnoreCase) >= 0
+                || detail.IndexOf("app_bridge_missing", StringComparison.OrdinalIgnoreCase) >= 0
+                || detail.IndexOf("battle_info_unavailable", StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static string SanitizeDirectBackoffReason(string detail)

@@ -1465,9 +1465,12 @@ namespace BotMain
             string UrlOf(JObject obj) => obj["url"]?.Value<string>() ?? string.Empty;
             bool Has(JObject obj, string needle) => UrlOf(obj).IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0;
 
-            return targets.FirstOrDefault(obj => Has(obj, "/client-home/"))
+            return targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ceframe"))
+                ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ladder-opp"))
+                ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/ladder"))
                 ?? targets.FirstOrDefault(obj => Has(obj, "/client-jipaiqi/"))
                 ?? targets.FirstOrDefault(obj => Has(obj, "/client-wargame/"))
+                ?? targets.FirstOrDefault(obj => Has(obj, "/client-home/"))
                 ?? targets.FirstOrDefault(obj => Has(obj, "hs-web"));
         }
 

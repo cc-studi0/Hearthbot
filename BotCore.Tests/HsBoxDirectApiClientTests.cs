@@ -198,6 +198,42 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void DirectPrimaryBacksOffTemporarily_AfterNativeBattleInfoTimeout()
+        {
+            var fallbackState = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 1234,
+                SourceCallback = "unit_fallback",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Status = 2,
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep { ActionName = "end_turn" }
+                    }
+                }
+            };
+            var payloadProvider = new NativeTimeoutPayloadProvider();
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(fallbackState),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            provider.SetDirectApiMode(HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback);
+            provider.SetDirectApiPayloadProvider(payloadProvider);
+            provider.SetDirectApiClient(new ThrowingDirectApiClient());
+
+            var first = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+            var second = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+
+            Assert.Equal(new[] { "END_TURN" }, first.Actions);
+            Assert.Equal(new[] { "END_TURN" }, second.Actions);
+            Assert.Equal(1, payloadProvider.CallCount);
+        }
+
+        [Fact]
         public void DefaultDirectPayloadProvider_UsesNativeBattleInfoForDirectApi()
         {
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(null));
@@ -209,6 +245,25 @@ namespace BotCore.Tests
             var payloadProvider = field.GetValue(provider);
 
             Assert.Equal("HsBoxDirectNativePayloadProvider", payloadProvider?.GetType().Name);
+        }
+
+        [Fact]
+        public void NativeBridgeTargetSelection_PrefersJipaiqiBattlePagesOverClientHome()
+        {
+            var targets = new List<JObject>
+            {
+                JObject.Parse("{\"url\":\"https://hs-web.lushi.163.com/client-home/\",\"webSocketDebuggerUrl\":\"ws://home\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp\",\"webSocketDebuggerUrl\":\"ws://opp\"}"),
+                JObject.Parse("{\"url\":\"https://hs-web-cef.lushi.163.com/client-jipaiqi/ceframe\",\"webSocketDebuggerUrl\":\"ws://ceframe\"}")
+            };
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "PickTarget",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var selected = Assert.IsType<JObject>(method.Invoke(null, new object[] { targets }));
+
+            Assert.Equal("ws://ceframe", selected.Value<string>("webSocketDebuggerUrl"));
         }
 
         [Fact]
@@ -359,6 +414,32 @@ namespace BotCore.Tests
             {
                 apiRequest = null;
                 detail = "unit_payload_missing";
+                return false;
+            }
+        }
+
+        private sealed class NativeTimeoutPayloadProvider : IHsBoxDirectApiPayloadProvider
+        {
+            public int CallCount { get; private set; }
+
+            public bool TryCreateConstructedActionRequest(
+                ActionRecommendationRequest request,
+                out HsBoxDirectApiRequest apiRequest,
+                out string detail)
+            {
+                CallCount++;
+                apiRequest = null;
+                detail = "battle_info_unavailable:native_timeout";
+                return false;
+            }
+
+            public bool TryCreateBattlegroundActionRequest(
+                string bgStateData,
+                out HsBoxDirectApiRequest apiRequest,
+                out string detail)
+            {
+                apiRequest = null;
+                detail = "unused";
                 return false;
             }
         }
