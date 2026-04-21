@@ -73,6 +73,12 @@ namespace BotMain
             out string detail);
     }
 
+    internal interface IHsBoxNativeBridgeClient
+    {
+        bool TryGetCurrentBattleInfo(out JToken battleInfo, out string detail);
+        bool TryInvoke(string method, out JObject reply, out string detail);
+    }
+
     internal sealed class HsBoxDirectDisabledPayloadProvider : IHsBoxDirectApiPayloadProvider
     {
         private const string DisabledDetail = "disabled:no_safe_hsbox_request_payload_provider";
@@ -397,7 +403,7 @@ namespace BotMain
     {
         private const string Source = "hsang_board_state";
 
-        private readonly HsBoxNativeBridgeClient _nativeBridge;
+        private readonly IHsBoxNativeBridgeClient _nativeBridge;
         private readonly HsBoxDirectNativePayloadProvider _nativeFallbackProvider;
 
         public HsBoxDirectHsAngPayloadProvider()
@@ -405,7 +411,7 @@ namespace BotMain
         {
         }
 
-        internal HsBoxDirectHsAngPayloadProvider(HsBoxNativeBridgeClient nativeBridge)
+        internal HsBoxDirectHsAngPayloadProvider(IHsBoxNativeBridgeClient nativeBridge)
         {
             _nativeBridge = nativeBridge ?? throw new ArgumentNullException(nameof(nativeBridge));
             _nativeFallbackProvider = new HsBoxDirectNativePayloadProvider(_nativeBridge);
@@ -430,32 +436,20 @@ namespace BotMain
                 return false;
             }
 
-            if (!_nativeBridge.TryGetCurrentBattleInfo(out var battleInfoToken, out var battleDetail))
-            {
-                detail = "battle_info_unavailable:" + battleDetail;
-                return false;
-            }
-
-            if (battleInfoToken is not JObject battleInfo)
-            {
-                detail = "battle_info_not_object";
-                return false;
-            }
-
             var boxParams = BuildBoxParams(out var boxDetail);
             if (!HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
                     request,
-                    battleInfo,
+                    new JObject(),
                     boxParams,
                     out var payload,
                     out var buildDetail))
             {
-                detail = buildDetail + "; battle=" + battleDetail + "; box=" + boxDetail;
+                detail = buildDetail + "; box=" + boxDetail;
                 return false;
             }
 
             apiRequest = new HsBoxDirectApiRequest(HsBoxDirectApiKind.StandardSubstep, payload, Source);
-            detail = Source + "; battle=" + battleDetail + "; box=" + boxDetail;
+            detail = Source + "; box=" + boxDetail;
             return true;
         }
 
@@ -1957,14 +1951,14 @@ namespace BotMain
 
     internal sealed class HsBoxDirectNativePayloadProvider : IHsBoxDirectApiPayloadProvider
     {
-        private readonly HsBoxNativeBridgeClient _nativeBridge;
+        private readonly IHsBoxNativeBridgeClient _nativeBridge;
 
         public HsBoxDirectNativePayloadProvider()
             : this(new HsBoxNativeBridgeClient())
         {
         }
 
-        internal HsBoxDirectNativePayloadProvider(HsBoxNativeBridgeClient nativeBridge)
+        internal HsBoxDirectNativePayloadProvider(IHsBoxNativeBridgeClient nativeBridge)
         {
             _nativeBridge = nativeBridge ?? throw new ArgumentNullException(nameof(nativeBridge));
         }
@@ -2048,7 +2042,7 @@ namespace BotMain
         }
     }
 
-    internal sealed class HsBoxNativeBridgeClient
+    internal sealed class HsBoxNativeBridgeClient : IHsBoxNativeBridgeClient
     {
         private static readonly HttpClient CdpHttp = new HttpClient
         {

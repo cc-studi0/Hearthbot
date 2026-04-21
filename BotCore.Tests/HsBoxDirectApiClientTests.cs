@@ -315,6 +315,43 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void HsAngPayloadProvider_DoesNotRequireBattleInfo_ForConstructedRequest()
+        {
+            var board = new Board
+            {
+                TurnCount = 2,
+                ManaAvailable = 1,
+                MaxMana = 2,
+                EnemyMaxMana = 2,
+                HeroFriend = CreateCard(64, Card.Cards.HERO_03, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(66, Card.Cards.HERO_05, "敌方英雄", "Enemy Hero"),
+                Hand = new List<Card>
+                {
+                    CreateCard(11, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                }
+            };
+            var request = new ActionRecommendationRequest(
+                "seed-A",
+                board,
+                null,
+                new[] { Card.Cards.CORE_CS2_231 });
+            var nativeBridge = new SidOnlyNativeBridge();
+            var provider = new HsBoxDirectHsAngPayloadProvider(nativeBridge);
+
+            var ok = provider.TryCreateConstructedActionRequest(request, out var apiRequest, out var detail);
+
+            Assert.True(ok, detail);
+            Assert.Equal(0, nativeBridge.BattleInfoCalls);
+            Assert.Equal(HsBoxDirectApiKind.StandardSubstep, apiRequest.Kind);
+            var payload = Assert.IsType<JObject>(apiRequest.Payload);
+            Assert.Equal("SID-1", payload.Value<string>("sid"));
+            Assert.Equal("CLIENT-1", payload.Value<string>("client_uuid"));
+            Assert.False(string.IsNullOrWhiteSpace(payload.Value<string>("btag")));
+            Assert.False(string.IsNullOrWhiteSpace(payload.Value<string>("uuid")));
+            Assert.Contains("getSid=ok", detail);
+        }
+
+        [Fact]
         public void NativeBridgeTargetSelection_PrefersJipaiqiBattlePagesOverClientHome()
         {
             var targets = new List<JObject>
@@ -534,6 +571,41 @@ namespace BotCore.Tests
                 apiRequest = null;
                 detail = "unused";
                 return false;
+            }
+        }
+
+        private sealed class SidOnlyNativeBridge : IHsBoxNativeBridgeClient
+        {
+            public int BattleInfoCalls { get; private set; }
+
+            public bool TryGetCurrentBattleInfo(out JToken battleInfo, out string detail)
+            {
+                BattleInfoCalls++;
+                battleInfo = null;
+                detail = "native_timeout";
+                return false;
+            }
+
+            public bool TryInvoke(string method, out JObject reply, out string detail)
+            {
+                reply = null;
+                detail = "native_ok:" + method;
+
+                switch (method)
+                {
+                    case "getSid":
+                        reply = JObject.Parse("{\"data\":\"SID-1\"}");
+                        return true;
+                    case "get_info_token":
+                        reply = JObject.Parse("{\"data\":\"CLIENT-1\"}");
+                        return true;
+                    case "get_version":
+                        reply = JObject.Parse("{\"data\":\"4.0.4.314\"}");
+                        return true;
+                    default:
+                        detail = "unexpected_method:" + method;
+                        return false;
+                }
             }
         }
 
