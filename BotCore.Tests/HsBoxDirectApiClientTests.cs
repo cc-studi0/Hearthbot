@@ -3,10 +3,12 @@ using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using BotMain;
 using Newtonsoft.Json.Linq;
+using SmartBot.Database;
 using SmartBot.Plugins.API;
 using Xunit;
 
@@ -105,7 +107,101 @@ namespace BotCore.Tests
             Assert.NotNull(field);
             var payloadProvider = field.GetValue(provider);
 
-            Assert.Equal("HsBoxDirectDisabledPayloadProvider", payloadProvider?.GetType().Name);
+            Assert.Equal("HsBoxDirectBoardPayloadProvider", payloadProvider?.GetType().Name);
+        }
+
+        [Fact]
+        public void BoardPayloadProvider_BuildsStandardSubstepRequest_FromPlanningBoard()
+        {
+            var board = new Board
+            {
+                TurnCount = 4,
+                ManaAvailable = 3,
+                MaxMana = 5,
+                EnemyMaxMana = 4,
+                CardsPlayedThisTurn = 2,
+                HeroFriend = CreateCard(1, Card.Cards.EX1_164, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(2, Card.Cards.AT_037, "敌方英雄", "Enemy Hero"),
+                Ability = CreateCard(3, Card.Cards.EX1_164, "英雄技能", "Hero Power"),
+                Hand = new List<Card>
+                {
+                    CreateCard(11, Card.Cards.CORE_CS2_231, "小精灵", "Wisp")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(21, Card.Cards.CORE_CS2_231, "友方随从", "Friendly Minion")
+                },
+                MinionEnemy = new List<Card>
+                {
+                    CreateCard(31, Card.Cards.AT_037, "敌方随从", "Enemy Minion")
+                }
+            };
+
+            var provider = new HsBoxDirectBoardPayloadProvider();
+            var request = new ActionRecommendationRequest(
+                "seed-A",
+                board,
+                null,
+                new[] { Card.Cards.CORE_CS2_231, Card.Cards.AT_037 },
+                deckName: "测试卡组",
+                deckSignature: "deck-sig",
+                remainingDeckCards: new[] { Card.Cards.EX1_164 },
+                matchContext: new MatchContextSnapshot
+                {
+                    MatchId = "match-1",
+                    TurnCount = 4,
+                    ObservedAtMs = 123456
+                },
+                boardFingerprint: "board-fp");
+
+            var ok = provider.TryCreateConstructedActionRequest(request, out var apiRequest, out var detail);
+
+            Assert.True(ok, detail);
+            Assert.Equal(HsBoxDirectApiKind.StandardSubstep, apiRequest.Kind);
+            Assert.Equal("board_state", apiRequest.Source);
+
+            var payload = Assert.IsType<JObject>(apiRequest.Payload);
+            Assert.Equal("normal", payload.Value<string>("type"));
+            Assert.Equal("hearthbot", payload.Value<string>("source"));
+            Assert.Equal("seed-A", payload.Value<string>("seed"));
+            Assert.Equal("测试卡组", payload.Value<string>("deckName"));
+            Assert.Equal("deck-sig", payload.Value<string>("deckSignature"));
+            Assert.Equal("board-fp", payload.Value<string>("boardFingerprint"));
+
+            var turn = Assert.IsType<JObject>(payload["turns"]?[0]?["turn"]);
+            Assert.Equal(4, turn.Value<int>("turn"));
+            Assert.Equal(3, turn.Value<int>("mana"));
+            Assert.Equal(5, turn.Value<int>("maxMana"));
+            Assert.Equal(4, turn.Value<int>("enemyMaxMana"));
+            Assert.Equal(2, turn.Value<int>("cardsPlayedThisTurn"));
+            Assert.Equal("CORE_CS2_231", turn["hand"]?[0]?.Value<string>("cardId"));
+            Assert.Equal(11, turn["hand"]?[0]?.Value<int>("entityId"));
+            Assert.Equal("CORE_CS2_231", turn["friendlyBoard"]?[0]?.Value<string>("cardId"));
+            Assert.Equal("AT_037", turn["enemyBoard"]?[0]?.Value<string>("cardId"));
+            Assert.Equal("EX1_164", turn["remainingDeck"]?[0]?.Value<string>("cardId"));
+        }
+
+        private static Card CreateCard(int entityId, Card.Cards id, string nameCn, string name)
+        {
+            return new Card
+            {
+                Id = entityId,
+                Template = CreateTemplate(id, nameCn, name),
+                CurrentCost = 1,
+                CurrentAtk = 1,
+                CurrentHealth = 1,
+                MaxHealth = 1,
+                IsFriend = true
+            };
+        }
+
+        private static CardTemplate CreateTemplate(Card.Cards id, string nameCn, string name)
+        {
+            var template = (CardTemplate)RuntimeHelpers.GetUninitializedObject(typeof(CardTemplate));
+            template.Id = id;
+            template.NameCN = nameCn;
+            template.Name = name;
+            return template;
         }
 
         private sealed class RecordingHandler : HttpMessageHandler

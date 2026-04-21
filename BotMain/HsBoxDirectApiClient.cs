@@ -10,6 +10,7 @@ using System.Text;
 using System.Threading;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using SmartBot.Plugins.API;
 
 namespace BotMain
 {
@@ -96,6 +97,302 @@ namespace BotMain
         }
     }
 
+    internal sealed class HsBoxDirectBoardPayloadProvider : IHsBoxDirectApiPayloadProvider
+    {
+        private const string Source = "board_state";
+
+        public bool TryCreateConstructedActionRequest(
+            ActionRecommendationRequest request,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            apiRequest = null;
+
+            if (request == null)
+            {
+                detail = "request_null";
+                return false;
+            }
+
+            if (request.PlanningBoard == null)
+            {
+                detail = "planning_board_null";
+                return false;
+            }
+
+            var payload = BuildConstructedPayload(request);
+            apiRequest = new HsBoxDirectApiRequest(HsBoxDirectApiKind.StandardSubstep, payload, Source);
+            detail = Source;
+            return true;
+        }
+
+        public bool TryCreateBattlegroundActionRequest(
+            string bgStateData,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            apiRequest = null;
+            detail = "bg_payload_not_implemented";
+            return false;
+        }
+
+        private static JObject BuildConstructedPayload(ActionRecommendationRequest request)
+        {
+            var board = request.PlanningBoard;
+            var turn = BuildTurnObject(request, board);
+            var requestId = BuildRequestId(request);
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+            return new JObject
+            {
+                ["type"] = "normal",
+                ["source"] = "hearthbot",
+                ["requestId"] = requestId,
+                ["uuid"] = requestId,
+                ["btag"] = "hearthbot",
+                ["recommend_version"] = "1.1.1",
+                ["version"] = "hearthbot-direct",
+                ["createdAt"] = nowMs,
+                ["seed"] = request.Seed ?? string.Empty,
+                ["deckName"] = request.DeckName ?? string.Empty,
+                ["deck_name"] = request.DeckName ?? string.Empty,
+                ["deckSignature"] = request.DeckSignature ?? string.Empty,
+                ["deck_signature"] = request.DeckSignature ?? string.Empty,
+                ["boardFingerprint"] = request.BoardFingerprint ?? string.Empty,
+                ["board_fingerprint"] = request.BoardFingerprint ?? string.Empty,
+                ["matchId"] = request.MatchContext?.MatchId ?? string.Empty,
+                ["turnNum"] = request.MatchContext?.TurnCount > 0
+                    ? request.MatchContext.TurnCount
+                    : board.TurnCount,
+                ["turn"] = turn.DeepClone(),
+                ["turns"] = new JArray
+                {
+                    new JObject
+                    {
+                        ["turn"] = turn
+                    }
+                }
+            };
+        }
+
+        private static JObject BuildTurnObject(ActionRecommendationRequest request, Board board)
+        {
+            var hand = BuildCardArray(board.Hand, "hand");
+            var friendlyBoard = BuildCardArray(board.MinionFriend, "friendly_board");
+            var enemyBoard = BuildCardArray(board.MinionEnemy, "enemy_board");
+            var deck = BuildDeckArray(request.DeckCards);
+            var remainingDeck = BuildDeckArray(request.RemainingDeckCards);
+
+            return new JObject
+            {
+                ["turn"] = board.TurnCount,
+                ["turnNum"] = board.TurnCount,
+                ["mana"] = board.ManaAvailable,
+                ["maxMana"] = board.MaxMana,
+                ["max_mana"] = board.MaxMana,
+                ["enemyMaxMana"] = board.EnemyMaxMana,
+                ["enemy_max_mana"] = board.EnemyMaxMana,
+                ["cardsPlayedThisTurn"] = board.CardsPlayedThisTurn,
+                ["cards_played_this_turn"] = board.CardsPlayedThisTurn,
+                ["friendClass"] = board.FriendClass.ToString(),
+                ["friend_class"] = board.FriendClass.ToString(),
+                ["enemyClass"] = board.EnemyClass.ToString(),
+                ["enemy_class"] = board.EnemyClass.ToString(),
+                ["hero"] = BuildCardObject(board.HeroFriend, "hero", 0),
+                ["enemyHero"] = BuildCardObject(board.HeroEnemy, "enemy_hero", 0),
+                ["enemy_hero"] = BuildCardObject(board.HeroEnemy, "enemy_hero", 0),
+                ["heroPower"] = BuildCardObject(board.Ability, "hero_power", 0),
+                ["hero_power"] = BuildCardObject(board.Ability, "hero_power", 0),
+                ["enemyHeroPower"] = BuildCardObject(board.EnemyAbility, "enemy_hero_power", 0),
+                ["enemy_hero_power"] = BuildCardObject(board.EnemyAbility, "enemy_hero_power", 0),
+                ["weapon"] = BuildCardObject(board.WeaponFriend, "weapon", 0),
+                ["enemyWeapon"] = BuildCardObject(board.WeaponEnemy, "enemy_weapon", 0),
+                ["enemy_weapon"] = BuildCardObject(board.WeaponEnemy, "enemy_weapon", 0),
+                ["hand"] = hand,
+                ["friendlyBoard"] = friendlyBoard,
+                ["friendly_board"] = friendlyBoard.DeepClone(),
+                ["enemyBoard"] = enemyBoard,
+                ["enemy_board"] = enemyBoard.DeepClone(),
+                ["deck"] = deck,
+                ["deck_cards"] = deck.DeepClone(),
+                ["remainingDeck"] = remainingDeck,
+                ["remaining_deck"] = remainingDeck.DeepClone(),
+                ["secrets"] = BuildDeckArray(board.Secret),
+                ["enemySecretCount"] = board.SecretEnemyCount,
+                ["enemy_secret_count"] = board.SecretEnemyCount
+            };
+        }
+
+        private static JArray BuildCardArray(IEnumerable<Card> cards, string zoneName)
+        {
+            var array = new JArray();
+            if (cards == null)
+                return array;
+
+            var index = 0;
+            foreach (var card in cards)
+            {
+                if (card == null)
+                    continue;
+
+                array.Add(BuildCardObject(card, zoneName, ++index));
+            }
+
+            return array;
+        }
+
+        private static JObject BuildCardObject(Card card, string zoneName, int fallbackPosition)
+        {
+            if (card == null)
+                return new JObject();
+
+            var cardId = GetCardId(card);
+            var cardName = GetCardName(card);
+            var position = card.Index > 0 ? card.Index : fallbackPosition;
+
+            return new JObject
+            {
+                ["entityId"] = card.Id,
+                ["id"] = card.Id,
+                ["cardId"] = cardId,
+                ["card_id"] = cardId,
+                ["cardName"] = cardName,
+                ["card_name"] = cardName,
+                ["name"] = cardName,
+                ["cost"] = card.CurrentCost,
+                ["atk"] = card.CurrentAtk,
+                ["attack"] = card.CurrentAtk,
+                ["tempAtk"] = card.TempAtk,
+                ["health"] = card.CurrentHealth,
+                ["maxHealth"] = card.MaxHealth,
+                ["armor"] = card.CurrentArmor,
+                ["durability"] = card.CurrentDurability,
+                ["type"] = card.Type.ToString(),
+                ["race"] = card.Race.ToString(),
+                ["zone"] = zoneName,
+                ["zoneName"] = zoneName,
+                ["zone_name"] = zoneName,
+                ["zonePosition"] = position,
+                ["zone_position"] = position,
+                ["ZONE_POSITION"] = position,
+                ["isFriend"] = card.IsFriend,
+                ["isGenerated"] = card.IsGenerated,
+                ["turnsInPlay"] = card.NumTurnsInPlay,
+                ["attackCount"] = card.CountAttack,
+                ["canAttack"] = card.CanAttack,
+                ["isTargetable"] = card.IsTargetable,
+                ["tags"] = BuildTags(card)
+            };
+        }
+
+        private static JObject BuildTags(Card card)
+        {
+            return new JObject
+            {
+                ["TAUNT"] = card.IsTaunt,
+                ["CHARGE"] = card.IsCharge,
+                ["DIVINE_SHIELD"] = card.IsDivineShield,
+                ["WINDFURY"] = card.IsWindfury,
+                ["STEALTH"] = card.IsStealth,
+                ["EXHAUSTED"] = card.IsTired,
+                ["FROZEN"] = card.IsFrozen,
+                ["ENRAGED"] = card.IsEnraged,
+                ["SILENCED"] = card.IsSilenced,
+                ["IMMUNE"] = card.IsImmune,
+                ["POISONOUS"] = card.HasPoison,
+                ["DEATHRATTLE"] = card.HasDeathRattle,
+                ["SPELLPOWER"] = card.SpellPower,
+                ["LIFESTEAL"] = card.IsLifeSteal,
+                ["RUSH"] = card.HasRush,
+                ["REBORN"] = card.HasReborn
+            };
+        }
+
+        private static JArray BuildDeckArray(IEnumerable<Card.Cards> cards)
+        {
+            var array = new JArray();
+            if (cards == null)
+                return array;
+
+            foreach (var card in cards)
+            {
+                var cardId = NormalizeCardId(card.ToString());
+                if (string.IsNullOrWhiteSpace(cardId))
+                    continue;
+
+                array.Add(new JObject
+                {
+                    ["cardId"] = cardId,
+                    ["card_id"] = cardId
+                });
+            }
+
+            return array;
+        }
+
+        private static string GetCardId(Card card)
+        {
+            if (card?.Template == null)
+                return string.Empty;
+
+            return NormalizeCardId(card.Template.Id.ToString());
+        }
+
+        private static string GetCardName(Card card)
+        {
+            if (card?.Template == null)
+                return string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(card.Template.NameCN))
+                return card.Template.NameCN;
+
+            return card.Template.Name ?? string.Empty;
+        }
+
+        private static string NormalizeCardId(string cardId)
+        {
+            if (string.IsNullOrWhiteSpace(cardId)
+                || string.Equals(cardId, "None", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cardId, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return cardId;
+        }
+
+        private static string BuildRequestId(ActionRecommendationRequest request)
+        {
+            var matchId = request.MatchContext?.MatchId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(matchId))
+                return "hearthbot_" + SanitizeToken(matchId);
+
+            var basis = string.Join("|",
+                request.Seed ?? string.Empty,
+                request.DeckSignature ?? string.Empty,
+                request.BoardFingerprint ?? string.Empty,
+                request.PlanningBoard?.TurnCount.ToString() ?? string.Empty);
+            var hash = unchecked((uint)basis.GetHashCode()).ToString("X8");
+            return "hearthbot_" + DateTime.UtcNow.ToString("yyyyMMdd") + "_" + hash;
+        }
+
+        private static string SanitizeToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var builder = new StringBuilder(value.Length);
+            foreach (var ch in value)
+            {
+                builder.Append(char.IsLetterOrDigit(ch) || ch == '_' || ch == '-'
+                    ? ch
+                    : '_');
+            }
+
+            return builder.ToString();
+        }
+    }
+
     internal sealed class HsBoxDirectApiClient : IHsBoxDirectApiClient
     {
         private static readonly HttpClient SharedHttp = new HttpClient
@@ -160,6 +457,9 @@ namespace BotMain
                 using var message = new HttpRequestMessage(HttpMethod.Post, endpoint);
                 message.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 message.Headers.UserAgent.ParseAdd("Hearthbot-HsBoxDirect/1.0");
+                message.Headers.Referrer = new Uri("https://hs-web-embed.lushi.163.com/");
+                message.Headers.TryAddWithoutValidation("Origin", "https://hs-web-embed.lushi.163.com");
+                message.Headers.TryAddWithoutValidation("X-Requested-With", "XMLHttpRequest");
                 message.Content = new StringContent(payloadText, Encoding.UTF8, "application/json");
 
                 using var response = _http.SendAsync(message).GetAwaiter().GetResult();

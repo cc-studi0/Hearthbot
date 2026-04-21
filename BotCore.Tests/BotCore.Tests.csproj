@@ -57,6 +57,7 @@
     <Compile Include="..\BotMain\DeckSignatureHelper.cs" Link="DeckSignatureHelper.cs" />
     <Compile Include="..\BotMain\LearnedMatchOutcome.cs" Link="LearnedMatchOutcome.cs" />
     <Compile Include="..\BotMain\MulliganProtocol.cs" Link="MulliganProtocol.cs" />
+    <Compile Include="..\BotMain\NetworkMonitor.cs" Link="NetworkMonitor.cs" />
     <Compile Include="..\BotMain\PipeServer.cs" Link="PipeServer.cs" />
     <Compile Include="..\BotMain\PluginSystem.cs" Link="PluginSystem.cs" />
     <Compile Include="..\BotMain\ProfileLoader.cs" Link="ProfileLoader.cs" />

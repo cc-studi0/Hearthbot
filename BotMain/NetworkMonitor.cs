@@ -114,6 +114,14 @@ namespace BotMain
                 return;
             }
 
+            if (!payload.StartsWith("disconnected", StringComparison.OrdinalIgnoreCase))
+            {
+                // Pipe 偶尔会吐出其他命令的残留响应（如 NO_PASS_INFO/NO_GAME），
+                // 这些都不是网络断连证据。
+                _disconnectedSinceUtc = null;
+                return;
+            }
+
             // disconnected
             if (_disconnectedSinceUtc == null)
             {

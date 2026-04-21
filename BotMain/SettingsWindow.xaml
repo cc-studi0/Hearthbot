@@ -28,7 +28,7 @@
                                   ItemsSource="{Binding HsBoxDirectApiModeOptions}"
                                   SelectedIndex="{Binding HsBoxDirectApiModeIndex}"
                                   FontSize="11"
-                                  ToolTip="实验功能：当前不会接管盒子 native 通道；请求体不可用时自动回退 CEF"/>
+                                  ToolTip="实验功能：使用脚本局面直连盒子接口；Shadow 只后台请求，API优先模式失败时回退 CEF"/>
                     </StackPanel>
                 </StackPanel>
             </GroupBox>
