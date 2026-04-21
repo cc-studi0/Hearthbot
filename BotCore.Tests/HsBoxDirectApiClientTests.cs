@@ -443,6 +443,23 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void NativeBridgeCookieParser_ReadsLsSessionIdFromCdpCookies()
+        {
+            var method = typeof(HsBoxNativeBridgeClient).GetMethod(
+                "TryExtractCookieValue",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            var response = JObject.Parse(
+                "{\"result\":{\"cookies\":[{\"name\":\"other\",\"value\":\"x\"},{\"name\":\"ls_session_id\",\"value\":\"SID-COOKIE\",\"httpOnly\":true}]}}");
+            var args = new object[] { response, "ls_session_id", null };
+
+            Assert.NotNull(method);
+            var ok = Assert.IsType<bool>(method.Invoke(null, args));
+
+            Assert.True(ok);
+            Assert.Equal("SID-COOKIE", args[2]);
+        }
+
+        [Fact]
         public void BoardPayloadProvider_BuildsStandardSubstepRequest_FromPlanningBoard()
         {
             var board = new Board

@@ -2122,12 +2122,42 @@ namespace BotMain
 
             var expression = BuildInvokeScript(method);
             var failures = new List<string>();
-            foreach (var target in PickTargets(targets))
+            var selectedTargets = PickTargets(targets);
+
+            if (string.Equals(method, "getSid", StringComparison.Ordinal))
+            {
+                foreach (var target in selectedTargets)
+                {
+                    var url = target["url"]?.Value<string>() ?? string.Empty;
+                    var wsUrl = target["webSocketDebuggerUrl"]?.Value<string>();
+                    if (string.IsNullOrWhiteSpace(wsUrl))
+                        continue;
+
+                    if (TryGetSidFromCdpCookies(wsUrl, url, out var cookieSid, out var cookieDetail))
+                    {
+                        reply = new JObject
+                        {
+                            ["method"] = method,
+                            ["data"] = cookieSid,
+                            ["fallback"] = cookieDetail
+                        };
+                        detail = "native_ok:" + method + ":" + ShortenTarget(url) + ":cookie";
+                        return true;
+                    }
+
+                    if (!string.IsNullOrWhiteSpace(cookieDetail))
+                        failures.Add(ShortenTarget(url) + "=" + cookieDetail);
+                }
+            }
+
+            foreach (var target in selectedTargets)
             {
                 var url = target["url"]?.Value<string>() ?? string.Empty;
                 var wsUrl = target["webSocketDebuggerUrl"]?.Value<string>();
                 if (string.IsNullOrWhiteSpace(wsUrl))
+                {
                     continue;
+                }
 
                 var json = EvaluateOnPage(wsUrl, expression);
                 if (string.IsNullOrWhiteSpace(json))
@@ -2260,6 +2290,24 @@ namespace BotMain
 
         private static string EvaluateOnPage(string webSocketDebuggerUrl, string expression)
         {
+            var response = SendCdpCommand(
+                webSocketDebuggerUrl,
+                "Runtime.evaluate",
+                new JObject
+                {
+                    ["expression"] = expression,
+                    ["returnByValue"] = true,
+                    ["awaitPromise"] = true
+                });
+
+            return response?["result"]?["result"]?["value"]?.Value<string>();
+        }
+
+        private static JObject SendCdpCommand(string webSocketDebuggerUrl, string method, JObject parameters)
+        {
+            if (string.IsNullOrWhiteSpace(webSocketDebuggerUrl) || string.IsNullOrWhiteSpace(method))
+                return null;
+
             using (var socket = new ClientWebSocket())
             using (var cts = new CancellationTokenSource(TimeSpan.FromSeconds(4)))
             {
@@ -2270,14 +2318,10 @@ namespace BotMain
                     var request = new JObject
                     {
                         ["id"] = 1,
-                        ["method"] = "Runtime.evaluate",
-                        ["params"] = new JObject
-                        {
-                            ["expression"] = expression,
-                            ["returnByValue"] = true,
-                            ["awaitPromise"] = true
-                        }
+                        ["method"] = method
                     };
+                    if (parameters != null)
+                        request["params"] = parameters;
 
                     var bytes = Encoding.UTF8.GetBytes(request.ToString(Formatting.None));
                     socket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cts.Token)
@@ -2304,7 +2348,7 @@ namespace BotMain
                             if (response["id"]?.Value<int>() != 1)
                                 continue;
 
-                            return response["result"]?["result"]?["value"]?.Value<string>();
+                            return response;
                         }
                     }
                 }
@@ -2313,6 +2357,79 @@ namespace BotMain
                     return null;
                 }
             }
+        }
+
+        private static bool TryGetSidFromCdpCookies(
+            string webSocketDebuggerUrl,
+            string targetUrl,
+            out string sid,
+            out string detail)
+        {
+            sid = string.Empty;
+            detail = string.Empty;
+
+            var response = SendCdpCommand(
+                webSocketDebuggerUrl,
+                "Network.getCookies",
+                new JObject
+                {
+                    ["urls"] = new JArray(BuildCookieUrls(targetUrl))
+                });
+
+            if (response == null)
+            {
+                detail = "cookie_cdp_empty";
+                return false;
+            }
+
+            if (TryExtractCookieValue(response, "ls_session_id", out sid))
+            {
+                detail = "cookie_ls_session_id";
+                return true;
+            }
+
+            detail = "cookie_sid_missing";
+            return false;
+        }
+
+        private static IEnumerable<string> BuildCookieUrls(string targetUrl)
+        {
+            if (!string.IsNullOrWhiteSpace(targetUrl)
+                && Uri.TryCreate(targetUrl, UriKind.Absolute, out var targetUri)
+                && (string.Equals(targetUri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(targetUri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase)))
+            {
+                yield return targetUri.GetLeftPart(UriPartial.Authority);
+                yield return targetUrl;
+            }
+
+            yield return "https://hs-web-embed.lushi.163.com";
+            yield return "https://hs-web-cef.lushi.163.com";
+            yield return "https://hs-web.lushi.163.com";
+            yield return "https://hs-api.lushi.163.com";
+        }
+
+        private static bool TryExtractCookieValue(JObject response, string name, out string value)
+        {
+            value = string.Empty;
+            if (response == null || string.IsNullOrWhiteSpace(name))
+                return false;
+
+            var cookies = response["result"]?["cookies"] as JArray
+                ?? response["cookies"] as JArray;
+            if (cookies == null)
+                return false;
+
+            foreach (var cookie in cookies.OfType<JObject>())
+            {
+                if (!string.Equals(cookie.Value<string>("name"), name, StringComparison.Ordinal))
+                    continue;
+
+                value = cookie.Value<string>("value") ?? string.Empty;
+                return !string.IsNullOrWhiteSpace(value);
+            }
+
+            return false;
         }
 
         private static string BuildInvokeScript(string method)
