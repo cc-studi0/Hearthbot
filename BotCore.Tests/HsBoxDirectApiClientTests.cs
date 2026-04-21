@@ -64,6 +64,47 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void Post_WhenApiReturnsBooleanStatusError_ReportsApiErrorWithoutEnvelopeParse()
+        {
+            var handler = new RecordingHandler(
+                new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent(
+                        "{\"status\":false,\"msg\":\"key null\",\"ret\":-1}",
+                        System.Text.Encoding.UTF8,
+                        "application/json")
+                });
+            var client = new HsBoxDirectApiClient(new HttpClient(handler));
+
+            var result = client.Post(
+                new HsBoxDirectApiRequest(
+                    HsBoxDirectApiKind.StandardSubstep,
+                    JObject.Parse("{\"turns\":[{\"turn\":1}]}"),
+                    "unit_test"));
+
+            Assert.False(result.Success);
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+            Assert.Contains("api_error:key null", result.Detail);
+            Assert.DoesNotContain("parse_failed", result.Detail);
+            Assert.DoesNotContain("envelope_parse", result.Detail);
+        }
+
+        [Fact]
+        public void TryBuildRecommendationState_NormalizesBooleanEnvelopeStatus()
+        {
+            var ok = HsBoxDirectApiClient.TryBuildRecommendationState(
+                HsBoxDirectApiKind.StandardSubstep,
+                JObject.Parse("{\"status\":true,\"error\":\"\",\"data\":[{\"actionName\":\"end_turn\"}]}"),
+                "{\"status\":true}",
+                out var state,
+                out var detail);
+
+            Assert.True(ok, detail);
+            Assert.Equal(1, state.Envelope.Status);
+            Assert.Equal("end_turn", Assert.Single(state.Envelope.Data).ActionName);
+        }
+
+        [Fact]
         public void DirectPrimaryFallsBackToCefBridge_WhenPayloadIsUnavailable()
         {
             var fallbackState = new HsBoxRecommendationState
@@ -176,6 +217,8 @@ namespace BotCore.Tests
             Assert.Equal(2, turn.Value<int>("cardsPlayedThisTurn"));
             Assert.Equal("CORE_CS2_231", turn["hand"]?[0]?.Value<string>("cardId"));
             Assert.Equal(11, turn["hand"]?[0]?.Value<int>("entityId"));
+            Assert.Null(turn["hand"]?[0]?["zone_position"]);
+            Assert.Equal(1, turn["hand"]?[0]?.Value<int>("ZONE_POSITION"));
             Assert.Equal("CORE_CS2_231", turn["friendlyBoard"]?[0]?.Value<string>("cardId"));
             Assert.Equal("AT_037", turn["enemyBoard"]?[0]?.Value<string>("cardId"));
             Assert.Equal("EX1_164", turn["remainingDeck"]?[0]?.Value<string>("cardId"));

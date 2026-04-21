@@ -273,7 +273,6 @@ namespace BotMain
                 ["zoneName"] = zoneName,
                 ["zone_name"] = zoneName,
                 ["zonePosition"] = position,
-                ["zone_position"] = position,
                 ["ZONE_POSITION"] = position,
                 ["isFriend"] = card.IsFriend,
                 ["isGenerated"] = card.IsGenerated,
@@ -476,7 +475,9 @@ namespace BotMain
 
                 if (!TryBuildRecommendationState(request.Kind, result.ResponseJson, result.ResponseText, out var state, out var parseDetail))
                 {
-                    result.Detail = "parse_failed:" + parseDetail;
+                    result.Detail = parseDetail.StartsWith("api_error:", StringComparison.Ordinal)
+                        ? parseDetail
+                        : "parse_failed:" + parseDetail;
                     HsBoxDirectApiDiagnostics.TrySave(request, result);
                     return result;
                 }
@@ -523,9 +524,13 @@ namespace BotMain
             var envelopeToken = SelectEnvelopeToken(responseJson);
             if (envelopeToken == null)
             {
-                detail = "envelope_missing";
+                detail = TryDescribeApiError(responseJson, out var apiError)
+                    ? apiError
+                    : "envelope_missing";
                 return false;
             }
+
+            envelopeToken = NormalizeEnvelopeToken(envelopeToken);
 
             HsBoxRecommendationEnvelope envelope;
             try
@@ -588,14 +593,60 @@ namespace BotMain
             return null;
         }
 
+        private static JToken NormalizeEnvelopeToken(JToken token)
+        {
+            if (token is not JObject obj)
+                return token;
+
+            var status = obj["status"];
+            if (status == null || status.Type != JTokenType.Boolean)
+                return token;
+
+            var clone = (JObject)obj.DeepClone();
+            clone["status"] = status.Value<bool>() ? 1 : 0;
+            return clone;
+        }
+
         private static bool LooksLikeRecommendationEnvelope(JToken token)
         {
             if (token is not JObject obj)
                 return false;
 
             return obj["data"] is JArray
-                || obj["status"] != null
                 || obj["error"] != null;
+        }
+
+        private static bool TryDescribeApiError(JToken responseJson, out string detail)
+        {
+            detail = string.Empty;
+
+            if (responseJson is not JObject obj)
+                return false;
+
+            var msg = obj.Value<string>("msg")
+                ?? obj.Value<string>("message")
+                ?? obj.Value<string>("error")
+                ?? string.Empty;
+            var ret = obj["ret"]?.ToString(Formatting.None) ?? string.Empty;
+            var status = obj["status"]?.ToString(Formatting.None) ?? string.Empty;
+
+            if (string.IsNullOrWhiteSpace(msg)
+                && string.IsNullOrWhiteSpace(ret)
+                && string.IsNullOrWhiteSpace(status))
+            {
+                return false;
+            }
+
+            var parts = new List<string>();
+            if (!string.IsNullOrWhiteSpace(msg))
+                parts.Add(msg);
+            if (!string.IsNullOrWhiteSpace(ret))
+                parts.Add("ret=" + ret);
+            if (!string.IsNullOrWhiteSpace(status))
+                parts.Add("status=" + status);
+
+            detail = "api_error:" + string.Join(",", parts);
+            return true;
         }
 
         private static string SanitizeDetail(string value)
