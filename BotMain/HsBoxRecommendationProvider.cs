@@ -56,11 +56,15 @@ namespace BotMain
         private readonly IHsBoxBattlegroundsBridge _bgBridge;
         private readonly int _actionWaitTimeoutMs;
         private readonly int _actionPollIntervalMs;
+        private readonly object _directApiBackoffSync = new object();
         private IHsBoxDirectApiClient _directApiClient;
         private IHsBoxDirectApiPayloadProvider _directPayloadProvider;
         private HsBoxDirectApiMode _directApiMode = HsBoxDirectApiMode.CefCallback;
         private Action<string> _directLog;
         private DateTime _nextPrimeAllowedUtc = DateTime.MinValue;
+        private DateTime _constructedDirectApiBackoffUntilUtc = DateTime.MinValue;
+        private string _constructedDirectApiBackoffReason = string.Empty;
+        private const int DirectApiKeyNullBackoffSeconds = 60;
 
         public void SetBgLog(Action<string> log)
         {
@@ -163,6 +167,12 @@ namespace BotMain
         {
             result = null;
 
+            if (IsConstructedDirectApiBackoffActive(out var backoffDetail))
+            {
+                detail = "direct_backoff:" + backoffDetail;
+                return false;
+            }
+
             if (_directPayloadProvider == null)
             {
                 detail = "payload_provider_missing";
@@ -186,9 +196,19 @@ namespace BotMain
             if (!response.Success || response.State == null)
             {
                 detail = "api_failed:" + response.Detail;
-                LogDirect("[DirectApi] 构筑接口失败: " + response.Detail);
+                if (IsDirectApiKeyNullError(response.Detail))
+                {
+                    ArmConstructedDirectApiBackoff(response.Detail);
+                    LogDirect($"[DirectApi] 构筑接口缺少 key，暂停直连 {DirectApiKeyNullBackoffSeconds}s: {response.Detail}");
+                }
+                else
+                {
+                    LogDirect("[DirectApi] 构筑接口失败: " + response.Detail);
+                }
                 return false;
             }
+
+            ClearConstructedDirectApiBackoff();
 
             if (TryGetStructuredActions(response.State, request, out var actions, out var structuredDetail, out _)
                 || TryGetBodyActions(response.State, request, out actions, out structuredDetail))
@@ -206,6 +226,55 @@ namespace BotMain
             detail = "map_failed:" + structuredDetail;
             LogDirect("[DirectApi] 构筑响应映射失败: " + detail);
             return false;
+        }
+
+        private bool IsConstructedDirectApiBackoffActive(out string detail)
+        {
+            lock (_directApiBackoffSync)
+            {
+                var now = DateTime.UtcNow;
+                if (_constructedDirectApiBackoffUntilUtc <= now)
+                {
+                    detail = string.Empty;
+                    return false;
+                }
+
+                var remaining = Math.Ceiling((_constructedDirectApiBackoffUntilUtc - now).TotalSeconds);
+                detail = $"remaining={remaining:F0}s; reason={_constructedDirectApiBackoffReason}";
+                return true;
+            }
+        }
+
+        private void ArmConstructedDirectApiBackoff(string reason)
+        {
+            lock (_directApiBackoffSync)
+            {
+                _constructedDirectApiBackoffUntilUtc = DateTime.UtcNow.AddSeconds(DirectApiKeyNullBackoffSeconds);
+                _constructedDirectApiBackoffReason = SanitizeDirectBackoffReason(reason);
+            }
+        }
+
+        private void ClearConstructedDirectApiBackoff()
+        {
+            lock (_directApiBackoffSync)
+            {
+                _constructedDirectApiBackoffUntilUtc = DateTime.MinValue;
+                _constructedDirectApiBackoffReason = string.Empty;
+            }
+        }
+
+        private static bool IsDirectApiKeyNullError(string detail)
+        {
+            return !string.IsNullOrWhiteSpace(detail)
+                && detail.IndexOf("key null", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static string SanitizeDirectBackoffReason(string detail)
+        {
+            if (string.IsNullOrWhiteSpace(detail))
+                return string.Empty;
+
+            return detail.Replace("\r", " ").Replace("\n", " ").Replace(";", ",");
         }
 
         private bool TryRecommendBattlegroundsActionFromDirectApi(

@@ -138,6 +138,42 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void DirectPrimaryBacksOffTemporarily_AfterKeyNullApiError()
+        {
+            var fallbackState = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 1234,
+                SourceCallback = "unit_fallback",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Status = 2,
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep { ActionName = "end_turn" }
+                    }
+                }
+            };
+            var client = new KeyNullDirectApiClient();
+            var provider = new HsBoxGameRecommendationProvider(
+                new FakeBridge(fallbackState),
+                actionWaitTimeoutMs: 20,
+                actionPollIntervalMs: 1);
+
+            provider.SetDirectApiMode(HsBoxDirectApiMode.DirectApiPrimaryWithCefFallback);
+            provider.SetDirectApiPayloadProvider(new StaticDirectPayloadProvider());
+            provider.SetDirectApiClient(client);
+
+            var first = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+            var second = provider.RecommendActions(new ActionRecommendationRequest("seed", null, null, null));
+
+            Assert.Equal(new[] { "END_TURN" }, first.Actions);
+            Assert.Equal(new[] { "END_TURN" }, second.Actions);
+            Assert.Equal(1, client.CallCount);
+        }
+
+        [Fact]
         public void DefaultDirectPayloadProvider_DoesNotUseHsBoxNativeCallbackBridge()
         {
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(null));
@@ -295,6 +331,47 @@ namespace BotCore.Tests
                 apiRequest = null;
                 detail = "unit_payload_missing";
                 return false;
+            }
+        }
+
+        private sealed class StaticDirectPayloadProvider : IHsBoxDirectApiPayloadProvider
+        {
+            public bool TryCreateConstructedActionRequest(
+                ActionRecommendationRequest request,
+                out HsBoxDirectApiRequest apiRequest,
+                out string detail)
+            {
+                apiRequest = new HsBoxDirectApiRequest(
+                    HsBoxDirectApiKind.StandardSubstep,
+                    JObject.Parse("{\"turns\":[{\"turn\":1}]}"),
+                    "unit");
+                detail = "unit";
+                return true;
+            }
+
+            public bool TryCreateBattlegroundActionRequest(
+                string bgStateData,
+                out HsBoxDirectApiRequest apiRequest,
+                out string detail)
+            {
+                apiRequest = null;
+                detail = "unused";
+                return false;
+            }
+        }
+
+        private sealed class KeyNullDirectApiClient : IHsBoxDirectApiClient
+        {
+            public int CallCount { get; private set; }
+
+            public HsBoxDirectApiResponse Post(HsBoxDirectApiRequest request)
+            {
+                CallCount++;
+                return new HsBoxDirectApiResponse
+                {
+                    Success = false,
+                    Detail = "api_error:key null,ret=-1,status=false"
+                };
             }
         }
 
