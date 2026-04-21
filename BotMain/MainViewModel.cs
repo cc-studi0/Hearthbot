@@ -619,8 +619,8 @@ namespace BotMain
         public ObservableCollection<string> HsBoxDirectApiModeOptions { get; } = new ObservableCollection<string>
         {
             "CEF Callback",
-            "Direct API Shadow",
-            "Direct API + CEF Fallback"
+            "Direct API Shadow (safe fallback)",
+            "Direct API + CEF Fallback (safe)"
         };
 
         public int HsBoxDirectApiModeIndex

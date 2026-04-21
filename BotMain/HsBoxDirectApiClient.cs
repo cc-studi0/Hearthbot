@@ -71,6 +71,31 @@ namespace BotMain
             out string detail);
     }
 
+    internal sealed class HsBoxDirectDisabledPayloadProvider : IHsBoxDirectApiPayloadProvider
+    {
+        private const string DisabledDetail = "disabled:no_safe_hsbox_request_payload_provider";
+
+        public bool TryCreateConstructedActionRequest(
+            ActionRecommendationRequest request,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            apiRequest = null;
+            detail = DisabledDetail;
+            return false;
+        }
+
+        public bool TryCreateBattlegroundActionRequest(
+            string bgStateData,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            apiRequest = null;
+            detail = DisabledDetail;
+            return false;
+        }
+    }
+
     internal sealed class HsBoxDirectApiClient : IHsBoxDirectApiClient
     {
         private static readonly HttpClient SharedHttp = new HttpClient

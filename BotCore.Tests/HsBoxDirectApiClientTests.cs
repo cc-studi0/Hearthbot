@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using BotMain;
@@ -91,6 +92,20 @@ namespace BotCore.Tests
 
             Assert.Equal(new[] { "END_TURN" }, result.Actions);
             Assert.Contains("hsbox", result.Detail, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void DefaultDirectPayloadProvider_DoesNotUseHsBoxNativeCallbackBridge()
+        {
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(null));
+            var field = typeof(HsBoxGameRecommendationProvider).GetField(
+                "_directPayloadProvider",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            Assert.NotNull(field);
+            var payloadProvider = field.GetValue(provider);
+
+            Assert.Equal("HsBoxDirectDisabledPayloadProvider", payloadProvider?.GetType().Name);
         }
 
         private sealed class RecordingHandler : HttpMessageHandler

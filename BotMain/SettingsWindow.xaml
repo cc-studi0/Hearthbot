@@ -28,7 +28,7 @@
                                   ItemsSource="{Binding HsBoxDirectApiModeOptions}"
                                   SelectedIndex="{Binding HsBoxDirectApiModeIndex}"
                                   FontSize="11"
-                                  ToolTip="实验功能：直接请求盒子推荐接口；默认仍使用 CEF 回调"/>
+                                  ToolTip="实验功能：当前不会接管盒子 native 通道；请求体不可用时自动回退 CEF"/>
                     </StackPanel>
                 </StackPanel>
             </GroupBox>
