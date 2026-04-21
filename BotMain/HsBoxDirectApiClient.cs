@@ -607,6 +607,16 @@ namespace BotMain
         private static JObject BuildState(ActionRecommendationRequest request, JObject battleInfo)
         {
             var board = request.PlanningBoard;
+            var reservedEntityIds = new HashSet<int> { 1, 2, 3 };
+            var myHero = BuildSingleCardEntity(board.HeroFriend, "PLAY", 1, GetClassName(board.FriendClass), "HERO", 0, reservedEntityIds);
+            var oppHero = BuildSingleCardEntity(board.HeroEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "HERO", 0, reservedEntityIds);
+            var myHeroPower = BuildSingleCardEntity(board.Ability, "PLAY", 1, GetClassName(board.FriendClass), "HERO_POWER", 0, reservedEntityIds);
+            var oppHeroPower = BuildSingleCardEntity(board.EnemyAbility, "PLAY", 2, GetClassName(board.EnemyClass), "HERO_POWER", 0, reservedEntityIds);
+            var myLineup = BuildCardEntities(board.MinionFriend, "PLAY", 1, GetClassName(board.FriendClass), "MINION", reservedEntityIds);
+            var oppLineup = BuildCardEntities(board.MinionEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "MINION", reservedEntityIds);
+            var myHands = BuildCardEntities(board.Hand, "HAND", 1, GetClassName(board.FriendClass), "MINION", reservedEntityIds);
+            var emittedEntityIds = CollectEntityIds(myHands, myLineup, oppLineup, myHero, oppHero, myHeroPower, oppHeroPower);
+            var emittedNonHandEntityIds = CollectEntityIds(myLineup, oppLineup, myHero, oppHero, myHeroPower, oppHeroPower);
             var entities = new JObject
             {
                 ["attachments"] = new JArray(),
@@ -616,17 +626,17 @@ namespace BotMain
                 ["my_graveyard"] = new JArray(),
                 ["opp_graveyard"] = new JArray(),
                 ["opp_hands"] = new JArray(),
-                ["my_hands"] = BuildCardEntities(board.Hand, "HAND", 1, GetClassName(board.FriendClass), "MINION"),
-                ["my_lineup"] = BuildCardEntities(board.MinionFriend, "PLAY", 1, GetClassName(board.FriendClass), "MINION"),
-                ["opp_lineup"] = BuildCardEntities(board.MinionEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "MINION"),
-                ["my_hero"] = BuildSingleCardEntity(board.HeroFriend, "PLAY", 1, GetClassName(board.FriendClass), "HERO", 0),
-                ["opp_hero"] = BuildSingleCardEntity(board.HeroEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "HERO", 0),
-                ["my_hero_power"] = BuildSingleCardEntity(board.Ability, "PLAY", 1, GetClassName(board.FriendClass), "HERO_POWER", 0),
-                ["opp_hero_power"] = BuildSingleCardEntity(board.EnemyAbility, "PLAY", 2, GetClassName(board.EnemyClass), "HERO_POWER", 0),
+                ["my_hands"] = myHands,
+                ["my_lineup"] = myLineup,
+                ["opp_lineup"] = oppLineup,
+                ["my_hero"] = myHero,
+                ["opp_hero"] = oppHero,
+                ["my_hero_power"] = myHeroPower,
+                ["opp_hero_power"] = oppHeroPower,
                 ["my_player"] = new JArray(BuildPlayerEntity(board, true)),
                 ["opp_player"] = new JArray(BuildPlayerEntity(board, false))
             };
-            var options = BuildOptions(board);
+            var options = BuildOptions(board, emittedEntityIds, emittedNonHandEntityIds);
 
             return new JObject
             {
@@ -710,10 +720,11 @@ namespace BotMain
             int controller,
             string className,
             string cardType,
-            int fallbackPosition)
+            int fallbackPosition,
+            HashSet<int> reservedEntityIds = null)
         {
             var array = new JArray();
-            if (card != null)
+            if (card != null && TryReserveEntityId(card, reservedEntityIds))
                 array.Add(BuildCardEntity(card, zone, controller, className, cardType, fallbackPosition));
             return array;
         }
@@ -723,7 +734,8 @@ namespace BotMain
             string zone,
             int controller,
             string className,
-            string fallbackType)
+            string fallbackType,
+            HashSet<int> reservedEntityIds = null)
         {
             var array = new JArray();
             if (cards == null)
@@ -741,9 +753,46 @@ namespace BotMain
                 .ThenBy(item => item.OriginalIndex);
 
             foreach (var item in indexed)
+            {
+                if (!TryReserveEntityId(item.Card, reservedEntityIds))
+                    continue;
                 array.Add(BuildCardEntity(item.Card, zone, controller, className, fallbackType, item.Position));
+            }
 
             return array;
+        }
+
+        private static bool TryReserveEntityId(Card card, HashSet<int> reservedEntityIds)
+        {
+            if (card == null)
+                return false;
+            if (reservedEntityIds == null)
+                return true;
+
+            var entityId = card.Id;
+            return entityId > 0 && reservedEntityIds.Add(entityId);
+        }
+
+        private static HashSet<int> CollectEntityIds(params JArray[] groups)
+        {
+            var ids = new HashSet<int>();
+            if (groups == null)
+                return ids;
+
+            foreach (var group in groups)
+            {
+                if (group == null)
+                    continue;
+
+                foreach (var entity in group.OfType<JObject>())
+                {
+                    var entityId = entity.Value<int>("ENTITY_ID");
+                    if (entityId > 0)
+                        ids.Add(entityId);
+                }
+            }
+
+            return ids;
         }
 
         private static JObject BuildCardEntity(
@@ -809,7 +858,10 @@ namespace BotMain
             return entity;
         }
 
-        private static JArray BuildOptions(Board board)
+        private static JArray BuildOptions(
+            Board board,
+            ISet<int> emittedEntityIds,
+            ISet<int> emittedNonHandEntityIds)
         {
             var options = new JArray
             {
@@ -821,15 +873,16 @@ namespace BotMain
                 }
             };
             var nextId = 1;
+            var usedOptionEntityIds = new HashSet<int>();
 
-            AddPowerOptions(options, board.Hand, 1, ref nextId, card => GetHandPowerError(card, board));
-            AddPowerOption(options, board.Ability, 1, ref nextId, card => GetHeroPowerError(card, board.ManaAvailable));
-            AddPowerOptions(options, board.MinionFriend, 1, ref nextId, GetBoardPowerError);
-            AddPowerOption(options, board.HeroFriend, 1, ref nextId, GetBoardPowerError);
+            AddPowerOptions(options, board.Hand, 1, ref nextId, card => GetHandPowerError(card, board), emittedEntityIds, usedOptionEntityIds, emittedNonHandEntityIds);
+            AddPowerOption(options, board.Ability, 1, ref nextId, card => GetHeroPowerError(card, board.ManaAvailable), emittedEntityIds, usedOptionEntityIds);
+            AddPowerOptions(options, board.MinionFriend, 1, ref nextId, GetBoardPowerError, emittedEntityIds, usedOptionEntityIds);
+            AddPowerOption(options, board.HeroFriend, 1, ref nextId, GetBoardPowerError, emittedEntityIds, usedOptionEntityIds);
 
-            AddPowerOption(options, board.HeroEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN");
-            AddPowerOption(options, board.EnemyAbility, 2, ref nextId, _ => "REQ_YOUR_TURN");
-            AddPowerOptions(options, board.MinionEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN");
+            AddPowerOption(options, board.HeroEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN", emittedEntityIds, usedOptionEntityIds);
+            AddPowerOption(options, board.EnemyAbility, 2, ref nextId, _ => "REQ_YOUR_TURN", emittedEntityIds, usedOptionEntityIds);
+            AddPowerOptions(options, board.MinionEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN", emittedEntityIds, usedOptionEntityIds);
 
             return options;
         }
@@ -839,13 +892,16 @@ namespace BotMain
             IEnumerable<Card> cards,
             int playerId,
             ref int nextId,
-            Func<Card, string> errorFactory)
+            Func<Card, string> errorFactory,
+            ISet<int> allowedEntityIds,
+            HashSet<int> usedOptionEntityIds,
+            ISet<int> excludedEntityIds = null)
         {
             if (cards == null)
                 return;
 
             foreach (var card in cards.Where(card => card != null))
-                AddPowerOption(options, card, playerId, ref nextId, errorFactory);
+                AddPowerOption(options, card, playerId, ref nextId, errorFactory, allowedEntityIds, usedOptionEntityIds, excludedEntityIds);
         }
 
         private static void AddPowerOption(
@@ -853,9 +909,18 @@ namespace BotMain
             Card card,
             int playerId,
             ref int nextId,
-            Func<Card, string> errorFactory)
+            Func<Card, string> errorFactory,
+            ISet<int> allowedEntityIds,
+            HashSet<int> usedOptionEntityIds,
+            ISet<int> excludedEntityIds = null)
         {
             if (options == null || card == null || card.Id <= 0)
+                return;
+            if (allowedEntityIds != null && !allowedEntityIds.Contains(card.Id))
+                return;
+            if (excludedEntityIds != null && excludedEntityIds.Contains(card.Id))
+                return;
+            if (usedOptionEntityIds != null && !usedOptionEntityIds.Add(card.Id))
                 return;
 
             options.Add(new JObject

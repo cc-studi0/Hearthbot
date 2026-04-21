@@ -365,6 +365,68 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void HsAngPayloadBuilder_DropsStaleHandEntity_WhenSameEntityIsAlreadyOnBoard()
+        {
+            var staleHandCard = CreateCard(56, Card.Cards.CORE_CS2_231, "手牌旧实体", "Stale Hand Entity");
+            staleHandCard.CurrentCost = 99;
+            var boardCard = CreateCard(56, Card.Cards.CORE_CS2_231, "场上实体", "Board Entity");
+
+            var board = new Board
+            {
+                TurnCount = 9,
+                ManaAvailable = 10,
+                MaxMana = 10,
+                EnemyMaxMana = 10,
+                HeroFriend = CreateCard(64, Card.Cards.HERO_03, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(66, Card.Cards.HERO_05, "敌方英雄", "Enemy Hero"),
+                Hand = new List<Card>
+                {
+                    staleHandCard,
+                    CreateCard(41, Card.Cards.AT_037, "正常手牌", "Normal Hand")
+                },
+                MinionFriend = new List<Card>
+                {
+                    boardCard
+                }
+            };
+            var request = new ActionRecommendationRequest(
+                "seed-A",
+                board,
+                null,
+                new[] { Card.Cards.CORE_CS2_231, Card.Cards.AT_037 });
+            var boxParams = JObject.Parse("{\"sid\":\"SID-1\",\"client_uuid\":\"CLIENT-1\",\"version\":\"4.0.4.314\"}");
+
+            var ok = HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
+                request,
+                new JObject(),
+                boxParams,
+                out var payload,
+                out var detail);
+
+            Assert.True(ok, detail);
+            var entities = Assert.IsType<JObject>(payload.SelectToken("$.data.turns[0].processes[0].state.entities"));
+            var entityRows = entities.Properties()
+                .SelectMany(prop => prop.Value.OfType<JObject>().Select(entity => new
+                {
+                    Group = prop.Name,
+                    EntityId = entity.Value<int>("ENTITY_ID")
+                }))
+                .Where(row => row.EntityId > 0)
+                .ToArray();
+
+            Assert.Single(entityRows, row => row.EntityId == 56);
+            Assert.DoesNotContain(
+                entities["my_hands"].OfType<JObject>(),
+                entity => entity.Value<int>("ENTITY_ID") == 56);
+            Assert.Contains(
+                entities["my_lineup"].OfType<JObject>(),
+                entity => entity.Value<int>("ENTITY_ID") == 56);
+
+            var options = Assert.IsType<JArray>(payload.SelectToken("$.data.turns[0].processes[0].state.options"));
+            Assert.Single(options.OfType<JObject>(), option => option.Value<int?>("entity_id") == 56);
+        }
+
+        [Fact]
         public void HsAngPayloadBuilder_BuildsCardGroupFromVisibleFriendlyCards_WhenDeckListsAreEmpty()
         {
             var board = new Board
