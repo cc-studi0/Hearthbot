@@ -97,7 +97,7 @@ namespace BotMain
             _actionWaitTimeoutMs = actionWaitTimeoutMs;
             _actionPollIntervalMs = actionPollIntervalMs;
             _directApiClient = new HsBoxDirectApiClient();
-            _directPayloadProvider = new HsBoxDirectNativePayloadProvider();
+            _directPayloadProvider = new HsBoxDirectHsAngPayloadProvider();
         }
 
         public void SetDirectApiMode(HsBoxDirectApiMode mode)

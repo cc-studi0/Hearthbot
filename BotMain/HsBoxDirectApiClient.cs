@@ -393,6 +393,717 @@ namespace BotMain
         }
     }
 
+    internal sealed class HsBoxDirectHsAngPayloadProvider : IHsBoxDirectApiPayloadProvider
+    {
+        private const string Source = "hsang_board_state";
+
+        private readonly HsBoxNativeBridgeClient _nativeBridge;
+        private readonly HsBoxDirectNativePayloadProvider _nativeFallbackProvider;
+
+        public HsBoxDirectHsAngPayloadProvider()
+            : this(new HsBoxNativeBridgeClient())
+        {
+        }
+
+        internal HsBoxDirectHsAngPayloadProvider(HsBoxNativeBridgeClient nativeBridge)
+        {
+            _nativeBridge = nativeBridge ?? throw new ArgumentNullException(nameof(nativeBridge));
+            _nativeFallbackProvider = new HsBoxDirectNativePayloadProvider(_nativeBridge);
+        }
+
+        public bool TryCreateConstructedActionRequest(
+            ActionRecommendationRequest request,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            apiRequest = null;
+
+            if (request == null)
+            {
+                detail = "request_null";
+                return false;
+            }
+
+            if (request.PlanningBoard == null)
+            {
+                detail = "planning_board_null";
+                return false;
+            }
+
+            if (!_nativeBridge.TryGetCurrentBattleInfo(out var battleInfoToken, out var battleDetail))
+            {
+                detail = "battle_info_unavailable:" + battleDetail;
+                return false;
+            }
+
+            if (battleInfoToken is not JObject battleInfo)
+            {
+                detail = "battle_info_not_object";
+                return false;
+            }
+
+            var boxParams = BuildBoxParams(out var boxDetail);
+            if (!HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
+                    request,
+                    battleInfo,
+                    boxParams,
+                    out var payload,
+                    out var buildDetail))
+            {
+                detail = buildDetail + "; battle=" + battleDetail + "; box=" + boxDetail;
+                return false;
+            }
+
+            apiRequest = new HsBoxDirectApiRequest(HsBoxDirectApiKind.StandardSubstep, payload, Source);
+            detail = Source + "; battle=" + battleDetail + "; box=" + boxDetail;
+            return true;
+        }
+
+        public bool TryCreateBattlegroundActionRequest(
+            string bgStateData,
+            out HsBoxDirectApiRequest apiRequest,
+            out string detail)
+        {
+            return _nativeFallbackProvider.TryCreateBattlegroundActionRequest(bgStateData, out apiRequest, out detail);
+        }
+
+        private JObject BuildBoxParams(out string detail)
+        {
+            var payload = new JObject();
+            var parts = new List<string>();
+
+            if (!TryAddString(payload, "sid", "getSid", parts))
+            {
+                detail = string.Join(",", parts);
+                return payload;
+            }
+
+            TryAddString(payload, "client_uuid", "get_info_token", parts);
+            TryAddString(payload, "version", "get_version", parts);
+
+            detail = parts.Count > 0 ? string.Join(",", parts) : "box_params_empty";
+            return payload;
+        }
+
+        private bool TryAddString(JObject payload, string propertyName, string nativeMethod, List<string> parts)
+        {
+            if (!_nativeBridge.TryInvoke(nativeMethod, out var reply, out var nativeDetail))
+            {
+                parts.Add(nativeMethod + "=" + nativeDetail);
+                return false;
+            }
+
+            var value = HsBoxNativeBridgeClient.ExtractDataString(reply);
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                parts.Add(nativeMethod + "=empty");
+                return false;
+            }
+
+            payload[propertyName] = value;
+            parts.Add(nativeMethod + "=ok");
+            return true;
+        }
+    }
+
+    internal static class HsBoxDirectHsAngPayloadBuilder
+    {
+        private const string DefaultVersion = "4.0.4.314";
+
+        public static bool TryBuildConstructedPayload(
+            ActionRecommendationRequest request,
+            JObject battleInfo,
+            JObject boxParams,
+            out JObject payload,
+            out string detail)
+        {
+            payload = null;
+
+            if (request == null)
+            {
+                detail = "request_null";
+                return false;
+            }
+
+            var board = request.PlanningBoard;
+            if (board == null)
+            {
+                detail = "planning_board_null";
+                return false;
+            }
+
+            battleInfo ??= new JObject();
+            boxParams ??= new JObject();
+
+            var cardGroup = BuildCardGroup(request.DeckCards);
+            if (string.IsNullOrWhiteSpace(cardGroup))
+                cardGroup = BuildCardGroup(request.RemainingDeckCards);
+            if (string.IsNullOrWhiteSpace(cardGroup))
+            {
+                detail = "cardgroup_empty";
+                return false;
+            }
+
+            var sid = ReadString(boxParams, "sid", "ls_session_id")
+                ?? ReadString(battleInfo, "sid", "ls_session_id");
+            if (string.IsNullOrWhiteSpace(sid))
+            {
+                detail = "sid_missing";
+                return false;
+            }
+
+            var btag = ReadString(battleInfo, "mybtag", "btag")
+                ?? ReadString(boxParams, "btag")
+                ?? "hearthbot";
+            var uuid = ReadString(battleInfo, "uuid")
+                ?? ReadString(boxParams, "uuid")
+                ?? BuildRequestId(request);
+            var clientUuid = ReadString(boxParams, "client_uuid", "info_token", "deviceid", "device_id", "uuid")
+                ?? uuid;
+            var version = ReadString(boxParams, "version", "recommend_version")
+                ?? ReadString(battleInfo, "version", "recommend_version")
+                ?? DefaultVersion;
+            var rank = ReadString(boxParams, "rank", "ladder_rank")
+                ?? ReadString(battleInfo, "rank", "ladder_rank");
+
+            var state = BuildState(request, battleInfo);
+            payload = new JObject
+            {
+                ["btag"] = btag,
+                ["data"] = new JObject
+                {
+                    ["extra_infos"] = new JObject
+                    {
+                        ["cardgroup"] = cardGroup
+                    },
+                    ["turns"] = new JArray
+                    {
+                        new JObject
+                        {
+                            ["processes"] = new JArray
+                            {
+                                new JObject
+                                {
+                                    ["state"] = state
+                                }
+                            }
+                        }
+                    }
+                },
+                ["type"] = "netreloaded",
+                ["uuid"] = uuid,
+                ["sid"] = sid,
+                ["client_uuid"] = clientUuid,
+                ["version"] = version,
+                ["recommend_version"] = version
+            };
+
+            var deviceId = ReadString(boxParams, "deviceid", "device_id");
+            if (!string.IsNullOrWhiteSpace(deviceId))
+                payload["deviceid"] = deviceId;
+            if (!string.IsNullOrWhiteSpace(rank))
+                payload["rank"] = rank;
+
+            detail = "hsang_payload_ready";
+            return true;
+        }
+
+        private static JObject BuildState(ActionRecommendationRequest request, JObject battleInfo)
+        {
+            var board = request.PlanningBoard;
+            var entities = new JObject
+            {
+                ["attachments"] = new JArray(),
+                ["game"] = new JArray(BuildGameEntity(board, battleInfo)),
+                ["my_deck"] = new JArray(),
+                ["opp_deck"] = new JArray(),
+                ["my_graveyard"] = new JArray(),
+                ["opp_graveyard"] = new JArray(),
+                ["opp_hands"] = new JArray(),
+                ["my_hands"] = BuildCardEntities(board.Hand, "HAND", 1, GetClassName(board.FriendClass), "MINION"),
+                ["my_lineup"] = BuildCardEntities(board.MinionFriend, "PLAY", 1, GetClassName(board.FriendClass), "MINION"),
+                ["opp_lineup"] = BuildCardEntities(board.MinionEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "MINION"),
+                ["my_hero"] = BuildSingleCardEntity(board.HeroFriend, "PLAY", 1, GetClassName(board.FriendClass), "HERO", 0),
+                ["opp_hero"] = BuildSingleCardEntity(board.HeroEnemy, "PLAY", 2, GetClassName(board.EnemyClass), "HERO", 0),
+                ["my_hero_power"] = BuildSingleCardEntity(board.Ability, "PLAY", 1, GetClassName(board.FriendClass), "HERO_POWER", 0),
+                ["opp_hero_power"] = BuildSingleCardEntity(board.EnemyAbility, "PLAY", 2, GetClassName(board.EnemyClass), "HERO_POWER", 0),
+                ["my_player"] = new JArray(BuildPlayerEntity(board, true)),
+                ["opp_player"] = new JArray(BuildPlayerEntity(board, false))
+            };
+            var options = BuildOptions(board);
+
+            return new JObject
+            {
+                ["deck_card_counter"] = new JObject
+                {
+                    ["my_deck"] = new JObject
+                    {
+                        ["pop"] = BuildCardCounter(request.RemainingDeckCards),
+                        ["push"] = new JObject()
+                    },
+                    ["opp_deck"] = new JObject
+                    {
+                        ["pop"] = new JObject(),
+                        ["push"] = new JObject()
+                    }
+                },
+                ["entities"] = entities,
+                ["options"] = options,
+                ["options_id"] = Math.Max(1, board.TurnCount * 10 + options.Count),
+                ["played_cards"] = new JObject
+                {
+                    ["my"] = new JArray(),
+                    ["opp"] = new JArray()
+                }
+            };
+        }
+
+        private static JObject BuildGameEntity(Board board, JObject battleInfo)
+        {
+            return new JObject
+            {
+                ["CARDTYPE"] = "GAME",
+                ["ENTITY_ID"] = 1,
+                ["FormatType"] = ResolveFormatType(battleInfo),
+                ["GAME_TYPE"] = ResolveGameType(battleInfo),
+                ["NEXT_STEP"] = "MAIN_END",
+                ["NUM_MINIONS_KILLED_THIS_TURN"] = 0,
+                ["PROPOSED_ATTACKER"] = 0,
+                ["PROPOSED_DEFENDER"] = 0,
+                ["STATE"] = "RUNNING",
+                ["STEP"] = "MAIN_ACTION",
+                ["TURN"] = Math.Max(0, board.TurnCount),
+                ["ZONE"] = "PLAY"
+            };
+        }
+
+        private static JObject BuildPlayerEntity(Board board, bool friendly)
+        {
+            var hero = friendly ? board.HeroFriend : board.HeroEnemy;
+            var heroPower = friendly ? board.Ability : board.EnemyAbility;
+            var maxMana = Math.Max(0, friendly ? board.MaxMana : board.EnemyMaxMana);
+            var availableMana = friendly ? Math.Max(0, board.ManaAvailable) : 0;
+            var resourcesUsed = friendly ? Math.Max(0, maxMana - availableMana) : 0;
+            var playerId = friendly ? 1 : 2;
+
+            return new JObject
+            {
+                ["CARDTYPE"] = "PLAYER",
+                ["CONTROLLER"] = playerId,
+                ["CURRENT_PLAYER"] = friendly ? 1 : 0,
+                ["ENTITY_ID"] = friendly ? 2 : 3,
+                ["HERO_ENTITY"] = hero?.Id ?? 0,
+                ["HERO_POWER"] = heroPower?.Id ?? 0,
+                ["MAXHANDSIZE"] = 10,
+                ["MAXRESOURCES"] = 10,
+                ["MULLIGAN_STATE"] = "DONE",
+                ["NUM_CARDS_PLAYED_THIS_TURN"] = friendly ? Math.Max(0, board.CardsPlayedThisTurn) : 0,
+                ["PLAYER_ID"] = playerId,
+                ["PLAYSTATE"] = "PLAYING",
+                ["RESOURCES"] = maxMana,
+                ["RESOURCES_USED"] = resourcesUsed,
+                ["TEMP_RESOURCES"] = 0,
+                ["TURN"] = Math.Max(0, board.TurnCount),
+                ["ZONE"] = "PLAY"
+            };
+        }
+
+        private static JArray BuildSingleCardEntity(
+            Card card,
+            string zone,
+            int controller,
+            string className,
+            string cardType,
+            int fallbackPosition)
+        {
+            var array = new JArray();
+            if (card != null)
+                array.Add(BuildCardEntity(card, zone, controller, className, cardType, fallbackPosition));
+            return array;
+        }
+
+        private static JArray BuildCardEntities(
+            IEnumerable<Card> cards,
+            string zone,
+            int controller,
+            string className,
+            string fallbackType)
+        {
+            var array = new JArray();
+            if (cards == null)
+                return array;
+
+            var indexed = cards
+                .Select((card, index) => new
+                {
+                    Card = card,
+                    OriginalIndex = index,
+                    Position = GetZonePosition(card, index + 1)
+                })
+                .Where(item => item.Card != null)
+                .OrderBy(item => item.Position <= 0 ? int.MaxValue : item.Position)
+                .ThenBy(item => item.OriginalIndex);
+
+            foreach (var item in indexed)
+                array.Add(BuildCardEntity(item.Card, zone, controller, className, fallbackType, item.Position));
+
+            return array;
+        }
+
+        private static JObject BuildCardEntity(
+            Card card,
+            string zone,
+            int controller,
+            string className,
+            string fallbackType,
+            int fallbackPosition)
+        {
+            var maxHealth = Math.Max(0, card.MaxHealth);
+            var currentHealth = Math.Max(0, card.CurrentHealth);
+            if (maxHealth <= 0)
+                maxHealth = currentHealth;
+            var damage = Math.Max(0, maxHealth - currentHealth);
+            var position = GetZonePosition(card, fallbackPosition);
+            var cardType = GetCardTypeName(card, fallbackType);
+
+            var entity = new JObject
+            {
+                ["ENTITY_ID"] = Math.Max(0, card.Id),
+                ["_CARD_ID"] = GetCardId(card),
+                ["ZONE"] = zone,
+                ["CONTROLLER"] = controller,
+                ["CARDTYPE"] = cardType,
+                ["CLASS"] = className,
+                ["ATK"] = Math.Max(0, card.CurrentAtk),
+                ["COST"] = Math.Max(0, card.CurrentCost),
+                ["DAMAGE"] = damage,
+                ["EXHAUSTED"] = card.IsTired ? 1 : 0,
+                ["FROZEN"] = card.IsFrozen ? 1 : 0,
+                ["HAS_ACTIVATE_POWER"] = HasActivatePower(card, cardType) ? 1 : 0,
+                ["HEALTH"] = maxHealth,
+                ["NUM_ATTACKS_THIS_TURN"] = Math.Max(0, card.CountAttack),
+                ["NUM_TURNS_IN_PLAY"] = Math.Max(0, card.NumTurnsInPlay),
+                ["PREMIUM"] = 0,
+                ["TAG_LAST_KNOWN_COST_IN_HAND"] = Math.Max(0, card.CurrentCost)
+            };
+
+            if (position > 0)
+                entity["ZONE_POSITION"] = position;
+            if (card.CurrentArmor > 0)
+                entity["ARMOR"] = card.CurrentArmor;
+            if (card.CurrentDurability > 0)
+                entity["DURABILITY"] = card.CurrentDurability;
+
+            AddBoolTag(entity, "TAUNT", card.IsTaunt);
+            AddBoolTag(entity, "CHARGE", card.IsCharge);
+            AddBoolTag(entity, "DIVINE_SHIELD", card.IsDivineShield);
+            AddBoolTag(entity, "WINDFURY", card.IsWindfury);
+            AddBoolTag(entity, "STEALTH", card.IsStealth);
+            AddBoolTag(entity, "ENRAGED", card.IsEnraged);
+            AddBoolTag(entity, "SILENCED", card.IsSilenced);
+            AddBoolTag(entity, "IMMUNE", card.IsImmune);
+            AddBoolTag(entity, "POISONOUS", card.HasPoison);
+            AddBoolTag(entity, "DEATHRATTLE", card.HasDeathRattle);
+            AddBoolTag(entity, "LIFESTEAL", card.IsLifeSteal);
+            AddBoolTag(entity, "RUSH", card.HasRush);
+            AddBoolTag(entity, "REBORN", card.HasReborn);
+            if (card.SpellPower > 0)
+                entity["SPELLPOWER"] = card.SpellPower;
+
+            return entity;
+        }
+
+        private static JArray BuildOptions(Board board)
+        {
+            var options = new JArray
+            {
+                new JObject
+                {
+                    ["error"] = "INVALID",
+                    ["id"] = 0,
+                    ["type"] = "END_TURN"
+                }
+            };
+            var nextId = 1;
+
+            AddPowerOptions(options, board.Hand, 1, ref nextId, card =>
+                card.CurrentCost <= Math.Max(0, board.ManaAvailable) ? "NONE" : "REQ_ENOUGH_MANA");
+            AddPowerOption(options, board.Ability, 1, ref nextId, card => GetHeroPowerError(card, board.ManaAvailable));
+            AddPowerOptions(options, board.MinionFriend, 1, ref nextId, GetBoardPowerError);
+            AddPowerOption(options, board.HeroFriend, 1, ref nextId, GetBoardPowerError);
+
+            AddPowerOption(options, board.HeroEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN");
+            AddPowerOption(options, board.EnemyAbility, 2, ref nextId, _ => "REQ_YOUR_TURN");
+            AddPowerOptions(options, board.MinionEnemy, 2, ref nextId, _ => "REQ_YOUR_TURN");
+
+            return options;
+        }
+
+        private static void AddPowerOptions(
+            JArray options,
+            IEnumerable<Card> cards,
+            int playerId,
+            ref int nextId,
+            Func<Card, string> errorFactory)
+        {
+            if (cards == null)
+                return;
+
+            foreach (var card in cards.Where(card => card != null))
+                AddPowerOption(options, card, playerId, ref nextId, errorFactory);
+        }
+
+        private static void AddPowerOption(
+            JArray options,
+            Card card,
+            int playerId,
+            ref int nextId,
+            Func<Card, string> errorFactory)
+        {
+            if (options == null || card == null || card.Id <= 0)
+                return;
+
+            options.Add(new JObject
+            {
+                ["entity_id"] = card.Id,
+                ["error"] = errorFactory?.Invoke(card) ?? "INVALID",
+                ["id"] = nextId++,
+                ["player_id"] = playerId,
+                ["type"] = "POWER"
+            });
+        }
+
+        private static string GetHeroPowerError(Card card, int manaAvailable)
+        {
+            if (card == null)
+                return "INVALID";
+            if (card.IsTired)
+                return "EXHAUSTED";
+            return card.CurrentCost <= Math.Max(0, manaAvailable) ? "NONE" : "REQ_ENOUGH_MANA";
+        }
+
+        private static string GetBoardPowerError(Card card)
+        {
+            if (card == null)
+                return "INVALID";
+            if (card.Type == Card.CType.LOCATION)
+                return card.IsTired ? "EXHAUSTED" : "NONE";
+            if (card.IsFrozen || card.IsTired)
+                return "EXHAUSTED";
+            if (!card.CanAttack || card.CurrentAtk <= 0)
+                return "REQ_ATTACK_GREATER_THAN_0";
+            return "NONE";
+        }
+
+        private static JObject BuildCardCounter(IEnumerable<Card.Cards> cards)
+        {
+            var counter = new JObject();
+            var counts = CountCards(cards, out var order);
+            foreach (var cardId in order)
+                counter[cardId] = counts[cardId];
+            return counter;
+        }
+
+        private static string BuildCardGroup(IEnumerable<Card.Cards> cards)
+        {
+            var counts = CountCards(cards, out var order);
+            return string.Join(",", order.Select(cardId => cardId + ":" + counts[cardId]));
+        }
+
+        private static Dictionary<string, int> CountCards(IEnumerable<Card.Cards> cards, out List<string> order)
+        {
+            order = new List<string>();
+            var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+            if (cards == null)
+                return counts;
+
+            foreach (var card in cards)
+            {
+                var cardId = NormalizeCardId(card.ToString());
+                if (string.IsNullOrWhiteSpace(cardId))
+                    continue;
+
+                if (!counts.ContainsKey(cardId))
+                {
+                    counts[cardId] = 0;
+                    order.Add(cardId);
+                }
+
+                counts[cardId]++;
+            }
+
+            return counts;
+        }
+
+        private static string ResolveFormatType(JObject battleInfo)
+        {
+            var gameType = (ReadString(battleInfo, "game_type") ?? string.Empty).Trim();
+            var wild = ReadString(battleInfo, "wild");
+            if (string.Equals(gameType, "wild", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(wild, "1", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(wild, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return "FT_WILD";
+            }
+
+            return "FT_STANDARD";
+        }
+
+        private static string ResolveGameType(JObject battleInfo)
+        {
+            var mode = (ReadString(battleInfo, "mode") ?? string.Empty).Trim().ToLowerInvariant();
+            switch (mode)
+            {
+                case "ranked":
+                case "ladder":
+                    return "GT_RANKED";
+                case "casual":
+                    return "GT_CASUAL";
+                case "arena":
+                    return "GT_ARENA";
+                case "friendly":
+                    return "GT_FRIENDLY";
+                case "practice":
+                    return "GT_VS_AI";
+                default:
+                    return "GT_RANKED";
+            }
+        }
+
+        private static int GetZonePosition(Card card, int fallbackPosition)
+        {
+            if (card == null)
+                return fallbackPosition;
+            return card.Index > 0 ? card.Index : Math.Max(0, fallbackPosition);
+        }
+
+        private static string GetCardTypeName(Card card, string fallbackType)
+        {
+            if (!string.IsNullOrWhiteSpace(fallbackType)
+                && (string.Equals(fallbackType, "HERO", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(fallbackType, "HERO_POWER", StringComparison.OrdinalIgnoreCase)))
+            {
+                return fallbackType.ToUpperInvariant();
+            }
+
+            var type = card?.Type.ToString();
+            if (string.IsNullOrWhiteSpace(type)
+                || string.Equals(type, "INVALID", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "NONE", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(type, "0", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.IsNullOrWhiteSpace(fallbackType) ? "MINION" : fallbackType.ToUpperInvariant();
+            }
+
+            return type.ToUpperInvariant();
+        }
+
+        private static bool HasActivatePower(Card card, string cardType)
+        {
+            if (card == null)
+                return false;
+            if (string.Equals(cardType, "HERO", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cardType, "HERO_POWER", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cardType, "LOCATION", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return card.Type == Card.CType.MINION || card.Type == Card.CType.SPELL || card.Type == Card.CType.WEAPON;
+        }
+
+        private static string GetCardId(Card card)
+        {
+            if (card?.Template == null)
+                return string.Empty;
+
+            return NormalizeCardId(card.Template.Id.ToString());
+        }
+
+        private static string NormalizeCardId(string cardId)
+        {
+            if (string.IsNullOrWhiteSpace(cardId)
+                || string.Equals(cardId, "None", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(cardId, "UNKNOWN", StringComparison.OrdinalIgnoreCase))
+            {
+                return string.Empty;
+            }
+
+            return cardId;
+        }
+
+        private static string GetClassName(Card.CClass cardClass)
+        {
+            var text = cardClass.ToString();
+            return string.IsNullOrWhiteSpace(text) ? "NEUTRAL" : text.ToUpperInvariant();
+        }
+
+        private static void AddBoolTag(JObject obj, string name, bool value)
+        {
+            if (value)
+                obj[name] = 1;
+        }
+
+        private static string ReadString(JObject obj, params string[] names)
+        {
+            if (obj == null || names == null)
+                return null;
+
+            foreach (var name in names)
+            {
+                if (!obj.TryGetValue(name, StringComparison.OrdinalIgnoreCase, out var value))
+                    continue;
+
+                var text = TokenToString(value);
+                if (!string.IsNullOrWhiteSpace(text))
+                    return text;
+            }
+
+            return null;
+        }
+
+        private static string TokenToString(JToken token)
+        {
+            if (token == null || token.Type == JTokenType.Null || token.Type == JTokenType.Undefined)
+                return string.Empty;
+
+            return token.Type == JTokenType.String
+                ? token.Value<string>() ?? string.Empty
+                : token.ToString(Formatting.None);
+        }
+
+        private static string BuildRequestId(ActionRecommendationRequest request)
+        {
+            var matchId = request.MatchContext?.MatchId ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(matchId))
+                return "hearthbot_" + SanitizeToken(matchId);
+
+            var basis = string.Join("|",
+                request.Seed ?? string.Empty,
+                request.DeckSignature ?? string.Empty,
+                request.BoardFingerprint ?? string.Empty,
+                request.PlanningBoard?.TurnCount.ToString() ?? string.Empty);
+            var hash = unchecked((uint)basis.GetHashCode()).ToString("X8");
+            return "hearthbot_" + DateTime.UtcNow.ToString("yyyyMMdd") + "_" + hash;
+        }
+
+        private static string SanitizeToken(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return string.Empty;
+
+            var builder = new StringBuilder(value.Length);
+            foreach (var ch in value)
+            {
+                builder.Append(char.IsLetterOrDigit(ch) || ch == '_' || ch == '-'
+                    ? ch
+                    : '_');
+            }
+
+            return builder.ToString();
+        }
+    }
+
     internal static class HsBoxDirectApiProtocol
     {
         private static readonly byte[] Rc4Key =

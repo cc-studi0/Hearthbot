@@ -234,7 +234,7 @@ namespace BotCore.Tests
         }
 
         [Fact]
-        public void DefaultDirectPayloadProvider_UsesNativeBattleInfoForDirectApi()
+        public void DefaultDirectPayloadProvider_UsesHsAngBoardStateForDirectApi()
         {
             var provider = new HsBoxGameRecommendationProvider(new FakeBridge(null));
             var field = typeof(HsBoxGameRecommendationProvider).GetField(
@@ -244,7 +244,74 @@ namespace BotCore.Tests
             Assert.NotNull(field);
             var payloadProvider = field.GetValue(provider);
 
-            Assert.Equal("HsBoxDirectNativePayloadProvider", payloadProvider?.GetType().Name);
+            Assert.Equal("HsBoxDirectHsAngPayloadProvider", payloadProvider?.GetType().Name);
+        }
+
+        [Fact]
+        public void HsAngPayloadBuilder_BuildsPredictShape_FromPlanningBoardAndBattleInfo()
+        {
+            var board = new Board
+            {
+                TurnCount = 5,
+                ManaAvailable = 3,
+                MaxMana = 5,
+                EnemyMaxMana = 4,
+                CardsPlayedThisTurn = 1,
+                HeroFriend = CreateCard(64, Card.Cards.HERO_03, "友方英雄", "Friendly Hero"),
+                HeroEnemy = CreateCard(66, Card.Cards.HERO_05, "敌方英雄", "Enemy Hero"),
+                Ability = CreateCard(65, Card.Cards.HERO_03bp, "英雄技能", "Hero Power"),
+                EnemyAbility = CreateCard(67, Card.Cards.CS2_034_H2, "敌方技能", "Enemy Power"),
+                Hand = new List<Card>
+                {
+                    CreateCard(11, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(12, Card.Cards.AT_037, "测试牌", "Test Card")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(21, Card.Cards.CORE_CS2_231, "友方随从", "Friendly Minion")
+                },
+                MinionEnemy = new List<Card>
+                {
+                    CreateCard(31, Card.Cards.AT_037, "敌方随从", "Enemy Minion")
+                }
+            };
+            var request = new ActionRecommendationRequest(
+                "seed-A",
+                board,
+                null,
+                new[] { Card.Cards.CORE_CS2_231, Card.Cards.CORE_CS2_231, Card.Cards.AT_037 },
+                deckName: "测试卡组",
+                remainingDeckCards: new[] { Card.Cards.CORE_CS2_231 });
+            var battleInfo = JObject.Parse("{\"mybtag\":\"Tester#1234\",\"uuid\":\"battle-uuid\",\"mode\":\"ranked\",\"game_type\":\"standard\"}");
+            var boxParams = JObject.Parse("{\"sid\":\"SID-1\",\"client_uuid\":\"CLIENT-1\",\"version\":\"4.0.4.314\"}");
+
+            var ok = HsBoxDirectHsAngPayloadBuilder.TryBuildConstructedPayload(
+                request,
+                battleInfo,
+                boxParams,
+                out var payload,
+                out var detail);
+
+            Assert.True(ok, detail);
+            Assert.Equal("Tester#1234", payload.Value<string>("btag"));
+            Assert.Equal("battle-uuid", payload.Value<string>("uuid"));
+            Assert.Equal("SID-1", payload.Value<string>("sid"));
+            Assert.Equal("CLIENT-1", payload.Value<string>("client_uuid"));
+            Assert.Equal("CORE_CS2_231:2,AT_037:1", payload["data"]?["extra_infos"]?.Value<string>("cardgroup"));
+
+            var state = Assert.IsType<JObject>(payload["data"]?["turns"]?[0]?["processes"]?[0]?["state"]);
+            Assert.Equal("FT_STANDARD", state["entities"]?["game"]?[0]?.Value<string>("FormatType"));
+            Assert.Equal(11, state["entities"]?["my_hands"]?[0]?.Value<int>("ENTITY_ID"));
+            Assert.Equal("CORE_CS2_231", state["entities"]?["my_hands"]?[0]?.Value<string>("_CARD_ID"));
+            Assert.Equal(1, state["entities"]?["my_hands"]?[0]?.Value<int>("ZONE_POSITION"));
+            Assert.Equal(21, state["entities"]?["my_lineup"]?[0]?.Value<int>("ENTITY_ID"));
+            Assert.Equal(66, state["entities"]?["opp_hero"]?[0]?.Value<int>("ENTITY_ID"));
+            Assert.Contains(
+                state["options"].OfType<JObject>(),
+                option => option.Value<int>("entity_id") == 11 && option.Value<string>("error") == "NONE");
+            Assert.Contains(
+                state["options"].OfType<JObject>(),
+                option => option.Value<string>("type") == "END_TURN");
         }
 
         [Fact]
