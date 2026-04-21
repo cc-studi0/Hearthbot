@@ -9204,62 +9204,7 @@ namespace HearthstonePayload
 
         private static int PickPreferredOptionTarget(IReadOnlyList<int> candidateEntityIds)
         {
-            if (candidateEntityIds == null || candidateEntityIds.Count == 0)
-                return 0;
-
-            var enemyHero = candidateEntityIds.FirstOrDefault(IsEnemyHeroEntityId);
-            if (enemyHero > 0)
-                return enemyHero;
-
-            var bestEntityId = 0;
-            var bestScore = int.MinValue;
-            foreach (var candidateEntityId in candidateEntityIds)
-            {
-                if (candidateEntityId <= 0 || IsFriendlyHeroEntityId(candidateEntityId) || IsEnemyHeroEntityId(candidateEntityId))
-                    continue;
-
-                var score = ReadOptionTargetPriority(candidateEntityId);
-                if (score > bestScore)
-                {
-                    bestScore = score;
-                    bestEntityId = candidateEntityId;
-                }
-            }
-
-            if (bestEntityId > 0)
-                return bestEntityId;
-
-            var friendlyHero = candidateEntityIds.FirstOrDefault(IsFriendlyHeroEntityId);
-            if (friendlyHero > 0)
-                return friendlyHero;
-
-            return candidateEntityIds[0];
-        }
-
-        private static int ReadOptionTargetPriority(int entityId)
-        {
-            if (entityId <= 0)
-                return int.MinValue;
-
-            try
-            {
-                var gs = GetGameState();
-                var entity = GetEntity(gs, entityId);
-                if (entity == null)
-                    return int.MinValue;
-
-                var ctx = ReflectionContext.Instance;
-                if (!ctx.Init())
-                    return int.MinValue;
-
-                var atk = ctx.GetTagValue(entity, "ATK");
-                var health = ctx.GetTagValue(entity, "HEALTH");
-                return atk * 100 + health;
-            }
-            catch
-            {
-                return int.MinValue;
-            }
+            return ChoiceExecutionPolicy.PickImplicitOptionTarget(candidateEntityIds);
         }
 
 

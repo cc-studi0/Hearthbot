@@ -1,9 +1,31 @@
 using System;
+using System.Collections.Generic;
 
 namespace HearthstonePayload
 {
     internal static class ChoiceExecutionPolicy
     {
+        public static int PickImplicitOptionTarget(IReadOnlyList<int> candidateEntityIds)
+        {
+            if (candidateEntityIds == null || candidateEntityIds.Count == 0)
+                return 0;
+
+            var selected = 0;
+            for (var i = 0; i < candidateEntityIds.Count; i++)
+            {
+                var entityId = candidateEntityIds[i];
+                if (entityId <= 0)
+                    continue;
+
+                if (selected > 0 && selected != entityId)
+                    return 0;
+
+                selected = entityId;
+            }
+
+            return selected;
+        }
+
         public static bool IsMouseOnlyChoice(string mode, bool isEntityChoice)
         {
             if (!isEntityChoice)

@@ -42,5 +42,21 @@ namespace BotCore.Tests
 
             Assert.False(result);
         }
+
+        [Fact]
+        public void PickImplicitOptionTarget_ReturnsOnlyCandidate_WhenTargetIsUnambiguous()
+        {
+            var result = ChoiceExecutionPolicy.PickImplicitOptionTarget(new[] { 205 });
+
+            Assert.Equal(205, result);
+        }
+
+        [Fact]
+        public void PickImplicitOptionTarget_DoesNotPreferEnemyHero_WhenTargetsAreAmbiguous()
+        {
+            var result = ChoiceExecutionPolicy.PickImplicitOptionTarget(new[] { 66, 205 });
+
+            Assert.Equal(0, result);
+        }
     }
 }

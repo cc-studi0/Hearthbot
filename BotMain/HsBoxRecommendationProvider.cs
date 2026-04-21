@@ -5772,6 +5772,12 @@ namespace BotMain
             }
 
             var target = ResolveTargetEntityId(board, step);
+            if (!IsLegalPlayTarget(board, source, target, out var targetValidationReason))
+            {
+                reason = targetValidationReason;
+                return false;
+            }
+
             var position = step.Position > 0 ? step.Position : 0;
 
             // 普通模式里只有当 payload 明确标出"手牌 -> 场上"时，
@@ -5792,6 +5798,29 @@ namespace BotMain
             command = $"PLAY|{source}|{target}|{position}|{sourceCardId}";
             reason = NormalizeSuccessfulMappingReason(sourceResolutionDetail);
             return true;
+        }
+
+        private static bool IsLegalPlayTarget(Board board, int sourceEntityId, int targetEntityId, out string reason)
+        {
+            reason = "ok";
+            if (board?.Hand == null || sourceEntityId <= 0 || targetEntityId <= 0)
+                return true;
+
+            var sourceCard = board.Hand.FirstOrDefault(card => card != null && card.Id == sourceEntityId);
+            if (sourceCard?.Targets == null || sourceCard.Targets.Count == 0)
+                return true;
+
+            var legalTargetIds = sourceCard.Targets
+                .Where(card => card != null && card.Id > 0)
+                .Select(card => card.Id)
+                .Distinct()
+                .ToList();
+            if (legalTargetIds.Count == 0 || legalTargetIds.Contains(targetEntityId))
+                return true;
+
+            reason = "play_target_not_legal_for_source:"
+                + $"source={sourceEntityId},target={targetEntityId},legal={string.Join(",", legalTargetIds)}";
+            return false;
         }
 
         private static bool TryMapTradeAction(

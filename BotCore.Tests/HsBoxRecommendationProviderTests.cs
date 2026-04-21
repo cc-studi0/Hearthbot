@@ -1452,6 +1452,70 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void ConstructedActionBridge_RejectsPlayTargetOutsideSourceLegalTargets()
+        {
+            var legalHandTarget = CreateCard(202, Card.Cards.CORE_CS2_231, "手牌目标", "Hand Target");
+            var targetedSpell = CreateCard(101, Card.Cards.DREAM_05, "梦魇", "Nightmare");
+            targetedSpell.Type = Card.CType.SPELL;
+            targetedSpell.Targets = new List<Card> { legalHandTarget };
+
+            var board = new Board
+            {
+                HeroEnemy = new Card
+                {
+                    Id = 66,
+                    IsFriend = false
+                },
+                Hand = new List<Card>
+                {
+                    targetedSpell,
+                    legalHandTarget
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 1,
+                UpdatedAtMs = 600,
+                SourceCallback = "direct_api:standard_substep",
+                Reason = "direct_api",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep>
+                    {
+                        new HsBoxActionStep
+                        {
+                            ActionName = "play_special",
+                            CardToken = JToken.FromObject(new
+                            {
+                                cardId = "DREAM_05",
+                                cardName = "梦魇",
+                                ZONE_POSITION = 1
+                            }),
+                            OppTargetHero = new HsBoxCardRef
+                            {
+                                CardId = "HERO_05",
+                                CardName = "敌方英雄"
+                            }
+                        }
+                    }
+                }
+            };
+
+            var ok = ConstructedActionBridge.TryMapActions(
+                state,
+                board,
+                null,
+                out var actions,
+                out var detail);
+
+            Assert.False(ok);
+            Assert.Empty(actions);
+            Assert.Contains("play_target_not_legal_for_source", detail);
+        }
+
+        [Fact]
         public void RecommendActions_MapsExactHsBoxEmbeddedSubOptionEnemyHeroPayload()
         {
             var board = new Board
