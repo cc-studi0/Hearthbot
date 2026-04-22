@@ -45,14 +45,20 @@ publish/
 # ========== Additional local artifacts ==========
 .worktrees/
 worktrees/
+tmp/
 obj_codex/
 *.tmp
 *.temp
+*.stackdump
 __pycache__/
 Scripts/decompiled_sb/
 Scripts/-SkipObfuscation/
 Scripts/effects_data.json
 Scripts/.deploy-creds.xml
+HearthBot.Cloud/*.db
+HearthBot.Cloud/*.db-wal
+HearthBot.Cloud/*.db-shm
+HearthBot.Cloud/*.db-journal
 Data/HsBoxTeacher/*.db
 Data/HsBoxTeacher/*.db-wal
 Data/HsBoxTeacher/*.db-shm
