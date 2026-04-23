@@ -112,6 +112,7 @@ namespace BotMain
         private int _consecutiveIdleTurns;
         private bool _turnHadEffectiveAction;
         private bool _skipNextTurnStartReadyWait;
+        private bool _allowNextConstructedActionPreReadyBypass;
 
         // 延迟监控
         private int _latencyAvg;
@@ -1038,6 +1039,7 @@ namespace BotMain
             _lastConsumedHsBoxActionCommand = string.Empty;
             _lastConsumedBoardFingerprint = string.Empty;
             _lastConsumedHsBoxActionTurnCount = 0;
+            _allowNextConstructedActionPreReadyBypass = false;
             ClearPendingHsBoxActionConfirmation();
         }
 
@@ -1045,6 +1047,7 @@ namespace BotMain
         {
             // 跨回合时保留上一条已消费推荐，避免新回合复用上一回合的旧 payload。
             // 仅清掉等待 advance 确认的临时状态，因为它只对上一个动作有效。
+            _allowNextConstructedActionPreReadyBypass = false;
             ClearPendingHsBoxActionConfirmation();
         }
 
@@ -1170,6 +1173,7 @@ namespace BotMain
                 _pendingHsBoxBoardFingerprint,
                 _pendingHsBoxActionTurnCount);
             _skipNextTurnStartReadyWait = true;
+            _allowNextConstructedActionPreReadyBypass = true;
             Log(
                 $"[Action] hsbox payload advanced before TurnStart: {advance.Reason} updatedAt={advance.LatestUpdatedAtMs}");
             return true;
@@ -2652,7 +2656,7 @@ namespace BotMain
 
                             var preReadyOutcome = isOption
                                 ? InteractionReadinessPollOutcome.Ready("option_chain")
-                                : WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
+                                : WaitForConstructedActionPre(pipe);
 
                             preReadyStatus = GetConstructedPreReadyStatus(preReadyOutcome);
                             preReadyMs = preReadyOutcome.ElapsedMs;
@@ -3087,6 +3091,7 @@ namespace BotMain
                     if (actionFailed)
                     {
                         _skipNextTurnStartReadyWait = false;
+                        _allowNextConstructedActionPreReadyBypass = false;
                         actionFailStreak++;
 
                         var failureRecovery = GetConstructedActionFailureRecovery(_followHsBoxRecommendations, actionFailStreak);
@@ -4392,6 +4397,46 @@ namespace BotMain
                 SleepOrCancelled);
         }
 
+        private InteractionReadinessPollOutcome WaitForConstructedActionPre(PipeServer pipe)
+        {
+            if (!_allowNextConstructedActionPreReadyBypass)
+                return WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
+
+            _allowNextConstructedActionPreReadyBypass = false;
+
+            var commandTimeoutMs = InteractionReadinessCoordinator.GetProbeTimeoutMs(InteractionReadinessScope.ConstructedActionPre);
+            var probeSw = Stopwatch.StartNew();
+            var observation = ObserveGameplayReadiness(pipe, commandTimeoutMs);
+            probeSw.Stop();
+
+            if (observation != null && observation.IsReady)
+            {
+                return InteractionReadinessPollOutcome.Ready(
+                    "hsbox_advanced_pre_ready",
+                    polls: 1,
+                    elapsedMs: probeSw.ElapsedMilliseconds);
+            }
+
+            var reason = observation?.Reason ?? "unknown";
+            if (ShouldBypassConstructedActionPreReadyAfterHsBoxAdvance(reason))
+            {
+                return InteractionReadinessPollOutcome.Ready(
+                    "hsbox_advanced_pre_bypass:" + reason,
+                    polls: 1,
+                    elapsedMs: probeSw.ElapsedMilliseconds);
+            }
+
+            var fallback = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPre);
+            return new InteractionReadinessPollOutcome(
+                fallback.IsReady,
+                fallback.Reason,
+                fallback.Detail,
+                fallback.Polls + 1,
+                probeSw.ElapsedMilliseconds + fallback.ElapsedMs,
+                fallback.FailureReason,
+                fallback.FailureDetail);
+        }
+
         private static string DescribeGameplayReadinessParseFailure(string response)
         {
             if (string.IsNullOrWhiteSpace(response))
@@ -4566,14 +4611,26 @@ namespace BotMain
             return true;
         }
 
+        internal static bool ShouldBypassConstructedActionPreReadyAfterHsBoxAdvance(string busyReason)
+        {
+            return string.Equals(busyReason, "post_animation_grace", StringComparison.OrdinalIgnoreCase);
+        }
+
         private static string GetConstructedPreReadyStatus(InteractionReadinessPollOutcome outcome)
         {
             if (outcome == null || !outcome.IsReady)
                 return "timeout";
 
-            return string.Equals(outcome.Detail, "option_chain", StringComparison.Ordinal)
-                ? "option_chain"
-                : "ready";
+            if (string.Equals(outcome.Detail, "option_chain", StringComparison.Ordinal))
+                return "option_chain";
+
+            if (!string.IsNullOrWhiteSpace(outcome.Detail)
+                && outcome.Detail.StartsWith("hsbox_advanced_pre_", StringComparison.Ordinal))
+            {
+                return outcome.Detail;
+            }
+
+            return "ready";
         }
 
         private void LogReadyWaitSummary(
@@ -6586,6 +6643,7 @@ namespace BotMain
             _postGameLeftGameplayConfirmed = false;
             _currentMatchResultHandled = false;
             _skipNextTurnStartReadyWait = false;
+            _allowNextConstructedActionPreReadyBypass = false;
             _alternateConcedeState.BeginMatch(_autoConcedeAlternativeMode);
             _nextAlternateConcedeAttemptUtc = DateTime.MinValue;
             _lastHumanizedTurnNumber = -1;

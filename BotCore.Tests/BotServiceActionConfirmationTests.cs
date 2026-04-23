@@ -591,6 +591,34 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void GetConstructedPreReadyStatus_PreservesHsBoxFastPreSentinel()
+        {
+            var method = typeof(BotService).GetMethod(
+                "GetConstructedPreReadyStatus",
+                BindingFlags.Static | BindingFlags.NonPublic);
+
+            Assert.NotNull(method);
+            var status = Assert.IsType<string>(method.Invoke(null, new object[]
+            {
+                InteractionReadinessPollOutcome.Ready("hsbox_advanced_pre_bypass:post_animation_grace")
+            }));
+
+            Assert.Equal("hsbox_advanced_pre_bypass:post_animation_grace", status);
+        }
+
+        [Theory]
+        [InlineData("post_animation_grace", true)]
+        [InlineData("input_denied", false)]
+        [InlineData("power_processor_running", false)]
+        [InlineData("hand_layout_updating", false)]
+        public void ShouldBypassConstructedActionPreReadyAfterHsBoxAdvance_OnlyAllowsAnimationGrace(
+            string reason,
+            bool expected)
+        {
+            Assert.Equal(expected, BotService.ShouldBypassConstructedActionPreReadyAfterHsBoxAdvance(reason));
+        }
+
+        [Fact]
         public void ShouldRequestResimulationAfterConstructedActionPost_ReturnsTrue_WhenTimedOut()
         {
             var outcome = InteractionReadinessPollOutcome.TimedOut(
@@ -656,6 +684,7 @@ namespace BotCore.Tests
             Assert.Equal("turn_start_hsbox_advanced", Assert.IsType<string>(args[2]));
             Assert.Equal(0L, Assert.IsType<long>(GetPrivateField(service, "_pendingHsBoxActionUpdatedAtMs")));
             Assert.False(Assert.IsType<bool>(GetPrivateField(service, "_skipNextTurnStartReadyWait")));
+            Assert.True(Assert.IsType<bool>(GetPrivateField(service, "_allowNextConstructedActionPreReadyBypass")));
         }
 
         [Fact]
