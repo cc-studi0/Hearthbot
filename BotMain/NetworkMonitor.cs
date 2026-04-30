@@ -27,12 +27,14 @@ namespace BotMain
         private volatile bool _active;
         private Thread _thread;
         private DateTime? _disconnectedSinceUtc;
+        private bool _everConnected;
 
         public void Start()
         {
             if (_active) return;
             _active = true;
             _disconnectedSinceUtc = null;
+            _everConnected = false;
 
             _thread = new Thread(TickLoop)
             {
@@ -51,10 +53,14 @@ namespace BotMain
 
         /// <summary>
         /// 重置内部断连计时器。用于恢复流程后清除残留状态。
+        /// 同时清掉 _everConnected：刚重启的游戏要先报 connected 一次，
+        /// 才能把后续的 disconnected 当成真正的网络掉线，
+        /// 否则登录前的 disconnected 会立刻把刚拉起来的游戏再杀掉。
         /// </summary>
         public void Reset()
         {
             _disconnectedSinceUtc = null;
+            _everConnected = false;
         }
 
         public void Dispose() => Stop();
@@ -99,6 +105,11 @@ namespace BotMain
 
             if (payload.StartsWith("connected", StringComparison.OrdinalIgnoreCase))
             {
+                if (!_everConnected)
+                {
+                    _everConnected = true;
+                    Log?.Invoke("[NetworkMonitor] 已观测到 Aurora 连接，进入正式监控");
+                }
                 if (_disconnectedSinceUtc != null)
                 {
                     Log?.Invoke("[NetworkMonitor] 网络已恢复");
@@ -123,6 +134,16 @@ namespace BotMain
             }
 
             // disconnected
+            // 启动期保护：游戏刚启动时还在标题/登录界面，Aurora 必然未连接，
+            // Payload 会持续返回 disconnected。这种"从未 connected 过"的 disconnected
+            // 不是网络掉线，而是尚未登录，不应触发恢复，否则会把刚拉起来的游戏再次杀掉
+            // 形成无限循环（直到 _consecutiveFailures 超限 Watchdog 自停）。
+            if (!_everConnected)
+            {
+                _disconnectedSinceUtc = null;
+                return;
+            }
+
             if (_disconnectedSinceUtc == null)
             {
                 _disconnectedSinceUtc = DateTime.UtcNow;
