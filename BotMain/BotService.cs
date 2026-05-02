@@ -194,6 +194,7 @@ namespace BotMain
         public string CurrentOwnClassName => ToCardClass(_currentOwnClass).ToString();
         public string CurrentEnemyClassName => ToCardClass(_currentEnemyClass).ToString();
         public int CurrentMatchDurationSeconds => _currentMatchStartUtc == default ? 0 : (int)(DateTime.UtcNow - _currentMatchStartUtc).TotalSeconds;
+        public DateTime? LastMatchStartUtc => _currentMatchStartUtc == default ? (DateTime?)null : _currentMatchStartUtc;
 
         // 运行限制设置
         private int _maxWins;

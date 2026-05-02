@@ -23,6 +23,7 @@ namespace BotMain
         public int PayloadTimeoutSeconds { get; set; } = 120;
         public int NotRespondingTimeoutSeconds { get; set; } = 30;
         public int GameTimeoutSeconds { get; set; } = 300;
+        public int NoNewMatchTimeoutSeconds { get; set; } = 1800;
         public int MaxConsecutiveFailures { get; set; } = 5;
         public int RecoveryCooldownSeconds { get; set; } = 5;
         public int BattleNetRestartThreshold { get; set; } = 3;
@@ -31,6 +32,7 @@ namespace BotMain
         public Func<bool> IsBotRunning { get; set; }
         public Func<bool> IsPipeConnected { get; set; }
         public Func<DateTime?> GetLastEffectiveAction { get; set; }
+        public Func<DateTime?> GetLastMatchStartUtc { get; set; }
         public Action RequestBotStop { get; set; }
         public Action RequestBotStart { get; set; }
         public Action SuspendMonitors { get; set; }
@@ -244,6 +246,18 @@ namespace BotMain
                         {
                             Log?.Invoke($"[Watchdog] 游戏内超时: {GameTimeoutSeconds}s 无有效操作");
                             EnterRecovering("游戏内超时");
+                            return;
+                        }
+
+                        // baseline 取与 Running 进入时间的较大值，避免恢复重启后旧的对战时间立即再次触发
+                        var lastMatch = GetLastMatchStartUtc?.Invoke();
+                        var matchBaseline = lastMatch.HasValue && lastMatch.Value > _stateEnteredUtc
+                            ? lastMatch.Value
+                            : _stateEnteredUtc;
+                        if ((DateTime.UtcNow - matchBaseline).TotalSeconds >= NoNewMatchTimeoutSeconds)
+                        {
+                            Log?.Invoke($"[Watchdog] {NoNewMatchTimeoutSeconds}s 无新对战，疑似卡死");
+                            EnterRecovering("无新对战超时");
                         }
                     }
                     break;
