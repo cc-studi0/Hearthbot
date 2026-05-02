@@ -3060,12 +3060,19 @@ namespace HearthstonePayload
         private IEnumerator<float> MouseDismissClickSequence(int w, int h, bool isBattlegroundsEndGame)
         {
             InputHook.Simulating = true;
+            // 强制 PegUI.m_hasFocus = true，否则窗口未被实鼠标点击时
+            // MouseInputUpdate 会跳过所有点击事件（与 MouseClick 一致）
+            InputHook.ForcePegUIFocus();
+
+            var first = true;
             foreach (var point in BuildDismissPoints(w, h, isBattlegroundsEndGame))
             {
                 MouseSimulator.MoveTo(point.X, point.Y);
-                yield return 0.03f;
+                // 第一次移动后多等一帧让 PegUI raycast 与鼠标位置对齐
+                yield return first ? 0.06f : 0.03f;
+                first = false;
                 MouseSimulator.LeftDown();
-                yield return 0.02f;
+                yield return 0.08f; // 按下保持 ≥1 帧，避免 PegUI 漏检 click
                 MouseSimulator.LeftUp();
                 yield return 0.06f;
             }
@@ -3090,13 +3097,14 @@ namespace HearthstonePayload
                 };
             }
 
+            // 构筑/竞技场：把游戏窗口四等分(左上/右上/左下/右下)，固定点击右下区域中心点
             return new[]
             {
-                new ScreenPoint(ClampX(0.82f), ClampY(0.86f)), // 标准模式优先点右下安全区
-                new ScreenPoint(ClampX(0.88f), ClampY(0.84f)), // 略偏右，避开中轴/手牌
-                new ScreenPoint(ClampX(0.90f), ClampY(0.89f)), // 右下角兜底
-                new ScreenPoint(ClampX(0.85f), ClampY(0.91f)), // 更靠下，继续避开中间手牌区
-                new ScreenPoint(ClampX(0.82f), ClampY(0.86f)),
+                new ScreenPoint(ClampX(0.75f), ClampY(0.75f)),
+                new ScreenPoint(ClampX(0.75f), ClampY(0.75f)),
+                new ScreenPoint(ClampX(0.75f), ClampY(0.75f)),
+                new ScreenPoint(ClampX(0.75f), ClampY(0.75f)),
+                new ScreenPoint(ClampX(0.75f), ClampY(0.75f)),
             };
         }
 
