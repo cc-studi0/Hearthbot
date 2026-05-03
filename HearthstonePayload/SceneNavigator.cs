@@ -1386,6 +1386,74 @@ namespace HearthstonePayload
         }
 
         /// <summary>
+        /// 读取当前 draft 上下文：英雄职业 + 已选卡列表。
+        /// 输出格式: HERO:HUNTER|SLOT:5/30|DECK:CARD1,CARD2,...
+        /// 当尚未选英雄时 HERO 为 NONE、DECK 为空。
+        /// 用于把完整上下文传给 ArenaPickHandler.HandlePickDecision。
+        /// </summary>
+        public string GetArenaDeckState()
+        {
+            return OnMain(() =>
+            {
+                if (!Init()) return "ERROR:not_initialized";
+                try
+                {
+                    var dm = GetDraftManager();
+                    if (dm == null) return "ERROR:no_draft_manager";
+
+                    // 1) 已选职业 — DraftManager.GetHero() / GetClass() / GetSelectedHero
+                    //    DraftManager 在选完英雄后会保存当前职业，多个候选取第一个非空。
+                    string heroClass = "NONE";
+                    var heroObj = TryGetFirstProp(dm, "GetClass", "GetCurrentClass", "GetHeroClass");
+                    if (heroObj == null)
+                        heroObj = CallMethod(dm, "GetClass") ?? CallMethod(dm, "GetCurrentClass");
+                    if (heroObj == null)
+                        heroObj = TryGetFirstProp(dm, "m_currentClass", "m_class", "m_heroClass");
+                    if (heroObj != null)
+                    {
+                        var s = heroObj.ToString();
+                        if (!string.IsNullOrWhiteSpace(s) && s != "0")
+                            heroClass = s.ToUpperInvariant();
+                    }
+
+                    // 2) 当前进度 — slot / max
+                    int slotNum = 0, maxSlotNum = 30;
+                    var slotObj = CallMethod(dm, "GetSlot");
+                    var maxSlotObj = CallMethod(dm, "GetMaxSlot");
+                    if (slotObj != null) try { slotNum = Convert.ToInt32(slotObj); } catch { }
+                    if (maxSlotObj != null) try { maxSlotNum = Convert.ToInt32(maxSlotObj); } catch { }
+
+                    // 3) 已抽卡列表
+                    //    DraftManager.GetDraftDeck() / GetDraftedCards() / m_draftDeck
+                    //    返回的是 List<DraftDeckItem> 或 List<string>
+                    var deckCards = new List<string>();
+                    var draftedObj = CallMethod(dm, "GetDraftDeck")
+                                  ?? CallMethod(dm, "GetDraftedCards")
+                                  ?? TryGetFirstProp(dm, "m_draftDeck", "m_draftedCards", "m_deck");
+                    if (draftedObj != null)
+                    {
+                        foreach (var item in AsEnumerable(draftedObj))
+                        {
+                            if (item == null) continue;
+                            // 支持几种容器：直接 cardId 字符串 / 包含 m_cardID 的 wrapper
+                            string id = item is string s ? s : null;
+                            if (id == null)
+                            {
+                                var idObj = TryGetFirstProp(item, "m_cardID", "CardID", "cardId", "m_cardId");
+                                id = idObj?.ToString();
+                            }
+                            if (!string.IsNullOrWhiteSpace(id))
+                                deckCards.Add(id);
+                        }
+                    }
+
+                    return $"HERO:{heroClass}|SLOT:{slotNum}/{maxSlotNum}|DECK:{string.Join(",", deckCards)}";
+                }
+                catch (Exception ex) { return "ERROR:" + ex.Message; }
+            });
+        }
+
+        /// <summary>
         /// 选择英雄/卡牌 — 直接调 DraftManager.MakeChoice() API
         /// SmartBot 通过 Loader.dll 注入后也是调游戏内部 API 完成选牌，不走鼠标模拟。
         /// 反编译路径: DraftManager.MakeChoice(choiceNum, premium)

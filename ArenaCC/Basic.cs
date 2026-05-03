@@ -1,16 +1,21 @@
-using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using SmartBot.Plugins.API;
 using SmartBot.Arena;
-using SmartBotUI;
 
-namespace SmartBotUI.Arena
+namespace Hearthbot.ArenaProfiles
 {
-	public class BasicArenaPickHandler : ArenaPickHandler
+    /// <summary>
+    /// 最简竞技场选牌策略：永远选第一项。
+    /// 既适用于英雄选择也适用于卡牌选择，主要作为没有任何外部决策源（盒子、HSReplay 等）
+    /// 时的保底策略；选英雄时建议改用 BotService 内置的 Priority 表，会比这个智能。
+    /// </summary>
+    public class BasicArenaPickHandler : ArenaPickHandler
     {
-        public Card.Cards HandlePickDecision(Card.CClass heroClass, List<Card.Cards> deck, Card.Cards choiceOne, Card.Cards choiceTwo,
+        public Card.Cards HandlePickDecision(
+            Card.CClass heroClass,
+            List<Card.Cards> deck,
+            Card.Cards choiceOne,
+            Card.Cards choiceTwo,
             Card.Cards choiceThree)
         {
             return choiceOne;

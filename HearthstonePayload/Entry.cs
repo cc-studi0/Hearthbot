@@ -817,6 +817,10 @@ namespace HearthstonePayload
             {
                 _pipe.Write(nav.GetArenaDraftChoices());
             }
+            else if (cmd == "ARENA_GET_DECK_STATE")
+            {
+                _pipe.Write(nav.GetArenaDeckState());
+            }
             else if (cmd.StartsWith("ARENA_PICK_CARD:", StringComparison.Ordinal))
             {
                 var idx = cmd.Substring("ARENA_PICK_CARD:".Length);

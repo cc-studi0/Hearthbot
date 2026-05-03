@@ -814,8 +814,19 @@ namespace BotMain
 
         public void SetArenaProfileByName(string name)
         {
-            if (!string.IsNullOrWhiteSpace(name))
-                _arenaProfile = name;
+            if (string.IsNullOrWhiteSpace(name)) return;
+            _arenaProfile = name;
+
+            // 选了 None / 空 一律允许（外层兜底会顶上）；选了具体 profile 但没编译过给个警告，
+            // 让用户立刻知道而不是在选牌时才发现。
+            if (!string.Equals(name, "None", StringComparison.OrdinalIgnoreCase)
+                && _arenaProfileTypes != null
+                && !_arenaProfileTypes.ContainsKey(name))
+            {
+                Log($"[Arena] 警告: 已选 ArenaCC profile <{name}>，但未在已编译列表中找到。" +
+                    $"目前已编译: [{string.Join(", ", _arenaProfileTypes.Keys)}]。" +
+                    $"决策时会跳过 ArenaCC 一级，使用盒子 / Priority 表兜底。");
+            }
         }
 
         public void SetAfterArenaMode(Bot.Mode mode)
@@ -3225,7 +3236,7 @@ namespace BotMain
                     if (pipe == null || !pipe.IsConnected)
                     {
                         _restartPending = false;
-                        if (!TryReconnectLoop("[Arena] ���戏闪退"))
+                        if (!TryReconnectLoop("[Arena] 游戏闪退"))
                             break;
                         pipe = _pipe;
                         continue;
@@ -3285,7 +3296,7 @@ namespace BotMain
                     }
                     else
                     {
-                        Log($"[Arena] 未知状态: {statusResp}���等待...");
+                        Log($"[Arena] 未知状态: {statusResp}，等待...");
                         SleepOrCancelled(2000);
                     }
                 }
@@ -3409,21 +3420,27 @@ namespace BotMain
 
             Log($"[Arena] 票: {tickets}, 金币: {gold}");
 
-            // tickets=0 & gold=0 & parsed=true 可能是反射读取失败，不要因此停止
+            // tickets=0 & gold=0 & parsed=true 可能是反射读取失败
             bool infoReliable = ticketInfoParsed && (tickets > 0 || gold > 0);
 
             if (!infoReliable && tickets == 0 && gold == 0)
-                Log("[Arena] ticket info unreliable (both 0), will attempt purchase anyway...");
+            {
+                // 之前的版本会"反正试一下买"，但 RequestDraftBegin 在没钱时只会被
+                // 服务端拒绝并触发 ALERT 弹窗，导致状态机卡住。改为直接退出，
+                // 让外层 ArenaLoop 的 SleepOrCancelled(2000) 重试取信息。
+                Log("[Arena] 票/金币读取不可靠 (都为 0)，本轮跳过购票，等待下一轮重试。");
+                return false;
+            }
             else if (tickets > 0)
-                Log("[Arena] Using ticket.");
+                Log("[Arena] 使用门票购买。");
             else if (_arenaUseGold && gold >= 150 + _arenaGoldReserve)
                 Log($"[Arena] 使用金币购买（金币 {gold} >= {150 + _arenaGoldReserve}）。");
-            else if (infoReliable)
+            else
             {
-                // 数据可靠且确认没票没钱，才真正停止
+                // 数据可靠且确认没票没钱，停止
                 Log(_arenaUseGold
-                    ? $"[Arena] gold insufficient ({gold} < {150 + _arenaGoldReserve}), stopping."
-                    : "[Arena] no tickets and gold disabled, stopping.");
+                    ? $"[Arena] 金币不足 ({gold} < {150 + _arenaGoldReserve})，停止。"
+                    : "[Arena] 没有门票且未启用金币购买，停止。");
                 return false;
             }
 
@@ -3439,56 +3456,254 @@ namespace BotMain
         }
 
         /// <summary>
-        /// 从盒子获取推荐的 cardId，然后通过 Payload 查询 DraftDisplay.m_choices 匹配 index
+        /// 决策瀑布：盒子 → 用户 ArenaCC profile → 内置 Priority 表（仅英雄）→ 0。
+        /// 任一级失败/无匹配会自动降级到下一级，不会再无脑返回 0。
         /// </summary>
         private int ArenaGetRecommendedIndex(PipeServer pipe, string phase, out string recommendedId)
         {
             recommendedId = null;
+            bool isHero = phase == "职业";
 
-            // 1. 从盒子 ai-recommend 页面获取推荐的 cardId
-            string detail = null;
-            if (_hsBoxArenaDraftBridge == null || !_hsBoxArenaDraftBridge.TryReadDraft(out var rec, out detail))
-            {
-                Log($"[Arena] 盒子连接失败 ({detail ?? "null"})，选第一个。");
-                return 0;
-            }
-
-            if (!rec.Ok || string.IsNullOrWhiteSpace(rec.RecommendedCardId))
-            {
-                Log($"[Arena] 盒子无推荐 ({rec.Reason})，选第一个。");
-                return 0;
-            }
-
-            recommendedId = rec.RecommendedCardId;
-            Log($"[Arena] 盒子推荐{phase}: {rec.RecommendedCardId} ({rec.RecommendedCardName})");
-
-            // 2. 从 Payload 获取当前可选项列表
-            var choicesCmd = phase == "职业" ? "ARENA_GET_HERO_CHOICES" : "ARENA_GET_DRAFT_CHOICES";
+            // 0. 先取当前 3 个候选 cardId（无论用哪个决策源都需要）
+            var choicesCmd = isHero ? "ARENA_GET_HERO_CHOICES" : "ARENA_GET_DRAFT_CHOICES";
             if (!TrySendAndReceiveExpected(pipe, choicesCmd, 3000, r => true, out var choicesResp, "Arena.GetChoices"))
             {
-                Log($"[Arena] 获取选项列表失败，选第一个。");
+                Log($"[Arena] 获取选项列表失败，回退选第一个。");
                 return 0;
             }
 
-            // 解析 HEROES:id1,id2,id3 或 CHOICES:id1,id2,id3
-            var prefix = phase == "职业" ? "HEROES:" : "CHOICES:";
+            var prefix = isHero ? "HEROES:" : "CHOICES:";
             if (choicesResp == null || !choicesResp.StartsWith(prefix, StringComparison.Ordinal))
             {
-                Log($"[Arena] 选项列表格式错误: {choicesResp}，选第一个。");
+                Log($"[Arena] 选项列表格式错误: {choicesResp}，回退选第一个。");
                 return 0;
             }
 
-            var ids = choicesResp.Substring(prefix.Length).Split(',');
-            for (int i = 0; i < ids.Length; i++)
+            var ids = choicesResp.Substring(prefix.Length)
+                .Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries);
+            if (ids.Length == 0)
             {
-                Log($"[Arena]   选项[{i + 1}]: {ids[i]}{(ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase) ? " ★" : "")}");
-                if (ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase))
-                    return i;
+                Log($"[Arena] 选项列表为空，回退选第一个。");
+                return 0;
             }
 
-            Log($"[Arena] 推荐的 {recommendedId} 不在选项中，选第一个。");
+            // 1. 决策源 1：盒子（HsBox / HSAng）
+            var bridge = _hsBoxArenaDraftBridge;
+            string bridgeDetail = "uninitialized";
+            ArenaDraftRecommendation rec = null;
+            bool bridgeOk = bridge != null && bridge.TryReadDraft(out rec, out bridgeDetail);
+            if (bridgeOk && rec != null && rec.Ok && !string.IsNullOrWhiteSpace(rec.RecommendedCardId))
+            {
+                recommendedId = rec.RecommendedCardId;
+                Log($"[Arena] 盒子推荐{phase}: {rec.RecommendedCardId} ({rec.RecommendedCardName})");
+                for (int i = 0; i < ids.Length; i++)
+                {
+                    var marker = ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase) ? " ★" : "";
+                    Log($"[Arena]   选项[{i + 1}]: {ids[i]}{marker}");
+                    if (ids[i].Equals(recommendedId, StringComparison.OrdinalIgnoreCase))
+                        return i;
+                }
+                Log($"[Arena] 盒子推荐 {recommendedId} 不在选项中，降级到下一决策源。");
+            }
+            else
+            {
+                Log($"[Arena] 盒子不可用 ({bridgeDetail})，降级到 ArenaCC。");
+            }
+
+            // 2. 决策源 2：用户 ArenaCC profile
+            int profileIdx = TryRunArenaProfile(pipe, isHero, ids);
+            if (profileIdx >= 0)
+            {
+                recommendedId = ids[profileIdx];
+                Log($"[Arena] ArenaCC profile <{_arenaProfile}> 选择: 选项[{profileIdx + 1}]={recommendedId}");
+                return profileIdx;
+            }
+
+            // 3. 决策源 3：英雄阶段用 Priority 表，卡牌阶段直接选第一个
+            if (isHero)
+            {
+                int prioIdx = PickHeroByPriority(ids);
+                if (prioIdx >= 0)
+                {
+                    recommendedId = ids[prioIdx];
+                    Log($"[Arena] Priority 表选择: 选项[{prioIdx + 1}]={recommendedId}");
+                    return prioIdx;
+                }
+            }
+
+            Log($"[Arena] 全部决策源未匹配，回退选第一个 ({ids[0]})。");
+            recommendedId = ids[0];
             return 0;
         }
+
+        /// <summary>
+        /// 调用用户在 ArenaCC/&lt;profile&gt;.cs 里实现的 ArenaPickHandler。
+        /// 返回 -1 表示没用户 profile / 调用失败 / profile 选了一个不在 ids 里的卡。
+        /// </summary>
+        private int TryRunArenaProfile(PipeServer pipe, bool isHero, string[] ids)
+        {
+            if (string.IsNullOrWhiteSpace(_arenaProfile)
+                || string.Equals(_arenaProfile, "None", StringComparison.OrdinalIgnoreCase))
+                return -1;
+
+            if (!_arenaProfileTypes.TryGetValue(_arenaProfile, out var handlerType))
+                return -1;
+
+            ArenaPickHandler handler;
+            try
+            {
+                handler = Activator.CreateInstance(handlerType) as ArenaPickHandler;
+            }
+            catch (Exception ex)
+            {
+                Log($"[Arena] ArenaCC 实例化失败 <{_arenaProfile}>: {ex.Message}");
+                return -1;
+            }
+            if (handler == null) return -1;
+
+            // 解析 3 个选项为 Card.Cards 枚举
+            var choices = new ApiCard.Cards[ids.Length];
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (!TryParseCardId(ids[i], out choices[i]))
+                {
+                    Log($"[Arena] 选项 {ids[i]} 无法解析为 Card.Cards，跳过 ArenaCC。");
+                    return -1;
+                }
+            }
+
+            // 选英雄阶段不需要 deckState；选牌阶段需要把已抽卡 + heroClass 喂给 profile
+            ApiCard.CClass heroClass = ApiCard.CClass.NONE;
+            var deck = new List<ApiCard.Cards>();
+            if (!isHero)
+                TryQueryArenaDeckState(pipe, out heroClass, out deck);
+
+            ApiCard.Cards picked;
+            try
+            {
+                var c1 = choices[0];
+                var c2 = choices.Length > 1 ? choices[1] : choices[0];
+                var c3 = choices.Length > 2 ? choices[2] : choices[0];
+                picked = handler.HandlePickDecision(heroClass, deck, c1, c2, c3);
+            }
+            catch (Exception ex)
+            {
+                Log($"[Arena] ArenaCC 调用异常 <{_arenaProfile}>: {ex.Message}");
+                return -1;
+            }
+
+            int idx = Array.IndexOf(choices, picked);
+            if (idx < 0)
+            {
+                Log($"[Arena] ArenaCC 返回 {picked} 不在选项中，跳过本级。");
+                return -1;
+            }
+            return idx;
+        }
+
+        /// <summary>
+        /// 从游戏内反射读取当前 draft 上下文（heroClass + 已抽卡），失败返回 false。
+        /// </summary>
+        private bool TryQueryArenaDeckState(PipeServer pipe, out ApiCard.CClass heroClass, out List<ApiCard.Cards> deck)
+        {
+            heroClass = ApiCard.CClass.NONE;
+            deck = new List<ApiCard.Cards>();
+
+            if (!TrySendAndReceiveExpected(pipe, "ARENA_GET_DECK_STATE", 3000, r => true,
+                    out var resp, "Arena.GetDeckState"))
+                return false;
+            if (string.IsNullOrWhiteSpace(resp) || resp.StartsWith("ERROR", StringComparison.Ordinal))
+                return false;
+
+            // 格式: HERO:HUNTER|SLOT:5/30|DECK:CARD1,CARD2,...
+            foreach (var part in resp.Split('|'))
+            {
+                if (part.StartsWith("HERO:", StringComparison.Ordinal))
+                {
+                    var heroStr = part.Substring("HERO:".Length).Trim();
+                    if (Enum.TryParse<ApiCard.CClass>(heroStr, true, out var hc))
+                        heroClass = hc;
+                }
+                else if (part.StartsWith("DECK:", StringComparison.Ordinal))
+                {
+                    var deckStr = part.Substring("DECK:".Length);
+                    foreach (var cid in deckStr.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        if (TryParseCardId(cid.Trim(), out var card))
+                            deck.Add(card);
+                    }
+                }
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 用 PriorityHunt / PriorityWarrior 等优先级表选英雄。数字越小优先级越高。
+        /// 默认表来自 SmartBot 出厂值: Hunt=0 Warrior=1 Druid=2 Shaman=3 Paladin=4
+        ///   Rogue=5 Warlock=6 Priest=7 Mage=8 DemonHunter=9 DeathKnight=10
+        /// 当前没有 Settings UI 暴露，这里直接用默认。改 _arenaHeroPriorities 即可调整。
+        /// </summary>
+        private int PickHeroByPriority(string[] heroChoiceCardIds)
+        {
+            if (heroChoiceCardIds == null || heroChoiceCardIds.Length == 0)
+                return -1;
+
+            int bestIdx = -1;
+            int bestScore = int.MaxValue;
+            for (int i = 0; i < heroChoiceCardIds.Length; i++)
+            {
+                if (!_arenaHeroCardClassMap.TryGetValue(heroChoiceCardIds[i], out var clas))
+                {
+                    // 不在映射表里 — 少见的客户端扩展英雄，跳过
+                    continue;
+                }
+                if (!_arenaHeroPriorities.TryGetValue(clas, out var prio))
+                    continue;
+                if (prio < bestScore)
+                {
+                    bestScore = prio;
+                    bestIdx = i;
+                }
+            }
+            // 全表都没命中时，退回选第一个，避免上层再降级
+            return bestIdx >= 0 ? bestIdx : 0;
+        }
+
+        // 内置职业优先级，越小越优先选。完全照抄 SmartBot Settings.default.ini 默认。
+        private readonly Dictionary<ApiCard.CClass, int> _arenaHeroPriorities = new()
+        {
+            { ApiCard.CClass.HUNTER,       0  },
+            { ApiCard.CClass.WARRIOR,      1  },
+            { ApiCard.CClass.DRUID,        2  },
+            { ApiCard.CClass.SHAMAN,       3  },
+            { ApiCard.CClass.PALADIN,      4  },
+            { ApiCard.CClass.ROGUE,        5  },
+            { ApiCard.CClass.WARLOCK,      6  },
+            { ApiCard.CClass.PRIEST,       7  },
+            { ApiCard.CClass.MAGE,         8  },
+            { ApiCard.CClass.DEMONHUNTER,  9  },
+            { ApiCard.CClass.DEATHKNIGHT,  10 },
+        };
+
+        // 9 个职业的英雄"卡 ID"映射，用于从 DraftDisplay 返回的 m_cardID 反查职业。
+        // 值是炉石客户端里这几个英雄选择卡牌使用的 cardId（HERO_xx 系列）。
+        // HERO_01..HERO_10 对应主英雄；DEMONHUNTER 是后期加的；DEATHKNIGHT 同理。
+        // 任一未来版本新增 cardId 别名时只需加一行；缺失时 PickHeroByPriority 会回退到 0。
+        private static readonly Dictionary<string, ApiCard.CClass> _arenaHeroCardClassMap =
+            new(StringComparer.OrdinalIgnoreCase)
+            {
+                { "HERO_01",   ApiCard.CClass.WARRIOR     }, // 加尔鲁什
+                { "HERO_02",   ApiCard.CClass.SHAMAN      }, // 萨尔
+                { "HERO_03",   ApiCard.CClass.ROGUE       }, // 瓦莉拉
+                { "HERO_04",   ApiCard.CClass.PALADIN     }, // 乌瑟尔
+                { "HERO_05",   ApiCard.CClass.HUNTER      }, // 雷克萨
+                { "HERO_06",   ApiCard.CClass.DRUID       }, // 玛法里奥
+                { "HERO_07",   ApiCard.CClass.WARLOCK     }, // 古尔丹
+                { "HERO_08",   ApiCard.CClass.MAGE        }, // 吉安娜
+                { "HERO_09",   ApiCard.CClass.PRIEST      }, // 安度因
+                { "HERO_10",   ApiCard.CClass.DEMONHUNTER }, // 伊利丹
+                { "HERO_11",   ApiCard.CClass.DEATHKNIGHT }, // 巫妖王
+            };
 
         private int ParseArenaChoiceCount(string choices)
         {
@@ -4266,7 +4481,7 @@ namespace BotMain
         }
 
         /// <summary>
-        /// ���取消的 Sleep。返回 true 表示已被取消（Stop 被调用），false 表示正常超时。
+        /// 可取消的 Sleep。返回 true 表示已被取消（Stop 被调用），false 表示正常超时。
         /// </summary>
         private bool SleepOrCancelled(int ms)
         {
