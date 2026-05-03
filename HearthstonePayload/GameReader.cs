@@ -865,38 +865,15 @@ namespace HearthstonePayload
 
         private GameResult ResolveGameResult(object friendly, object opposing, string endScreenClass)
         {
-            if (!string.IsNullOrWhiteSpace(endScreenClass))
-            {
-                var lower = endScreenClass.ToLowerInvariant();
-                if (lower.Contains("victory")) return GameResult.Win;
-                if (lower.Contains("defeat")) return GameResult.Loss;
-                if (lower.Contains("tie") || lower.Contains("draw")) return GameResult.Tie;
-            }
+            // 优先级 1：GameMgr.LastGameData.GameResult
+            // 这是游戏在 GameState.OnGameOver(playState) 钩子里写入的友方终态 TAG_PLAYSTATE，
+            // 仅在 IsGameOverTag 判定为 true（friendly side, val ∈ {WON,LOST,TIED}）时设置，
+            // 不受 EndGameScreen prefab 加载时序、上一局残留单例的影响。
+            var lastGameResult = ResolveResultFromLastGameData();
+            if (lastGameResult != GameResult.None) return lastGameResult;
 
-            // endScreenClass 为空时，尝试从 EndGameScreen.m_twoScoop 运行时类型推断
-            if (string.IsNullOrWhiteSpace(endScreenClass))
-            {
-                try
-                {
-                    var egsType = _ctx.AsmCSharp?.GetType("EndGameScreen");
-                    if (egsType != null)
-                    {
-                        var egsInstance = _ctx.CallStaticAny(egsType, "Get");
-                        if (egsInstance != null)
-                        {
-                            var twoScoop = _ctx.GetFieldOrPropertyAny(egsInstance, "m_twoScoop", "m_endGameTwoScoop");
-                            if (twoScoop != null)
-                            {
-                                var tsClassName = twoScoop.GetType().Name?.ToLowerInvariant() ?? string.Empty;
-                                if (tsClassName.Contains("victory")) return GameResult.Win;
-                                if (tsClassName.Contains("defeat")) return GameResult.Loss;
-                            }
-                        }
-                    }
-                }
-                catch { }
-            }
-
+            // 优先级 2：友方 hero/entity 的 PLAYSTATE 标签
+            // 覆盖 LastGameData 未写入的场景（例如 CONCEDED/DISCONNECTED 不走 OnGameOver）。
             var friendlyHero = _ctx.CallAny(friendly, "GetHero");
             var friendlyHeroResult = MapFriendlyPlaystateToResult(_ctx.GetTagValue(friendlyHero, "PLAYSTATE"));
             if (friendlyHeroResult != GameResult.None) return friendlyHeroResult;
@@ -905,6 +882,7 @@ namespace HearthstonePayload
             var friendlyEntityResult = MapFriendlyPlaystateToResult(_ctx.GetTagValue(friendlyEntity, "PLAYSTATE"));
             if (friendlyEntityResult != GameResult.None) return friendlyEntityResult;
 
+            // 优先级 3：对方 PLAYSTATE 取反推导
             var opposingHero = _ctx.CallAny(opposing, "GetHero");
             var opposingHeroResult = MapEnemyPlaystateToResult(_ctx.GetTagValue(opposingHero, "PLAYSTATE"));
             if (opposingHeroResult != GameResult.None) return opposingHeroResult;
@@ -913,7 +891,52 @@ namespace HearthstonePayload
             var opposingEntityResult = MapEnemyPlaystateToResult(_ctx.GetTagValue(opposingEntity, "PLAYSTATE"));
             if (opposingEntityResult != GameResult.None) return opposingEntityResult;
 
+            // 优先级 4（兜底）：EndGameScreen 子类名推断
+            // ── 警告 ──
+            // 游戏对 LOST 与 TIED 都加载 DEFEAT prefab（DefeatTwoScoop），
+            // 因此该路径无法区分 LOSS / TIE，仅在 PLAYSTATE 全部读不到时才使用，
+            // 并把 "defeat" 一律按 LOSS 处理（TIE 优先靠 PLAYSTATE 的 case 6 命中）。
+            // 还要警惕：EndGameScreen.s_instance 在上一局结算屏未销毁时残留旧的 Victory/Defeat 类型，
+            // 因此本兜底仅用于绝对找不到 PLAYSTATE 的极端情况。
+            if (!string.IsNullOrWhiteSpace(endScreenClass))
+            {
+                var lower = endScreenClass.ToLowerInvariant();
+                if (lower.Contains("tie") || lower.Contains("draw")) return GameResult.Tie;
+                if (lower.Contains("victory")) return GameResult.Win;
+                if (lower.Contains("defeat")) return GameResult.Loss;
+            }
+
             return GameResult.None;
+        }
+
+        /// <summary>
+        /// 反射读取 GameMgr.Get().LastGameData.GameResult（TAG_PLAYSTATE 枚举），
+        /// 这是游戏自身在 OnGameOver 钩子里写入的友方终态结果。
+        /// 未结算 / 未写入时返回 GameResult.None。
+        /// </summary>
+        private GameResult ResolveResultFromLastGameData()
+        {
+            try
+            {
+                if (_ctx.GameMgrType == null) return GameResult.None;
+
+                var gameMgr = _ctx.CallStaticAny(_ctx.GameMgrType, "Get");
+                if (gameMgr == null) return GameResult.None;
+
+                var lastGameData = _ctx.GetFieldOrPropertyAny(gameMgr, "LastGameData", "m_lastGameData");
+                if (lastGameData == null) return GameResult.None;
+
+                var gameResultObj = _ctx.GetFieldOrPropertyAny(lastGameData, "GameResult", "m_gameResult");
+                if (gameResultObj == null) return GameResult.None;
+
+                // TAG_PLAYSTATE: INVALID=0, PLAYING=1, WINNING=2, LOSING=3,
+                //                WON=4, LOST=5, TIED=6, DISCONNECTED=7, CONCEDED=8
+                return MapFriendlyPlaystateToResult(_ctx.ToInt(gameResultObj));
+            }
+            catch
+            {
+                return GameResult.None;
+            }
         }
 
         private static GameResult MapFriendlyPlaystateToResult(int playstate)
