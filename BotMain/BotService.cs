@@ -64,6 +64,11 @@ namespace BotMain
         private const int PendingHsBoxActionLocalConfirmDelayMs = 80;
         private const int BattlegroundPayloadAdvanceWaitMs = 1000;
         private const int BattlegroundPayloadAdvancePollIntervalMs = 80;
+        // 回合末斩杀检测：等待动画/连锁结算完毕，连续多次签名一致才视为稳定
+        private const int ConcedeLethalStableMaxAttempts = 8;
+        private const int ConcedeLethalStablePollIntervalMs = 120;
+        private const int ConcedeLethalStableMatchRequired = 3;
+        private const int ConcedeLethalStableTotalBudgetMs = 2000;
         private static readonly string[] ChoiceStateTextMembers =
         {
             "TextCN",
@@ -8859,42 +8864,104 @@ namespace BotMain
 
             try
             {
-                var seedResp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
-                if (string.IsNullOrWhiteSpace(seedResp)
-                    || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
+                // 1) 等待场景就绪：动画 / 死亡连锁 / 亡语等结算完毕，输入端就绪后再读棋盘
+                //    超时也继续，避免 ready 误判挡住投降流程
+                var readiness = WaitForGameplayInteraction(pipe, InteractionReadinessScope.ConstructedActionPost);
+                if (!readiness.IsReady)
                 {
-                    Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-unavailable resp={seedResp?.Substring(0, Math.Min(seedResp?.Length ?? 0, 60)) ?? "null"}");
-                    return false;
+                    Log($"[ConcedeWhenLethal] post-ready not-ready detail={readiness.FailureReason ?? readiness.Reason} elapsed={readiness.ElapsedMs}ms (proceed)");
                 }
 
-                Board liveBoard;
-                try
-                {
-                    var liveSeed = SeedCompatibility.GetCompatibleSeed(seedResp.Substring(5), out _);
-                    liveBoard = Board.FromSeed(liveSeed);
-                }
-                catch (Exception seedEx)
-                {
-                    Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-parse-failed error={seedEx.Message}");
-                    return false;
-                }
+                // 2) 连续多次读取 SimBoard，签名一致 N 次才认为稳定
+                Board stableLiveBoard = null;
+                SimBoard stableSimBoard = null;
+                string lastSignature = null;
+                var matchStreak = 0;
+                var attempts = 0;
+                var stable = false;
+                var totalSw = Stopwatch.StartNew();
 
-                var simBoard = SimBoard.FromBoard(liveBoard);
-                var friendHp = simBoard?.FriendHero != null ? simBoard.FriendHero.Health + simBoard.FriendHero.Armor : -1;
-                var enemyMinionCount = simBoard?.EnemyMinions?.Count ?? 0;
-                var enemyAtk = simBoard?.EnemyHero?.Atk ?? 0;
-                var friendSecrets = simBoard?.FriendSecrets?.Count ?? 0;
-
-                if (simBoard?.EnemyMinions != null)
+                for (var i = 1; i <= ConcedeLethalStableMaxAttempts; i++)
                 {
-                    for (int i = 0; i < simBoard.EnemyMinions.Count; i++)
+                    attempts = i;
+
+                    var seedResp = pipe.SendAndReceive("GET_SEED", MainLoopGetSeedTimeoutMs);
+                    if (string.IsNullOrWhiteSpace(seedResp)
+                        || !seedResp.StartsWith("SEED:", StringComparison.Ordinal))
                     {
-                        var m = simBoard.EnemyMinions[i];
+                        Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-unavailable resp={seedResp?.Substring(0, Math.Min(seedResp?.Length ?? 0, 60)) ?? "null"} attempt={i}");
+                        return false;
+                    }
+
+                    Board liveBoard;
+                    SimBoard simBoard;
+                    try
+                    {
+                        var liveSeed = SeedCompatibility.GetCompatibleSeed(seedResp.Substring(5), out _);
+                        liveBoard = Board.FromSeed(liveSeed);
+                        simBoard = SimBoard.FromBoard(liveBoard);
+                    }
+                    catch (Exception seedEx)
+                    {
+                        Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=seed-parse-failed error={seedEx.Message} attempt={i}");
+                        return false;
+                    }
+
+                    stableLiveBoard = liveBoard;
+                    stableSimBoard = simBoard;
+
+                    var signature = ComputeLethalRelevantSignature(simBoard);
+                    if (lastSignature != null && string.Equals(lastSignature, signature, StringComparison.Ordinal))
+                        matchStreak++;
+                    else
+                        matchStreak = 1;
+                    lastSignature = signature;
+
+                    if (matchStreak >= ConcedeLethalStableMatchRequired)
+                    {
+                        stable = true;
+                        break;
+                    }
+
+                    if (totalSw.ElapsedMilliseconds >= ConcedeLethalStableTotalBudgetMs)
+                        break;
+
+                    if (i < ConcedeLethalStableMaxAttempts)
+                    {
+                        if (SleepOrCancelled(ConcedeLethalStablePollIntervalMs))
+                            return false;
+                    }
+                }
+
+                totalSw.Stop();
+
+                if (stableSimBoard == null || stableLiveBoard == null)
+                {
+                    Log($"[ConcedeWhenLethal] reason=blocked:unsupported-state detail=no-stable-board attempts={attempts}");
+                    return false;
+                }
+
+                if (stable)
+                    Log($"[ConcedeWhenLethal] board-stable streak={matchStreak} attempts={attempts} elapsed={totalSw.ElapsedMilliseconds}ms");
+                else
+                    Log($"[ConcedeWhenLethal] board-not-fully-stable streak={matchStreak} attempts={attempts} elapsed={totalSw.ElapsedMilliseconds}ms (proceed-with-latest)");
+
+                // 3) 用稳定后的 board 计算斩杀
+                var friendHp = stableSimBoard.FriendHero != null ? stableSimBoard.FriendHero.Health + stableSimBoard.FriendHero.Armor : -1;
+                var enemyMinionCount = stableSimBoard.EnemyMinions?.Count ?? 0;
+                var enemyAtk = stableSimBoard.EnemyHero?.Atk ?? 0;
+                var friendSecrets = stableSimBoard.FriendSecrets?.Count ?? 0;
+
+                if (stableSimBoard.EnemyMinions != null)
+                {
+                    for (int i = 0; i < stableSimBoard.EnemyMinions.Count; i++)
+                    {
+                        var m = stableSimBoard.EnemyMinions[i];
                         Log($"[ConcedeWhenLethal] enemy[{i}] id={m.CardId} atk={m.Atk} hp={m.Health} wf={m.WindfuryCount} cant={m.CantAttack} dorm={m.IsDormant} taunt={m.IsTaunt} frozen={m.IsFrozen}");
                     }
                 }
 
-                if (!ShouldConcedeWhenEnemyHasLethalNextTurn(liveBoard, out var detail))
+                if (!ShouldConcedeWhenEnemyHasLethalNextTurn(stableLiveBoard, out var detail))
                 {
                     Log($"[ConcedeWhenLethal] {detail} friendHp={friendHp} enemyMinions={enemyMinionCount} enemyHeroAtk={enemyAtk} friendSecrets={friendSecrets}");
                     return false;
@@ -8913,6 +8980,71 @@ namespace BotMain
             {
                 Log($"[ConcedeWhenLethal] check failed: {ex.Message}");
                 return false;
+            }
+        }
+
+        private static string ComputeLethalRelevantSignature(SimBoard board)
+        {
+            if (board == null) return "null";
+            var sb = new StringBuilder(256);
+            AppendHeroSignature(sb, "FH", board.FriendHero);
+            AppendHeroSignature(sb, "EH", board.EnemyHero);
+            AppendWeaponSignature(sb, "FW", board.FriendWeapon);
+            AppendWeaponSignature(sb, "EW", board.EnemyWeapon);
+            AppendMinionsSignature(sb, "FM", board.FriendMinions);
+            AppendMinionsSignature(sb, "EM", board.EnemyMinions);
+            sb.Append("|FS=").Append(board.FriendSecrets?.Count ?? 0);
+            sb.Append("|ES=").Append(board.EnemySecrets?.Count ?? 0);
+            return sb.ToString();
+        }
+
+        private static void AppendHeroSignature(StringBuilder sb, string label, SimEntity hero)
+        {
+            sb.Append('|').Append(label).Append('=');
+            if (hero == null) { sb.Append("0"); return; }
+            sb.Append(hero.Health).Append(',').Append(hero.Armor).Append(',').Append(hero.Atk)
+              .Append(',').Append(hero.CountAttack).Append(',').Append(hero.WindfuryCount)
+              .Append(',').Append(hero.IsImmune ? 1 : 0)
+              .Append(hero.IsFrozen ? 1 : 0)
+              .Append(hero.IsTired ? 1 : 0)
+              .Append(hero.CanAttackHeroes ? 1 : 0);
+        }
+
+        private static void AppendWeaponSignature(StringBuilder sb, string label, SimEntity weapon)
+        {
+            sb.Append('|').Append(label).Append('=');
+            if (weapon == null) { sb.Append("0"); return; }
+            sb.Append(weapon.Atk).Append(',').Append(weapon.Health)
+              .Append(',').Append(weapon.IsWindfury ? 1 : 0);
+        }
+
+        private static void AppendMinionsSignature(StringBuilder sb, string label, IEnumerable<SimEntity> minions)
+        {
+            sb.Append('|').Append(label).Append('=');
+            if (minions == null) { sb.Append("[]"); return; }
+            var sorted = minions.Where(m => m != null)
+                                .OrderBy(m => m.EntityId)
+                                .ThenBy(m => (int)m.CardId)
+                                .ToList();
+            sb.Append('[').Append(sorted.Count).Append(']');
+            foreach (var m in sorted)
+            {
+                sb.Append('(')
+                  .Append((int)m.CardId).Append(',')
+                  .Append(m.Atk).Append(',').Append(m.Health).Append(',')
+                  .Append(m.IsTaunt ? 1 : 0)
+                  .Append(m.IsFrozen ? 1 : 0)
+                  .Append(m.IsDormant ? 1 : 0)
+                  .Append(m.CantAttack ? 1 : 0)
+                  .Append(m.HasCharge ? 1 : 0)
+                  .Append(m.HasRush ? 1 : 0)
+                  .Append(m.IsTired ? 1 : 0)
+                  .Append(m.CanAttackHeroes ? 1 : 0)
+                  .Append(',').Append(m.CountAttack)
+                  .Append(',').Append(m.WindfuryCount)
+                  .Append(',').Append(m.IsImmune ? 1 : 0)
+                  .Append(m.IsStealth ? 1 : 0)
+                  .Append(')');
             }
         }
 
