@@ -212,11 +212,7 @@ $manifestObj = @{
     notes = $notes
 }
 
-# Use .NET serializer for PS 5.1 compatibility
-Add-Type -AssemblyName System.Web.Extensions -ErrorAction SilentlyContinue
-$serializer = New-Object System.Web.Script.Serialization.JavaScriptSerializer
-$serializer.MaxJsonLength = 100MB
-$manifestJson = $serializer.Serialize($manifestObj)
+$manifestJson = $manifestObj | ConvertTo-Json -Depth 10 -Compress
 
 $manifestFile = Join-Path $RepoRoot "publish\manifest.json"
 [System.IO.File]::WriteAllText($manifestFile, $manifestJson, [System.Text.Encoding]::UTF8)
