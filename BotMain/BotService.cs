@@ -5201,7 +5201,7 @@ namespace BotMain
                         Log("[BG] 匹配已取消，重新点击开始");
                         if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, "BG.RematchClickPlay"))
                             playResp = "NO_RESPONSE";
-                        Log($"[BG] 点击开始 -> {playResp}");
+                        Log($"[BG] 鼠标点击开始 -> {playResp}");
                         matchTimeout = DateTime.UtcNow.AddSeconds(_matchmakingTimeoutSeconds);
                     }
                     if (SleepOrCancelled(1000)) return;
@@ -10260,7 +10260,7 @@ namespace BotMain
                 // 已连续确认 UI 就绪，点击开始
                 if (!TrySendStatusCommand(pipe, "CLICK_PLAY", 3000, out playResp, scope))
                     playResp = "NO_RESPONSE";
-                Log($"[BG] 点击开始 -> {playResp}");
+                Log($"[BG] 鼠标点击开始 -> {playResp}");
 
                 if (!string.IsNullOrWhiteSpace(playResp)
                     && playResp.StartsWith("OK:", StringComparison.OrdinalIgnoreCase))

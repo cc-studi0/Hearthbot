@@ -667,8 +667,7 @@ namespace HearthstonePayload
 
         public string ClickPlay()
         {
-            // 1. 在主线程获取按钮坐标和按钮对象引用
-            object capturedBtn = null;
+            // 1. 在主线程获取按钮坐标
             var result = OnMain(() =>
             {
                 if (!Init()) return "ERROR:not_initialized";
@@ -690,19 +689,16 @@ namespace HearthstonePayload
                         }
 
                         var r = GetPlayButtonInfo(dpt, out btn);
-                        capturedBtn = btn;
                         return r;
                     }
                     if (string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
                     {
                         var r = GetPlayButtonInfo(GetBaconDisplay(), out btn);
-                        capturedBtn = btn;
                         return r;
                     }
                     if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
                     {
                         var r = GetPlayButtonInfo(GetDraftDisplay(), out btn);
-                        capturedBtn = btn;
                         return r;
                     }
                     return "ERROR:scene:" + scene;
@@ -746,10 +742,14 @@ namespace HearthstonePayload
                             {
                                 if (!Init()) return null;
                                 var scene = GetSceneInternal();
-                                if (!string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
-                                    return null;
                                 object btn;
-                                return GetPlayButtonInfo(GetDeckPickerTray(), out btn);
+                                if (string.Equals(scene, "TOURNAMENT", StringComparison.OrdinalIgnoreCase))
+                                    return GetPlayButtonInfo(GetDeckPickerTray(), out btn);
+                                if (string.Equals(scene, "BACON", StringComparison.OrdinalIgnoreCase))
+                                    return GetPlayButtonInfo(GetBaconDisplay(), out btn);
+                                if (string.Equals(scene, "DRAFT", StringComparison.OrdinalIgnoreCase))
+                                    return GetPlayButtonInfo(GetDraftDisplay(), out btn);
+                                return null;
                             }) as string;
 
                             if (!string.IsNullOrWhiteSpace(refreshed)
