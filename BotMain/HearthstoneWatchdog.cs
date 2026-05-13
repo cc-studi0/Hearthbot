@@ -31,6 +31,7 @@ namespace BotMain
         // ── 外部回调 ──
         public Func<bool> IsBotRunning { get; set; }
         public Func<bool> IsPipeConnected { get; set; }
+        public Func<bool> IsMatchActive { get; set; }
         public Func<DateTime?> GetLastEffectiveAction { get; set; }
         public Func<DateTime?> GetLastMatchStartUtc { get; set; }
         public Action RequestBotStop { get; set; }
@@ -240,6 +241,7 @@ namespace BotMain
                     }
                     else
                     {
+                        var matchActive = IsMatchActive?.Invoke() == true;
                         var lastAction = GetLastEffectiveAction?.Invoke();
                         if (lastAction.HasValue &&
                             (DateTime.UtcNow - lastAction.Value).TotalSeconds >= GameTimeoutSeconds)
@@ -254,7 +256,7 @@ namespace BotMain
                         var matchBaseline = lastMatch.HasValue && lastMatch.Value > _stateEnteredUtc
                             ? lastMatch.Value
                             : _stateEnteredUtc;
-                        if ((DateTime.UtcNow - matchBaseline).TotalSeconds >= NoNewMatchTimeoutSeconds)
+                        if (!matchActive && (DateTime.UtcNow - matchBaseline).TotalSeconds >= NoNewMatchTimeoutSeconds)
                         {
                             Log?.Invoke($"[Watchdog] {NoNewMatchTimeoutSeconds}s 无新对战，疑似卡死");
                             EnterRecovering("无新对战超时");

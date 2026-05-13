@@ -194,12 +194,14 @@ namespace BotMain
         private int _currentOwnClass;
         private int _currentEnemyClass;
         private DateTime _currentMatchStartUtc;
+        private volatile bool _currentMatchActive;
         private string _rankBeforeMatch = "";
 
         public string CurrentOwnClassName => ToCardClass(_currentOwnClass).ToString();
         public string CurrentEnemyClassName => ToCardClass(_currentEnemyClass).ToString();
         public int CurrentMatchDurationSeconds => _currentMatchStartUtc == default ? 0 : (int)(DateTime.UtcNow - _currentMatchStartUtc).TotalSeconds;
         public DateTime? LastMatchStartUtc => _currentMatchStartUtc == default ? (DateTime?)null : _currentMatchStartUtc;
+        public bool IsCurrentMatchActive => _currentMatchActive;
 
         // 运行限制设置
         private int _maxWins;
@@ -705,6 +707,7 @@ namespace BotMain
             State = BotState.Running;
             _terminalStatusOverride = null;
             _running = true;
+            EndCurrentMatch();
             TouchEffectiveAction();
             _choiceDedup.Clear();
             _finishAfterGame = false;
@@ -727,6 +730,7 @@ namespace BotMain
             _running = false;
             _finishAfterGame = false;
             _restartPending = false;
+            EndCurrentMatch();
             ClearPendingConcedeLoss();
             ResetAlternateConcedeState();
             _currentMatchResultHandled = false;
@@ -741,6 +745,17 @@ namespace BotMain
         private void TouchEffectiveAction()
         {
             _lastEffectiveActionUtc = DateTime.UtcNow;
+        }
+
+        private void BeginCurrentMatch(DateTime? startedAtUtc = null)
+        {
+            _currentMatchActive = true;
+            _currentMatchStartUtc = (startedAtUtc ?? DateTime.UtcNow).ToUniversalTime();
+        }
+
+        private void EndCurrentMatch()
+        {
+            _currentMatchActive = false;
         }
 
         public void FinishAfterGame()
@@ -4415,6 +4430,7 @@ namespace BotMain
             }
 
             // 对局结束清理
+            EndCurrentMatch();
             ResetHsBoxActionRecommendationTracking();
             _choiceDedup.Clear();
             HsBoxCallbackCapture.EndMatchSession();
@@ -5164,6 +5180,7 @@ namespace BotMain
                         if (string.Equals(matchmakingStage, "entered_game", StringComparison.Ordinal))
                         {
                             Log("[BG] 匹配成功，进入游戏");
+                            BeginCurrentMatch();
                             enteredBgGame = true;
                             break;
                         }
@@ -5217,6 +5234,8 @@ namespace BotMain
             else
             {
                 Log("[BG] 已在游戏中，继续执行");
+                if (BotProtocol.TryParseBgState(initialBgResp, out _))
+                    BeginCurrentMatch();
             }
 
             var lastPhase = "";
@@ -5313,6 +5332,8 @@ namespace BotMain
                     if (SleepOrCancelled(500)) return;
                     continue;
                 }
+                if (!_currentMatchActive)
+                    BeginCurrentMatch();
 
                 var shopCount = CountBattlegroundStateEntries(stateData, "SHOP=");
                 var handCount = CountBattlegroundStateEntries(stateData, "HAND=");
@@ -5782,6 +5803,7 @@ namespace BotMain
                 if (SleepOrCancelled(50)) return;
             }
 
+            EndCurrentMatch();
             Log("[BG] 战旗模式结束");
         }
 
@@ -6887,7 +6909,8 @@ namespace BotMain
             _lastHumanizedTurnNumber = -1;
             _matchEntityProvenanceRegistry.Reset();
             _currentDeckContext = ResolveDeckContext(null);
-            HsBoxCallbackCapture.BeginMatchSession(DateTime.UtcNow);
+            BeginCurrentMatch();
+            HsBoxCallbackCapture.BeginMatchSession(_currentMatchStartUtc);
             _botApiHandler?.SetCurrentScene(Bot.Scene.GAMEPLAY);
             if (_alternateConcedeState.CurrentMatchConcedeAfterMulliganArmed)
                 Log("[AutoConcedeAlt] 本局已接管为留牌后投降。");
@@ -10568,6 +10591,7 @@ namespace BotMain
             if (wasInGame)
             {
                 wasInGame = false;
+                EndCurrentMatch();
                 lastTurnNumber = -1;
                 currentTurnStartedUtc = DateTime.MinValue;
                 _consecutiveIdleTurns = 0;
@@ -10876,7 +10900,7 @@ namespace BotMain
                 _currentDeckContext = ResolveDeckContext(null) ?? _currentDeckContext;
                 _currentOwnClass = snapshot.OwnClass;
                 _currentEnemyClass = snapshot.EnemyClass;
-                _currentMatchStartUtc = DateTime.UtcNow;
+                BeginCurrentMatch();
                 _rankBeforeMatch = CurrentRankText;
                 var recommendation = RecommendMulliganWithLearning(
                     new MulliganRecommendationRequest(

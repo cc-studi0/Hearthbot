@@ -1049,6 +1049,7 @@ namespace BotMain
                 {
                     IsBotRunning = () => _bot.State == BotState.Running || _bot.State == BotState.Finishing,
                     IsPipeConnected = () => _bot.IsPipeConnected,
+                    IsMatchActive = () => _bot.IsCurrentMatchActive,
                     GetLastEffectiveAction = () => _bot.LastEffectiveActionUtc,
                     GetLastMatchStartUtc = () => _bot.LastMatchStartUtc,
                     RequestBotStop = () => _bot.Stop(),
