@@ -26,6 +26,7 @@ namespace BotMain
         public int NoNewMatchTimeoutSeconds { get; set; } = 1800;
         public int MaxConsecutiveFailures { get; set; } = 5;
         public int RecoveryCooldownSeconds { get; set; } = 5;
+        public int LaunchRetryDelaySeconds { get; set; } = 15;
         public int BattleNetRestartThreshold { get; set; } = 3;
 
         // ── 外部回调 ──
@@ -49,6 +50,7 @@ namespace BotMain
         private WatchdogState _state = WatchdogState.Disabled;
         private DateTime _stateEnteredUtc;
         private DateTime? _notRespondingSinceUtc;
+        private DateTime _nextLaunchAttemptUtc = DateTime.MinValue;
         private int _consecutiveFailures;
         private bool _wasRunningBeforeRecovery;
 
@@ -59,6 +61,7 @@ namespace BotMain
             if (_active) return;
             _active = true;
             _consecutiveFailures = 0;
+            _nextLaunchAttemptUtc = DateTime.MinValue;
             TransitionTo(WatchdogState.NotRunning);
 
             _thread = new Thread(TickLoop)
@@ -164,12 +167,18 @@ namespace BotMain
                 case WatchdogState.NotRunning:
                     if (hearthstoneAlive)
                     {
+                        _nextLaunchAttemptUtc = DateTime.MinValue;
                         TransitionTo(WatchdogState.WaitingPayload);
                     }
-                    else if (IsBotRunning?.Invoke() == true)
+                    else if (ShouldAutoLaunchHearthstone())
                     {
-                        // Bot 已启动但炉石不在，自动拉起游戏
-                        Log?.Invoke("[Watchdog] Bot 已启动但炉石未运行，自动启动炉石...");
+                        if (DateTime.UtcNow < _nextLaunchAttemptUtc)
+                            break;
+
+                        _nextLaunchAttemptUtc = DateTime.UtcNow.AddSeconds(LaunchRetryDelaySeconds);
+                        Log?.Invoke(_wasRunningBeforeRecovery
+                            ? "[Watchdog] 恢复流程中炉石未运行，继续自动启动炉石..."
+                            : "[Watchdog] Bot 已启动但炉石未运行，自动启动炉石...");
                         var cts = new CancellationTokenSource(TimeSpan.FromSeconds(LaunchTimeoutSeconds));
                         try
                         {
@@ -178,16 +187,17 @@ namespace BotMain
                             if (result.Success)
                             {
                                 Log?.Invoke("[Watchdog] 炉石启动成功");
+                                _nextLaunchAttemptUtc = DateTime.MinValue;
                                 TransitionTo(WatchdogState.WaitingPayload);
                             }
                             else
                             {
-                                Log?.Invoke($"[Watchdog] 炉石启动失败: {result.Message}");
+                                Log?.Invoke($"[Watchdog] 炉石启动失败: {result.Message}，{LaunchRetryDelaySeconds}s 后重试");
                             }
                         }
                         catch (Exception ex)
                         {
-                            Log?.Invoke($"[Watchdog] 启动异常: {ex.Message}");
+                            Log?.Invoke($"[Watchdog] 启动异常: {ex.Message}，{LaunchRetryDelaySeconds}s 后重试");
                         }
                         finally
                         {
@@ -338,17 +348,20 @@ namespace BotMain
                 if (result.Success)
                 {
                     Log?.Invoke("[Watchdog] 炉石启动成功");
+                    _nextLaunchAttemptUtc = DateTime.MinValue;
                     TransitionTo(WatchdogState.WaitingPayload);
                 }
                 else
                 {
-                    Log?.Invoke($"[Watchdog] 炉石启动失败: {result.Message}");
+                    _nextLaunchAttemptUtc = DateTime.UtcNow.AddSeconds(LaunchRetryDelaySeconds);
+                    Log?.Invoke($"[Watchdog] 炉石启动失败: {result.Message}，{LaunchRetryDelaySeconds}s 后继续重试");
                     TransitionTo(WatchdogState.NotRunning);
                 }
             }
             catch (Exception ex)
             {
-                Log?.Invoke($"[Watchdog] 启动异常: {ex.Message}");
+                _nextLaunchAttemptUtc = DateTime.UtcNow.AddSeconds(LaunchRetryDelaySeconds);
+                Log?.Invoke($"[Watchdog] 启动异常: {ex.Message}，{LaunchRetryDelaySeconds}s 后继续重试");
                 TransitionTo(WatchdogState.NotRunning);
             }
             finally
@@ -366,6 +379,11 @@ namespace BotMain
             _state = newState;
             _stateEnteredUtc = DateTime.UtcNow;
             try { StateChanged?.Invoke(newState); } catch { }
+        }
+
+        private bool ShouldAutoLaunchHearthstone()
+        {
+            return IsBotRunning?.Invoke() == true || _wasRunningBeforeRecovery;
         }
 
         private static bool IsHearthstoneAlive()

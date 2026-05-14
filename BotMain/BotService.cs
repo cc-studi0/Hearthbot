@@ -1688,18 +1688,19 @@ namespace BotMain
                 if (!EnsurePreparedAndConnected())
                 {
                     // 首次连接失败：炉石可能未运行，尝试通过战网协议启动
-                    var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
+                    var hearthstoneAlive = IsHearthstoneProcessAlive();
                     if (!hearthstoneAlive)
                     {
                         Log("[Restart] 炉石未运行，尝试启动...");
                         var launchResult = LaunchFromBoundBattleNet("首次启动");
                         if (!launchResult.Success)
                         {
-                            FailRestartAndStop(launchResult.Message);
-                            return;
+                            ReportRestartFailureAndRetry(launchResult.Message);
                         }
-
-                        Log($"[Restart] 炉石已启动 PID={launchResult.HearthstoneProcessId}，等待 Payload 连接...");
+                        else
+                        {
+                            Log($"[Restart] 炉石已启动 PID={launchResult.HearthstoneProcessId}，等待 Payload 连接...");
+                        }
                     }
 
                     // 启动后等待 Payload 连接（BepInEx 注入需要时间）
@@ -11500,28 +11501,31 @@ namespace BotMain
             _prepared = false;
             _decksLoaded = false;
 
-            var hearthstoneAlive = System.Diagnostics.Process.GetProcessesByName("Hearthstone").Length > 0;
-            if (!hearthstoneAlive)
-            {
-                var launchResult = LaunchFromBoundBattleNet(reason);
-                if (!launchResult.Success)
-                {
-                    FailRestartAndStop(launchResult.Message);
-                    return false;
-                }
-
-                Log($"[Restart] {reason}: 已通过战网实例 PID={launchResult.BattleNetProcessId} 启动炉石，等待连接...");
-            }
-            else
-            {
-                Log($"[Restart] {reason}: 炉石进程仍在，等待重新连接...");
-            }
-
             StatusChanged("Reconnecting");
             var attempt = 0;
             while (_running)
             {
                 attempt++;
+                var hearthstoneAlive = IsHearthstoneProcessAlive();
+                if (!hearthstoneAlive)
+                {
+                    Log($"[Restart] {reason}: 炉石进程不存在，尝试启动（第 {attempt} 轮）...");
+                    var launchResult = LaunchFromBoundBattleNet(reason);
+                    if (!launchResult.Success)
+                    {
+                        ReportRestartFailureAndRetry(launchResult.Message);
+                        if (SleepOrCancelled(15000))
+                            return false;
+                        continue;
+                    }
+
+                    Log($"[Restart] {reason}: 已通过战网实例 PID={launchResult.BattleNetProcessId} 启动炉石，等待连接...");
+                }
+                else if (attempt == 1)
+                {
+                    Log($"[Restart] {reason}: 炉石进程仍在，等待重新连接...");
+                }
+
                 Log($"[Restart] 重连尝试 {attempt}...");
                 if (EnsurePreparedAndConnected())
                 {
@@ -11576,7 +11580,7 @@ namespace BotMain
             var launchResult = LaunchFromBoundBattleNet("匹配超时重启");
             if (!launchResult.Success)
             {
-                FailRestartAndStop(launchResult.Message);
+                ReportRestartFailureAndRetry(launchResult.Message);
                 return;
             }
 
@@ -11600,6 +11604,24 @@ namespace BotMain
             StatusChanged(status);
             try { OnRestartFailed?.Invoke(reason); } catch { }
             Stop();
+        }
+
+        private void ReportRestartFailureAndRetry(string reason)
+        {
+            var status = $"自动重启失败，继续重试：{reason}";
+            Log($"[Restart] {status}");
+            StatusChanged(status);
+        }
+
+        private static bool IsHearthstoneProcessAlive()
+        {
+            var procs = Process.GetProcessesByName("Hearthstone");
+            try { return procs.Length > 0; }
+            finally
+            {
+                foreach (var proc in procs)
+                    proc.Dispose();
+            }
         }
 
         private static string ResolveStopStatus(bool prepared, string terminalStatusOverride)
@@ -12137,7 +12159,11 @@ namespace BotMain
             var shortLine = line.Length > 80 ? line.Substring(0, 80) : line;
             Log($"[PipeServer] drained stale #{count}: {shortLine}");
         }
-        private void StatusChanged(string s) => OnStatusChanged?.Invoke(s);
+        private void StatusChanged(string s)
+        {
+            PersistentLog.Append($"[Status] {s}");
+            OnStatusChanged?.Invoke(s);
+        }
 
         /// <summary>
         /// 通过反射触发 Debug 类的静态事件

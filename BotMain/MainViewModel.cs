@@ -1385,6 +1385,7 @@ namespace BotMain
         private void EnqueueLog(string message)
         {
             if (string.IsNullOrWhiteSpace(message)) return;
+            PersistentLog.Append(message);
             if (message.Length > MaxSingleLogLength)
                 message = message.Substring(0, MaxSingleLogLength) + "...";
 
