@@ -60,6 +60,7 @@
     <Compile Include="..\BotMain\NetworkMonitor.cs" Link="NetworkMonitor.cs" />
     <Compile Include="..\BotMain\PipeServer.cs" Link="PipeServer.cs" />
     <Compile Include="..\BotMain\PluginSystem.cs" Link="PluginSystem.cs" />
+    <Compile Include="..\BotMain\PersistentLog.cs" Link="PersistentLog.cs" />
     <Compile Include="..\BotMain\ProfileLoader.cs" Link="ProfileLoader.cs" />
     <Compile Include="..\BotMain\RankHelper.cs" Link="RankHelper.cs" />
     <Compile Include="..\BotMain\PassParser.cs" Link="PassParser.cs" />
