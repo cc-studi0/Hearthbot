@@ -1648,6 +1648,83 @@ namespace BotCore.Tests
         }
 
         [Fact]
+        public void RecommendActions_MapsTitanPowerToBoardMinion_WhenHandHasSamePosition()
+        {
+            var board = new Board
+            {
+                Hand = new List<Card>
+                {
+                    CreateCard(50, Card.Cards.EX1_164, "滋养", "Nourish"),
+                    CreateCard(51, Card.Cards.AT_037, "活体根须", "Living Roots")
+                },
+                MinionFriend = new List<Card>
+                {
+                    CreateCard(68, Card.Cards.CORE_CS2_231, "小精灵", "Wisp"),
+                    CreateCard(69, Card.Cards.TTN_960, "灭世泰坦萨格拉斯", "Sargeras, the Destroyer")
+                }
+            };
+
+            var step = new HsBoxActionStep
+            {
+                ActionName = "titan_power",
+                CardToken = JToken.FromObject(new
+                {
+                    cardId = "TTN_960",
+                    cardName = "灭世泰坦萨格拉斯",
+                    position = 2
+                }),
+                SubOption = new HsBoxCardRef
+                {
+                    CardId = "TTN_960t2",
+                    CardName = "打入虚空！"
+                }
+            };
+
+            var state = new HsBoxRecommendationState
+            {
+                Ok = true,
+                Count = 40,
+                UpdatedAtMs = 560,
+                Raw = "titan-power-board-source",
+                Href = "https://hs-web-embed.lushi.163.com/client-jipaiqi/ladder-opp",
+                BodyText = "推荐打法 操作2号位卡牌 灭世泰坦萨格拉斯 选择卡牌 打入虚空！",
+                Reason = "ready",
+                Envelope = new HsBoxRecommendationEnvelope
+                {
+                    Data = new List<HsBoxActionStep> { step }
+                }
+            };
+
+            var provider = new HsBoxGameRecommendationProvider(new FakeBridge(state), actionWaitTimeoutMs: 20, actionPollIntervalMs: 1);
+
+            var result = provider.RecommendActions(new ActionRecommendationRequest(
+                "seed",
+                board,
+                null,
+                null,
+                friendlyEntities: new[]
+                {
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 51,
+                        CardId = "AT_037",
+                        Zone = "HAND",
+                        ZonePosition = 2
+                    },
+                    new EntityContextSnapshot
+                    {
+                        EntityId = 69,
+                        CardId = "TTN_960",
+                        Zone = "PLAY",
+                        ZonePosition = 2
+                    }
+                }));
+
+            Assert.False(result.ShouldRetryWithoutAction);
+            Assert.Equal(new[] { "OPTION|69|0|0|TTN_960t2" }, result.Actions);
+        }
+
+        [Fact]
         public void RecommendActions_MergesBodyTargetHintIntoStructuredPlayOptionPair()
         {
             var board = new Board

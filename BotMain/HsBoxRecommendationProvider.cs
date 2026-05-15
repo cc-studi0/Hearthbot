@@ -5976,16 +5976,20 @@ namespace BotMain
             out string reason)
         {
             command = null;
-            var source = ResolveFlexibleFriendlyEntityId(board, friendlyEntities, step.GetPrimaryCard());
+            var sourceCard = step.GetPrimaryCard();
+            var subOptionCardId = step.SubOption?.CardId;
+            var preferBoardSource = ShouldPreferBoardOptionSource(step, sourceCard, subOptionCardId);
+            var source = preferBoardSource
+                ? ResolveBoardFirstOptionSourceEntityId(board, friendlyEntities, sourceCard)
+                : ResolveFlexibleFriendlyEntityId(board, friendlyEntities, sourceCard);
             if (source <= 0)
             {
-                reason = "option_source_not_found";
+                reason = preferBoardSource ? "option_board_source_not_found" : "option_source_not_found";
                 return false;
             }
 
             var target = ResolveTargetEntityId(board, step);
             var position = step.Position > 0 ? step.Position : 0;
-            var subOptionCardId = step.SubOption?.CardId;
             command = string.IsNullOrWhiteSpace(subOptionCardId)
                 ? $"OPTION|{source}|{target}|{position}"
                 : $"OPTION|{source}|{target}|{position}|{subOptionCardId}";
@@ -6473,6 +6477,52 @@ namespace BotMain
             var fromHand = ResolveFriendlyHandEntityId(board, friendlyEntities, card);
             if (fromHand > 0)
                 return fromHand;
+
+            var fromBoard = ResolveFriendlyBoardEntityId(board, friendlyEntities, card);
+            if (fromBoard > 0)
+                return fromBoard;
+
+            if (MatchesCardId(board?.Ability, card.CardId))
+                return board.Ability.Id;
+            if (MatchesCardId(board?.HeroFriend, card.CardId))
+                return board.HeroFriend.Id;
+            if (MatchesCardId(board?.WeaponFriend, card.CardId))
+                return board.WeaponFriend.Id;
+
+            if (friendlyEntities != null)
+            {
+                var heroPower = ResolveFriendlyEntityIdByZonePosition(friendlyEntities, "PLAY", 0, card.CardId);
+                if (heroPower > 0)
+                    return heroPower;
+            }
+
+            return 0;
+        }
+
+        private static bool ShouldPreferBoardOptionSource(
+            HsBoxActionStep step,
+            HsBoxCardRef sourceCard,
+            string subOptionCardId)
+        {
+            var actionName = (step?.ActionName ?? string.Empty).Trim().ToLowerInvariant();
+            if (actionName == "titan_power"
+                || actionName == "launch_starship"
+                || actionName == "common_action")
+            {
+                return true;
+            }
+
+            return !string.IsNullOrWhiteSpace(subOptionCardId)
+                && !string.Equals(sourceCard?.ZoneName, "hand", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static int ResolveBoardFirstOptionSourceEntityId(
+            Board board,
+            IReadOnlyList<EntityContextSnapshot> friendlyEntities,
+            HsBoxCardRef card)
+        {
+            if (card == null)
+                return 0;
 
             var fromBoard = ResolveFriendlyBoardEntityId(board, friendlyEntities, card);
             if (fromBoard > 0)
